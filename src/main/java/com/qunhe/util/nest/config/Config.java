@@ -1,9 +1,4 @@
-package com.qunhe.util.nest.util;
-
-import com.qunhe.util.nest.contest.ContestData;
-import com.qunhe.util.nest.data.NestPath;
-
-import java.util.List;
+package com.qunhe.util.nest.config;
 
 /**
  * @author yisa
@@ -24,15 +19,9 @@ public class Config {
     public static double BOUND_SPACING;
     public static boolean ASSUME_NO_INNER_PARTS;
     public static boolean ASSUME_ALL_PARTS_PLACABLE;
-    public static List<ContestData> INPUT;
-    public static List<NestPath> INPUT_POLY;
     public static int LIMIT=0;
-    public static String INPUT_FILE;
-    public static String OUTPUT_FILE;
-    public static String OUTPUT_DIR;
+    public static String OUTPUT_DIR ="output/";
     public static String NFP_CACHE_PATH;
-
-
 
 
     public Config() {
