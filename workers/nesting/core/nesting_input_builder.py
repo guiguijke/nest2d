@@ -21,7 +21,7 @@ def build_item(id, demand, points):
     return {
         'id': id,
         'demand': demand,
-        'allowed_orientations': [0.0, 90.0, 180.0, 270.0],
+        'allowed_orientations': list(np.arange(0, 360, 45)),
         'shape': {
             'type': 'simple_polygon',
             'data': points

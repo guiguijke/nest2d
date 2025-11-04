@@ -41,7 +41,7 @@ class ClosedPolygon:
             for idx in range(1, len(coords)):
                 point = coords[idx]
                 last = reduced[len(reduced) - 1]
-                if abs(point[0] - last[0]) > 0.01 or abs(point[1] - last[1]) > 0.01:
+                if abs(point[0] - last[0]) > 0.001 or abs(point[1] - last[1]) > 0.001:  # Changé : seuil réduit de 0.01 à 0.001 pour garder plus de points
                     reduced.append(point)
                     
             exterior_coords = reduced
@@ -57,10 +57,12 @@ def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], 
     result = []
     logger.info("Merging polygons started", extra={"len": len(dxf_entities)})
     for dxf_entity in dxf_entities:
-        shapelly_geom = dxf_entity.geometry.convex_hull.buffer(tolerance)
+        shapelly_geom = dxf_entity.geometry.buffer(tolerance * 0.1)  # Changé : tolerance réduit (x0.1 pour plus précis ; ajuste à *0.05 si besoin)
         area = shapelly_geom.area
         if area > 1e-10:
-            result.append(ClosedPolygon(geometry=make_valid(shapelly_geom), handles=[dxf_entity.handle]))
+            # Changé : Ajoute simplify fin pour lisser sans perte majeure, au lieu de convex_hull qui simplifie trop
+            precise_geom = make_valid(shapelly_geom.simplify(0.005, preserve_topology=True))  # Tolérance simplify réduite à 0.005
+            result.append(ClosedPolygon(geometry=precise_geom, handles=[dxf_entity.handle]))
             
     logger.info("Merging polygons after filter by area", extra={"len": len(result)})
         
@@ -73,7 +75,7 @@ def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], 
             isFound = False
             for j in range(i + 1, len(result)):
                 if result[i].geometry.intersects(result[j].geometry):
-                    result[i].geometry = result[i].geometry.union(result[j].geometry).convex_hull
+                    result[i].geometry = result[i].geometry.union(result[j].geometry)  # Enlevé convex_hull pour garder détails non-convexes
                     result[i].handles.extend(result[j].handles)
                     to_remove.append(j)
                     isFound = True
@@ -97,7 +99,7 @@ def build_geometry(drawing: Drawing, tolerance: float) -> List[ClosedPolygon]:
     dxf_geometries: List[DxfEntityGeometry] = []
     for entity in msp:
         try:
-            dxf_geometry: DxfEntityGeometry = convert_entity_to_shapely(entity, tolerance)
+            dxf_geometry: DxfEntityGeometry = convert_entity_to_shapely(entity, tolerance * 0.1)  # Changé : passe tolerance réduit à convert
             if dxf_geometry is not None:
                 dxf_geometries.append(dxf_geometry)
         except Exception as e:
