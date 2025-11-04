@@ -9,7 +9,7 @@ from ezdxf.document import Drawing
 from shapely.geometry import Polygon
 from shapely.validation import make_valid
 from shapely.ops import unary_union
-from shapely import concave_hull
+
 from utils.logger import setup_logger
 
 logger = setup_logger("build_geometry")
@@ -41,7 +41,7 @@ class ClosedPolygon:
             for idx in range(1, len(coords)):
                 point = coords[idx]
                 last = reduced[len(reduced) - 1]
-                if abs(point[0] - last[0]) > 0.001 or abs(point[1] - last[1]) > 0.001:
+                if abs(point[0] - last[0]) > 0.01 or abs(point[1] - last[1]) > 0.01:
                     reduced.append(point)
                     
             exterior_coords = reduced
@@ -57,7 +57,7 @@ def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], 
     result = []
     logger.info("Merging polygons started", extra={"len": len(dxf_entities)})
     for dxf_entity in dxf_entities:
-        shapelly_geom = concave_hull(dxf_entity.geometry, ratio=0.2, allow_holes=False)  # Replace convex_hull.buffer with concave_hull; ratio=0.2 for tight fit (adjust 0.1-0.3), no holes for continuous outline
+        shapelly_geom = dxf_entity.geometry.convex_hull.buffer(tolerance)
         area = shapelly_geom.area
         if area > 1e-10:
             result.append(ClosedPolygon(geometry=make_valid(shapelly_geom), handles=[dxf_entity.handle]))
@@ -73,8 +73,7 @@ def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], 
             isFound = False
             for j in range(i + 1, len(result)):
                 if result[i].geometry.intersects(result[j].geometry):
-                    merged_geom = unary_union([result[i].geometry, result[j].geometry])  # Use unary_union to merge into continuous form
-                    result[i].geometry = concave_hull(merged_geom, ratio=0.2, allow_holes=False)  # Apply concave_hull to the union for tight, continuous outline
+                    result[i].geometry = result[i].geometry.union(result[j].geometry).convex_hull
                     result[i].handles.extend(result[j].handles)
                     to_remove.append(j)
                     isFound = True
