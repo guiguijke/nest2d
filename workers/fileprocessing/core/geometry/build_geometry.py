@@ -56,36 +56,47 @@ class ClosedPolygon:
 def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], tolerance: float) -> List[ClosedPolygon]:
     result = []
     logger.info("Merging polygons started", extra={"len": len(dxf_entities)})
+
+    # 1. On regroupe TOUTES les géométries en une seule avant tout hull
+    all_geoms = []
+    all_handles = []
     for dxf_entity in dxf_entities:
-        shapelly_geom = concave_hull(dxf_entity.geometry, ratio=0.0, allow_holes=False).buffer(tolerance)
-        area = shapelly_geom.area
-        if area > 1e-10:
-            result.append(ClosedPolygon(geometry=make_valid(shapelly_geom), handles=[dxf_entity.handle]))
-    logger.info("Shapely geom after concave_hull", extra={"coords": list(shapelly_geom.exterior.coords), "area": shapelly_geom.area})
-            
-    logger.info("Merging polygons after filter by area", extra={"len": len(result)})
-        
-    while True:
-        logger.info("Merging polygons", extra={"len": len(result)})
-        result.sort(key=lambda cp: cp.geometry.area, reverse=True)
-        old_size = len(result)
-        for i in range(len(result)):
-            to_remove = []
-            isFound = False
-            for j in range(i + 1, len(result)):
-                if result[i].geometry.intersects(result[j].geometry):
-                    union_geom = result[i].geometry.union(result[j].geometry)
-                    result[i].geometry = concave_hull(union_geom, ratio=0.0)
-                    result[i].handles.extend(result[j].handles)
-                    to_remove.append(j)
-                    isFound = True
-            if isFound:
-                for j in sorted(to_remove, reverse=True):
-                    result.pop(j)
-                break
-                
-        if old_size == len(result):
-            break
+        if dxf_entity.geometry.is_empty or not dxf_entity.geometry.is_valid:
+            continue
+        all_geoms.append(dxf_entity.geometry)
+        all_handles.append(dxf_entity.handle)
+
+    if not all_geoms:
+        return []
+
+    # 2. Union globale + make_valid + un seul concave_hull OPTIMISÉ
+    union_geom = unary_union(all_geoms)
+    union_geom = make_valid(union_geom)
+
+    if union_geom.is_empty:
+        return []
+
+    # Ratio entre 0.03 et 0.08 pour une croix occitane : capture les concavités sans explosion
+    hull = concave_hull(union_geom, ratio=0.05, allow_holes=False)
+    hull = make_valid(hull)
+
+    # 3. Buffer léger UNIQUEMENT à la fin (pas sur chaque entité !)
+    final_geom = hull.buffer(tolerance * 0.5)  # Réduit le gonflement
+
+    if final_geom.area < 1e-8:
+        return []
+
+    # 4. Un seul polygon fermé
+    closed_poly = ClosedPolygon(
+        geometry=final_geom,
+        handles=all_handles
+    )
+    result.append(closed_poly)
+
+    logger.info("Merged into ONE polygon", extra={
+        "area": final_geom.area,
+        "vertices": len(list(final_geom.exterior.coords))
+    })
     return result
 
 
