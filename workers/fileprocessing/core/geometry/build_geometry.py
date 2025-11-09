@@ -57,7 +57,8 @@ def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], 
     result = []
     logger.info("Merging polygons started", extra={"len": len(dxf_entities)})
     for dxf_entity in dxf_entities:
-        shapelly_geom = concave_hull(dxf_entity.geometry, ratio=0.1).buffer(tolerance)
+        shapelly_geom = concave_hull(dxf_entity.geometry, ratio=0.0, allow_holes=False).buffer(tolerance)
+        logger.info("Shapely geom after concave_hull", extra={"coords": list(shapelly_geom.exterior.coords), "area": shapelly_geom.area})
         area = shapelly_geom.area
         if area > 1e-10:
             result.append(ClosedPolygon(geometry=make_valid(shapelly_geom), handles=[dxf_entity.handle]))
@@ -74,8 +75,9 @@ def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], 
             for j in range(i + 1, len(result)):
                 if result[i].geometry.intersects(result[j].geometry):
                     union_geom = result[i].geometry.union(result[j].geometry)
-                    result[i].geometry = concave_hull(union_geom, ratio=0.1)
+                    result[i].geometry = concave_hull(union_geom, ratio=0.0)
                     result[i].handles.extend(result[j].handles)
+                    logger.info("Merged geom after concave_hull", extra={"coords": list(result[i].geometry.exterior.coords), "area": result[i].geometry.area})
                     to_remove.append(j)
                     isFound = True
             if isFound:
@@ -107,5 +109,6 @@ def build_geometry(drawing: Drawing, tolerance: float) -> List[ClosedPolygon]:
 
     closed_polygons = merge_dxf_entities_into_polygons(dxf_geometries, tolerance)
     logger.info("Computed closed polygons", extra={"len": len(closed_polygons)})
-    
+    for idx, cp in enumerate(closed_polygons):
+        logger.info(f"Final closed polygon {idx}", extra={"coords": list(cp.geometry.exterior.coords), "area": cp.geometry.area})
     return closed_polygons    
