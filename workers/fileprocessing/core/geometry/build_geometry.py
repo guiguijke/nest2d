@@ -9,7 +9,7 @@ from ezdxf.document import Drawing
 from shapely.geometry import Polygon
 from shapely.validation import make_valid
 from shapely.ops import unary_union
-
+from shapely import concave_hull
 from utils.logger import setup_logger
 
 logger = setup_logger("build_geometry")
@@ -57,7 +57,7 @@ def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], 
     result = []
     logger.info("Merging polygons started", extra={"len": len(dxf_entities)})
     for dxf_entity in dxf_entities:
-        shapelly_geom = dxf_entity.geometry.concave_hull.buffer(tolerance)
+        shapelly_geom = concave_hull(dxf_entity.geometry, ratio=0.1).buffer(tolerance)
         area = shapelly_geom.area
         if area > 1e-10:
             result.append(ClosedPolygon(geometry=make_valid(shapelly_geom), handles=[dxf_entity.handle]))
@@ -73,7 +73,8 @@ def merge_dxf_entities_into_polygons(dxf_entities: Iterable[DxfEntityGeometry], 
             isFound = False
             for j in range(i + 1, len(result)):
                 if result[i].geometry.intersects(result[j].geometry):
-                    result[i].geometry = result[i].geometry.union(result[j].geometry).concave_hull
+                    union_geom = result[i].geometry.union(result[j].geometry)
+                    result[i].geometry = concave_hull(union_geom, ratio=0.1)
                     result[i].handles.extend(result[j].handles)
                     to_remove.append(j)
                     isFound = True
