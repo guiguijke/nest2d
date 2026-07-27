@@ -250,3 +250,18 @@ Other inspirations:
 - [López-Camacho _et al._ 2013](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)
 - [Kendall 2000](http://www.graham-kendall.com/papers/k2001.pdf)
 - [E.K. Burke _et al._ 2006](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.440.379&rep=rep1&type=pdf)
+
+---
+
+## Brand & fonts license note
+
+The visual identity follows the APlasma brand guide (`CHARTE GRAPHIQUE AP.pdf`):
+anthracite `#354046` / rust `#ab6715` on beige `#F5F0EB`, white/rust variants on
+dark `#232C30`. Display typeface is **Helios Stencil** (titles, logo) with
+**Montserrat** for body text.
+
+⚠️ The bundled `public/fonts/HeliosStencil/heliosstencil-bold.otf` is a
+**Fontspring DEMO** file: it is licensed for evaluation/mockups only, **not for
+production use**. Before going live, buy the Helios Stencil webfont license
+(Fontspring) or replace it with a licensed alternative. Montserrat is OFL and
+safe to ship.

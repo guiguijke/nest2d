@@ -1,6 +1,7 @@
 <template>
     <div class="main">
         <section class="main__hero hero">
+            <img :src="watermarkSrc" alt="" aria-hidden="true" class="hero__watermark" />
             <div class="hero__content">
                 <span class="hero__badge">{{ hero.badge }}</span>
                 <h1 class="hero__title">
@@ -323,6 +324,10 @@ const theme = computed(() => {
     return unref(themeGlobal)
 })
 const heroScreenshot = computed(() => `/screenshots/second-${unref(theme)}.png`)
+// Brand watermark ("forme découpée APLASMA", charte §5 — filigrane fond de page)
+const watermarkSrc = computed(() => unref(theme) === 'primary'
+    ? '/brand/forme-blanc.png'
+    : '/brand/forme-rouille.png')
 const openModal = (screenshot) => {
     setModalScreenshotData(screenshot)
     screenshotDialog.value = true
@@ -381,11 +386,13 @@ section {
 
 // ---------- Hero ----------
 .hero {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 40px;
     text-align: center;
+    overflow: hidden;
 
     @media (min-width: 1199px) {
         flex-direction: row;
@@ -393,7 +400,25 @@ section {
         gap: 64px;
     }
 
+    &__watermark {
+        position: absolute;
+        top: 50%;
+        right: -120px;
+        width: 520px;
+        height: 520px;
+        transform: translateY(-50%);
+        opacity: 0.08;
+        pointer-events: none;
+        object-fit: contain;
+
+        @media (max-width: 1199px) {
+            right: -200px;
+        }
+    }
+
     &__content {
+        position: relative;
+        z-index: 1;
         flex: 1;
         display: flex;
         flex-direction: column;
@@ -456,6 +481,8 @@ section {
     }
 
     &__visual {
+        position: relative;
+        z-index: 1;
         flex: 1;
         border-radius: 16px;
         overflow: hidden;

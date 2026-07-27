@@ -1,5 +1,11 @@
 .main {
-    font-size: 12px;
-    font-family: $sf_mono;
-    line-height: 1.2;
+    font-size: 13px;
+    font-family: $font_body;
+    line-height: 1.45;
+}
+
+// APlasma display typeface for headings.
+h1, h2, h3, .title, .logo__label {
+    font-family: $font_display;
+    letter-spacing: 0.02em;
 }

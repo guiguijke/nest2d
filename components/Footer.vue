@@ -1,6 +1,7 @@
 <template>
     <footer class="footer"> 
         <div class="footer__content content">
+            <img src="/brand/logo-blanc.png" alt="APlasma" class="footer__logo" />
             <ul class="list">
                 <li class="list__item">
                     <a
@@ -52,7 +53,18 @@ const { copyrightYear } = useSiteConfig();
 <style lang="scss" scoped>
 .footer {
     padding: 12px 8px;
-    background-color: var(--main-black);
+    background-color: var(--footer-bg);
+
+    &__logo {
+        height: 28px;
+        width: auto;
+        margin-bottom: 12px;
+
+        @media (min-width: 1199px) {
+            margin-bottom: 0;
+            margin-right: 24px;
+        }
+    }
 
     @media (min-width: 567px) {
         padding: 16px 10px;
