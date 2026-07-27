@@ -249,7 +249,7 @@ def get_entities_from_dxf_file(dxf_file_slug, handles, owner_id=None, dek=None):
             
     return doc, entities
 
-N_ALTERNATIVES = 3
+N_ALTERNATIVES_DEFAULT = 3
 DEFAULT_N_SAMPLES = 20000
 
 def run_lbf(input_json):
@@ -336,8 +336,12 @@ def nesting_process(doc):
         bin_dims[bin_id] = (sheet_width, sheet_height)
         bins.append(build_bin(bin_id, sheet_stock, sheet_width, sheet_height))
 
-    # Exploration budget — params.nestQuality overrides the default.
+    # Exploration budget and number of alternatives are set server-side at
+    # enqueue time based on the owner's tier (params.nestQuality /
+    # params.alternativesCount). Defaults cover jobs enqueued before the
+    # tiered-compute feature existed.
     n_samples = int(params.get("nestQuality") or DEFAULT_N_SAMPLES)
+    n_alternatives = max(1, int(params.get("alternativesCount") or N_ALTERNATIVES_DEFAULT))
 
     # Unwrapped DEK when the owner's vault is unlocked, None on the legacy
     # plaintext path. Raises VaultLockedError when files are encrypted but
@@ -372,7 +376,7 @@ def nesting_process(doc):
     # Run the solver N times with different random seeds and keep every
     # solution that placed all items — the user picks the layout they prefer.
     alternatives = []
-    for alt_index in range(N_ALTERNATIVES):
+    for alt_index in range(n_alternatives):
         seed = secrets.randbelow(2**32)
         logger.info("Running alternative", extra={"alt": alt_index, "seed": seed, "n_samples": n_samples})
 

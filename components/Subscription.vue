@@ -11,6 +11,37 @@
             </p>
         </div>
 
+        <div v-if="isActive && data?.isPrivacyTier" class="subscription__card">
+            <div class="subscription__status">
+                <span class="subscription__badge">Pro — Confidentialité+</span>
+            </div>
+            <p class="subscription__desc">
+                Zero-knowledge vault, maximum compute budget and priority
+                queue are enabled on your account.
+            </p>
+        </div>
+
+        <div v-else-if="isActive && data?.privacyPlan" class="subscription__card">
+            <div class="subscription__plan-title">{{ data.privacyPlan.title || 'Pro — Confidentialité+' }}</div>
+            <div class="subscription__price">
+                {{ formatPrice(data.privacyPlan.amount, data.privacyPlan.currency) }}
+                <span class="subscription__interval">/ {{ data.privacyPlan.interval }}</span>
+            </div>
+            <p class="subscription__desc">
+                Zero-knowledge encryption, maximum compute budget and
+                priority queue.
+            </p>
+            <MainButton
+                label="Upgrade to Pro"
+                :theme="themeType.primary"
+                :size="sizeType.m"
+                :isDisable="isLoading"
+                trackingTag="subscription_upgrade_pro"
+                class="subscription__btn"
+                @click="subscribePro"
+            />
+        </div>
+
         <div v-else class="subscription__card">
             <div v-if="data?.plan" class="subscription__plan">
                 <div class="subscription__plan-title">{{ data.plan.title || 'Monthly plan' }}</div>
@@ -84,6 +115,19 @@ const subscribe = async () => {
         navigateTo(response.url, { external: true })
     } catch (err) {
         error.value = err?.data?.statusMessage || 'Failed to start subscription. Please try again.'
+        isLoading.value = false
+    }
+}
+
+const subscribePro = async () => {
+    if (isLoading.value) return
+    error.value = ''
+    isLoading.value = true
+    try {
+        const response = await $fetch('/api/payment/subscribe?tier=privacy')
+        navigateTo(response.url, { external: true })
+    } catch (err) {
+        error.value = err?.data?.statusMessage || 'Failed to start Pro subscription. Please try again.'
         isLoading.value = false
     }
 }

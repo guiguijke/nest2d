@@ -110,9 +110,13 @@ keepalive_thread.start()
 
 while not shutdown_requested:
     logger.info("Worker nesting try to find new files to process")
+    # Priority queue: lower priority value dequeued first (tiered compute),
+    # FIFO within the same priority. Jobs without the field (enqueued before
+    # the feature) sort as null and are picked up first — they waited longest.
     doc = nesting_jobs.find_one_and_update(
         {"status": "pending"},
         {"$set": {"status": "processing"}},
+        sort=[("priority", 1), ("createdAt", 1)],
         return_document=ReturnDocument.AFTER
     )
     

@@ -4,7 +4,7 @@ import { generateRandomString } from "~~/server/utils/strings";
 import standardSlugify from "standard-slugify";
 import logger from "~~/server/utils/logger";
 import { trackEvent } from "~~/server/tracking/add";
-import { assertCanNest } from "~~/server/utils/entitlement";
+import { assertCanNest, getComputeProfile } from "~~/server/utils/entitlement";
 import { requireFileAccess } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
@@ -133,6 +133,12 @@ export default defineEventHandler(async (event) => {
     charge = await assertCanNest(userId);
   }
 
+  // Server-side compute budget by tier (never trust the client for this).
+  // Legacy flag-off users are pay-as-you-go → credits profile.
+  const compute = await getComputeProfile(userId, charge || { type: "credits" });
+  dbParams.nestQuality = compute.nSamples;
+  dbParams.alternativesCount = compute.nAlternatives;
+
   // Encrypted vaults must be unlocked before a job can be enqueued — the
   // workers need an active session to read the source files. Also refreshes
   // the sliding TTL so the session outlives the job.
@@ -144,6 +150,7 @@ export default defineEventHandler(async (event) => {
     files: fileMetadata,
     params: dbParams,
     status: "pending",
+    priority: compute.priority,
     createdAt: new Date(),
     ownerId: userId,
     ...(charge && { charge }),

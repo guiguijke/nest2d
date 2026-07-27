@@ -124,7 +124,7 @@
             </p>
             <div class="pricing__list pricing-list">
                 <div
-                    v-for="tier in pricing.tiers"
+                    v-for="tier in pricingTiers"
                     :key="tier.name"
                     :class="{ 'pricing-list__card--highlighted': tier.highlighted }"
                     class="pricing-list__card"
@@ -238,10 +238,44 @@ definePageMeta({
 })
 onMounted(() => {
     trackEvent('page_view', { page: 'landing' })
+    fetchPlans()
 })
 import { hero, highlights, features, screenshots, howItWorks, pricing, useStarted, useFaq, useRefund } from '~~/data/index'
 import { FREE_NESTING_LIMIT, TRIAL_DAYS } from '~~/constants/payment.constants'
 import { defaultThemeType, themeType } from '~~/constants/theme.constants'
+
+// Plan availability as synced from Stripe — the Pro card activates itself
+// as soon as the privacy product exists in Stripe, no deploy needed.
+const plans = ref(null)
+async function fetchPlans() {
+    try {
+        plans.value = await $fetch('/api/payment/plans')
+    } catch {
+        plans.value = null
+    }
+}
+const formatPlanPrice = (plan) => {
+    if (!plan?.available) return null
+    return new Intl.NumberFormat('en', {
+        style: 'currency',
+        currency: plan.currency || 'eur',
+        maximumFractionDigits: plan.amount % 1 === 0 ? 0 : 2,
+    }).format(plan.amount)
+}
+const pricingTiers = computed(() => {
+    return pricing.tiers.map((tier) => {
+        if (!tier.comingSoon) return tier
+        const proPlan = unref(plans)?.privacy
+        if (!proPlan?.available) return tier
+        // Pro plan exists in Stripe — activate the card.
+        return {
+            ...tier,
+            price: formatPlanPrice(proPlan) || tier.price,
+            cta: 'Get Pro',
+            comingSoon: false,
+        }
+    })
+})
 
 const started = useStarted()
 const faq = useFaq()
