@@ -4,7 +4,7 @@ import { connectDB } from '~~/server/db/mongo'
  * Number of free nesting operations a feature-flagged user gets before the
  * subscription paywall kicks in. Shared across Bins and Strip nesting.
  */
-export const FREE_NESTING_LIMIT = 3
+export const FREE_NESTING_LIMIT = 10
 
 /**
  * Length of the Stripe free trial (in days) attached to the subscription.

@@ -69,7 +69,7 @@ export async function getEntitlement(userId) {
     .collection("users")
     .findOne(
       { id: userId },
-      { projection: { freeNestingUsed: 1, subscription: 1 } }
+      { projection: { freeNestingUsed: 1, subscription: 1, isAdmin: 1 } }
     );
 
   const subscriptionStatus = user?.subscription?.status || null;
@@ -82,7 +82,8 @@ export async function getEntitlement(userId) {
   return {
     freeRemaining,
     subscriptionStatus,
-    requiresPaywall: !active && freeRemaining === 0,
+    // Admins are never paywalled — they get unlimited nesting.
+    requiresPaywall: !user?.isAdmin && !active && freeRemaining === 0,
   };
 }
 
@@ -104,11 +105,16 @@ export async function assertCanNest(userId) {
     .collection("users")
     .findOne(
       { id: userId },
-      { projection: { id: 1, freeNestingUsed: 1, subscription: 1 } }
+      { projection: { id: 1, freeNestingUsed: 1, subscription: 1, isAdmin: 1 } }
     );
 
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
+  }
+
+  // Admins have unlimited nesting — no quota is consumed.
+  if (user.isAdmin) {
+    return;
   }
 
   if (hasActiveSubscription(user)) {
