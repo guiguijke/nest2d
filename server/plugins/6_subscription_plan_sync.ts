@@ -1,10 +1,17 @@
 import { connectDB } from '~~/server/db/mongo'
 
 /**
- * Syncs the monthly subscription plan from Stripe into the `subscription_plan`
- * collection (a single document). The plan is identified as a Product whose
- * default price is recurring; mark it with metadata.type=subscription in Stripe
- * to disambiguate from any legacy one-time credit products.
+ * Syncs the subscription plans from Stripe into the `subscription_plan`
+ * collection (one document per plan). Plans are identified as Products whose
+ * default price is recurring or marked metadata.type=subscription.
+ *
+ * Tiers come from product metadata.tier:
+ *   - missing / 'standard' → the base unlimited-nesting plan (document id
+ *     'subscription' for backwards compatibility)
+ *   - 'privacy' → the "Confidentialité+" plan unlocking the zero-knowledge
+ *     vault (document id 'subscription:privacy')
+ *
+ * The tier is what entitlement.js maps a user's subscription.priceId to.
  */
 export default defineNitroPlugin(async () => {
     const config = useRuntimeConfig()
@@ -42,56 +49,65 @@ export default defineNitroPlugin(async () => {
         return
     }
 
-    if (candidates.length > 1) {
-        console.warn(
-            `[subscription-plan-sync] Found ${candidates.length} subscription candidates; using the first.`
-        )
-    }
-
-    const product = candidates[0]
-    const defaultPriceId =
-        typeof product.default_price === 'object'
-            ? product.default_price.id
-            : product.default_price
-
-    let priceData = product.default_price
-    if (defaultPriceId) {
-        priceData = await $fetch(`https://api.stripe.com/v1/prices/${defaultPriceId}`, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${stripeSecretKey}`,
-            },
-            query: {
-                'expand[]': 'currency_options',
-            },
-        })
-    }
-
-    const prices: Record<string, number> = {}
-    if (priceData?.currency_options) {
-        for (const [currency, option] of Object.entries(priceData.currency_options)) {
-            prices[currency] = (option as any).unit_amount
-        }
-    }
-    if (priceData?.currency && !prices[priceData.currency]) {
-        prices[priceData.currency] = priceData.unit_amount
-    }
-
-    const plan = {
-        id: 'subscription',
-        productId: product.id,
-        priceId: priceData?.id,
-        title: product.name,
-        description: product.description,
-        interval: priceData?.recurring?.interval || 'month',
-        prices,
-        updatedAt: new Date(),
-    }
-
     const db = await connectDB()
-    await db
-        .collection('subscription_plan')
-        .updateOne({ id: 'subscription' }, { $set: plan }, { upsert: true })
+    let standardClaimed = false
 
-    console.log('[subscription-plan-sync] Synced subscription plan', plan.priceId)
+    for (const product of candidates) {
+        const tier = product.metadata?.tier === 'privacy' ? 'privacy' : 'standard'
+
+        const defaultPriceId =
+            typeof product.default_price === 'object'
+                ? product.default_price.id
+                : product.default_price
+
+        let priceData = product.default_price
+        if (defaultPriceId) {
+            priceData = await $fetch(`https://api.stripe.com/v1/prices/${defaultPriceId}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${stripeSecretKey}`,
+                },
+                query: {
+                    'expand[]': 'currency_options',
+                },
+            })
+        }
+
+        const prices: Record<string, number> = {}
+        if (priceData?.currency_options) {
+            for (const [currency, option] of Object.entries(priceData.currency_options)) {
+                prices[currency] = (option as any).unit_amount
+            }
+        }
+        if (priceData?.currency && !prices[priceData.currency]) {
+            prices[priceData.currency] = priceData.unit_amount
+        }
+
+        // The first standard plan keeps the legacy document id so existing
+        // readers (subscribe/subscription endpoints) keep working.
+        const docId = tier === 'privacy'
+            ? 'subscription:privacy'
+            : !standardClaimed
+                ? 'subscription'
+                : `subscription:${priceData?.id}`
+        if (tier === 'standard') standardClaimed = true
+
+        const plan = {
+            id: docId,
+            productId: product.id,
+            priceId: priceData?.id,
+            tier,
+            title: product.name,
+            description: product.description,
+            interval: priceData?.recurring?.interval || 'month',
+            prices,
+            updatedAt: new Date(),
+        }
+
+        await db
+            .collection('subscription_plan')
+            .updateOne({ id: docId }, { $set: plan }, { upsert: true })
+
+        console.log(`[subscription-plan-sync] Synced ${tier} plan`, plan.priceId)
+    }
 })

@@ -2,6 +2,7 @@ import { createError, readMultipartFormData } from "h3";
 
 import { connectDB, getStripUserDxfBucket } from "~~/server/db/mongo";
 import { generateRandomString } from "~~/server/utils/strings";
+import { requireFileAccess, uploadToBucket } from "~~/server/utils/vault";
 import { trackEvent } from "~~/server/tracking/add";
 
 import standardSlugify from "standard-slugify";
@@ -17,20 +18,24 @@ export async function saveFilesToStripProject(event, stripSlug, userId) {
     });
   }
 
+  // Throws 403 vault_locked when the user has an encrypted vault but no
+  // active session. dek is null on the legacy plaintext path.
+  const { dek } = await requireFileAccess(userId);
+
   const dxfUserBucket = await getStripUserDxfBucket();
 
   const file_records = [];
 
-  dxfFileFields.forEach((dxfFile) => {
+  for (const dxfFile of dxfFileFields) {
     const fileBuffer = dxfFile.data;
     const userFileName = dxfFile.filename;
     const file_slug = standardSlugify(userFileName, {
       keepCase: false,
     }) + `-${generateRandomString(6)}.dxf`;
 
-    const uploadSream = dxfUserBucket.openUploadStream(file_slug);
-    uploadSream.write(fileBuffer);
-    uploadSream.end();
+    // Encrypted on the fly when the vault is enabled; awaited so the
+    // document is only created once the bytes are durably stored.
+    await uploadToBucket(dxfUserBucket, file_slug, fileBuffer, { ownerId: userId, dek });
 
     const file_record = {
       slug: file_slug,
@@ -44,7 +49,7 @@ export async function saveFilesToStripProject(event, stripSlug, userId) {
     };
 
     file_records.push(file_record);
-  });
+  }
 
   file_records.forEach((file_record) => {
     trackEvent(event, "create_strip_dxf_file", {

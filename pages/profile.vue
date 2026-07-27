@@ -10,6 +10,7 @@
             <UserBalance class="profile__balance" />
             <BuyCredits />
         </template>
+        <VaultSettings v-if="isStripFeatureEnable" />
     </div>
 </template>
 <script setup>

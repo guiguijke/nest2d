@@ -169,17 +169,17 @@ l'illimité nesting reste commun aux deux abos.
 
 ## 7. Checklist implémentation
 
-1. [ ] `NUXT_ENCRYPTION_MASTER_KEY` (app) + `ENCRYPTION_MASTER_KEY` (workers)
+1. [x] `NUXT_ENCRYPTION_MASTER_KEY` (app) + `ENCRYPTION_MASTER_KEY` (workers)
       dans `.env.example` + docker-compose (`openssl rand -hex 32`)
-2. [ ] `server/utils/crypto.js` + tests round-trip + vecteur interop Python
-3. [ ] Wrapper buckets GridFS + flag `enc`
-4. [ ] Endpoints vault (enable/unlock/status/disable) + rate-limit +
+2. [x] `server/utils/crypto.js` + tests round-trip + vecteur interop Python
+3. [x] Wrapper buckets GridFS + flag `enc`
+4. [x] Endpoints vault (enable/unlock/status/disable) + rate-limit +
       comparaison fingerprint temps constant + **aucun log de la clé**
-5. [ ] Collection `session_keys` + index TTL
-6. [ ] 403 `vault_locked` sur upload/nesting/download premium verrouillé
-7. [ ] Front : activation (génération + téléchargement + checkbox),
+5. [x] Collection `session_keys` + index TTL
+6. [x] 403 `vault_locked` sur upload/nesting/download premium verrouillé
+7. [x] Front : activation (génération + téléchargement + checkbox),
       `VaultUnlock.vue`, IndexedDB opt-in, settings
-8. [ ] `utils/crypto.py` ×4 workers + chiffrement des résultats
-9. [ ] Multi-plans Stripe (sync + mapping tier) → créer le produit 39 €
-10. [ ] Rotation de clé + re-chiffrement batch
-11. [ ] Page marketing + FAQ « clé perdue = données perdues »
+8. [x] `utils/crypto.py` ×4 workers + chiffrement des résultats
+9. [x] Multi-plans Stripe (sync + mapping tier) — ⚠️ reste à créer le produit 39 € dans le dashboard Stripe (metadata: type=subscription, tier=privacy)
+10. [x] Rotation de clé + re-chiffrement batch
+11. [x] Page marketing + FAQ « clé perdue = données perdues »

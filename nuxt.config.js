@@ -13,6 +13,7 @@ export default defineNuxtConfig({
         stripeSecretKey: '',
         resendToken: '',
         resendFrom: 'onboarding@resend.dev',
+        encryptionMasterKey: '',
         apiToken: '',
         googleClientSecret: '',
         blockedCountries: '',

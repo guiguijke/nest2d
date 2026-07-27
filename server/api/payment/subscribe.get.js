@@ -19,7 +19,11 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 401, statusMessage: 'User not found' })
     }
 
-    const plan = await db.collection('subscription_plan').findOne({ id: 'subscription' })
+    // ?tier=privacy subscribes to the "Confidentialité+" plan (zero-knowledge
+    // vault); anything else falls back to the standard unlimited plan.
+    const tier = getQuery(event)?.tier === 'privacy' ? 'privacy' : 'standard'
+    const planDocId = tier === 'privacy' ? 'subscription:privacy' : 'subscription'
+    const plan = await db.collection('subscription_plan').findOne({ id: planDocId })
     if (!plan?.priceId) {
         throw createError({ statusCode: 503, statusMessage: 'Subscription plan not available' })
     }

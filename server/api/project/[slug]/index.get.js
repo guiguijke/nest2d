@@ -1,4 +1,5 @@
 import { connectDB } from "~~/server/db/mongo";
+import { resolvePolygonParts } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;
@@ -32,14 +33,18 @@ export default defineEventHandler(async (event) => {
     .sort({ uploadAt: 1 })
     .toArray();
 
+  const files = await Promise.all(
+    projectFiles.map((file) => mapFileToUi(userId, file))
+  );
+
   return {
     name: project.name,
     slug: project.slug,
-    files: projectFiles.map((file) => mapFileToUi(file)),
+    files,
   };
 });
 
-const mapFileToUi = (file) => {
+const mapFileToUi = async (userId, file) => {
   const svgUrl =
     file.processingStatus === "completed"
       ? `/api/files/project/svg/${file.svgFileSlug}`
@@ -59,7 +64,9 @@ const mapFileToUi = (file) => {
     status = file.processingStatus;
   }
 
-  const parts = file.polygonParts || [];
+  // Decrypts the enc blob when the vault is enabled (403 vault_locked if no
+  // active session), passes legacy plaintext through untouched.
+  const parts = await resolvePolygonParts(userId, file);
 
   const uiParts = parts.map((part) => {
     return {

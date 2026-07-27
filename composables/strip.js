@@ -139,6 +139,11 @@ async function getStripProject(path) {
         setProjectFiles(data.files, data.slug)
         setProjectName(data.name)
     } catch (error) {
+        if (error?.data?.statusMessage === 'vault_locked') {
+            const vaultUnlockDialog = useVaultUnlockDialog();
+            vaultUnlockDialog.value = true;
+            return
+        }
         console.error('Error fetching strip project:', error)
         navigateTo('/strip')
     }
@@ -202,6 +207,11 @@ async function nest(slug) {
         if (error?.response?.status === 402) {
             const buyCreditsDialog = useBuyCreditsDialog();
             buyCreditsDialog.value = true;
+            return
+        }
+        if (error?.data?.statusMessage === 'vault_locked') {
+            const vaultUnlockDialog = useVaultUnlockDialog();
+            vaultUnlockDialog.value = true;
             return
         }
         throw error

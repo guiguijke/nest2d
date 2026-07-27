@@ -183,6 +183,10 @@ export function useFaq() {
                 firstPart: `Your uploaded files and nesting results are stored securely and are only visible to your account. For maximum confidentiality, the upcoming Pro plan (${PRO_PRICE_LABEL}/month) adds zero-knowledge encryption — your files are encrypted with a key only you hold, so even we cannot read them. And because Nest2D is fully open source, you don’t have to take our word for it — you can read the code.`
             },
             {
+                title: 'What happens if I lose my key file?',
+                firstPart: 'With zero-knowledge encryption (Pro plan), your key file is the ONLY way to read your files. We never store a copy — not in our database, not in our backups. If you lose it, your encrypted files are permanently unreadable, and no one can recover them, including us. Keep several copies of your key file in safe places.'
+            },
+            {
                 title: 'Does Nest2D give the best possible results?',
                 firstPart: 'While achieving perfect nesting optimization is a complex computational challenge with no guaranteed optimal solution, Nest2D delivers highly efficient material layouts through advanced algorithms. Our system prioritizes both speed and optimization quality to provide practical, time-saving results for your cutting projects.'
             },

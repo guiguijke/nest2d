@@ -1,7 +1,9 @@
+import io
 import time
 
 from utils.logger import setup_logger
 from utils.mongo import db, strip_user_dxf_bucket
+from utils.crypto import encrypt_polygon_parts, get_dek, read_gridfs
 from dxf_utils import read_dxf
 from core.geometry.build_geometry import build_geometry
 
@@ -57,15 +59,16 @@ def _close_polygon_from_dxf(doc):
     """
     logger = setup_logger("strip_dxf_polygonizer")
 
-    if doc.get("polygonParts"):
+    if doc.get("polygonParts") or doc.get("encPolygonParts"):
         logger.info("polygon_parts_already_exist", extra={"slug": doc["slug"]})
 
     tolerance = doc.get("flattening", 0.01)
 
     start_time = time.time()
 
-    grid_out = strip_user_dxf_bucket.open_download_stream_by_name(doc["slug"])
-    drawing, original_footprints = read_dxf(grid_out)
+    dek = get_dek(db, doc["ownerId"])
+    dxf_bytes = read_gridfs(strip_user_dxf_bucket, doc["slug"], doc["ownerId"], dek)
+    drawing, original_footprints = read_dxf(io.BytesIO(dxf_bytes))
 
     closed_parts = build_geometry(drawing, tolerance, original_footprints)
 
@@ -82,10 +85,23 @@ def _close_polygon_from_dxf(doc):
 
     _check_handle_coverage(original_footprints, polygon_parts, logger, doc["slug"])
 
-    strip_user_dxf_files.update_one(
-        {"_id": doc["_id"]},
-        {"$set": {"polygonParts": polygon_parts}}
-    )
+    if dek is not None:
+        # Vault enabled: geometry is stored encrypted; the plaintext parts
+        # only live in memory for the rest of this processing run.
+        strip_user_dxf_files.update_one(
+            {"_id": doc["_id"]},
+            {
+                "$set": {
+                    "encPolygonParts": encrypt_polygon_parts(dek, doc["slug"], doc["ownerId"], polygon_parts)
+                },
+                "$unset": {"polygonParts": ""}
+            }
+        )
+    else:
+        strip_user_dxf_files.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"polygonParts": polygon_parts}}
+        )
     doc["polygonParts"] = polygon_parts
 
     end_time = time.time()

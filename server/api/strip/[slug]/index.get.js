@@ -1,5 +1,6 @@
 import { connectDB } from "~~/server/db/mongo";
 import { assertStripFeatureEnabled } from "~~/server/utils/featureFlags";
+import { resolvePolygonParts } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;
@@ -40,14 +41,18 @@ export default defineEventHandler(async (event) => {
     .sort({ uploadAt: 1 })
     .toArray();
 
+  const files = await Promise.all(
+    stripFiles.map((file) => mapFileToUi(userId, file))
+  );
+
   return {
     name: strip.name,
     slug: strip.slug,
-    files: stripFiles.map((file) => mapFileToUi(file)),
+    files,
   };
 });
 
-const mapFileToUi = (file) => {
+const mapFileToUi = async (userId, file) => {
   let status;
   if (file.processingStatus === "completed") {
     status = "done";
@@ -64,15 +69,17 @@ const mapFileToUi = (file) => {
     slug: file.slug,
     name: file.name,
     dxfUrl: `/api/files/strip/dxf/${file.slug}`,
-    minHeight: minRequiredHeight(file),
+    minHeight: await minRequiredHeight(userId, file),
     processingStatus: status,
   };
 };
 
 // Minimum strip height required to nest a file is the tallest of its polygon
 // parts, since every part must fit within the strip height.
-const minRequiredHeight = (file) => {
-  const parts = file.polygonParts || [];
+// Decrypts the enc blob when the vault is enabled, passes legacy plaintext
+// through untouched.
+const minRequiredHeight = async (userId, file) => {
+  const parts = await resolvePolygonParts(userId, file);
   const heights = parts
     .map((part) => part.height)
     .filter((height) => typeof height === "number");

@@ -28,3 +28,6 @@ export const useInfoAboutNest = () => {
 export const useLoginDialog = () => {
     return useState("loginDialog", () => false);
 };
+export const useVaultUnlockDialog = () => {
+    return useState("vaultUnlockDialog", () => false);
+};
