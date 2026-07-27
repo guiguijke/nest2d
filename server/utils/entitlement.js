@@ -127,6 +127,41 @@ export async function hasPrivacyTier(userId) {
 }
 
 /**
+ * Compute budget granted to a nesting job, by tier. Computed SERVER-SIDE at
+ * enqueue time and persisted on the job — the client can never inflate its
+ * own budget. priority: lower = dequeued first.
+ *
+ * @param {string} userId
+ * @param {{type: string}|null} charge the charge returned by assertCanNest
+ * @returns {Promise<{nSamples: number, nAlternatives: number, priority: number}>}
+ */
+export async function getComputeProfile(userId, charge) {
+  const db = await connectDB();
+  const user = await db
+    .collection("users")
+    .findOne({ id: userId }, { projection: { isAdmin: 1, subscription: 1 } });
+
+  if (user?.isAdmin) {
+    return { nSamples: 60000, nAlternatives: 3, priority: 0 };
+  }
+
+  const tier = await getSubscriptionTier(user);
+  if (tier === "privacy") {
+    return { nSamples: 50000, nAlternatives: 3, priority: 10 };
+  }
+  if (charge?.type === "subscription") {
+    return { nSamples: 20000, nAlternatives: 3, priority: 20 };
+  }
+  if (charge?.type === "credits") {
+    // Pay-as-you-go users pay per job: full quality, no alternatives.
+    return { nSamples: 20000, nAlternatives: 1, priority: 20 };
+  }
+  // Free quota — intentionally modest: good enough to evaluate the engine,
+  // cheap enough to protect the homelab.
+  return { nSamples: 8000, nAlternatives: 1, priority: 30 };
+}
+
+/**
  * Gate for nesting requests of feature-flagged users.
  *
  * Charge order: admin (free) → active subscription → free quota → paid
