@@ -79,3 +79,17 @@ export async function sendNewSupportMessageEmail(userId) {
     logger.error('Failed to send support notification email:', err);
   }
 }
+
+export async function sendPasswordResetEmail(email, resetUrl) {
+  const emailSubject = 'Reset your Nest2d password';
+  const emailBody = `
+    <p>Hello,</p>
+    <p>We received a request to reset the password of your Nest2d account.</p>
+    <p><a href="${resetUrl}">Click here to choose a new password</a></p>
+    <p>This link is valid for 1 hour. If you did not request a password reset, you can safely ignore this email.</p>
+    <p>Best regards, <br> Nest2d</p>
+  `;
+
+  await sendEmail(email, emailSubject, emailBody);
+  logger.info(`Password reset email sent to ${email}`);
+}

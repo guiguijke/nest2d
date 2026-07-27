@@ -1,34 +1,57 @@
-export const header = {
-    title: 'Nesting For plotters, laser & plasma cutters, and other CNC machines',
-    text: 'Upload your DXF files, input material dimensions, and let Nest2d reduce material waste.'
+import { useSiteConfig } from '~~/data/siteConfig'
+import { FREE_NESTING_LIMIT, TRIAL_DAYS, SUBSCRIPTION_PRICE_LABEL, PRO_PRICE_LABEL } from '~~/constants/payment.constants'
+
+export const hero = {
+    badge: 'Open source · Server-side true-shape nesting',
+    title: 'Fit more parts on every sheet.',
+    text: 'Upload your DXF files, set your sheet size, and let Nest2D arrange your parts with minimal material waste — built for laser, plasma, plotter and CNC cutting.',
+    primaryCta: 'Start nesting for free',
+    secondaryCta: 'See how it works',
 }
+export const highlights = [
+    'True-shape nesting',
+    'Multi-sheet support',
+    'DXF in → DXF out',
+    'Private by design',
+]
 export const features = {
-    title: 'Features',
+    title: 'Everything you need to stop wasting material',
+    subtitle: 'A focused tool that does one thing extremely well: packing your parts as tightly as possible.',
     list: [
         {
-            title: 'DXF File Support',
-            text: 'Easily upload DXF files for precision laser cutting.'
+            icon: 'nest',
+            title: 'True-shape nesting engine',
+            text: 'Irregular shapes are rotated and interlocked to squeeze the most out of every sheet — not just bounding boxes.'
         },
         {
-            title: 'Save money',
-            text: 'Minimize waste by optimizing part arrangement.'
+            icon: 'layers',
+            title: 'Multi-sheet optimization',
+            text: 'Nest across as many sheets as your job requires and know exactly how many sheets to load into the machine.'
         },
         {
-            title: 'No client resource require',
-            text: 'All calculation done by server.'
+            icon: 'rotate',
+            title: 'Quantities & rotation control',
+            text: 'Set per-part quantities and allowed rotations — lock the grain direction when the material demands it.'
         },
         {
-            title: 'Open Source',
-            text: 'Fully open-source and built for efficiency.'
+            icon: 'server',
+            title: 'Server-side computation',
+            text: 'The heavy optimization runs on our servers. No installation, no setup — it works from any device, anywhere.'
         },
         {
-            title: 'Saving cost for shop supplier',
-            text: 'Enable time & material savings to your customers'
+            icon: 'shield',
+            title: 'Private by design',
+            text: 'Your files are stored securely and visible only to you. The platform is fully open source — and the Pro plan adds zero-knowledge encryption, so even we cannot read your parts.'
+        },
+        {
+            icon: 'download',
+            title: 'Ready-to-cut output',
+            text: 'Download the nested layout as DXF for a single sheet, or as a ZIP for the whole job — straight to your machine software.'
         }
     ]
 }
 export const screenshots = {
-    title: 'Intuitive design',
+    title: 'A workspace designed for the workshop',
     list: {
         ghost: [
             {
@@ -55,74 +78,138 @@ export const screenshots = {
     }
 }
 export const howItWorks = {
-    title: 'How It Works',
+    title: 'From DXF to cut-ready layout in under a minute',
     list: [
         {
-            title: 'Upload DXF Files',
-            text: 'Drag and drop or browse your files to upload.'
+            title: 'Upload your parts',
+            text: 'Drag and drop your DXF files. Each part is validated and previewed automatically.'
         },
         {
-            title: 'Enter Material Size',
-            text: 'Specify the dimensions of your material sheet.'
+            title: 'Set your sheet',
+            text: 'Enter your material dimensions, spacing and rotation constraints.'
         },
         {
-            title: 'Optimize and Download',
-            text: 'Get an optimized layout ready for cutting.'
+            title: 'Nest & download',
+            text: 'Get an optimized, ready-to-cut layout as DXF — and see how much material you saved.'
         }
     ]
 }
-export const started = {
-    title: 'Get Started Today',
-    text: 'Sign up and get 3 free nesting operations to try it out. After that, Nest2D runs on a simple subscription — just $7.99/month — with a 7-day free trial and no commitment. Cancel anytime.'
-}
-export const faq = {
-    title: 'Frequently Asked Questions',
-    text: 'Stuck on something? We’re here to help with all your questions and answers in one place.',
-    list: [
+export const pricing = {
+    title: 'Simple pricing that pays for itself',
+    subtitle: 'One saved sheet of material usually covers the month.',
+    tiers: [
         {
-            title: 'Is there a free trial?',
-            firstPart: 'Yes. Every account starts with 3 free nesting operations so you can try Nest2D first. After that, your subscription begins with a 7-day free trial — you are not charged until the trial ends, and you can cancel anytime before then.'
+            name: 'Free',
+            price: '€0',
+            interval: 'forever',
+            description: 'To try the engine on your own parts.',
+            features: [
+                `${FREE_NESTING_LIMIT} free nesting operations`,
+                'All core nesting features',
+                'DXF & ZIP export',
+            ],
+            cta: 'Start for free',
+            trackingTag: 'pricing_free',
         },
         {
-            title: 'How much does Nest2D cost?',
-            firstPart: 'Nest2D now runs on a simple monthly subscription — just $7.99/month (or the equivalent in your local currency). While active it includes unlimited nesting, and it starts with a 7-day free trial.'
+            name: 'Unlimited',
+            price: SUBSCRIPTION_PRICE_LABEL,
+            interval: 'month',
+            description: 'For makers and workshops that nest every week.',
+            features: [
+                'Unlimited nesting operations',
+                'Multi-sheet jobs',
+                'Email notifications when a job finishes',
+                'Cancel anytime',
+            ],
+            cta: `Start ${TRIAL_DAYS}-day free trial`,
+            trackingTag: 'pricing_unlimited',
+            highlighted: true,
+            badge: 'Most popular',
         },
         {
-            title: 'Is it a subscription or a one-time payment?',
-            firstPart: 'Nest2D has moved to a subscription model. A small recurring monthly fee keeps the service running and continuously improving. There is no long-term commitment — cancel anytime, and the first 7 days are always free.'
-        },
-        {
-            title: 'What is your cancellation policy?',
-            firstPart: 'Things change, and that is fine. You can cancel your subscription at any time. Cancel during the 7-day free trial and you will not be charged at all.'
-        },
-        {
-            title: 'What file formats do you support?',
-            firstPart: 'Currently, we support DXF files for laser cutting.'
-        },
-        {
-            title: 'Does Nest2D give the best possible results?',
-            firstPart: 'While achieving perfect nesting optimization is a complex computational challenge with no guaranteed optimal solution, Nest2D delivers highly efficient material layouts through advanced algorithms. Our system prioritizes both speed and optimization quality to provide practical, time-saving results for your laser cutting projects.'
-        },
-        {
-            title: 'Can I contribute to the project?',
-            firstPart: 'Absolutely! Check out our',
-            link: 'GitHub repository',
-            linkHref: 'https://github.com/guiguijke/nest2d',
-            target: '_blank',
-            secondPart: 'to contribute.'
-        },
-        {
-            title: 'I still have questions.',
-            firstPart: 'Fill free to contact me via support chat or contant me via email',
-            link: 'support@example.com',
-            linkHref: 'mailto:support@example.com',
+            name: 'Pro',
+            price: PRO_PRICE_LABEL,
+            interval: 'month',
+            description: 'For businesses that quote, produce — and demand maximum confidentiality.',
+            features: [
+                'Everything in Unlimited',
+                'Zero-knowledge encryption: only you hold the key, like a crypto wallet',
+                'G-code export',
+                'Remnant (offcut) management',
+                'PDF quote reports',
+            ],
+            cta: 'Coming soon',
+            trackingTag: 'pricing_pro',
+            comingSoon: true,
         },
     ]
 }
-export const refund = {
-    title: 'Refunds',
-    firstPart: 'My business philosophy is that if you, as a customer, are not happy, then I’m not happy. I have a 30-day, no-questions-asked refund policy. Please email',
-    link: 'support@example.com',
-    linkHref: 'mailto:support@example.com',
-    secondPart: 'for a full refund. I appreciate it if you can share the reason you are unhappy with the purchase, but doing so is not necessary for a refund.'
+export function useStarted() {
+    return {
+        title: 'Ready to save material?',
+        text: `Create your account and get ${FREE_NESTING_LIMIT} free nesting operations — no credit card required. Then keep going with the Unlimited plan at ${SUBSCRIPTION_PRICE_LABEL}/month, starting with a ${TRIAL_DAYS}-day free trial.`,
+        cta: 'Start nesting for free',
+    }
+}
+export function useFaq() {
+    const { supportEmail, githubRepo } = useSiteConfig()
+    return {
+        title: 'Frequently Asked Questions',
+        text: 'Stuck on something? We’re here to help with all your questions and answers in one place.',
+        list: [
+            {
+                title: 'Is there a free trial?',
+                firstPart: `Yes — twice. Every account starts with ${FREE_NESTING_LIMIT} free nesting operations, no credit card required. After that, the Unlimited subscription begins with a ${TRIAL_DAYS}-day free trial: you are not charged until the trial ends, and you can cancel anytime before then.`
+            },
+            {
+                title: 'How much does Nest2D cost?',
+                firstPart: `The Unlimited plan is ${SUBSCRIPTION_PRICE_LABEL}/month and includes unlimited nesting while active. A Pro plan (${PRO_PRICE_LABEL}/month) with G-code export, remnant management and PDF quote reports is coming soon.`
+            },
+            {
+                title: 'Can I pay per use instead of subscribing?',
+                firstPart: 'Yes. If you only nest occasionally, credit packs are available — each nesting operation simply consumes credits from your balance. No recurring commitment.'
+            },
+            {
+                title: 'What is your cancellation policy?',
+                firstPart: `Things change, and that is fine. You can cancel your subscription at any time. Cancel during the ${TRIAL_DAYS}-day free trial and you will not be charged at all.`
+            },
+            {
+                title: 'What file formats do you support?',
+                firstPart: 'Currently, we support DXF files — the standard exchange format for laser, plasma and CNC cutting.'
+            },
+            {
+                title: 'Are my files safe?',
+                firstPart: `Your uploaded files and nesting results are stored securely and are only visible to your account. For maximum confidentiality, the upcoming Pro plan (${PRO_PRICE_LABEL}/month) adds zero-knowledge encryption — your files are encrypted with a key only you hold, so even we cannot read them. And because Nest2D is fully open source, you don’t have to take our word for it — you can read the code.`
+            },
+            {
+                title: 'Does Nest2D give the best possible results?',
+                firstPart: 'While achieving perfect nesting optimization is a complex computational challenge with no guaranteed optimal solution, Nest2D delivers highly efficient material layouts through advanced algorithms. Our system prioritizes both speed and optimization quality to provide practical, time-saving results for your cutting projects.'
+            },
+            {
+                title: 'Can I contribute to the project?',
+                firstPart: 'Absolutely! Check out our',
+                link: 'GitHub repository',
+                linkHref: githubRepo,
+                target: '_blank',
+                secondPart: 'to contribute.'
+            },
+            {
+                title: 'I still have questions.',
+                firstPart: 'Feel free to contact me via the support chat or by email at',
+                link: supportEmail,
+                linkHref: `mailto:${supportEmail}`,
+            },
+        ]
+    }
+}
+export function useRefund() {
+    const { supportEmail } = useSiteConfig()
+    return {
+        title: 'Refunds',
+        firstPart: 'My business philosophy is that if you, as a customer, are not happy, then I’m not happy. I have a 30-day, no-questions-asked refund policy. Please email',
+        link: supportEmail,
+        linkHref: `mailto:${supportEmail}`,
+        secondPart: 'for a full refund. I’d appreciate it if you could share the reason you are unhappy with the purchase, but doing so is not necessary for a refund.'
+    }
 }

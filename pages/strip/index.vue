@@ -3,7 +3,7 @@
         <MainTitle label="Upload your .DXF files for strip nesting" class="strip__title" />
         <DxfUpload @files="handleSubmit" />
         <p class="strip__text">
-            All files will be save secure and available only for you
+            All files will be saved securely and available only to you
         </p>
         <div v-if="error" class="strip__error">
             {{ error }}

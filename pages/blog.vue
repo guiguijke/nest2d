@@ -9,7 +9,9 @@
 </template>
 
 <script setup>
-import { posts } from "~~/data/blog";
+import { usePosts } from "~~/data/blog";
+
+const posts = usePosts();
 
 definePageMeta({
     layout: "doc",

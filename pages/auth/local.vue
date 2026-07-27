@@ -45,6 +45,9 @@
         <button class="local-auth__toggle" @click="toggleMode">
             {{ isRegister ? 'Already have an account? Login' : "Don't have an account? Sign up" }}
         </button>
+        <NuxtLink v-if="!isRegister" to="/auth/forgot-password" class="local-auth__forgot">
+            Forgot password?
+        </NuxtLink>
     </div>
 </template>
 
@@ -152,6 +155,18 @@ onMounted(async () => {
         @media (hover:hover) {
             &:hover {
                 opacity: 0.8;
+            }
+        }
+    }
+    &__forgot {
+        margin-top: 12px;
+        color: var(--label-secondary);
+        font-size: 14px;
+        text-decoration: underline;
+
+        @media (hover:hover) {
+            &:hover {
+                color: var(--accent-primary);
             }
         }
     }
