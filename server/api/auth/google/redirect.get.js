@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
   url.searchParams.append("response_type", "code");
   url.searchParams.append("scope", "email profile");
   url.searchParams.append("code_challenge", codeChallenge);
-  url.searchParams.append("code_challenge_method", "S-256");
+  url.searchParams.append("code_challenge_method", "S256");
   url.searchParams.append("access_type", "online");
   url.searchParams.append("prompt", "select_account");
 
