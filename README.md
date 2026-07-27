@@ -42,7 +42,7 @@ The 6 containers (app + mongo + 4 workers) run on an internal Docker network; on
                     └──────────────┬──────────────────┘
                                    │ http
                     ┌──────────────▼──────────────────┐
-                    │  app (Nuxt)  127.0.0.1:3000     │
+                    │  app (Nuxt)  127.0.0.1:7100     │
                     └──┬─────────────────────────┬────┘
                        │                         │
               ┌────────▼────────┐      ┌─────────▼──────────┐
@@ -58,7 +58,7 @@ The 6 containers (app + mongo + 4 workers) run on an internal Docker network; on
 ### Prerequisites
 
 - Docker + Compose v2 plugin
-- A reverse proxy (e.g. Nginx Proxy Manager) terminating TLS and forwarding to `http://<host>:3000`
+- A reverse proxy (e.g. Nginx Proxy Manager) terminating TLS and forwarding to `http://<host>:7100`
 - A domain (e.g. `https://nesting.aplasma.fr`)
 
 ### Steps
@@ -89,7 +89,7 @@ The 6 containers (app + mongo + 4 workers) run on an internal Docker network; on
 5. In **Nginx Proxy Manager**, create a Proxy Host:
    - Domain: `nesting.aplasma.fr`
    - Forward Hostname/IP: the Docker host IP
-   - Forward Port: `3000`
+   - Forward Port: `7100`
    - Enable SSL (Let's Encrypt) + force HTTPS
 
 6. **Create your account** (via Google or email at `/auth/local`), then [make yourself an admin](#becoming-an-administrator).
