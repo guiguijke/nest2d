@@ -123,6 +123,9 @@
             <p class="pricing__subtitle">
                 {{ pricing.subtitle }}
             </p>
+            <NuxtLink to="/plans" class="pricing__compare-link">
+                Compare all features →
+            </NuxtLink>
             <div class="pricing__list pricing-list">
                 <div
                     v-for="tier in pricingTiers"
@@ -300,7 +303,7 @@ function onPricingClick(tier) {
     loginDialog.value = true
 }
 
-const freeNestingsHint = `${FREE_NESTING_LIMIT} free nestings · No installation · ${TRIAL_DAYS}-day free trial`
+const freeNestingsHint = `${FREE_NESTING_LIMIT} free nestings / month · No installation · ${TRIAL_DAYS}-day free trial`
 
 // Inline monochrome stroke icons matching the design system.
 const featureIcons = {
@@ -694,6 +697,20 @@ section {
 .pricing {
     &__subtitle {
         margin-top: 12px;
+    }
+    &__compare-link {
+        display: inline-block;
+        margin-top: 12px;
+        color: var(--accent-primary);
+        font-weight: 600;
+        font-size: 15px;
+        text-decoration: underline;
+
+        @media (hover:hover) {
+            &:hover {
+                opacity: 0.8;
+            }
+        }
     }
     &__list {
         margin-top: 40px;

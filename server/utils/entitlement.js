@@ -9,6 +9,26 @@ import {
 import logger from "./logger";
 
 /**
+ * Free quota is a MONTHLY allowance: 10 free nestings per calendar month
+ * (UTC), reset lazily on the next consumption of a new month. The period is
+ * tracked as 'YYYY-MM' on the user document (freeNestingPeriod).
+ */
+function currentFreePeriod() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+/**
+ * Resets the free counter when the month rolled over. Safe to call before
+ * reading freeNestingUsed; atomic, so concurrent calls can't double-reset.
+ */
+async function resetFreeQuotaIfNewPeriod(db, userId) {
+  await db.collection("users").updateOne(
+    { id: userId, freeNestingPeriod: { $ne: currentFreePeriod() } },
+    { $set: { freeNestingUsed: 0, freeNestingPeriod: currentFreePeriod() } }
+  );
+}
+
+/**
  * Returns true if the user's stored subscription currently grants access.
  * @param {any} user
  * @returns {boolean}
@@ -65,6 +85,7 @@ async function refreshSubscription(db, user) {
  */
 export async function getEntitlement(userId) {
   const db = await connectDB();
+  await resetFreeQuotaIfNewPeriod(db, userId);
   const user = await db
     .collection("users")
     .findOne(
@@ -209,6 +230,7 @@ export async function assertCanNest(userId) {
 
   // Atomically consume a free nesting operation. The guard prevents two
   // concurrent requests from both spending the same remaining free slot.
+  await resetFreeQuotaIfNewPeriod(db, userId);
   const consumed = await db.collection("users").findOneAndUpdate(
     { id: userId, freeNestingUsed: { $lt: FREE_NESTING_LIMIT } },
     { $inc: { freeNestingUsed: 1 } }
