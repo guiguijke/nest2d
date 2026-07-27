@@ -21,6 +21,39 @@ shutdown_requested = False
 strip_nesting_jobs = db["strip_nesting_job_queue"]
 
 
+def refund_charge(doc):
+    """Refund the unit consumed at enqueue time when a job definitively fails.
+
+    Jobs carry a `charge` object written by the API:
+      - {"type": "free"}                 -> give back one free nesting slot
+      - {"type": "credits", "amount": N} -> give back N paid credits
+      - {"type": "admin"|"subscription"} -> nothing was consumed
+    """
+    charge = doc.get("charge")
+    if not charge or charge.get("refunded"):
+        return
+    charge_type = charge.get("type")
+    try:
+        if charge_type == "free":
+            db["users"].update_one(
+                {"id": doc["ownerId"], "freeNestingUsed": {"$gt": 0}},
+                {"$inc": {"freeNestingUsed": -1}},
+            )
+            logger.info(f"Refunded free nesting slot to user {doc['ownerId']}")
+        elif charge_type == "credits":
+            db["users"].update_one(
+                {"id": doc["ownerId"]},
+                {"$inc": {"balance": charge.get("amount", 10)}},
+            )
+            logger.info(f"Refunded {charge.get('amount', 10)} credits to user {doc['ownerId']}")
+        strip_nesting_jobs.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"charge.refunded": True}},
+        )
+    except Exception as e:
+        logger.error(f"Failed to refund charge for job {doc['_id']}: {e}")
+
+
 def signal_handler(signum, frame):
     """Handle graceful shutdown signals — reset the in-flight job to pending."""
     global current_doc_id, shutdown_requested
@@ -117,6 +150,7 @@ while not shutdown_requested:
             "Error in strip nesting processing",
             extra={"error": str(e), "traceback": traceback.format_exc()},
         )
+        refund_charge(doc)
         strip_nesting_jobs.update_one(
             {"_id": current_doc_id},
             {

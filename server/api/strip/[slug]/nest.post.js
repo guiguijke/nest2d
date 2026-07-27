@@ -89,9 +89,10 @@ export default defineEventHandler(async (event) => {
     })
     .join("-")}-${generateRandomString(6)}`;
 
-  // Subscription / free-quota gate. Consumes a free nesting operation only
-  // once the request is fully validated and about to be enqueued.
-  await assertCanNest(userId);
+  // Subscription / free-quota / credits gate. Consumes a unit only once the
+  // request is fully validated and about to be enqueued. The charge is stored
+  // on the job so the worker can refund it if the nesting fails.
+  const charge = await assertCanNest(userId);
 
   await db.collection("strip_nesting_job_queue").insertOne({
     slug: jobSlug,
@@ -103,6 +104,7 @@ export default defineEventHandler(async (event) => {
     status: "pending",
     createdAt: new Date(),
     ownerId: userId,
+    charge,
   });
 
   return {
