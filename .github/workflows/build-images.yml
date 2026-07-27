@@ -64,6 +64,11 @@ jobs:
         if: matrix.needs_submodule == 'true'
         run: git submodule update --init --recursive
 
+      - name: Set up Docker Buildx
+        # The GHA cache backend requires the docker-container buildx driver,
+        # not the default 'docker' driver.
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
