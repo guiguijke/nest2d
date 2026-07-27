@@ -2,10 +2,24 @@
     <DialogWrapper trackingTag="result">
         <div class="modal">
             <div
+                v-if="alternatives.length > 1 && !isHaveError"
+                class="modal__alts alts"
+            >
+                <button
+                    v-for="alt in alternatives"
+                    :key="alt.altId"
+                    :class="{ 'alts__tab--active': alt.altId === activeAlt }"
+                    class="alts__tab"
+                    @click="selectAlt(alt.altId)"
+                >
+                    Option {{ alt.altId + 1 }} · {{ formatDensity(alt.density) }}
+                </button>
+            </div>
+            <div
                 v-if="resultModalData.isMultiSheet && !isHaveError"
                 class="modal__list-sheets list-sheets"
             >
-                <MainButton 
+                <MainButton
                     :theme="themeType.primary"
                     :icon="iconType.arrowPrev"
                     :isLabelShow=false
@@ -16,19 +30,19 @@
                     label="prev"
                     class="controls__prev"
                 />
-                <MainButton 
-                    :label="`Part ${activePart + 1} / ${resultModalData.dxfs.length}`" 
+                <MainButton
+                    :label="`Part ${activePart + 1} / ${currentDxfs.length}`"
                     :size="sizeType.s"
                     :theme="themeType.primary"
                     isNotClickable
                     class="list-sheets__item"
                 />
-                <MainButton 
+                <MainButton
                     :theme="themeType.primary"
                     :icon="iconType.arrowNext"
                     :size="sizeType.s"
                     :isLabelShow=false
-                    :isDisable="activePart === resultModalData.dxfs.length - 1"
+                    :isDisable="activePart === currentDxfs.length - 1"
                     trackingTag="result_part_next"
                     @click="updatePartPage(activePart + 1)"
                     label="next"
@@ -45,16 +59,16 @@
                 </div>
                 <template v-else-if="resultModalData.isMultiSheet">
                     <DxfViewerComponent
-                        :key="`dxf-${activePart}-${isFullScreen}`"
-                        :dxfUrl="resultModalData.dxfs[activePart]"
+                        :key="`dxf-${activeAlt}-${activePart}-${isFullScreen}`"
+                        :dxfUrl="currentDxfs[activePart]"
                         :isFullScreen="isFullScreen"
                         :class="displayClasses"
                         class="modal__display"
                     />
                     <MainButton
                         class="modal__part-download"
-                        v-if="resultModalData.isMultiSheet" 
-                        :href="resultModalData.dxfs[activePart]"
+                        v-if="resultModalData.isMultiSheet"
+                        :href="currentDxfs[activePart]"
                         :label="`Download part ${activePart + 1}`"
                         tag="a"
                         :isDisable="isHaveError"
@@ -65,8 +79,8 @@
                 </template>
                 <DxfViewerComponent
                     v-else
-                    :key="`dxf-0-${isFullScreen}`"
-                    :dxfUrl="resultModalData.dxfs[0]"
+                    :key="`dxf-${activeAlt}-0-${isFullScreen}`"
+                    :dxfUrl="currentDxfs[0]"
                     :isFullScreen="isFullScreen"
                     :class="displayClasses"
                     class="modal__display"
@@ -132,9 +146,9 @@
                     :theme="themeType.primary"
                     trackingTag="result_download_all"
                 />
-                <MainButton 
-                    v-if="!resultModalData.isMultiSheet" 
-                    :href="resultModalData.dxfs[0]"
+                <MainButton
+                    v-if="!resultModalData.isMultiSheet"
+                    :href="currentDxfs[0]"
                     label="Download"
                     tag="a"
                     download
@@ -159,6 +173,7 @@ import { iconType } from '~~/constants/icon.constants'
 import { sizeType } from '~~/constants/size.constants'
 import { themeType } from '~~/constants/theme.constants'
 import { statusType } from '~~/constants/status.constants'
+import { trackEvent } from '~~/utils/track'
 import { onMounted } from 'vue'
 
 const { getters } = globalStore
@@ -182,8 +197,30 @@ onMounted(() => {
 watch(resultDialog, (isOpen) => {
     if (isOpen) {
         activePart.value = 0
+        activeAlt.value = 0
     }
 })
+
+// Alternative layouts (best density first). When empty (legacy jobs), the
+// flat dxfs/svgs of the result are used.
+const alternatives = computed(() => unref(resultModalData).alternatives || [])
+const activeAlt = ref(0)
+const currentDxfs = computed(() => {
+    const alts = unref(alternatives)
+    if (alts.length > 0 && alts[unref(activeAlt)]) {
+        return alts[unref(activeAlt)].dxfs
+    }
+    return unref(resultModalData).dxfs || []
+})
+const selectAlt = (altId) => {
+    activeAlt.value = altId
+    activePart.value = 0
+    trackEvent('result_alt_selected', { altId })
+}
+const formatDensity = (density) => {
+    if (density == null) return '—'
+    return `${(density * 100).toFixed(1)}%`
+}
 const displayClasses = computed(() => ({
     'modal__display--is-fullscreen': unref(isFullScreen) && !unref(isHaveError)
 }))
@@ -197,7 +234,7 @@ const name = computed(() => {
 })
 const activePart = ref(0)
 const updatePartPage = (partIndex) => {
-    if (partIndex < 0 || partIndex >= unref(resultModalData).dxfs.length) return
+    if (partIndex < 0 || partIndex >= unref(currentDxfs).length) return
     activePart.value = partIndex
 }
 </script>
@@ -312,6 +349,41 @@ const updatePartPage = (partIndex) => {
     &__item {
         margin-left: 10px;
         margin-right: 10px;
+    }
+}
+.alts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin: -36px auto 12px;
+
+    @media (min-width: 567px) {
+        max-width: 420px;
+    }
+
+    &__tab {
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--separator-secondary);
+        background-color: var(--fill-tertiary);
+        color: var(--label-secondary);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: border-color 0.3s, background-color 0.3s;
+
+        @media (hover:hover) {
+            &:hover {
+                border-color: var(--accent-primary);
+            }
+        }
+
+        &--active {
+            color: var(--background-primary);
+            background-color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
     }
 }
 .controls {

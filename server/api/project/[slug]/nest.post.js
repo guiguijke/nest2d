@@ -84,13 +84,45 @@ export default defineEventHandler(async (event) => {
     return fileNameSlug + '_' + file.count
   }).join('-')}-${generateRandomString(6)}`;
 
-  const dbParams = {
-    height: params.height,
-    width: params.width,
-    space: params.space,
-    sheetCount: params.sheetCount,
-    addOutShape: params.addOutShape,
+  // Multi-sheet: the client sends params.sheets (list of sheet types with
+  // their own dimensions and stock). Legacy clients send a single
+  // width/height/sheetCount — normalized to the same shape.
+  let sheets = null;
+  if (Array.isArray(params.sheets) && params.sheets.length > 0) {
+    sheets = params.sheets
+      .map((sheet) => ({
+        width: Number(sheet.width),
+        height: Number(sheet.height),
+        count: Math.floor(Number(sheet.count)),
+      }))
+      .filter(
+        (sheet) =>
+          Number.isFinite(sheet.width) && sheet.width > 0 &&
+          Number.isFinite(sheet.height) && sheet.height > 0 &&
+          Number.isFinite(sheet.count) && sheet.count >= 1
+      )
+      .slice(0, 10);
+    if (sheets.length === 0) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: "Please provide at least one valid sheet (width, height, count).",
+      });
+    }
   }
+
+  const dbParams = sheets
+    ? {
+        sheets,
+        space: params.space,
+        addOutShape: params.addOutShape,
+      }
+    : {
+        height: params.height,
+        width: params.width,
+        space: params.space,
+        sheetCount: params.sheetCount,
+        addOutShape: params.addOutShape,
+      }
 
   // Subscription / free-quota / credits gate for feature-flagged users.
   // Consumes a unit only once the request is fully validated. The charge is

@@ -10,10 +10,8 @@ const state = reactive({
     projectName: '',
     lastParams: '',
     params: {
-        widthPlate: '400',
-        heightPlate: '560',
+        sheets: [{ width: '400', height: '560', count: '100' }],
         space: '0.1',
-        sheetCount: 100,
         addOutShape: false,
         rotationCount: 4
     },
@@ -40,26 +38,41 @@ const state = reactive({
     currentFilesSlug: computed(
         () => new Set(state.projectFiles?.map((file) => file.slug) || [])
     ),
-    isValidParams: computed(() =>
-        !isValidNumber(state.params.widthPlate) ||
-        !isValidNumber(state.params.heightPlate) ||
-        !isValidNumber(state.params.space) ||
-        !isValidNumber(state.params.sheetCount)
-    ),
-    requestBody: computed(() =>
-        JSON.stringify({
+    isValidParams: computed(() => {
+        const sheets = normalizedSheets(state.params)
+        if (sheets.length === 0) return true
+        const invalid = sheets.some(
+            (sheet) =>
+                !isValidNumber(sheet.width) ||
+                !isValidNumber(sheet.height) ||
+                !/^\d+$/.test(String(sheet.count)) ||
+                Number(sheet.count) < 1
+        )
+        return invalid || !isValidNumber(state.params.space)
+    }),
+    requestBody: computed(() => {
+        const sheets = normalizedSheets(state.params)
+        const first = sheets[0] || { width: 0, height: 0, count: 0 }
+        return JSON.stringify({
             files: state.filesToNest,
             params: {
-                width: Number(state.params.widthPlate),
-                height: Number(state.params.heightPlate),
+                sheets: sheets.map((sheet) => ({
+                    width: Number(sheet.width),
+                    height: Number(sheet.height),
+                    count: Number(sheet.count),
+                })),
+                // Legacy mirror of the first sheet — older workers/APIs only
+                // understand width/height/sheetCount.
+                width: Number(first.width),
+                height: Number(first.height),
+                sheetCount: Number(first.count),
                 tolerance: Number(state.params.tolerance),
                 space: Number(state.params.space),
-                sheetCount: Number(state.params.sheetCount),
                 addOutShape: state.params.addOutShape,
                 rotationCount: Number(state.params.rotationCount)
             }
         })
-    )
+    })
 })
 
 let updateTimer
@@ -120,6 +133,42 @@ function isValidNumber(value) {
     return /^\d+([.,]\d+)?$/.test(value)
 }
 /**
+ * Sheets list with backward compatibility: params written before the
+ * multi-sheet feature only had widthPlate/heightPlate/sheetCount.
+ */
+function normalizedSheets(params) {
+    if (Array.isArray(params.sheets) && params.sheets.length > 0) {
+        return params.sheets
+    }
+    if (params.widthPlate != null) {
+        return [{
+            width: params.widthPlate,
+            height: params.heightPlate,
+            count: params.sheetCount ?? 1,
+        }]
+    }
+    return []
+}
+function updateParams(param) {
+    state.params = { ...state.params, ...param }
+}
+function updateSheet(index, patch) {
+    const sheets = normalizedSheets(state.params).map((sheet, i) =>
+        i === index ? { ...sheet, ...patch } : sheet
+    )
+    state.params = { ...state.params, sheets }
+}
+function addSheet() {
+    const sheets = normalizedSheets(state.params)
+    const last = sheets[sheets.length - 1] || { width: '400', height: '560', count: '1' }
+    state.params = { ...state.params, sheets: [...sheets, { ...last, count: '1' }] }
+}
+function removeSheet(index) {
+    const sheets = normalizedSheets(state.params)
+    if (sheets.length <= 1) return
+    state.params = { ...state.params, sheets: sheets.filter((_, i) => i !== index) }
+}
+/**
  * Builds the array of allowed rotation angles (in degrees) from a rotation
  * count. N rotations are spread evenly around the full circle, always
  * including 0°. Examples:
@@ -134,9 +183,6 @@ function buildRotationAngles(count) {
     if (n === 1) return [0]
     const step = 360 / n
     return Array.from({ length: n }, (_, i) => Math.round(i * step))
-}
-function updateParams(param) {
-    state.params = { ...state.params, ...param }
 }
 function increment(index, event) {
     const step = event && event.shiftKey ? 10 : 1
@@ -217,7 +263,7 @@ export const filesStore = readonly({
                 return 'Please select at least one file to nest.'
             }
             if (state.isValidParams) {
-                return 'Please enter valid values for width, height, tolerance and space.'
+                return 'Please enter valid values for every sheet (width, height, count) and spacing.'
             }
 
             return ''
@@ -227,6 +273,9 @@ export const filesStore = readonly({
         setProjectFiles,
         setProjectName,
         updateParams,
+        updateSheet,
+        addSheet,
+        removeSheet,
         updateCount,
         updateRotation,
         getProject,
