@@ -67,7 +67,7 @@ def _get_origin_entities(file_slug, handles, owner_id=None, dek=None):
     return doc, entities
 
 
-def _build_result_drawing(placed_items, items_by_id, owner_id=None, dek=None):
+def _build_result_drawing(placed_items, items_by_id, owner_id=None, dek=None, bin_width=None, bin_height=None):
     """
     Build the nested-strip DXF from the placed parts.
 
@@ -81,6 +81,16 @@ def _build_result_drawing(placed_items, items_by_id, owner_id=None, dek=None):
     """
     new_doc = ezdxf.new()
     new_msp = new_doc.modelspace()
+
+    if bin_width is not None and bin_height is not None:
+        # Strip boundary (solution width × requested height), blue layer.
+        if "BIN_BOUNDARY" not in new_doc.layers:
+            new_doc.layers.new(name="BIN_BOUNDARY", dxfattribs={"color": 5})
+        new_msp.add_lwpolyline(
+            [(0, 0), (bin_width, 0), (bin_width, bin_height), (0, bin_height)],
+            close=True,
+            dxfattribs={"layer": "BIN_BOUNDARY"},
+        )
 
     for placed in placed_items:
         item = items_by_id.get(placed.id)
@@ -213,7 +223,7 @@ def strip_nesting_process(doc):
         },
     )
 
-    drawing = _build_result_drawing(placed_items, items_by_id, owner_id, dek)
+    drawing = _build_result_drawing(placed_items, items_by_id, owner_id, dek, bin_width=width, bin_height=float(height))
 
     dxf_file_name = f"{slug}.dxf"
     _save_dxf_result(owner_id, dxf_file_name, drawing, dek)

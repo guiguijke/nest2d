@@ -10,8 +10,8 @@
             {{ nestRequestError }}
         </div>
         <div v-if="!sizesIsAvailable && !nestRequestError" class="content__error">
-            The plate size needs to be at least {{ biggestPartSizes.width }} x {{ biggestPartSizes.height }} mm. The
-            current plate size is {{ params.widthPlate }} x {{ params.heightPlate }} mm, which is too small
+            The biggest part needs a sheet of at least {{ biggestPartSizes.width }} x {{ biggestPartSizes.height }} mm.
+            No declared sheet type is large enough.
         </div>
         <div v-if="!isNewParams" class="content__text">
             Change settings or files to generate again
@@ -62,17 +62,20 @@ const biggestPartSizes = computed(() => {
         height: Math.max(...parts.map(part => part.height), 0)
     };
 })
-const currentSizes = computed(() => {
-    const { widthPlate, heightPlate } = unref(params);
-    return {
-        width: widthPlate > heightPlate ? widthPlate : heightPlate,
-        height: widthPlate > heightPlate ? heightPlate : widthPlate
-    };
+const currentSheets = computed(() => {
+    const p = unref(params);
+    if (Array.isArray(p.sheets) && p.sheets.length > 0) return p.sheets;
+    // Legacy params shape (before multi-sheet).
+    return [{ width: p.widthPlate ?? 0, height: p.heightPlate ?? 0 }];
 })
+// A part fits if it fits inside at least one sheet type, in either orientation.
 const sizesIsAvailable = computed(() => {
-    const { width, height } = unref(currentSizes);
     const { width: partWidth, height: partHeight } = unref(biggestPartSizes);
-    return (width >= partWidth && height >= partHeight) || (height >= partWidth && width >= partHeight);
+    return unref(currentSheets).some((sheet) => {
+        const width = Math.max(Number(sheet.width) || 0, Number(sheet.height) || 0);
+        const height = Math.min(Number(sheet.width) || 0, Number(sheet.height) || 0);
+        return width >= partWidth && height >= partHeight;
+    });
 })
 onMounted(() => {
     if (!filesGetters.projectFiles) {

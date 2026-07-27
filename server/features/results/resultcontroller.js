@@ -40,6 +40,15 @@ export async function getResults(userId, projectSlug) {
             isInProgress: queueItem.status === 'processing' || queueItem.status === 'pending',
             svgs: (queueItem.svg_files || []).map((file) => "/api/files/result/svg/" + file),
             dxfs: (queueItem.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),
+            // Alternative layouts (best first); empty for jobs run before
+            // the feature existed — dxfs/svgs above stay the canonical ones.
+            alternatives: (queueItem.alternatives || []).map((alt) => ({
+                altId: alt.alt_id,
+                density: alt.density,
+                layoutCount: alt.layoutCount,
+                svgs: (alt.svg_files || []).map((file) => "/api/files/result/svg/" + file),
+                dxfs: (alt.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),
+            })),
         }
     })
 
