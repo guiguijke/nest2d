@@ -1,5 +1,6 @@
 import { connectDB } from "~/server/db/mongo";
 import { getEntitlement } from "~/server/utils/entitlement";
+import { getVaultStatus } from "~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;
@@ -16,6 +17,8 @@ export default defineEventHandler(async (event) => {
     ? await getEntitlement(userId)
     : { freeRemaining: 0, creditsRemaining: 0, subscriptionStatus: null, requiresPaywall: false };
 
+  const vault = await getVaultStatus(userId);
+
   return {
     id: user.id,
     name: user.name,
@@ -27,5 +30,10 @@ export default defineEventHandler(async (event) => {
     creditsRemaining: entitlement.creditsRemaining,
     subscriptionStatus: entitlement.subscriptionStatus,
     requiresPaywall: entitlement.requiresPaywall,
+    encryption: {
+      enabled: vault.enabled,
+      locked: vault.locked,
+      keyId: vault.keyId,
+    },
   };
 });

@@ -70,6 +70,11 @@ async function getProject(path) {
         setProjectFiles(data.files, path)
         setProjectName(data.name)
     } catch (error) {
+        if (error?.data?.statusMessage === 'vault_locked') {
+            const vaultUnlockDialog = useVaultUnlockDialog();
+            vaultUnlockDialog.value = true;
+            return
+        }
         console.error('Error fetching project:', error)
         navigateTo("/home");
     }
@@ -182,6 +187,11 @@ async function nest(slug) {
             if (error?.response?.status === 402) {
                 const buyCreditsDialog = useBuyCreditsDialog();
                 buyCreditsDialog.value = true;
+                return
+            }
+            if (error?.data?.statusMessage === 'vault_locked') {
+                const vaultUnlockDialog = useVaultUnlockDialog();
+                vaultUnlockDialog.value = true;
                 return
             }
         }

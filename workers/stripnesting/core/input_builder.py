@@ -1,5 +1,6 @@
 from utils.mongo import db
 from utils.logger import setup_logger
+from utils.crypto import resolve_polygon_parts
 
 logger = setup_logger("strip_input_builder")
 
@@ -46,7 +47,7 @@ def _sanitize_angle(angle):
     return allowed or [0.0]
 
 
-def build_input_items(files):
+def build_input_items(files, dek=None):
     """
     Build the list of nesting items for a strip nesting job.
 
@@ -70,7 +71,9 @@ def build_input_items(files):
         if strip_file is None:
             raise Exception(f"Strip file not found: {file_slug}")
 
-        polygon_parts = strip_file.get("polygonParts") or []
+        # Decrypts the enc blob when the vault was enabled; passes legacy
+        # plaintext through untouched.
+        polygon_parts = resolve_polygon_parts(db, strip_file, dek)
         if not polygon_parts:
             raise Exception(
                 f"Strip file '{file_slug}' has no polygonParts "

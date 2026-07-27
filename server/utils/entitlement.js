@@ -91,6 +91,42 @@ export async function getEntitlement(userId) {
 }
 
 /**
+ * Maps the user's subscription priceId to a plan tier using the synced
+ * subscription_plan documents (see 6_subscription_plan_sync.ts). Returns
+ * 'standard' when the price is unknown but the subscription is active — an
+ * unknown price must never silently grant premium features.
+ * @param {any} user
+ * @returns {Promise<string|null>} 'standard' | 'privacy' | null
+ */
+export async function getSubscriptionTier(user) {
+  if (!hasActiveSubscription(user)) {
+    return null;
+  }
+  const db = await connectDB();
+  const plan = await db
+    .collection("subscription_plan")
+    .findOne({ priceId: user.subscription.priceId }, { projection: { tier: 1 } });
+  return plan?.tier || "standard";
+}
+
+/**
+ * Whether the user may enable the zero-knowledge vault ("Confidentialité+"
+ * tier). Admins always qualify (dogfooding + support).
+ * @param {string} userId
+ * @returns {Promise<boolean>}
+ */
+export async function hasPrivacyTier(userId) {
+  const db = await connectDB();
+  const user = await db
+    .collection("users")
+    .findOne({ id: userId }, { projection: { isAdmin: 1, subscription: 1 } });
+  if (user?.isAdmin) {
+    return true;
+  }
+  return (await getSubscriptionTier(user)) === "privacy";
+}
+
+/**
  * Gate for nesting requests of feature-flagged users.
  *
  * Charge order: admin (free) → active subscription → free quota → paid

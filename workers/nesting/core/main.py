@@ -22,6 +22,7 @@ from shapely.geometry import Polygon
 sys.path.append(str(Path(__file__).parent.parent))
 
 from utils.logger import setup_logger
+from utils.crypto import get_dek, read_gridfs, resolve_polygon_parts, write_gridfs
 
 logger = setup_logger("core_nesting")
 
@@ -44,16 +45,18 @@ class ResultContainer:
     def __str__(self) -> str:
         return f"ResultContainer -> Container(ID): {self.container_id}, Transforms: {self.transforms}"
     
-def convert_files_to_input_items(files, space):
+def convert_files_to_input_items(files, space, dek=None):
     input_items = []
     id = 0
     for file in files:
         file_slug = file.get("slug")
         count = file.get("count")
         rotations = file.get("rotations", [0, 90, 180, 270])  # Default to all rotations if not specified
-        
+
         user_dxf_file = db["user_dxf_files"].find_one({"slug": file_slug})
-        plogonParts = user_dxf_file.get("polygonParts")
+        # Decrypts the enc blob when the file was processed while the vault
+        # was enabled; passes legacy plaintext through untouched.
+        plogonParts = resolve_polygon_parts(db, user_dxf_file, dek)
         for part in plogonParts:
             coords = part.get("coordinates")
             handles = part.get("handles")
@@ -78,22 +81,22 @@ def convert_files_to_input_items(files, space):
     return input_items
 
 
-def save_dxf_result(owner_id, file_name, drawing):
+def save_dxf_result(owner_id, file_name, drawing, dek=None):
     dxf_copy_text_stream = io.StringIO()
     drawing.write(dxf_copy_text_stream)
     dxf_copy_text = dxf_copy_text_stream.getvalue()
     dxf_copy_text_stream.close()
-    
-    dxf_copy_bytes = dxf_copy_text.encode('utf-8')
-    
-    dxf_result_bucket.upload_from_stream(filename=file_name, source=dxf_copy_bytes, metadata={"ownerId": owner_id})
-    
-def save_svg_result(owner_id, file_name, drawing):
-    svg_string = create_svg_from_doc(drawing, 0.001)
-    svg_bytes = io.BytesIO(svg_string.encode("utf-8"))
-    svg_result_bucket.upload_from_stream(filename=file_name, source=svg_bytes, metadata={"ownerId": owner_id})
 
-def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=False, space=0):
+    dxf_copy_bytes = dxf_copy_text.encode('utf-8')
+
+    write_gridfs(dxf_result_bucket, file_name, dxf_copy_bytes, owner_id, dek)
+
+def save_svg_result(owner_id, file_name, drawing, dek=None):
+    svg_string = create_svg_from_doc(drawing, 0.001)
+    svg_bytes = svg_string.encode('utf-8')
+    write_gridfs(svg_result_bucket, file_name, svg_bytes, owner_id, dek)
+
+def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=False, space=0, dek=None):
     """
     Iterates through containers, builds a combined/transformed DXF for each,
     and saves the result.
@@ -105,14 +108,14 @@ def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=Fals
     for result_container in result_containers:
         dxf_file_name = f"{slug}_part_{result_container.container_id}.dxf"
         
-        new_drawing = build_part(result_container.transforms, add_out_shape, space)
+        new_drawing = build_part(result_container.transforms, add_out_shape, space, owner_id, dek)
         
         logger.info("Saving combined file", extra={"file_name": dxf_file_name})
-        save_dxf_result(owner_id, dxf_file_name, new_drawing)
+        save_dxf_result(owner_id, dxf_file_name, new_drawing, dek)
         dxf_files.append(dxf_file_name)
         
         svg_file_name = f"{slug}_part_{result_container.container_id}.svg"
-        save_svg_result(owner_id, svg_file_name, new_drawing)
+        save_svg_result(owner_id, svg_file_name, new_drawing, dek)
         svg_files.append(svg_file_name)
         
     db["nesting_jobs"].update_one(
@@ -126,7 +129,7 @@ def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=Fals
         }
     )
  
-def build_part(transforms, add_out_shape=False, space=0):
+def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None):
     """
     Creates a single new DXF drawing by fetching, transforming, and combining
     entities from a list of transform operations.
@@ -141,7 +144,7 @@ def build_part(transforms, add_out_shape=False, space=0):
     for transform in transforms:
         try:
             source_doc, entities_to_process = get_entities_from_dxf_file(
-                transform.file_slug, transform.handles
+                transform.file_slug, transform.handles, owner_id, dek
             )
             
             if not entities_to_process:
@@ -198,7 +201,7 @@ def build_part(transforms, add_out_shape=False, space=0):
 
 dxf_document_cache = {}
 
-def get_entities_from_dxf_file(dxf_file_slug, handles):
+def get_entities_from_dxf_file(dxf_file_slug, handles, owner_id=None, dek=None):
     """
     Opens a DXF file and returns the doc object and a list of entities 
     matching the given handles.
@@ -206,8 +209,8 @@ def get_entities_from_dxf_file(dxf_file_slug, handles):
     if dxf_file_slug in dxf_document_cache:
         doc = dxf_document_cache[dxf_file_slug]
     else:
-        dxf_file = valid_dxf_bucket.open_download_stream_by_name(filename=dxf_file_slug)
-        doc = read_dxf(dxf_file)
+        dxf_bytes = read_gridfs(valid_dxf_bucket, dxf_file_slug, owner_id, dek)
+        doc = read_dxf(io.BytesIO(dxf_bytes))
         dxf_document_cache[dxf_file_slug] = doc
         
     msp = doc.modelspace()
@@ -235,11 +238,16 @@ def nesting_process(doc):
     allow_rotation = params.get("allowRotation", True)
     add_out_shape = params.get("addOutShape", False)
     owner_id = doc.get("ownerId")
-    
+
+    # Unwrapped DEK when the owner's vault is unlocked, None on the legacy
+    # plaintext path. Raises VaultLockedError when files are encrypted but
+    # the session expired mid-queue.
+    dek = get_dek(db, owner_id)
+
     # Map allowRotation boolean to allowed_orientations array (fallback for backward compatibility)
     default_allowed_orientations = [0.0, 90.0, 180.0, 270.0] if allow_rotation else [0.0]
    
-    input_items = convert_files_to_input_items(files, space)
+    input_items = convert_files_to_input_items(files, space, dek)
     jaguar_items = []
    
     total_requested_count = 0
@@ -341,4 +349,4 @@ def nesting_process(doc):
         )
         raise Exception("Not all items could be placed in the nesting job")
     
-    build_result_dxf_files(owner_id, slug, result_containers, add_out_shape, space)
+    build_result_dxf_files(owner_id, slug, result_containers, add_out_shape, space, dek)

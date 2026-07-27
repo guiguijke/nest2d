@@ -5,6 +5,7 @@ import standardSlugify from "standard-slugify";
 import logger from "~~/server/utils/logger";
 import { trackEvent } from "~~/server/tracking/add";
 import { assertCanNest } from "~~/server/utils/entitlement";
+import { requireFileAccess } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;
@@ -99,6 +100,11 @@ export default defineEventHandler(async (event) => {
   if (user.isStripFeatureEnable) {
     charge = await assertCanNest(userId);
   }
+
+  // Encrypted vaults must be unlocked before a job can be enqueued — the
+  // workers need an active session to read the source files. Also refreshes
+  // the sliding TTL so the session outlives the job.
+  await requireFileAccess(userId);
 
   await db.collection("nesting_jobs").insertOne({
     slug: nestingSlug,

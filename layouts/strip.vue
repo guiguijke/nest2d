@@ -11,12 +11,25 @@
         </main>
         <Footer />
         <BuyCreditsDialog v-model:isModalOpen="buyCreditsDialog" />
+        <VaultUnlock v-if="vaultLocked" />
     </div>
 </template>
 
 <script setup>
 import { themeType } from '~~/constants/theme.constants';
 const buyCreditsDialog = useBuyCreditsDialog();
+const vaultUnlockDialog = useVaultUnlockDialog();
+
+// Auto-open the unlock modal whenever the vault is enabled but locked
+// (e.g. after the 2h session TTL expired or on a fresh browser).
+const { getters: authGetters } = authStore;
+const vaultLocked = computed(() => {
+    const encryption = unref(authGetters.user)?.encryption;
+    return Boolean(encryption?.enabled && encryption?.locked);
+});
+watch(vaultLocked, (locked) => {
+    if (locked) vaultUnlockDialog.value = true;
+}, { immediate: true });
 </script>
 <style lang="scss" scoped>
 .main {

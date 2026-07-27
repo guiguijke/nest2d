@@ -41,6 +41,7 @@ services:
       NUXT_PUBLIC_GITHUB_REPO: ${NUXT_PUBLIC_GITHUB_REPO:-https://github.com/guiguijke/nest2d}
       NUXT_PUBLIC_COPYRIGHT_YEAR: ${NUXT_PUBLIC_COPYRIGHT_YEAR:-}
       NUXT_BLOCKED_COUNTRIES: ${NUXT_BLOCKED_COUNTRIES:-}
+      NUXT_ENCRYPTION_MASTER_KEY: ${NUXT_ENCRYPTION_MASTER_KEY:-}
     depends_on:
       mongo:
         condition: service_healthy
@@ -71,6 +72,7 @@ services:
     image: ghcr.io/guiguijke/nest2d-user-file-processing-worker:latest
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
+      ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-}
       WORKER_TAG: normal
       MAX_ENTITY_LIMIT: 999
     depends_on:
@@ -84,6 +86,7 @@ services:
     image: ghcr.io/guiguijke/nest2d-nesting-worker:latest
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
+      ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-}
     depends_on:
       mongo:
         condition: service_healthy
@@ -95,6 +98,7 @@ services:
     image: ghcr.io/guiguijke/nest2d-strip-file-processing-worker:latest
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
+      ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-}
     depends_on:
       mongo:
         condition: service_healthy
@@ -106,6 +110,7 @@ services:
     image: ghcr.io/guiguijke/nest2d-strip-nesting-worker:latest
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
+      ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-}
     depends_on:
       mongo:
         condition: service_healthy

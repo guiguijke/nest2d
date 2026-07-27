@@ -13,6 +13,13 @@ from shapely.geometry import Point
 import time
 
 from core.geometry.build_geometry import build_geometry
+from utils.crypto import (
+    encrypt_polygon_parts,
+    get_dek,
+    read_gridfs,
+    resolve_polygon_parts,
+    write_gridfs,
+)
 
 _drawing_cache = {}
 
@@ -28,9 +35,10 @@ def _getting_drawing(doc) -> Drawing:
     if not doc.get("isDxfCopyExist", False):
         raise Exception("Dxf copy not exists")
     
-    grid_out = valid_dxf_bucket.open_download_stream_by_name(dxf_file_slug)
-    
-    drawing = read_dxf(grid_out)
+    dek = get_dek(db, doc["ownerId"])
+    dxf_bytes = read_gridfs(valid_dxf_bucket, dxf_file_slug, doc["ownerId"], dek)
+
+    drawing = read_dxf(io.BytesIO(dxf_bytes))
     _drawing_cache[dxf_file_slug] = drawing
     
     return drawing
@@ -44,12 +52,13 @@ def _make_dxf_copy(doc) -> Drawing:
         return 
     
     user_id = doc["ownerId"]
-    
+
     logger.info("Making dxf copy", extra={"dxf_file_slug": dxf_file_slug})
-    
-    grid_out = user_dxf_bucket.open_download_stream_by_name(dxf_file_slug)
-    
-    dxf_copy = read_dxf(grid_out)
+
+    dek = get_dek(db, user_id)
+    dxf_bytes = read_gridfs(user_dxf_bucket, dxf_file_slug, user_id, dek)
+
+    dxf_copy = read_dxf(io.BytesIO(dxf_bytes))
     
     logger.info("Make a copy Drawing info", extra={"entity_count": len(dxf_copy.modelspace())})
     
@@ -65,7 +74,7 @@ def _make_dxf_copy(doc) -> Drawing:
     except Exception as e:
         logger.info("Error deleting dxf file", extra={"error": e})
         
-    valid_dxf_bucket.upload_from_stream(filename=dxf_file_slug, source=dxf_copy_bytes, metadata={"ownerId": user_id})
+    write_gridfs(valid_dxf_bucket, dxf_file_slug, dxf_copy_bytes, user_id, dek)
     
     db["user_dxf_files"].update_one(
         {"_id": doc["_id"]},
@@ -82,16 +91,17 @@ def _make_svg_file(doc):
     #    return
     
     drawing = _getting_drawing(doc)
-    
+
     slug = doc["slug"]
-    closed_parts = doc.get("polygonParts")
-    svg_slug = slug.removesuffix('.dxf') + '-origin.svg'
     owner_id = doc["ownerId"]
-    
+    dek = get_dek(db, owner_id)
+    closed_parts = resolve_polygon_parts(db, doc, dek)
+    svg_slug = slug.removesuffix('.dxf') + '-origin.svg'
+
     svg_string = create_svg_from_doc(drawing, closed_parts)
-    svg_bytes = io.BytesIO(svg_string.encode("utf-8"))
-    
-    user_dxf_files_svg_bucket.upload_from_stream(filename=svg_slug, source=svg_bytes, metadata={"ownerId": owner_id})
+    svg_bytes = svg_string.encode("utf-8")
+
+    write_gridfs(user_dxf_files_svg_bucket, svg_slug, svg_bytes, owner_id, dek)
     
     db["user_dxf_files"].update_one(
         {"_id": doc["_id"]},
@@ -106,7 +116,7 @@ def _make_svg_file(doc):
 def _close_polygon_from_dxf(doc, logger_tag: str):
     logger = setup_logger(logger_tag)
      
-    if doc.get("polygonParts"):
+    if doc.get("polygonParts") or doc.get("encPolygonParts"):
         logger.info("polygon_parts_already_exist", extra={"slug": doc["slug"]})
      
     tolerance = doc["flattening"]
@@ -128,15 +138,29 @@ def _close_polygon_from_dxf(doc, logger_tag: str):
         if mongo_dict is not None:
             polygon_parts.append(mongo_dict)
     
-    db["user_dxf_files"].update_one(
-        {"_id": doc["_id"]},
-        {
-            "$set": {
-                "polygonParts": polygon_parts
+    dek = get_dek(db, doc["ownerId"])
+    if dek is not None:
+        # Vault enabled: geometry is stored encrypted; the plaintext parts
+        # only live in memory for the rest of this processing run.
+        db["user_dxf_files"].update_one(
+            {"_id": doc["_id"]},
+            {
+                "$set": {
+                    "encPolygonParts": encrypt_polygon_parts(dek, doc["slug"], doc["ownerId"], polygon_parts)
+                },
+                "$unset": {"polygonParts": ""}
             }
-        }
-    )
-    
+        )
+    else:
+        db["user_dxf_files"].update_one(
+            {"_id": doc["_id"]},
+            {
+                "$set": {
+                    "polygonParts": polygon_parts
+                }
+            }
+        )
+
     doc["polygonParts"] = polygon_parts
     
     end_time = time.time()

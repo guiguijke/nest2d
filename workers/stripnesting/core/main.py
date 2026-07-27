@@ -11,6 +11,7 @@ import spyrrow
 
 from utils.mongo import db, strip_nest_dxf_bucket, strip_user_dxf_bucket
 from utils.logger import setup_logger
+from utils.crypto import get_dek, read_gridfs, write_gridfs
 from core.input_builder import build_input_items
 
 logger = setup_logger("core_stripnesting")
@@ -38,7 +39,7 @@ def _transform_coords(coords, rotation_deg, tx, ty):
     ]
 
 
-def _load_origin_doc(file_slug):
+def _load_origin_doc(file_slug, owner_id=None, dek=None):
     """Load (and cache) the user's original strip DXF for a file slug.
 
     Loaded with `recover.readfile` — the same loader the stripfileprocessing
@@ -48,9 +49,9 @@ def _load_origin_doc(file_slug):
     if file_slug in _origin_doc_cache:
         return _origin_doc_cache[file_slug]
 
-    stream = strip_user_dxf_bucket.open_download_stream_by_name(file_slug)
+    dxf_bytes = read_gridfs(strip_user_dxf_bucket, file_slug, owner_id, dek)
     with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as tmp:
-        tmp.write(stream.read())
+        tmp.write(dxf_bytes)
         tmp_path = tmp.name
 
     doc, _auditor = recover.readfile(tmp_path)
@@ -58,15 +59,15 @@ def _load_origin_doc(file_slug):
     return doc
 
 
-def _get_origin_entities(file_slug, handles):
+def _get_origin_entities(file_slug, handles, owner_id=None, dek=None):
     """Return the origin document and the entities whose handles match `handles`."""
-    doc = _load_origin_doc(file_slug)
+    doc = _load_origin_doc(file_slug, owner_id, dek)
     handle_set = set(handles)
     entities = [e for e in doc.modelspace() if e.dxf.handle in handle_set]
     return doc, entities
 
 
-def _build_result_drawing(placed_items, items_by_id):
+def _build_result_drawing(placed_items, items_by_id, owner_id=None, dek=None):
     """
     Build the nested-strip DXF from the placed parts.
 
@@ -90,7 +91,7 @@ def _build_result_drawing(placed_items, items_by_id):
         tx, ty = placed.translation
         matrix = Matrix44.z_rotate(math.radians(placed.rotation)) * Matrix44.translate(tx, ty, 0)
 
-        source_doc, entities = _get_origin_entities(item.file_slug, item.handles)
+        source_doc, entities = _get_origin_entities(item.file_slug, item.handles, owner_id, dek)
 
         if not entities:
             logger.warning(
@@ -121,15 +122,13 @@ def _build_result_drawing(placed_items, items_by_id):
     return new_doc
 
 
-def _save_dxf_result(owner_id, file_name, drawing):
+def _save_dxf_result(owner_id, file_name, drawing, dek=None):
     text_stream = io.StringIO()
     drawing.write(text_stream)
     data = text_stream.getvalue().encode("utf-8")
     text_stream.close()
 
-    strip_nest_dxf_bucket.upload_from_stream(
-        filename=file_name, source=data, metadata={"ownerId": owner_id}
-    )
+    write_gridfs(strip_nest_dxf_bucket, file_name, data, owner_id, dek)
 
 
 def strip_nesting_process(doc):
@@ -143,6 +142,11 @@ def strip_nesting_process(doc):
     """
     slug = doc.get("slug")
     owner_id = doc.get("ownerId")
+
+    # Unwrapped DEK when the owner's vault is unlocked, None on the legacy
+    # plaintext path. Raises VaultLockedError when files are encrypted but
+    # the session expired mid-queue.
+    dek = get_dek(db, owner_id)
     files = doc.get("files") or []
     params = doc.get("params") or {}
     height = params.get("height")
@@ -154,7 +158,7 @@ def strip_nesting_process(doc):
     if height is None or float(height) <= 0:
         raise Exception("Invalid strip height")
 
-    input_items = build_input_items(files)
+    input_items = build_input_items(files, dek)
     if not input_items:
         raise Exception("No items to nest")
 
@@ -209,10 +213,10 @@ def strip_nesting_process(doc):
         },
     )
 
-    drawing = _build_result_drawing(placed_items, items_by_id)
+    drawing = _build_result_drawing(placed_items, items_by_id, owner_id, dek)
 
     dxf_file_name = f"{slug}.dxf"
-    _save_dxf_result(owner_id, dxf_file_name, drawing)
+    _save_dxf_result(owner_id, dxf_file_name, drawing, dek)
 
     strip_nesting_jobs.update_one(
         {"slug": slug},
