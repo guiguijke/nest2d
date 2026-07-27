@@ -29,10 +29,10 @@ export function base64ToKey(base64) {
 
 export function buildKeyFile(keyBytes, keyId) {
     return {
-        name: `nest2d-vault-${keyId}.key.json`,
+        name: `aplasma-vault-${keyId}.key.json`,
         content: JSON.stringify(
             {
-                type: 'nest2d-vault-key',
+                type: 'aplasma-vault-key',
                 version: 1,
                 keyId,
                 key: keyToBase64(keyBytes),
@@ -64,10 +64,11 @@ export async function parseKeyFile(file) {
     try {
         parsed = JSON.parse(text)
     } catch {
-        throw new Error('This file is not a valid Nest2D key file.')
+        throw new Error('This file is not a valid APlasma Nesting key file.')
     }
-    if (parsed?.type !== 'nest2d-vault-key' || !parsed?.key) {
-        throw new Error('This file is not a valid Nest2D key file.')
+    const validTypes = ['aplasma-vault-key', 'nest2d-vault-key'] // nest2d = legacy brand
+    if (!validTypes.includes(parsed?.type) || !parsed?.key) {
+        throw new Error('This file is not a valid APlasma Nesting key file.')
     }
     const key = base64ToKey(parsed.key)
     if (key.length !== 32) {

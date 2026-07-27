@@ -2,7 +2,7 @@
     <header class="header">
         <component :is="logoTag" v-bind="logoHref" class="header__logo logo">
             <span class="logo__label">
-                Nest2D
+                APlasma <span class="logo__label--light">Nesting</span>
             </span>
         </component>
         <nav v-if="isPrimaryTheme && isStripFeatureEnabled" class="header__tabs tabs">
@@ -294,6 +294,12 @@ const themeIcon = computed(() => {
         font-size: 28px;
         font-weight: 900;
         color: var(--accent-primary);
+        white-space: nowrap;
+
+        &--light {
+            font-weight: 400;
+            opacity: 0.7;
+        }
     }
 }
 

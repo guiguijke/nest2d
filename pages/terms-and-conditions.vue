@@ -2,11 +2,11 @@
   <div class="max-w-4xl mx-auto p-6 bg-gray-50 text-gray-800 shadow-lg rounded-lg">
     <h1 class="text-3xl font-bold mb-4">Terms and Conditions</h1>
     <p class="mb-4">
-      Welcome to <span class="text-blue-600 font-semibold">Nest2D</span>! Thank
+      Welcome to <span class="text-blue-600 font-semibold">APlasma Nesting</span>! Thank
       you for engaging with our open-source project.
     </p>
     <p class="mb-4">
-      By accessing <span class="text-blue-600 font-semibold">Nest2D</span>, its
+      By accessing <span class="text-blue-600 font-semibold">APlasma Nesting</span>, its
       website, repositories, or any related services (collectively referred to
       as "Project"), you agree to abide by the terms and conditions outlined
       below. If you do not agree to these terms, please refrain from using or
@@ -15,7 +15,7 @@
 
     <h2 class="text-2xl font-semibold mt-6 mb-4">Open Source Philosophy</h2>
     <p class="mb-4">
-      <span class="text-blue-600 font-semibold">Nest2D</span> is built on
+      <span class="text-blue-600 font-semibold">APlasma Nesting</span> is built on
       open-source principles of collaboration, transparency, and
       community-driven development. Contributions, usage, and feedback are
       encouraged to enhance the Project and benefit the community.
@@ -24,7 +24,7 @@
     <h2 class="text-2xl font-semibold mt-6 mb-4">License</h2>
     <p class="mb-4">
       The source code and related materials of
-      <span class="text-blue-600 font-semibold">Nest2D</span> are licensed under
+      <span class="text-blue-600 font-semibold">APlasma Nesting</span> are licensed under
       the
       <a
         href="https://opensource.org/licenses/MIT"
@@ -46,7 +46,7 @@
       </li>
       <li>
         By submitting contributions, you grant
-        <span class="text-blue-600 font-semibold">Nest2D</span> a perpetual,
+        <span class="text-blue-600 font-semibold">APlasma Nesting</span> a perpetual,
         non-exclusive right to use, modify, and distribute your contributions.
       </li>
     </ul>
@@ -54,7 +54,7 @@
     <h2 class="text-2xl font-semibold mt-6 mb-4">Usage Restrictions</h2>
     <ul class="list-disc pl-6 mb-4">
       <li>
-        Do not use <span class="text-blue-600 font-semibold">Nest2D</span> for
+        Do not use <span class="text-blue-600 font-semibold">APlasma Nesting</span> for
         malicious or illegal purposes.
       </li>
       <li>
@@ -74,7 +74,7 @@
 
     <h2 class="text-2xl font-semibold mt-6 mb-4">Disclaimer</h2>
     <p class="mb-4">
-      <span class="text-blue-600 font-semibold">Nest2D</span> is provided "as
+      <span class="text-blue-600 font-semibold">APlasma Nesting</span> is provided "as
       is" without warranty of any kind, express or implied, including but not
       limited to the warranties of merchantability, fitness for a particular
       purpose, and noninfringement. In no event shall the authors or copyright

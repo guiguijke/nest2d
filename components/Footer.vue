@@ -37,11 +37,17 @@
                 </li>
             </ul>
             <p class="footer__copyright">
-                © 2025 Nest2D. Built with ♥ and open source principles. Forked from <a href="https://github.com/VovaStelmashchuk/nest2d" target="_blank" class="footer__link">VovaStelmashchuk/nest2d</a>.
+                © {{ copyrightYear }} APlasma Nesting. Inspired by Nest2D — forked from <a href="https://github.com/VovaStelmashchuk/nest2d" target="_blank" class="footer__link">VovaStelmashchuk/nest2d</a>. Built with ♥ and open source principles.
             </p>
         </div>
     </footer>
 </template>
+
+<script setup>
+import { useSiteConfig } from '~~/data/siteConfig';
+
+const { copyrightYear } = useSiteConfig();
+</script>
 
 <style lang="scss" scoped>
 .footer {

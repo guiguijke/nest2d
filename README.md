@@ -1,6 +1,7 @@
-# Nest2D
+# APlasma Nesting
 
 Nesting for plotters, laser & plasma cutters, and other CNC machines.
+Inspired by [Nest2D](https://github.com/VovaStelmashchuk/nest2d) (fork).
 Self-hosted on a homelab (Docker Compose + Nginx Proxy Manager).
 
 ![screen of working](./doc/web_screen.png)

@@ -31,7 +31,7 @@
             <button class="hero__visual" @click="openModal({ src: heroScreenshot, index: 0, theme: theme })">
                 <img
                     :src="heroScreenshot"
-                    alt="Nest2D workspace — parts nested on a sheet"
+                    alt="APlasma Nesting workspace — parts nested on a sheet"
                     class="hero__img"
                 />
             </button>
@@ -108,7 +108,7 @@
                 >
                     <img
                         :src="screenshot.src"
-                        alt="Nest2D user interface"
+                        alt="APlasma Nesting user interface"
                         class="screenshots-list__img"
                     />
                 </button>
