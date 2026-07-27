@@ -4,6 +4,11 @@ export default defineNitroPlugin(async (nitroApp) => {
     const config = useRuntimeConfig()
     const stripeSecretKey = config.stripeSecretKey
 
+    if (!stripeSecretKey) {
+        console.log('[stripe-price-sync] No Stripe secret key, skipping.')
+        return
+    }
+
     console.log('Starting Stripe product sync...')
 
     const productResponse = await $fetch<{ data: any[] }>('https://api.stripe.com/v1/products', {

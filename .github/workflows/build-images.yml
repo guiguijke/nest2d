@@ -1,0 +1,91 @@
+name: Build and publish Docker images
+
+# Builds the main app and the 4 worker images and pushes them to the GitHub
+# Container Registry (ghcr.io) under the repository owner's namespace.
+#
+# On the homelab you then just run:
+#   docker compose pull && docker compose up -d
+#
+# Images are tagged with:
+#   - :latest        (mutable, always the most recent build of main)
+#   - :<git-sha>     (immutable, pinned to the exact commit)
+#
+# Notes:
+#  - The nesting worker depends on the jagua-rs Rust submodule. The SSH URL in
+#    .gitmodules has been switched to HTTPS, and we additionally rewrite SSH to
+#    HTTPS as a safety net so the checkout never fails on a fresh runner.
+#  - The strip-nesting worker pulls spyrrow wheels that only ship for linux/amd64,
+#    so the whole matrix runs on amd64 runners.
+
+on:
+  push:
+    branches:
+      - "main"
+  workflow_dispatch: {}
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: nest2d-app
+            context: .
+          - image: nest2d-user-file-processing-worker
+            context: ./workers/fileprocessing
+          - image: nest2d-nesting-worker
+            context: ./workers/nesting
+            needs_submodule: "true"
+          - image: nest2d-strip-file-processing-worker
+            context: ./workers/stripfileprocessing
+          - image: nest2d-strip-nesting-worker
+            context: ./workers/stripnesting
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch submodules so the nesting worker gets the jagua-rs Rust sources.
+          submodules: ${{ matrix.needs_submodule == 'true' && 'recursive' || 'false' }}
+
+      - name: Rewrite SSH GitHub URLs to HTTPS (submodule safety net)
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Re-sync submodules over HTTPS (in case they were fetched via SSH)
+        if: matrix.needs_submodule == 'true'
+        run: git submodule update --init --recursive
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract lowercase image owner
+        id: owner
+        run: echo "name=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          # spyrrow ships linux/amd64 wheels only — force amd64 for the whole matrix.
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.name }}/${{ matrix.image }}:latest
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.name }}/${{ matrix.image }}:${{ github.sha }}
+          build-args: |
+            GIT_COMMIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

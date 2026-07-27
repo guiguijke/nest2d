@@ -10,7 +10,7 @@ async function sendEmail(to, subject, htmlBody) {
         'Authorization': `Bearer ${useRuntimeConfig().resendToken}`,
       },
       body: {
-        from: 'nest2d@stelmashchuk.dev',
+        from: useRuntimeConfig().resendFrom || 'onboarding@resend.dev',
         to: to,
         subject: subject,
         html: htmlBody,

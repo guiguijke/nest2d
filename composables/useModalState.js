@@ -25,3 +25,6 @@ export const useBuyCreditsDialog = () => {
 export const useInfoAboutNest = () => {
     return useState("infoAboutNest", () => false);
 };
+export const useLoginDialog = () => {
+    return useState("loginDialog", () => false);
+};

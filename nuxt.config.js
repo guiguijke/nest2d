@@ -12,11 +12,19 @@ export default defineNuxtConfig({
         mongoUri: '',
         stripeSecretKey: '',
         resendToken: '',
+        resendFrom: 'onboarding@resend.dev',
         apiToken: '',
+        googleClientSecret: '',
+        blockedCountries: '',
         public: {
             baseUrl: "http://localhost:3000",
             gitCommitSha: "",
             googleClientId: "",
+            clarityId: "",
+            localAuthEnabled: true,
+            supportEmail: "",
+            githubRepo: "",
+            copyrightYear: "",
         },
     },
 
@@ -48,7 +56,7 @@ export default defineNuxtConfig({
     },
 
     site: {
-        url: 'https://nest2d.stelmashchuk.dev/',
+        url: process.env.NUXT_PUBLIC_BASE_URL || 'http://localhost:3000',
         name: 'Nest2D'
     },
 
@@ -115,16 +123,17 @@ export default defineNuxtConfig({
                     type: 'application/ld+json',
                     children: JSON.stringify(schemaWebSite)
                 },
-                {
+                // Microsoft Clarity analytics — only injected when NUXT_PUBLIC_CLARITY_ID is set.
+                ...(process.env.NUXT_PUBLIC_CLARITY_ID ? [{
                     children: `
                         (function(c,l,a,r,i,t,y){
                             c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
                             t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
                             y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-                        })(window, document, "clarity", "script", "rxfyyl4lhb");
+                        })(window, document, "clarity", "script", "${process.env.NUXT_PUBLIC_CLARITY_ID}");
                     `,
                     type: 'text/javascript'
-                }
+                }] : [])
             ]
         }
     },

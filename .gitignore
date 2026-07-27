@@ -23,6 +23,12 @@ logs
 .env.*
 !.env.example
 
+# Local docker compose override (build-from-source for dev)
+docker-compose.override.yml
+
+# ZCode working files (test scripts, scratch DXF)
+.zcode/
+
 .mongo-data
 
 .secret.json

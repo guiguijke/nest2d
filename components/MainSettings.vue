@@ -9,6 +9,10 @@
                 </div>
                 <InputField prefix="Spacing" suffix="mm" v-model="localSpace" class="size__input" />
                 <InputField prefix="Sheet Count" suffix="units" v-model="localSheetCount" class="size__input" />
+                <div class="size__rotations rotations">
+                    <InputField prefix="Rotations" suffix="steps" v-model="localRotationCount" class="rotations__input" />
+                    <p class="rotations__hint">{{ rotationHint }}</p>
+                </div>
                 <label class="size__checkbox">
                     <input type="checkbox" v-model="localAddOutShape">
                     Add out shape
@@ -46,6 +50,21 @@ const localSpace = computed({
 const localAddOutShape = computed({
     get: () => unref(params).addOutShape,
     set: value => updateParams({ addOutShape: value }),
+});
+
+const localRotationCount = computed({
+    get: () => unref(params).rotationCount,
+    set: value => updateParams({ rotationCount: value }),
+});
+
+// Preview the angles that the current rotation count produces, so the user
+// understands what "N rotations" means (e.g. 8 -> 0°, 45°, 90°, ... 315°).
+const rotationHint = computed(() => {
+    const n = Math.min(360, Math.max(1, Math.floor(Number(unref(params).rotationCount) || 4)))
+    if (n === 1) return 'No rotation (0° only)'
+    const step = 360 / n
+    const angles = Array.from({ length: n }, (_, i) => Math.round(i * step))
+    return `→ ${angles.map(a => a + '°').join(', ')}`
 });
 </script>
 
@@ -103,6 +122,17 @@ const localAddOutShape = computed({
             height: 16px;
             cursor: pointer;
         }
+    }
+}
+
+.rotations {
+    &__hint {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--label-secondary);
+        font-family: $sf_mono;
+        word-break: break-word;
+        line-height: 1.3;
     }
 }
 </style>

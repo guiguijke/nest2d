@@ -1,38 +1,98 @@
-import { TRACKING_COOKIE_NAME } from '~~/server/tracking/const'
-import { getCookie } from 'h3'
-import { createOrUpdateUser } from '~~/server/utils/user'
-import { setSessionCookie } from '~~/server/utils/user'
+import { getCookie } from "h3";
+import { TRACKING_COOKIE_NAME } from "~~/server/tracking/const";
+import { createOrUpdateUser } from "~~/server/utils/user";
+import { setSessionCookie } from "~~/server/utils/user";
 
+/**
+ * Completes the Google OAuth Authorization Code + PKCE flow.
+ *
+ * Receives the authorization `code` returned by Google on the callback,
+ * exchanges it (together with the PKCE verifier stored in a cookie) for an
+ * access token at Google's token endpoint, then fetches the user profile and
+ * creates/updates the local user.
+ */
 export default defineEventHandler(async (event) => {
-    const { googleAccessToken } = await readBody(event)
+  const config = useRuntimeConfig();
+  const clientId = config.public.googleClientId;
+  const clientSecret = config.googleClientSecret;
+  const baseUrl = config.public.baseUrl;
 
-    const url = new URL('https://www.googleapis.com/oauth2/v3/userinfo')
-    url.searchParams.append('access_token', googleAccessToken)
+  const body = await readBody(event);
+  const code = body?.code;
 
-    const data = await $fetch(url)
+  if (!code) {
+    setResponseStatus(event, 400);
+    return { error: "Missing authorization code" };
+  }
 
-    const { sub, picture, email, name } = data
+  const codeVerifier = getCookie(event, "oauth_code_verifier");
+  if (!codeVerifier) {
+    setResponseStatus(event, 400);
+    return { error: "Missing PKCE verifier (cookie expired). Please retry login." };
+  }
 
-    if (!sub || !email || !picture || !name) {
-        setResponseStatus(event, 401)
-        return {
-            error: 'Invalid access token',
-            isSub: !!sub,
-            isEmail: !!email,
-            isAvatar: !!picture
-        }
-    }
+  // 1. Exchange the authorization code for tokens.
+  const tokenParams = new URLSearchParams();
+  tokenParams.append("code", code);
+  tokenParams.append("client_id", clientId);
+  tokenParams.append("code_verifier", codeVerifier);
+  tokenParams.append("redirect_uri", `${baseUrl}/auth/google/callback`);
+  tokenParams.append("grant_type", "authorization_code");
+  // Client secret is optional for PKCE-only (installed/public) apps, but
+  // required for "Web application" apps configured with a secret. Send it
+  // only if configured.
+  if (clientSecret) {
+    tokenParams.append("client_secret", clientSecret);
+  }
 
-    const sessionId = getCookie(event, TRACKING_COOKIE_NAME)
+  let tokenResponse;
+  try {
+    tokenResponse = await $fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenParams,
+    });
+  } catch (err) {
+    setResponseStatus(event, 401);
+    return {
+      error: "Failed to exchange authorization code",
+      detail: err?.data?.error_description || err?.data?.error || err?.message,
+    };
+  }
 
-    const session = await createOrUpdateUser({
-        sessionId: sessionId,
-        providerId: sub,
-        email: email,
-        name: name,
-        avatarUrl: picture
-    })
+  const accessToken = tokenResponse.access_token;
+  if (!accessToken) {
+    setResponseStatus(event, 401);
+    return { error: "No access token in Google response" };
+  }
 
-    setSessionCookie(event, session)
-    return
-})
+  // 2. Fetch the user profile with the access token.
+  const data = await $fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const { sub, picture, email, name } = data;
+
+  if (!sub || !email || !name) {
+    setResponseStatus(event, 401);
+    return { error: "Invalid profile data from Google", isSub: !!sub, isEmail: !!email, isName: !!name };
+  }
+
+  // 3. Create or update the local user (same as the legacy implicit flow).
+  const trackingSessionId = getCookie(event, TRACKING_COOKIE_NAME);
+
+  const session = await createOrUpdateUser({
+    sessionId: trackingSessionId,
+    providerId: sub,
+    email,
+    name,
+    avatarUrl: picture,
+  });
+
+  setSessionCookie(event, session);
+
+  // 4. Clear the single-use PKCE verifier cookie.
+  setCookie(event, "oauth_code_verifier", "", { maxAge: 0, path: "/" });
+
+  return { ok: true };
+});

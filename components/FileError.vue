@@ -9,7 +9,7 @@
         <MainButton
             :size="sizeType.s"
             :theme="themeType.secondary"
-            href="https://github.com/VovaStelmashchuk/nest2d/issues/new"
+            href="https://github.com/guiguijke/nest2d/issues/new"
             target="_blank"
             label="Report a problem"
             tag="a"

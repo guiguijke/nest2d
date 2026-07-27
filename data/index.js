@@ -107,22 +107,22 @@ export const faq = {
             title: 'Can I contribute to the project?',
             firstPart: 'Absolutely! Check out our',
             link: 'GitHub repository',
-            linkHref: 'https://github.com/VovaStelmashchuk/nest2D',
+            linkHref: 'https://github.com/guiguijke/nest2d',
             target: '_blank',
             secondPart: 'to contribute.'
         },
         {
             title: 'I still have questions.',
             firstPart: 'Fill free to contact me via support chat or contant me via email',
-            link: 'vovochkastelmashchuk@gmail.com',
-            linkHref: 'mailto:vovochkastelmashchuk@gmail.com',
+            link: 'support@example.com',
+            linkHref: 'mailto:support@example.com',
         },
     ]
 }
 export const refund = {
     title: 'Refunds',
     firstPart: 'My business philosophy is that if you, as a customer, are not happy, then I’m not happy. I have a 30-day, no-questions-asked refund policy. Please email',
-    link: 'vovochkastelmashchuk@gmail.com',
-    linkHref: 'mailto:vovochkastelmashchuk@gmail.com',
+    link: 'support@example.com',
+    linkHref: 'mailto:support@example.com',
     secondPart: 'for a full refund. I appreciate it if you can share the reason you are unhappy with the purchase, but doing so is not necessary for a refund.'
 }

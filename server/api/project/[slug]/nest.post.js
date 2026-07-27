@@ -52,6 +52,13 @@ export default defineEventHandler(async (event) => {
 
   const filteredFiles = files.filter((file) => file.count > 0);
 
+  // Global rotation setting: N rotations spread evenly around the circle.
+  // Falls back to the historical 4 rotations (0/90/180/270) if not provided.
+  const rotationCount = Math.min(360, Math.max(1, Math.floor(Number(params?.rotationCount) || 4)))
+  const globalRotations = rotationCount === 1
+    ? [0]
+    : Array.from({ length: rotationCount }, (_, i) => Math.round((i * 360) / rotationCount))
+
   const userDxfFilesDatabase = await db.collection("user_dxf_files").find({
     slug: { $in: filteredFiles.map((file) => file.slug) }
   }).project({
@@ -66,7 +73,8 @@ export default defineEventHandler(async (event) => {
       slug: file.slug,
       simpleName: file.name.replace('.dxf', ''),
       count: requestFile?.count || 0,
-      rotations: requestFile?.rotation ? JSON.parse(requestFile.rotation) : [0, 90, 180, 270]
+      // Per-file override wins; otherwise apply the global rotation setting.
+      rotations: requestFile?.rotation ? JSON.parse(requestFile.rotation) : globalRotations
     }
   })
 

@@ -7,7 +7,7 @@ export const posts = [
                 title: 'Big data migration',
                 content: [
                     'Currently the project run the big data migration. I want to change the project data base schema to improve the project performance and scalability.',
-                    'In case you experience any issues with the project, please contact me via support chat, or email: vovochkastelmashchuk@gmail.com',
+                    'In case you experience any issues with the project, please contact me via support chat, or email: support@example.com',
                 ],
             },
         ]

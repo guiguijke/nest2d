@@ -54,7 +54,9 @@ const { getters } = authStore;
 const user = computed(() => getters.user);
 
 onBeforeMount(() => {
-    window.clarity("identify", unref(user).id, "", "", unref(user).name);
+    if (typeof window !== 'undefined' && typeof window.clarity === 'function') {
+        window.clarity("identify", unref(user).id, "", "", unref(user).name);
+    }
 });
 
 </script>
