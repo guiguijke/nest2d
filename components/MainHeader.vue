@@ -3,7 +3,7 @@
         <component :is="logoTag" v-bind="logoHref" class="header__logo logo">
             <img :src="logoMarkSrc" alt="APlasma" class="logo__mark" />
             <span class="logo__label">
-                APlasma <span class="logo__label--light">Nesting</span>
+                Nesting
             </span>
         </component>
         <nav v-if="isPrimaryTheme && isStripFeatureEnabled" class="header__tabs tabs">
@@ -73,19 +73,19 @@ const menuIsOpen = ref(false);
 const nav = [
     {
         label: 'Features',
-        href: '#features',
+        href: '/#features',
     },
     {
         label: 'How It Works',
-        href: '#how-it-works',
+        href: '/#how-it-works',
     },
     {
         label: 'Pricing',
-        href: '#pricing',
+        href: '/plans',
     },
     {
         label: 'FAQ',
-        href: '#faq',
+        href: '/#faq',
     },
     {
         label: 'Blog',
@@ -137,11 +137,11 @@ const themeIcon = computed(() => {
     return unref(themeGlobal) === themeType.primary ? iconType.light : iconType.dark
 })
 
-// Brand mark follows the theme: rust "A" on light, white "A" on dark.
+// Brand wordmark follows the theme: anthracite+rust on light, white on dark.
 const logoMarkSrc = computed(() => {
     return unref(themeGlobal) === themeType.primary
-        ? '/brand/forme-blanc.png'
-        : '/brand/forme-rouille.png'
+        ? '/brand/wordmark-blanc.png'
+        : '/brand/wordmark-gr.png'
 })
 
 </script>
@@ -302,22 +302,18 @@ const logoMarkSrc = computed(() => {
     gap: 10px;
 
     &__mark {
-        width: 34px;
-        height: 34px;
+        height: 26px;
+        width: auto;
         object-fit: contain;
     }
 
     &__label {
         display: block;
-        font-size: 24px;
-        font-weight: 900;
-        color: var(--accent-primary);
+        font-size: 22px;
+        font-weight: 400;
+        color: var(--label-secondary);
         white-space: nowrap;
-
-        &--light {
-            font-weight: 400;
-            color: var(--label-secondary);
-        }
+        padding-bottom: 4px;
     }
 }
 

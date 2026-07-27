@@ -4,7 +4,7 @@
             <span class="free-nest__text">Unlimited nesting (admin)</span>
         </template>
         <template v-else-if="isEmpty">
-            <span class="free-nest__text">You've used all free nesting operations.</span>
+            <span class="free-nest__text">You've used all your free nestings for this month.</span>
             <button type="button" class="free-nest__link" @click="openPaywall">
                 Start free trial
             </button>
@@ -12,7 +12,7 @@
         <template v-else>
             <span class="free-nest__text">
                 <template v-if="freeRemaining > 0">
-                    {{ freeRemaining }} free nesting operation{{ freeRemaining === 1 ? '' : 's' }} left
+                    {{ freeRemaining }} free nesting operation{{ freeRemaining === 1 ? '' : 's' }} left this month
                 </template>
                 <template v-if="freeRemaining > 0 && creditsRemaining > 0"> · </template>
                 <template v-if="creditsRemaining > 0">

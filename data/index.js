@@ -30,7 +30,7 @@ export const features = {
         },
         {
             icon: 'rotate',
-            title: 'Quantities & rotation control',
+            title: 'Quantities and rotation control',
             text: 'Set per-part quantities and allowed rotations — lock the grain direction when the material demands it.'
         },
         {
@@ -89,7 +89,7 @@ export const howItWorks = {
             text: 'Enter your material dimensions, spacing and rotation constraints.'
         },
         {
-            title: 'Nest & download',
+            title: 'Nest and download',
             text: 'Get an optimized, ready-to-cut layout as DXF — and see how much material you saved.'
         }
     ]
@@ -104,7 +104,7 @@ export const pricing = {
             interval: 'forever',
             description: 'To try the engine on your own parts.',
             features: [
-                `${FREE_NESTING_LIMIT} free nesting operations`,
+                `${FREE_NESTING_LIMIT} free nestings every month`,
                 'All core nesting features',
                 'DXF & ZIP export',
             ],
@@ -147,7 +147,7 @@ export const pricing = {
 export function useStarted() {
     return {
         title: 'Ready to save material?',
-        text: `Create your account and get ${FREE_NESTING_LIMIT} free nesting operations — no credit card required. Then keep going with the Unlimited plan at ${SUBSCRIPTION_PRICE_LABEL}/month, starting with a ${TRIAL_DAYS}-day free trial.`,
+        text: `Create your account and get ${FREE_NESTING_LIMIT} free nestings every month — no credit card required. Then keep going with the Unlimited plan at ${SUBSCRIPTION_PRICE_LABEL}/month, starting with a ${TRIAL_DAYS}-day free trial.`,
         cta: 'Start nesting for free',
     }
 }
@@ -159,7 +159,7 @@ export function useFaq() {
         list: [
             {
                 title: 'Is there a free trial?',
-                firstPart: `Yes — twice. Every account starts with ${FREE_NESTING_LIMIT} free nesting operations, no credit card required. After that, the Unlimited subscription begins with a ${TRIAL_DAYS}-day free trial: you are not charged until the trial ends, and you can cancel anytime before then.`
+                firstPart: `Yes — twice. Every account gets ${FREE_NESTING_LIMIT} free nestings every month, no credit card required. After that, the Unlimited subscription begins with a ${TRIAL_DAYS}-day free trial: you are not charged until the trial ends, and you can cancel anytime before then.`
             },
             {
                 title: 'How much does APlasma Nesting cost?',

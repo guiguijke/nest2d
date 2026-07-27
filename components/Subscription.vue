@@ -50,7 +50,7 @@
                     <span class="subscription__interval">/ {{ data.plan.interval }}</span>
                 </div>
                 <div class="subscription__free">
-                    {{ data.freeRemaining }} free nesting operation{{ data.freeRemaining === 1 ? '' : 's' }} left
+                    {{ data.freeRemaining }} free nesting operation{{ data.freeRemaining === 1 ? '' : 's' }} left this month
                 </div>
                 <MainButton
                     :label="`Start ${data.plan.trialDays}-day free trial`"

@@ -20,7 +20,7 @@
                 :theme="themeType.secondary"
                 label="See plans"
                 tag="a"
-                href="/#pricing"
+                href="/plans"
                 trackingTag="vault_see_plans"
                 class="vault__btn"
             />
