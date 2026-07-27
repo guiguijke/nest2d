@@ -1,93 +1,251 @@
-# Nest2d
+# Nest2D
 
-Nesting For plotters, laser & plasma cutters, and other CNC machines.
+Nesting for plotters, laser & plasma cutters, and other CNC machines.
+Self-hosted on a homelab (Docker Compose + Nginx Proxy Manager).
 
 ![screen of working](./doc/web_screen.png)
 
-## How to use?
+---
 
-#### [Visit Nest2D](https://nest2d.stelmashchuk.dev/)
+## Table of contents
 
-# What is Nest Problem?
+- [Architecture](#architecture)
+- [Homelab deployment (Docker Compose)](#homelab-deployment-docker-compose)
+- [Becoming an administrator](#becoming-an-administrator)
+- [Configuration (`.env`)](#configuration-env)
+- [Authentication](#authentication)
+- [Local development](#local-development)
+- [Stripe payments](#stripe-payments)
+- [Credits](#credits)
 
-Given a square piece of material and some letters to be laser-cut:
+---
 
-We want to pack all the letters into the square, using as little material as possible. If a single square is not enough,
-we also want to minimize the number of squares used.
+## Architecture
 
-In the CNC world this is called "nesting", and software that does this is typically targeted at industrial customers and very expensive. for more detail , please go to [SVGNest](https://github.com/Jack000/SVGnest)
+A **Nuxt 3 fullstack** application (frontend + API in the same process) built on top of:
 
-## Current development status
+- **MongoDB** — stores users, projects, and **all files (DXF/SVG/avatars) via GridFS**.
+- **4 Python workers** that consume a queue in Mongo:
+  - `user-file-processing-worker` — DXF validation/preparation (bins)
+  - `nesting-worker` — nesting algorithm (bins), via the Rust `lbf` binary (jagua-rs)
+  - `strip-file-processing-worker` — DXF preparation (strip)
+  - `strip-nesting-worker` — strip nesting, via the `spyrrow` library
+- **Authentication**: Google OAuth (PKCE) **and/or** a local email/password account.
+- **Payments**: Stripe (subscription + credits) — optional.
+- **Email**: Resend (nesting-finished notifications, support messages) — optional.
 
-Curretly, the projest in refactoring stage. The project originaly based on Nest4J fork. I aleardy migarte the nesting algorithm to the Rust library by [JeroenGar](https://github.com/JeroenGar).
+The 6 containers (app + mongo + 4 workers) run on an internal Docker network; only the app is exposed (on localhost) behind your reverse proxy.
 
-I want to make change in the project quickly. So I decide to remove the Java backend and use the Nuxt for both backend and frontend. In case your interested in the java backend source code, you can find it [Release 0.5.4 last release with java backend](https://github.com/VovaStelmashchuk/nest2d/releases/tag/0.5.4)
-
-## The repository based on few github project, I keep the original history of commits.
-
-Also, i have some plane to modify the project. The project will be support DXF file. The SVG format available only for
-the preview. The project will be migrate to Kotlin fully or majority.
-
-Fill free to create issues or pull requests. The main goal of the project is mainly free and open source solution for
-nesting problem. I try to find the way to compensate the price of cloud server. **You Star of the project can help to
-apply to some open source program.**
-
-### Big Thanks to [JeroenGar](https://github.com/JeroenGar)
-
-He is the author of [jagua-rs](https://github.com/JeroenGar/jagua-rs). I use his project as the core service for the
-service. Without his project, I can't make this project.
-
-I use slightly modified version of his project. Can be found [here](https://github.com/VovaStelmashchuk/jagua-rs)
-
-### Credits:
-
-- [SVGNest](https://github.com/Jack000/SVGnest)
-- [DXFReader](https://github.com/wholder/DXFReader)
-- [NEST4J fork](https://github.com/micycle1/Nest4J/tree/master)
-- [Dexus](https://github.com/Dexus)
-- [Deepnest](https://github.com/deepnest-next)
-
-Also special thanks to:
-
-- [Autocad dxf](https://github.com/Asaye/autocad-dxf/tree/main)
-
-## Development setup
-
-Make sure to install dependencies:
-
-```bash
-# npm
-npm install
+```
+                    ┌─────────────────────────────────┐
+  Internet ──HTTPS──▶ Nginx Proxy Manager (TLS)       │
+                    └──────────────┬──────────────────┘
+                                   │ http
+                    ┌──────────────▼──────────────────┐
+                    │  app (Nuxt)  127.0.0.1:3000     │
+                    └──┬─────────────────────────┬────┘
+                       │                         │
+              ┌────────▼────────┐      ┌─────────▼──────────┐
+              │   mongo:27017   │◀─────│  4 Python workers  │
+              │  (data volume)  │      │  (file + nesting)  │
+              └─────────────────┘      └────────────────────┘
 ```
 
-## Development Server
+---
 
-Start the development server on `http://localhost:3000`:
+## Homelab deployment (Docker Compose)
+
+### Prerequisites
+
+- Docker + Compose v2 plugin
+- A reverse proxy (e.g. Nginx Proxy Manager) terminating TLS and forwarding to `http://<host>:3000`
+- A domain (e.g. `https://nesting.aplasma.fr`)
+
+### Steps
+
+1. **Clone** this repository on the host:
+   ```bash
+   git clone https://github.com/guiguijke/nest2d.git
+   cd nest2d
+   ```
+
+2. **Create `.env`** from the example and fill it in (see [Configuration](#configuration-env)):
+   ```bash
+   cp .env.example .env
+   $EDITOR .env
+   ```
+
+3. **Pull the images** (built by GitHub Actions on every push to `main`):
+   ```bash
+   docker compose pull
+   ```
+   > Until the first CI build completes, you can build the app locally: edit `docker-compose.yml`, comment out the `image:` line of the `app` service and uncomment the two `build:` lines.
+
+4. **Start**:
+   ```bash
+   docker compose up -d
+   ```
+
+5. In **Nginx Proxy Manager**, create a Proxy Host:
+   - Domain: `nesting.aplasma.fr`
+   - Forward Hostname/IP: the Docker host IP
+   - Forward Port: `3000`
+   - Enable SSL (Let's Encrypt) + force HTTPS
+
+6. **Create your account** (via Google or email at `/auth/local`), then [make yourself an admin](#becoming-an-administrator).
+
+### Updating
 
 ```bash
-# npm
+git pull
+docker compose pull
+docker compose up -d
+```
+
+---
+
+## Becoming an administrator
+
+The admin UI (`/admin/support` = support chat) is protected: only users with `isAdmin: true` can access it, and the "Support" button only appears on the avatar for them.
+
+After creating your account, promote yourself to admin. The simplest way (no Node needed in the container) is via `mongosh` in the `mongo` container:
+
+```bash
+# Promote by email (recommended)
+docker compose exec -T mongo mongosh --quiet nest2d \
+  --eval 'db.users.updateOne({email:"me@example.com"}, {$set:{isAdmin:true}})'
+
+# ... or by exact user id (google:... / local:...)
+docker compose exec -T mongo mongosh --quiet nest2d \
+  --eval 'db.users.updateOne({id:"local:me@example.com"}, {$set:{isAdmin:true}})'
+```
+
+Alternatively, when running with Node locally (dev, `npm run dev`), there is a helper script:
+
+```bash
+NUXT_MONGO_URI=mongodb://localhost:27017/nest2d node scripts/promote-admin.js me@example.com
+```
+
+> Log out and back in after promoting: the "Support" button will appear on your avatar.
+
+---
+
+## Configuration (`.env`)
+
+All configuration is driven by environment variables (see `.env.example` for the full list). The important ones are detailed below.
+
+### Required
+
+| Variable | Description |
+|---|---|
+| `NUXT_PUBLIC_BASE_URL` | Public URL (e.g. `https://nesting.aplasma.fr`). Used for OAuth redirects, SEO, email links. |
+| `NUXT_MONGO_URI` | Keep the `docker-compose.yml` value (`mongodb://mongo:27017/nest2d`). **The DB name must be in the path.** |
+
+> ⚠️ In `docker-compose.yml`, `NUXT_MONGO_URI` is **hardcoded** to `mongodb://mongo:27017/nest2d` for the internal network — only change it if you know why.
+
+### Authentication
+
+| Variable | Description |
+|---|---|
+| `NUXT_PUBLIC_LOCAL_AUTH_ENABLED` | `true` (default) to enable local email/password auth. |
+| `NUXT_PUBLIC_GOOGLE_CLIENT_ID` | Google OAuth Client ID (see [Authentication](#authentication)). |
+| `NUXT_GOOGLE_CLIENT_SECRET` | Google OAuth secret (Web App). |
+
+### Optional
+
+| Variable | Description |
+|---|---|
+| `NUXT_STRIPE_SECRET_KEY` | Stripe secret key (see [Payments](#stripe-payments)). |
+| `NUXT_RESEND_TOKEN` / `NUXT_RESEND_FROM` | Transactional email (Resend). |
+| `NUXT_PUBLIC_CLARITY_ID` | Microsoft Clarity ID (empty = disabled). |
+| `NUXT_PUBLIC_SUPPORT_EMAIL` | Email shown in FAQ/Terms. |
+| `NUXT_PUBLIC_GITHUB_REPO` | Your repo URL (footer, Terms). |
+| `NUXT_BLOCKED_COUNTRIES` | ISO country codes to block (e.g. `RU,BY`). **Requires Cloudflare** (`cf-ipcountry` header). Without Cloudflare: no effect. |
+
+---
+
+## Authentication
+
+Two modes, usable together or independently:
+
+### Local account (email + password)
+
+Enabled by default. Passwords are **hashed with bcrypt** (never stored in plaintext). Sign up / login page: `/auth/local`.
+
+> **TODO later**: password reset (forgotten password) is NOT yet implemented. Adding it requires wiring up an SMTP server (or Resend) to send reset links. In the meantime, an admin can reset a password directly in the DB.
+
+### Google OAuth (PKCE)
+
+The project uses the **Authorization Code + PKCE** flow (the current standard recommended by Google — the legacy implicit `token` flow no longer works for recent apps).
+
+**Configure in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials)**:
+
+1. Create an OAuth Client ID → type **Web application**.
+2. Authorized redirect URI: `https://nesting.aplasma.fr/auth/google/callback` (adapt to your domain).
+3. Copy the **Client ID** into `NUXT_PUBLIC_GOOGLE_CLIENT_ID` and the **Client Secret** into `NUXT_GOOGLE_CLIENT_SECRET`.
+
+> For purely personal/private use, the local account is enough and removes any Google dependency.
+
+---
+
+## Local development
+
+Prerequisites: Node 20+ and an accessible MongoDB.
+
+```bash
+npm install
+
+# Start Mongo (once)
+docker run -d --name nest2d_mongo -p 27017:27017 -v "$(pwd)/.mongo-data":/data/db mongo:7
+
+# Minimal env for dev
+export NUXT_MONGO_URI=mongodb://localhost:27017/nest2d
+
+# Start the dev server (http://localhost:3000)
 npm run dev
 ```
 
-## Production
+The workers (file processing + nesting) are required to process files. In dev, you can run them via `docker-stack-external.yml` (once images are built) or directly in Python (see `workers/*/README.md`).
 
-Build the application for production:
+Production build:
 
 ```bash
-# npm
 npm run build
+node .output/server/index.mjs
 ```
 
-Locally preview production build:
+---
 
-```bash
-# npm
-npm run preview
-```
+## Stripe payments
 
-### Referenced Paper
+The code handles two models (selected by a feature flag `isStripFeatureEnable` on the user):
+
+- **Subscription** (Strip nesting) — `subscription_plan` collection + Stripe Checkout subscription
+- **Credits** (pay-as-you-go) — `products` collection + Stripe Checkout one-shot
+
+### To wire your own Stripe account
+
+1. Set `NUXT_STRIPE_SECRET_KEY` in `.env`.
+2. Create your products/prices in Stripe, then **insert them into MongoDB**:
+   - `products` collection: `{ stripePriceId, balance, title, description, prices: { usd: <cents> } }`
+   - `subscription_plan` collection: `{ id: "subscription", priceId, prices: {...} }`
+3. Update `server/features/payment/const.js` (`SUBSCRIPTION_PRODUCT_ID`) with your subscription product ID, or remove that constant if you have no subscription.
+
+> ⚠️ **Stripe webhook**: the current code does **not** receive Stripe webhooks — it synchronizes payments via **polling** (plugins `4_stripesync`, `5_stripe_price_sync`, etc.). This works but is less reactive. If your payments were not updating, this is very likely the cause.
+
+---
+
+## Credits
+
+This project builds on open-source work, in particular the [jagua-rs](https://github.com/JeroenGar/jagua-rs) nesting algorithm by **[JeroenGar](https://github.com/JeroenGar)**.
+
+Other inspirations:
+- [SVGNest](https://github.com/Jack000/SVGnest)
+- [Deepnest](https://github.com/deepnest-next)
+- [NEST4J fork](https://github.com/micycle1/Nest4J/tree/master)
+
+### Referenced papers
 
 - [López-Camacho _et al._ 2013](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)
 - [Kendall 2000](http://www.graham-kendall.com/papers/k2001.pdf)
 - [E.K. Burke _et al._ 2006](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.440.379&rep=rep1&type=pdf)
-

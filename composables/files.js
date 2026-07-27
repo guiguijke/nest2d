@@ -14,7 +14,8 @@ const state = reactive({
         heightPlate: '560',
         space: '0.1',
         sheetCount: 100,
-        addOutShape: false
+        addOutShape: false,
+        rotationCount: 4
     },
     isSvgLoaded: computed(
         () =>
@@ -32,7 +33,8 @@ const state = reactive({
         state.filesStatusDone.map((file) => ({
             slug: file.slug,
             count: file.count,
-            rotation: file.rotation || '[0, 90, 180, 270]'
+            // Per-file rotation override wins; otherwise use the global setting.
+            rotation: file.rotation || JSON.stringify(buildRotationAngles(Number(state.params.rotationCount)))
         }))
     ),
     currentFilesSlug: computed(
@@ -53,7 +55,8 @@ const state = reactive({
                 tolerance: Number(state.params.tolerance),
                 space: Number(state.params.space),
                 sheetCount: Number(state.params.sheetCount),
-                addOutShape: state.params.addOutShape
+                addOutShape: state.params.addOutShape,
+                rotationCount: Number(state.params.rotationCount)
             }
         })
     )
@@ -83,7 +86,7 @@ function setProjectFiles(files, path) {
                 : 1,
             rotation: state.currentFilesSlug.has(file.slug)
                 ? state.projectFiles[fileIndex].rotation
-                : '[0, 90, 180, 270]'
+                : null
         }))
     ]
     if (updateTimer) {
@@ -110,6 +113,22 @@ async function addFiles(files, slug) {
 }
 function isValidNumber(value) {
     return /^\d+([.,]\d+)?$/.test(value)
+}
+/**
+ * Builds the array of allowed rotation angles (in degrees) from a rotation
+ * count. N rotations are spread evenly around the full circle, always
+ * including 0°. Examples:
+ *   1 -> [0]
+ *   2 -> [0, 180]
+ *   4 -> [0, 90, 180, 270]
+ *   8 -> [0, 45, 90, ..., 315]
+ * Clamped to [1, 360] to stay sane.
+ */
+function buildRotationAngles(count) {
+    const n = Math.min(360, Math.max(1, Math.floor(Number(count) || 4)))
+    if (n === 1) return [0]
+    const step = 360 / n
+    return Array.from({ length: n }, (_, i) => Math.round(i * step))
 }
 function updateParams(param) {
     state.params = { ...state.params, ...param }

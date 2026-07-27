@@ -87,13 +87,13 @@
       For questions or clarifications, please contact the project maintainers
       via email at
       <a
-        href="mailto:vovochkastelmashchuk@gmail.com"
+        href="mailto:support@example.com"
         class="text-blue-500 underline"
-        >vovochkastelmashchuk@gmail.com</a
+        >support@example.com</a
       >
       or through the
       <a
-        href="https://github.com/vovastelmashchuk/nest2d"
+        href="https://github.com/guiguijke/nest2d"
         class="text-blue-500 underline"
         >GitHub repository</a
       >.

@@ -12,9 +12,9 @@
   "dependencies": {
     "@nuxtjs/tailwindcss": "^6.12.2",
     "archiver": "^7.0.1",
+    "bcryptjs": "^3.0.3",
     "dxf-viewer": "^1.0.46",
     "mongodb": "6.8",
-    "nodemailer": "^7.0.3",
     "nuxt": "^3.15.3",
     "standard-slugify": "^4.0.0",
     "three": "^0.182.0",
@@ -25,6 +25,7 @@
     "winston": "^3.17.0"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.2",
     "kickstart-scripts": "^1.0.1",
     "patch-package": "^8.0.0",

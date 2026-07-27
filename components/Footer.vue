@@ -4,7 +4,7 @@
             <ul class="list">
                 <li class="list__item">
                     <a
-                        href="https://github.com/VovaStelmashchuk/nest2d"
+                        href="https://github.com/guiguijke/nest2d"
                         target="_blank"
                         class="list__link"
                     >
@@ -37,7 +37,7 @@
                 </li>
             </ul>
             <p class="footer__copyright">
-                © 2025 Vova Stelmashchuk. All rights reserved. Built with ♥ and open source principles
+                © 2025 Nest2D. Built with ♥ and open source principles. Forked from <a href="https://github.com/VovaStelmashchuk/nest2d" target="_blank" class="footer__link">VovaStelmashchuk/nest2d</a>.
             </p>
         </div>
     </footer>

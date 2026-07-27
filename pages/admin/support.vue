@@ -26,7 +26,7 @@ import { ref } from 'vue'
 
 definePageMeta({
     layout: "support",
-    middleware: "auth",
+    middleware: ["auth", "admin"],
 });
 
 const selectedUserId = ref(null)

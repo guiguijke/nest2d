@@ -141,9 +141,10 @@
                 </template>
             </p>
         </section>
-        <ScreenshotsModal v-model:isModalOpen="screenshotDialog" />
-    </div>
-</template>
+            <ScreenshotsModal v-model:isModalOpen="screenshotDialog" />
+            <LoginView />
+        </div>
+    </template>
 <script setup>
 definePageMeta({
     middleware: 'auth'
@@ -154,21 +155,16 @@ onMounted(() => {
 import { header, features, screenshots, howItWorks, started, faq, refund } from '~~/data/index'
 import { defaultThemeType, themeType } from '~~/constants/theme.constants'
 
-const response = await $fetch(API_ROUTES.AUTH('google'), {
-    method: 'GET',
-    headers: {
-        'Content-Type': 'application/json',
-    },
-});
+const loginDialog = useLoginDialog()
 
 function onGetForFreeClick() {
     trackEvent('click_get_started_for_free', { page: 'landing' })
-    navigateTo(response.url, { external: true });
+    loginDialog.value = true
 }
 
 function onBottomLoginClick() {
     trackEvent('click_login_bottom', { page: 'landing' })
-    navigateTo(response.url, { external: true });
+    loginDialog.value = true
 }
 
 const screenshotDialog = useScreenshotDialog();

@@ -1,0 +1,119 @@
+# =============================================================================
+# Nest2D — self-hosted deployment for a homelab.
+#
+# Requirements:
+#   1. A populated `.env` next to this file (copy from .env.example).
+#   2. The Docker images published by GitHub Actions at ghcr.io/guiguijke/*.
+#      Until the first CI build completes, set APP_BUILD_LOCAL=true below to
+#      build the app from source instead of pulling it.
+#   3. A reverse proxy in front (e.g. Nginx Proxy Manager) pointing to
+#      http://<host>:3000 with TLS for https://nesting.aplasma.fr
+#
+# Usage:
+#   docker compose pull        # refresh images after a CI build
+#   docker compose up -d       # start everything
+#   docker compose logs -f app # tail the app logs
+# =============================================================================
+
+services:
+  app:
+    # By default we pull the prebuilt image from GHCR. To build locally instead
+    # (e.g. before the first CI run), uncomment the two `build:` lines and
+    # comment the `image:` line.
+    image: ghcr.io/guiguijke/nest2d-app:latest
+    # build:
+    #   context: .
+    # Expose only on localhost so the public ingress is your reverse proxy.
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NUXT_PUBLIC_BASE_URL: ${NUXT_PUBLIC_BASE_URL}
+      NUXT_MONGO_URI: mongodb://mongo:27017/nest2d
+      NUXT_PUBLIC_GOOGLE_CLIENT_ID: ${NUXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+      NUXT_GOOGLE_CLIENT_SECRET: ${NUXT_GOOGLE_CLIENT_SECRET:-}
+      NUXT_PUBLIC_LOCAL_AUTH_ENABLED: ${NUXT_PUBLIC_LOCAL_AUTH_ENABLED:-true}
+      NUXT_STRIPE_SECRET_KEY: ${NUXT_STRIPE_SECRET_KEY:-}
+      NUXT_RESEND_TOKEN: ${NUXT_RESEND_TOKEN:-}
+      NUXT_RESEND_FROM: ${NUXT_RESEND_FROM:-onboarding@resend.dev}
+      NUXT_PUBLIC_CLARITY_ID: ${NUXT_PUBLIC_CLARITY_ID:-}
+      NUXT_PUBLIC_SUPPORT_EMAIL: ${NUXT_PUBLIC_SUPPORT_EMAIL:-support@example.com}
+      NUXT_PUBLIC_GITHUB_REPO: ${NUXT_PUBLIC_GITHUB_REPO:-https://github.com/guiguijke/nest2d}
+      NUXT_PUBLIC_COPYRIGHT_YEAR: ${NUXT_PUBLIC_COPYRIGHT_YEAR:-}
+      NUXT_BLOCKED_COUNTRIES: ${NUXT_BLOCKED_COUNTRIES:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nest2d
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+    # No host port needed: the app and workers reach it over the internal
+    # network. Uncomment the next two lines if you want to inspect the DB from
+    # the host (e.g. with mongosh / a GUI).
+    # ports:
+    #   - "127.0.0.1:27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - nest2d
+
+  user-file-processing-worker:
+    image: ghcr.io/guiguijke/nest2d-user-file-processing-worker:latest
+    environment:
+      MONGO_URI: mongodb://mongo:27017/nest2d
+      WORKER_TAG: normal
+      MAX_ENTITY_LIMIT: 999
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nest2d
+
+  nesting-worker:
+    image: ghcr.io/guiguijke/nest2d-nesting-worker:latest
+    environment:
+      MONGO_URI: mongodb://mongo:27017/nest2d
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nest2d
+
+  strip-file-processing-worker:
+    image: ghcr.io/guiguijke/nest2d-strip-file-processing-worker:latest
+    environment:
+      MONGO_URI: mongodb://mongo:27017/nest2d
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nest2d
+
+  strip-nesting-worker:
+    image: ghcr.io/guiguijke/nest2d-strip-nesting-worker:latest
+    environment:
+      MONGO_URI: mongodb://mongo:27017/nest2d
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nest2d
+
+volumes:
+  mongo-data:
+
+networks:
+  nest2d:

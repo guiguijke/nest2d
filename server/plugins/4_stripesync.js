@@ -31,11 +31,18 @@ export default defineNitroPlugin(async (_) => {
 
         if (transaction) {
             await db.collection("transactions").updateOne({ _id: transaction._id }, { $inc: { attempt: 1 } });
-            const status = await getTransactionStatus(transaction.checkoutId);
-            if (status === "paid") {
-                await db.collection("users").updateOne({ id: transaction.userId }, { $inc: { balance: transaction.credit } });
-                await db.collection("transactions").updateOne({ _id: transaction._id }, { $set: { status: "completed", updatedAt: new Date() } });
-            } else {
+            try {
+                const status = await getTransactionStatus(transaction.checkoutId);
+                if (status === "paid") {
+                    await db.collection("users").updateOne({ id: transaction.userId }, { $inc: { balance: transaction.credit } });
+                    await db.collection("transactions").updateOne({ _id: transaction._id }, { $set: { status: "completed", updatedAt: new Date() } });
+                } else {
+                    await db.collection("transactions").updateOne({ _id: transaction._id }, { $set: { status: "created", updatedAt: new Date() } });
+                }
+            } catch (err) {
+                logger.warn(`[${tag}] Failed to check transaction ${transaction.checkoutId}`, err);
+                // Mark as created so it can be retried, but the attempt counter
+                // was already incremented above, so it will give up after 3 tries.
                 await db.collection("transactions").updateOne({ _id: transaction._id }, { $set: { status: "created", updatedAt: new Date() } });
             }
         } else {

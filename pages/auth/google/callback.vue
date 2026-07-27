@@ -10,27 +10,26 @@ const router = useRouter()
 const route = useRoute();
 
 onMounted(async () => {
-    const hash = route.hash.substring(1);
-    const params = hash.split("&").reduce((acc, item) => {
-        const [key, value] = item.split("=");
-        acc[key] = value;
-        return acc;
-    }, {});
+    // The PKCE flow returns the authorization code as a query parameter.
+    const code = route.query.code;
 
-    const accessToken = params.access_token;
+    if (!code) {
+        // No code present — likely an error redirect from Google.
+        const err = route.query.error || "no_code";
+        router.push({ path: "/", query: { auth_error: err } });
+        return;
+    }
 
-    const request = {
-        googleAccessToken: accessToken,
-    };
-
-    await $fetch(API_ROUTES.LOGIN('google'), {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify(request),
-    });
-
-    router.push({ path: '/home' })
+    try {
+        await $fetch(API_ROUTES.LOGIN('google'), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ code }),
+        });
+        router.push({ path: '/home' });
+    } catch (err) {
+        router.push({ path: "/", query: { auth_error: "exchange_failed" } });
+    }
 });
 </script>

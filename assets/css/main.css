@@ -4,25 +4,25 @@
     --main-white: #fff;
     --main-black: #000;
 
-    --fill-secondary: rgb(0, 11, 33, 0.08);
-    --fill-tertiary: rgb(0, 11, 33, 0.05);
+    --fill-secondary: rgb(15, 35, 75, 0.08);
+    --fill-tertiary: rgb(15, 35, 75, 0.05);
 
-    --label-primary: rgb(0, 0, 0);
-    --label-secondary: rgb(22, 26, 33, 0.8);
-    --label-tertiary: rgb(22, 26, 33, 0.5);
+    --label-primary: rgb(8, 20, 45);
+    --label-secondary: rgb(15, 30, 60, 0.8);
+    --label-tertiary: rgb(15, 30, 60, 0.5);
 
     --accent-primary: rgb(0, 0, 0);
     --accent-secondary: rgb(0, 0, 0, 0.8);
 
-    --background-primary: rgb(245, 244, 240);
+    --background-primary: rgb(232, 241, 251);
     --background-secondary: rgb(0, 0, 0);
 
-    --separator-primary: rgb(0, 11, 33, 0.15);
-    --separator-secondary: rgb(0, 11, 33, 0.1);
+    --separator-primary: rgb(15, 35, 75, 0.15);
+    --separator-secondary: rgb(15, 35, 75, 0.1);
 
     --error-background: rgb(222, 0, 54, 0.05);
     --error-border: rgb(222, 0, 54, 0.3);
-    --menu-background: rgb(22, 26, 33, 0.7);
+    --menu-background: rgb(15, 30, 60, 0.7);
 
     --primary-svg-filter: brightness(0) saturate(100%);
 }
