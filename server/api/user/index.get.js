@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   const isStripFeatureEnable = user.isStripFeatureEnable || false;
   const entitlement = isStripFeatureEnable
     ? await getEntitlement(userId)
-    : { freeRemaining: 0, subscriptionStatus: null, requiresPaywall: false };
+    : { freeRemaining: 0, creditsRemaining: 0, subscriptionStatus: null, requiresPaywall: false };
 
   return {
     id: user.id,
@@ -24,6 +24,7 @@ export default defineEventHandler(async (event) => {
     isAdmin: user.isAdmin || false,
     isStripFeatureEnable: isStripFeatureEnable,
     freeRemaining: entitlement.freeRemaining,
+    creditsRemaining: entitlement.creditsRemaining,
     subscriptionStatus: entitlement.subscriptionStatus,
     requiresPaywall: entitlement.requiresPaywall,
   };

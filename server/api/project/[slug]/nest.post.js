@@ -91,10 +91,13 @@ export default defineEventHandler(async (event) => {
     addOutShape: params.addOutShape,
   }
 
-  // Subscription / free-quota gate for feature-flagged users. Consumes a free
-  // nesting operation only once the request is fully validated.
+  // Subscription / free-quota / credits gate for feature-flagged users.
+  // Consumes a unit only once the request is fully validated. The charge is
+  // stored on the job so the worker can refund it if the nesting fails (and
+  // so the worker skips its legacy balance decrement for these jobs).
+  let charge = null;
   if (user.isStripFeatureEnable) {
-    await assertCanNest(userId);
+    charge = await assertCanNest(userId);
   }
 
   await db.collection("nesting_jobs").insertOne({
@@ -105,6 +108,7 @@ export default defineEventHandler(async (event) => {
     status: "pending",
     createdAt: new Date(),
     ownerId: userId,
+    ...(charge && { charge }),
   });
 
   return {

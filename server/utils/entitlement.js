@@ -1,6 +1,6 @@
 import { createError } from "h3";
 import { connectDB } from "~~/server/db/mongo";
-import { FREE_NESTING_LIMIT } from "~~/server/features/payment/const";
+import { FREE_NESTING_LIMIT, CREDIT_COST_PER_NESTING } from "~~/server/features/payment/const";
 import {
   ACTIVE_SUBSCRIPTION_STATUSES,
   getSubscription,
@@ -61,7 +61,7 @@ async function refreshSubscription(db, user) {
 /**
  * Read-only entitlement summary for UI (banner, paywall state).
  * @param {string} userId
- * @returns {Promise<{freeRemaining: number, subscriptionStatus: string|null, requiresPaywall: boolean}>}
+ * @returns {Promise<{freeRemaining: number, creditsRemaining: number, subscriptionStatus: string|null, requiresPaywall: boolean}>}
  */
 export async function getEntitlement(userId) {
   const db = await connectDB();
@@ -69,7 +69,7 @@ export async function getEntitlement(userId) {
     .collection("users")
     .findOne(
       { id: userId },
-      { projection: { freeNestingUsed: 1, subscription: 1, isAdmin: 1 } }
+      { projection: { freeNestingUsed: 1, subscription: 1, isAdmin: 1, balance: 1 } }
     );
 
   const subscriptionStatus = user?.subscription?.status || null;
@@ -78,26 +78,32 @@ export async function getEntitlement(userId) {
     0,
     FREE_NESTING_LIMIT - (user?.freeNestingUsed || 0)
   );
+  const creditsRemaining = Math.floor((user?.balance || 0) / CREDIT_COST_PER_NESTING);
 
   return {
     freeRemaining,
+    creditsRemaining,
     subscriptionStatus,
     // Admins are never paywalled — they get unlimited nesting.
-    requiresPaywall: !user?.isAdmin && !active && freeRemaining === 0,
+    requiresPaywall:
+      !user?.isAdmin && !active && freeRemaining === 0 && creditsRemaining === 0,
   };
 }
 
 /**
  * Gate for nesting requests of feature-flagged users.
  *
- * Allows the request when the user has an active subscription, otherwise
- * atomically consumes one of the free nesting operations. Throws a 402 with a
- * paywall reason when neither is available.
+ * Charge order: admin (free) → active subscription → free quota → paid
+ * credits. The consumed unit is recorded and returned so the caller can
+ * persist it on the job — the workers refund it if the nesting fails.
+ *
+ * Throws a 402 with a paywall reason when nothing is available.
  *
  * Callers must only invoke this for users with isStripFeatureEnable on; legacy
  * (flag-off) users keep their balance-based flow.
  *
  * @param {string} userId
+ * @returns {Promise<{type: 'admin'|'subscription'|'free'|'credits', amount?: number}>}
  */
 export async function assertCanNest(userId) {
   const db = await connectDB();
@@ -105,7 +111,7 @@ export async function assertCanNest(userId) {
     .collection("users")
     .findOne(
       { id: userId },
-      { projection: { id: 1, freeNestingUsed: 1, subscription: 1, isAdmin: 1 } }
+      { projection: { id: 1, freeNestingUsed: 1, subscription: 1, isAdmin: 1, balance: 1 } }
     );
 
   if (!user) {
@@ -114,11 +120,11 @@ export async function assertCanNest(userId) {
 
   // Admins have unlimited nesting — no quota is consumed.
   if (user.isAdmin) {
-    return;
+    return { type: "admin" };
   }
 
   if (hasActiveSubscription(user)) {
-    return;
+    return { type: "subscription" };
   }
 
   // Period looks expired but we have a subscription on file — the poll may not
@@ -127,7 +133,7 @@ export async function assertCanNest(userId) {
     user.subscription?.stripeSubscriptionId &&
     (await refreshSubscription(db, user))
   ) {
-    return;
+    return { type: "subscription" };
   }
 
   // Atomically consume a free nesting operation. The guard prevents two
@@ -138,7 +144,17 @@ export async function assertCanNest(userId) {
   );
 
   if (consumed) {
-    return;
+    return { type: "free" };
+  }
+
+  // Free quota exhausted — fall back to paid credits, consumed atomically.
+  const charged = await db.collection("users").findOneAndUpdate(
+    { id: userId, balance: { $gte: CREDIT_COST_PER_NESTING } },
+    { $inc: { balance: -CREDIT_COST_PER_NESTING } }
+  );
+
+  if (charged) {
+    return { type: "credits", amount: CREDIT_COST_PER_NESTING };
   }
 
   throw createError({

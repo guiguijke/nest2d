@@ -7,6 +7,13 @@ import { connectDB } from '~~/server/db/mongo'
 export const FREE_NESTING_LIMIT = 10
 
 /**
+ * Number of credits (balance units) one nesting operation costs for
+ * pay-as-you-go users. Matches the historical worker-side decrement
+ * (initial balance 30 = 3 nestings).
+ */
+export const CREDIT_COST_PER_NESTING = 10
+
+/**
  * Length of the Stripe free trial (in days) attached to the subscription.
  */
 export const TRIAL_DAYS = 7
