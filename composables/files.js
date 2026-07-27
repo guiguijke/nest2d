@@ -141,7 +141,7 @@ function increment(index, event) {
         state.projectFiles[index].count = 999
     }
 }
-function decrement(index) {
+function decrement(index, event) {
     const step = event && event.shiftKey ? 10 : 1
     if (state.projectFiles[index].count - step >= 0) {
         state.projectFiles[index].count -= step
@@ -151,15 +151,11 @@ function decrement(index) {
 }
 function updateCount(value, index) {
     if (!isValidNumber(value)) {
-        state.projectFiles[index].count = 999
         state.projectFiles[index].count = 0
+    } else if (Number(value) > 999) {
+        state.projectFiles[index].count = 999
     } else {
-        if (Number(value) > 999) {
-            state.projectFiles[index].count = 0
-            state.projectFiles[index].count = 999
-        } else {
-            state.projectFiles[index].count = Number(value)
-        }
+        state.projectFiles[index].count = Number(value)
     }
 }
 function updateRotation(value, index) {

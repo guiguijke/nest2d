@@ -87,13 +87,13 @@
       For questions or clarifications, please contact the project maintainers
       via email at
       <a
-        href="mailto:support@example.com"
+        :href="`mailto:${supportEmail}`"
         class="text-blue-500 underline"
-        >support@example.com</a
+        >{{ supportEmail }}</a
       >
       or through the
       <a
-        href="https://github.com/guiguijke/nest2d"
+        :href="githubRepo"
         class="text-blue-500 underline"
         >GitHub repository</a
       >.
@@ -102,7 +102,11 @@
 </template>
 
 <script setup>
+import { useSiteConfig } from "~~/data/siteConfig";
+
 definePageMeta({
   layout: "doc",
 });
+
+const { supportEmail, githubRepo } = useSiteConfig();
 </script>

@@ -26,9 +26,9 @@
         <div :class="{ 'header__wrapper--is-primary': isPrimaryTheme }" class="header__wrapper">
             <div class="header__theme">
                 <MainButton :theme="themeType.primary" :icon="themeIcon" :isLabelShow=false trackingTag="toggle_theme"
-                    @click="updateTheme" label="toogle theme" />
+                    @click="updateTheme" label="Toggle theme" />
             </div>
-            <MainButton href="https://github.com/guiguijke/nest2d/issues/new" target="_blank"
+            <MainButton :href="githubIssues" target="_blank"
                 label="Report a problem" tag="a" trackingTag="report_problem" class="header__btn" v-if="isSecondaryTheme" />
             <UserBalance class="header__btn" v-if="isPrimaryTheme && !isStripPage && !isStripFeatureEnabled" />
             <MainButton v-if="isSecondaryTheme" :theme="themeType.primary" @click="onLoginClick" label="Login / Sign Up"
@@ -48,6 +48,9 @@ import { defaultThemeType, themeType } from "~~/constants/theme.constants";
 import { iconType } from '~~/constants/icon.constants';
 import { sizeType } from '~~/constants/size.constants';
 import { trackEvent } from '~~/utils/track';
+import { useSiteConfig } from '~~/data/siteConfig';
+
+const { githubIssues } = useSiteConfig()
 
 const loginDialog = useLoginDialog()
 
@@ -74,6 +77,10 @@ const nav = [
     {
         label: 'How It Works',
         href: '#how-it-works',
+    },
+    {
+        label: 'Pricing',
+        href: '#pricing',
     },
     {
         label: 'FAQ',

@@ -172,7 +172,7 @@ Two modes, usable together or independently:
 
 Enabled by default. Passwords are **hashed with bcrypt** (never stored in plaintext). Sign up / login page: `/auth/local`.
 
-> **TODO later**: password reset (forgotten password) is NOT yet implemented. Adding it requires wiring up an SMTP server (or Resend) to send reset links. In the meantime, an admin can reset a password directly in the DB.
+Password reset is implemented: `/auth/forgot-password` sends a reset link via Resend (valid 1 hour), and `/auth/reset-password` sets the new password. Resetting a password invalidates all existing sessions.
 
 ### Google OAuth (PKCE)
 

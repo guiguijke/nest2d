@@ -3,7 +3,7 @@
         <MainTitle label="Upload your .DXF files" class="home__title" />
         <DxfUpload @files="handleSubmit" />
         <p class="home__text">
-            All files will be save secure and available only for you
+            All files will be saved securely and available only to you
         </p>
         <div v-if="error" class="home__error">
             {{ error }}

@@ -1,4 +1,8 @@
-export const posts = [
+import { useSiteConfig } from '~~/data/siteConfig'
+
+export function usePosts() {
+    const { supportEmail } = useSiteConfig()
+    return [
     {
         title: '!!! Big data migration',
         datetime: '2025-06-07',
@@ -6,8 +10,8 @@ export const posts = [
             {
                 title: 'Big data migration',
                 content: [
-                    'Currently the project run the big data migration. I want to change the project data base schema to improve the project performance and scalability.',
-                    'In case you experience any issues with the project, please contact me via support chat, or email: support@example.com',
+                    'The project is currently undergoing a big data migration to improve performance and scalability.',
+                    `In case you experience any issues with the project, please contact me via support chat, or email: ${supportEmail}`,
                 ],
             },
         ]
@@ -379,3 +383,4 @@ export const posts = [
         ]
     }
 ]
+}
