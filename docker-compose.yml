@@ -1,5 +1,5 @@
 # =============================================================================
-# Nest2D — self-hosted deployment for a homelab.
+# APlasma Nesting — self-hosted deployment for a homelab.
 #
 # Requirements:
 #   1. A populated `.env` next to this file (copy from .env.example).

@@ -10,11 +10,11 @@ export function useSchemaWebSite() {
         '@context': 'https://schema.org',
         '@type': 'WebSite',
         url: `${baseUrl}/`,
-        name: 'Nest2D',
-        description: 'Upload your DXF files, input material dimensions, and let Nest2d maximize your material usage. Fully open-source and built for efficiency.',
+        name: 'APlasma Nesting',
+        description: 'Upload your DXF files, input material dimensions, and let APlasma Nesting maximize your material usage. Inspired by Nest2D, fully open-source and built for efficiency.',
         publisher: {
             '@type': 'Organization',
-            'name': 'Nest2D'
+            'name': 'APlasma Nesting'
         }
     }
 }
@@ -28,10 +28,10 @@ export const schemaWebSite = {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     url: `${baseUrl}/`,
-    name: 'Nest2D',
-    description: 'Upload your DXF files, input material dimensions, and let Nest2d maximize your material usage. Fully open-source and built for efficiency.',
+    name: 'APlasma Nesting',
+    description: 'Upload your DXF files, input material dimensions, and let APlasma Nesting maximize your material usage. Inspired by Nest2D, fully open-source and built for efficiency.',
     publisher: {
         '@type': 'Organization',
-        'name': 'Nest2D'
+        'name': 'APlasma Nesting'
     }
 }

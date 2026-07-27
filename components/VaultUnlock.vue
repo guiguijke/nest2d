@@ -4,7 +4,7 @@
             <MainTitle label="Unlock your vault" class="vault-unlock__title" />
             <p class="vault-unlock__text">
                 Your files are encrypted with your personal key file
-                (<code>nest2d-vault-…​.key.json</code>). Drop it here to unlock
+                (<code>aplasma-vault-…​.key.json</code>). Drop it here to unlock
                 this work session.
             </p>
 

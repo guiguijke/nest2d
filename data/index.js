@@ -2,9 +2,9 @@ import { useSiteConfig } from '~~/data/siteConfig'
 import { FREE_NESTING_LIMIT, TRIAL_DAYS, SUBSCRIPTION_PRICE_LABEL, PRO_PRICE_LABEL } from '~~/constants/payment.constants'
 
 export const hero = {
-    badge: 'Open source · Server-side true-shape nesting',
+    badge: 'Open source · Inspired by Nest2D',
     title: 'Fit more parts on every sheet.',
-    text: 'Upload your DXF files, set your sheet size, and let Nest2D arrange your parts with minimal material waste — built for laser, plasma, plotter and CNC cutting.',
+    text: 'Upload your DXF files, set your sheet size, and let APlasma Nesting arrange your parts with minimal material waste — built for laser, plasma, plotter and CNC cutting.',
     primaryCta: 'Start nesting for free',
     secondaryCta: 'See how it works',
 }
@@ -163,7 +163,7 @@ export function useFaq() {
                 firstPart: `Yes — twice. Every account starts with ${FREE_NESTING_LIMIT} free nesting operations, no credit card required. After that, the Unlimited subscription begins with a ${TRIAL_DAYS}-day free trial: you are not charged until the trial ends, and you can cancel anytime before then.`
             },
             {
-                title: 'How much does Nest2D cost?',
+                title: 'How much does APlasma Nesting cost?',
                 firstPart: `The Unlimited plan is ${SUBSCRIPTION_PRICE_LABEL}/month and includes unlimited nesting while active. A Pro plan (${PRO_PRICE_LABEL}/month) with G-code export, remnant management and PDF quote reports is coming soon.`
             },
             {
@@ -180,15 +180,15 @@ export function useFaq() {
             },
             {
                 title: 'Are my files safe?',
-                firstPart: `Your uploaded files and nesting results are stored securely and are only visible to your account. For maximum confidentiality, the upcoming Pro plan (${PRO_PRICE_LABEL}/month) adds zero-knowledge encryption — your files are encrypted with a key only you hold, so even we cannot read them. And because Nest2D is fully open source, you don’t have to take our word for it — you can read the code.`
+                firstPart: `Your uploaded files and nesting results are stored securely and are only visible to your account. For maximum confidentiality, the upcoming Pro plan (${PRO_PRICE_LABEL}/month) adds zero-knowledge encryption — your files are encrypted with a key only you hold, so even we cannot read them. And because APlasma Nesting is fully open source, you don’t have to take our word for it — you can read the code.`
             },
             {
                 title: 'What happens if I lose my key file?',
                 firstPart: 'With zero-knowledge encryption (Pro plan), your key file is the ONLY way to read your files. We never store a copy — not in our database, not in our backups. If you lose it, your encrypted files are permanently unreadable, and no one can recover them, including us. Keep several copies of your key file in safe places.'
             },
             {
-                title: 'Does Nest2D give the best possible results?',
-                firstPart: 'While achieving perfect nesting optimization is a complex computational challenge with no guaranteed optimal solution, Nest2D delivers highly efficient material layouts through advanced algorithms. Our system prioritizes both speed and optimization quality to provide practical, time-saving results for your cutting projects.'
+                title: 'Does APlasma Nesting give the best possible results?',
+                firstPart: 'While achieving perfect nesting optimization is a complex computational challenge with no guaranteed optimal solution, APlasma Nesting delivers highly efficient material layouts through advanced algorithms. Our system prioritizes both speed and optimization quality to provide practical, time-saving results for your cutting projects.'
             },
             {
                 title: 'Can I contribute to the project?',

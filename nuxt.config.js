@@ -58,7 +58,7 @@ export default defineNuxtConfig({
 
     site: {
         url: process.env.NUXT_PUBLIC_BASE_URL || 'http://localhost:3000',
-        name: 'Nest2D'
+        name: 'APlasma Nesting'
     },
 
     app: {
@@ -66,7 +66,7 @@ export default defineNuxtConfig({
             htmlAttrs: {
                 lang: 'en'
             },
-            title: 'Nest2D - Smart Nesting for Laser Cutting and CNC machining',
+            title: 'APlasma Nesting - Smart Nesting for Laser Cutting and CNC machining',
             meta: [
                 { charset: 'utf-8' },
                 {
@@ -76,12 +76,12 @@ export default defineNuxtConfig({
                 {
                     hid: 'description',
                     name: 'description',
-                    content: 'The service for nesting DXF files. Nest2D optimize your material usage. Fully open-source and built for efficiency.'
+                    content: 'The service for nesting DXF files. APlasma Nesting optimizes your material usage. Inspired by Nest2D, fully open-source and built for efficiency.'
                 },
                 {
                     hid: 'keywords',
                     name: 'keywords',
-                    content: 'Nest DXF online, DXF files, material dimensions, Nest2D, maximize material usage, open-source, efficiency, smart nesting, laser cutting'
+                    content: 'Nest DXF online, DXF files, material dimensions, APlasma Nesting, maximize material usage, open-source, efficiency, smart nesting, laser cutting'
                 },
                 {
                     hid: 'robots',
@@ -91,7 +91,7 @@ export default defineNuxtConfig({
                 {
                     hid: 'author',
                     name: 'author',
-                    content: 'Nest2D'
+                    content: 'APlasma Nesting'
                 }
             ],
             link: [
