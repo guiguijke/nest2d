@@ -10,8 +10,14 @@ export default defineEventHandler(async (event) => {
 
     const options = products
         .map(product => {
-            const priceAmount = product.prices?.[currency] || product.prices?.['usd'] || 0
-            const finalCurrency = product.prices?.[currency] ? currency : 'usd'
+            // Fall back to whatever currency the price actually offers (eur,
+            // usd, ...) instead of hard-coding usd — otherwise EUR-only prices
+            // display as 0 for users without a cf-ipcountry header.
+            const available = Object.keys(product.prices || {})
+            const finalCurrency = product.prices?.[currency] != null
+                ? currency
+                : available[0] || 'usd'
+            const priceAmount = product.prices?.[finalCurrency] || 0
 
             return {
                 stripePriceId: product.stripePriceId,

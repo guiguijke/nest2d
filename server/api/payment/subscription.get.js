@@ -19,8 +19,13 @@ export default defineEventHandler(async (event) => {
 
     let planView = null
     if (plan) {
-        const amount = plan.prices?.[currency] ?? plan.prices?.['usd'] ?? 0
-        const finalCurrency = plan.prices?.[currency] != null ? currency : 'usd'
+        // Fall back to whatever currency the price offers (not hard-coded usd)
+        // so EUR-only prices display correctly without a cf-ipcountry header.
+        const available = Object.keys(plan.prices || {})
+        const finalCurrency = plan.prices?.[currency] != null
+            ? currency
+            : available[0] || 'usd'
+        const amount = plan.prices?.[finalCurrency] ?? 0
         planView = {
             priceId: plan.priceId,
             title: plan.title,

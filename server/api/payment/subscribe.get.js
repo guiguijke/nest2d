@@ -34,9 +34,12 @@ export default defineEventHandler(async (event) => {
     }
 
     const country = getHeader(event, 'cf-ipcountry')
-    const currency = plan.prices?.[getCurrencyByCountry(country)] != null
-        ? getCurrencyByCountry(country)
-        : 'usd'
+    const detected = getCurrencyByCountry(country)
+    // Only pin a currency when the plan's price actually offers it. Passing a
+    // currency the price doesn't support makes Stripe reject the checkout
+    // ("The price specified only supports eur..."). When null, no currency is
+    // sent and Stripe uses the price's own currency.
+    const currency = plan.prices?.[detected] != null ? detected : null
 
     const internalId = generateRandomString(24)
     const redirectUrl = `${baseUrl}/home`
