@@ -7,7 +7,7 @@
 #      Until the first CI build completes, set APP_BUILD_LOCAL=true below to
 #      build the app from source instead of pulling it.
 #   3. A reverse proxy in front (e.g. Nginx Proxy Manager) pointing to
-#      http://<host>:3000 with TLS for https://nesting.aplasma.fr
+#      http://<host>:7100 with TLS for https://nesting.aplasma.fr
 #
 # Usage:
 #   docker compose pull        # refresh images after a CI build
@@ -24,8 +24,9 @@ services:
     # build:
     #   context: .
     # Expose only on localhost so the public ingress is your reverse proxy.
+    # Port 7100 on the host -> 3000 inside the container (Nuxt's default).
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:7100:3000"
     environment:
       NUXT_PUBLIC_BASE_URL: ${NUXT_PUBLIC_BASE_URL}
       NUXT_MONGO_URI: mongodb://mongo:27017/nest2d
