@@ -131,13 +131,12 @@ export const pricing = {
             name: 'Pro',
             price: PRO_PRICE_LABEL,
             interval: 'month',
-            description: 'For businesses that quote, produce — and demand maximum confidentiality.',
+            description: 'For businesses that demand maximum confidentiality and the densest layouts.',
             features: [
                 'Everything in Unlimited',
                 'Zero-knowledge encryption: only you hold the key, like a crypto wallet',
-                'G-code export',
-                'Remnant (offcut) management',
-                'PDF quote reports',
+                'Maximum compute budget — noticeably denser nestings',
+                'Priority queue: your jobs are processed first',
             ],
             cta: 'Coming soon',
             trackingTag: 'pricing_pro',
@@ -164,7 +163,7 @@ export function useFaq() {
             },
             {
                 title: 'How much does APlasma Nesting cost?',
-                firstPart: `The Unlimited plan is ${SUBSCRIPTION_PRICE_LABEL}/month and includes unlimited nesting while active. A Pro plan (${PRO_PRICE_LABEL}/month) with G-code export, remnant management and PDF quote reports is coming soon.`
+                firstPart: `The Unlimited plan is ${SUBSCRIPTION_PRICE_LABEL}/month and includes unlimited nesting while active. The Pro plan (${PRO_PRICE_LABEL}/month) adds zero-knowledge encryption, the maximum compute budget for denser layouts, and priority processing of your jobs.`
             },
             {
                 title: 'Can I pay per use instead of subscribing?',
