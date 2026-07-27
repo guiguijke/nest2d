@@ -1,6 +1,7 @@
 <template>
     <header class="header">
         <component :is="logoTag" v-bind="logoHref" class="header__logo logo">
+            <img :src="logoMarkSrc" alt="APlasma" class="logo__mark" />
             <span class="logo__label">
                 APlasma <span class="logo__label--light">Nesting</span>
             </span>
@@ -134,6 +135,13 @@ const themeGlobal = computed(() => {
 })
 const themeIcon = computed(() => {
     return unref(themeGlobal) === themeType.primary ? iconType.light : iconType.dark
+})
+
+// Brand mark follows the theme: rust "A" on light, white "A" on dark.
+const logoMarkSrc = computed(() => {
+    return unref(themeGlobal) === themeType.primary
+        ? '/brand/forme-blanc.png'
+        : '/brand/forme-rouille.png'
 })
 
 </script>
@@ -289,16 +297,26 @@ const themeIcon = computed(() => {
 }
 
 .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    &__mark {
+        width: 34px;
+        height: 34px;
+        object-fit: contain;
+    }
+
     &__label {
         display: block;
-        font-size: 28px;
+        font-size: 24px;
         font-weight: 900;
         color: var(--accent-primary);
         white-space: nowrap;
 
         &--light {
             font-weight: 400;
-            opacity: 0.7;
+            color: var(--label-secondary);
         }
     }
 }
