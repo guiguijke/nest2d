@@ -1,185 +1,185 @@
-# Spec — Tier « Confidentialité+ » : chiffrement des fichiers utilisateurs
+# Spec v2 — Tier « Confidentialité+ » : chiffrement zero-knowledge par fichier-clé
 
-> **Statut** : spécification pour implémentation (worker agent)
-> **Contexte** : tier premium à 39 €/mois (2× l'Atelier à 19 €) vendant une
-> garantie de confidentialité des DXF/plans clients. Étude de marché :
-> l'objection n°3 au SaaS de nesting est « uploading proprietary designs to a
-> third-party server » — c'est le différenciateur à monétiser.
+> **Statut** : spécification pour implémentation — **agent unique désigné**.
+> ⚠️ Pour éviter les conflits, un seul agent de codage modifie le code à la
+> fois. Ce document est la source de vérité ; toute divergence s'y résout.
+>
+> **Changement v2** : abandon du mode passphrase (Argon2id) au profit d'un
+> **fichier-clé téléchargeable**. Le serveur ne stocke rien permettant de
+> déchiffrer. Sans le fichier, les données sont illisibles ; si le fichier
+> est perdu, les données sont perdues à jamais. Plus simple, plus fort,
+> plus vendeur.
 
 ---
 
-## 1. Modèle de menace (à assumer honnêtement)
+## 1. La promesse (marketing honnête)
 
-| Menace | Couverte ? |
-|---|---|
-| Dump/vol de la base Mongo ou des backups | ✅ oui (fichiers chiffrés au repos) |
-| Vol d'un snapshot disque du serveur | ✅ oui |
-| Admin/opérateur qui fouille les fichiers | ✅ en mode zero-knowledge, ⚠️ partiellement en mode standard |
-| Serveur compromis à chaud (runtime) | ❌ non — le serveur doit déchiffrer pour nester |
-| Interception réseau | ✅ TLS (déjà en place via reverse proxy) |
+> « Vos fichiers sont chiffrés avec une clé que **vous seul** détenez.
+> Nous ne stockons aucune copie de cette clé : sans votre fichier-clé,
+> vos données sont définitivement illisibles — même par nous, même avec
+> accès à nos serveurs et à nos sauvegardes. Si vous perdez ce fichier,
+> vos données sont perdues. »
 
-**Le marketing ne doit jamais promettre « impossible à lire même pour nous » en
-mode standard.** En mode standard on promet : « chiffré au repos, suppression
-définitive garantie par destruction de clé ». Le « même nous ne pouvons pas
-lire » est réservé au mode zero-knowledge.
+Nuances à assumer en interne (et dans les CGV/FAQ en langage clair) :
+- Pendant une session de travail déverrouillée, la clé vit en mémoire
+  serveur (cache TTL, jamais écrite sur disque ni en base en clair) le
+  temps de traiter les fichiers. « Rien de **persisté** » est la promesse
+  exacte.
+- TLS obligatoire sur tout le transport (déjà en place).
 
-**Limite physique** : le nesting exige la géométrie en clair. Le vrai E2E
-(chiffrement côté navigateur, nesting sans déchiffrement serveur) est
-impossible sans porter le nesting dans le navigateur. Piste long terme :
-jagua-rs compile en WASM (`workers/nesting/jagua-rs` a déjà un workflow
-`wasm.yml`) → nesting client-side = E2E réel. Hors scope v1.
-
-## 2. Architecture : chiffrement enveloppe par utilisateur
+## 2. Architecture
 
 ```
-Utilisateur premium
-  └── DEK (Data Encryption Key) : 256 bits aléatoire, unique par utilisateur
-        ├── chiffre tous les fichiers (AES-256-GCM)
-        └── wrappée par une KEK :
-              ├── mode standard : KEK = clé maître serveur (env NUXT_ENCRYPTION_MASTER_KEY)
-              └── mode zero-knowledge : KEK = Argon2id(passphrase utilisateur, sel)
+Fichier-clé (détenu par l'utilisateur, généré dans SON navigateur)
+  └── DEK : 256 bits aléatoires — chiffre tous ses fichiers (AES-256-GCM)
+
+Serveur (ne persiste QUE) :
+  users.encryption = { enabled: true, keyId, fingerprint, createdAt }
+  session_keys (TTL) = { userId, dekWrappée-clé-maître, expiresAt }   ← éphémère
 ```
 
-### 2.1 Format de fichier chiffré (GridFS)
+- `keyId` : identifiant public court (8 hex) — affiché dans le nom du fichier.
+- `fingerprint` : `SHA-256(DEK)` — sert uniquement à vérifier que le fichier
+  présenté est le bon. Comparaison en temps constant. Un hash ne permet pas
+  de remonter à la clé.
+- La DEK elle-même n'est **jamais** persistée en clair : ni en base, ni en
+  log, ni sur disque.
 
-Les fichiers transitent par GridFS en **chunks de 255 Ko**. On chiffre **par
-chunk** pour rester compatible avec le streaming existant :
+### 2.1 Format du fichier-clé
 
-```
-chunk[i] = nonce_i (12 o) || ciphertext_i || tag GCM (16 o)
-nonce_i  = aléatoire 96 bits par chunk
-AAD      = fileId || ownerId || chunkIndex   (anti-substitution de chunks)
-```
-
-Métadonnées sur le document fichier (`user_dxf_files`, `fs.files`) :
+Nom : `nest2d-vault-<keyId>.key.json`
 
 ```json
-"enc": { "v": 1, "algo": "aes-256-gcm", "mode": "standard" | "zk" }
-```
-
-Un fichier sans champ `enc` est un fichier legacy en clair → le reader le
-sert tel quel (rétro-compatibilité totale, pas de migration obligatoire).
-
-### 2.2 Hiérarchie de clés — document utilisateur
-
-```json
-"encryption": {
-  "mode": "standard" | "zk",
-  "wrappedDek": "<base64>",           // DEK wrappée par la KEK
-  "wrapAlgo": "aes-256-gcm",
-  "kdf": { "algo": "argon2id", "salt": "<base64>", "m": 65536, "t": 3, "p": 4 },  // mode zk seulement
-  "createdAt": "..."
+{
+  "type": "nest2d-vault-key",
+  "version": 1,
+  "keyId": "a3f8c2e1",
+  "key": "<base64 — 32 octets>",
+  "createdAt": "2026-07-27T…"
 }
 ```
 
-- **Mode standard** : KEK dérivée de `NUXT_ENCRYPTION_MASTER_KEY` (env, 32 o
-  hex). Rotation possible en re-wrappant les DEK.
-- **Mode zero-knowledge** : KEK = Argon2id(passphrase). La DEK n'existe en
-  clair qu'en mémoire, jamais persistée en clair.
+### 2.2 Cycle de vie
 
-### 2.3 Distribution de la DEK aux workers (le point délicat)
+**Activation (premium souscrit)** :
+1. Le **navigateur** génère la DEK (WebCrypto `getRandomValues`) — la clé
+   naît côté client.
+2. Le navigateur construit le fichier-clé et force son téléchargement.
+3. L'utilisateur confirme explicitement : ☐ « J'ai sauvegardé mon fichier-clé
+   et je comprends que sa perte rend mes données irrécupérables. »
+4. Le client envoie la clé une fois à `POST /api/security/vault/enable`
+   (TLS) → le serveur calcule et stocke `keyId` + `fingerprint`, active
+   `encryption.enabled`, crée l'entrée `session_keys`, puis **oublie** la clé.
 
-Les workers Python sont des processus séparés : ils ne partagent pas la
-mémoire Node. Solution : collection Mongo `session_keys` à **TTL court** :
+**Déverrouillage (début de session de travail)** :
+1. L'utilisateur glisse/sélectionne son `.key.json` (ou il est retrouvé dans
+   le cache navigateur, cf. §2.3).
+2. `POST /api/security/vault/unlock` → le serveur vérifie
+   `SHA-256(clé) == fingerprint` → écrit/rafraîchit `session_keys`
+   (TTL 2h glissant) → 200. Sinon 403 `wrong_key`.
+3. Upload / nesting / téléchargement : OK tant que l'entrée TTL existe.
+   Expirée → 403 `vault_locked` → le front rouvre la modale de déverrouillage.
 
-```json
-{ "userId": "...", "dek": "<DEK chiffrée avec la clé maître serveur>",
-  "expiresAt": "<Date>" }   // index TTL expireAfterSeconds=0 sur expiresAt
+**Workers** : lisent `session_keys`, déwrappent la DEK avec la clé maître
+serveur (env), traitent en mémoire, oublient. (La clé maître ne sert qu'à
+protéger le cache éphémère — sans elle, un dump Mongo pendant une session
+active exposerait les DEK.)
+
+**Crypto-shredding gratuit** : suppression de compte, purge manuelle, ou
+perte du fichier par l'utilisateur → les données sont mortes. `DELETE
+session_keys` + les fichiers chiffrés deviennent du bruit.
+
+### 2.3 Confort UX (optionnel, côté client uniquement)
+
+- ☐ « Mémoriser la clé dans ce navigateur » → la clé est stockée en
+  **IndexedDB** (jamais envoyée au serveur sauf unlock explicite).
+  Déverrouillage silencieux aux sessions suivantes. Avertissement : quiconque
+  ouvre ce navigateur déverrouille le vault. Décochable à tout moment
+  (« oublier ce navigateur »).
+- Sans cette option : sélection du fichier à chaque session.
+
+### 2.4 Perte de la clé
+
+- **Aucune récupération possible** — c'est le produit. L'UI le répète à
+  l'activation, dans les settings, et dans la FAQ.
+- `POST /api/security/vault/disable` (après unlock) : propose
+  (a) déchiffrer les fichiers et repasser en standard, ou
+  (b) tout détruire (crypto-shredding).
+- **Rotation** (suspicion de fuite) : après unlock, génération d'une nouvelle
+  clé côté client → nouveau fichier-clé → job de re-chiffrement batch des
+  fichiers existants → nouveau fingerprint. L'ancienne clé devient inutile.
+
+## 3. Format de fichier chiffré (inchangé — GridFS par chunk)
+
+```
+chunk[i] = nonce_i (12 o) || ciphertext_i || tag GCM (16 o)
+AAD      = fileId || ownerId || chunkIndex
 ```
 
-- Écrite/rafraîchie par l'app à l'upload ou à l'enqueue d'un nesting (TTL 2h
-  glissant).
-- Les workers la lisent, déchiffrent la DEK avec la clé maître (env partagée),
-  traitent, oublient.
-- En mode zk : l'entrée n'existe que si l'utilisateur a « déverrouillé » sa
-  session. Sans unlock → l'API refuse l'upload/nesting premium (403
-  `vault_locked`).
-- En mode standard : l'entrée est écrite automatiquement (transparent).
+Flag sur chaque document fichier : `enc: { v: 1, algo: "aes-256-gcm" }`.
+Absence de flag = fichier legacy en clair, servi tel quel.
 
-> ⚠️ En mode zk, pendant la fenêtre TTL, un dump Mongo contient la DEK
-> wrappée par la clé maître — la promesse zk vaut donc « hors session active
-> ». C'est le compromis standard du secteur (Bitwarden fait pareil en mémoire).
+## 4. Points d'intervention dans le code
 
-## 3. Points d'intervention dans le code
-
-### 3.1 Serveur Nuxt
+### 4.1 Serveur Nuxt
 
 | Fichier | Changement |
 |---|---|
-| `server/utils/crypto.js` (nouveau) | `encryptChunk/decryptChunk` (AES-256-GCM, AAD), `wrapDek/unwrapDek`, `deriveKek` (argon2 — paquet `argon2`), lecture `NUXT_ENCRYPTION_MASTER_KEY` |
-| `server/db/mongo.js` | Factory de buckets : wrapper `openUploadStream`/`openDownloadStream` qui chiffre/déchiffre à la volée si `user.encryption` actif |
-| Upload DXF (`server/api/files/...` upload handlers) | Passage par le wrapper chiffrant + flag `enc` sur le doc |
-| `server/api/files/**/*.get.js` (download, svg, dxf, zip) | Déchiffrement transparent à la lecture |
-| `server/api/security/unlock.post.js` (nouveau) | Vérifie la passphrase (unwrap DEK), crée l'entrée `session_keys` |
-| `server/api/security/status.get.js` (nouveau) | État du vault (verrouillé/déverrouillé, mode) |
-| `nest.post.js` ×2 | Refresh TTL `session_keys` à l'enqueue ; 403 `vault_locked` si zk verrouillé |
-| `server/api/user/index.get.js` | Exposer `encryptionMode` + `vaultLocked` au client |
+| `server/utils/crypto.js` (nouveau) | `encryptChunk/decryptChunk` (AES-256-GCM + AAD), `fingerprint(dek)`, wrap/unwrap pour `session_keys` via `NUXT_ENCRYPTION_MASTER_KEY`. **Aucun KDF** (plus de passphrase) |
+| `server/db/mongo.js` | Wrapper des buckets GridFS (upload/download chiffrant à la volée) |
+| `server/api/security/vault/enable.post.js` (nouveau) | Enregistre fingerprint, active le vault, seed `session_keys` |
+| `server/api/security/vault/unlock.post.js` (nouveau) | Vérifie fingerprint (temps constant), refresh TTL. Rate-limit 10/min/IP |
+| `server/api/security/vault/status.get.js` (nouveau) | `{ enabled, locked, expiresAt }` |
+| `server/api/security/vault/disable.post.js` (nouveau) | Déchiffrement complet ou destruction, au choix |
+| Upload DXF + `server/api/files/**/*.get.js` | Chiffrement/déchiffrement transparent ; 403 `vault_locked` si premium verrouillé |
+| `nest.post.js` ×2 | 403 `vault_locked` si verrouillé ; refresh TTL à l'enqueue |
+| `server/api/user/index.get.js` | Expose `encryption: { enabled, locked }` |
 
-### 3.2 Workers Python (×4 : fileprocessing, nesting, stripfileprocessing, stripnesting)
-
-| Fichier | Changement |
-|---|---|
-| `utils/crypto.py` (nouveau, identique ×4) | AESGCM (`cryptography`), lecture `session_keys`, unwrap via clé maître (env `ENCRYPTION_MASTER_KEY`) |
-| `utils/mongo.py` | Helper `read_file(bucket, file_id)` qui déchiffre si `enc` présent ; `write_file` qui chiffre si l'owner est premium |
-| Workers nesting | Écrire les **résultats** chiffrés aussi (sinon le DXF nesté fuit en clair) |
-
-### 3.3 Frontend
+### 4.2 Frontend
 
 | Fichier | Changement |
 |---|---|
-| Page Settings/Sécurité | Activation premium, choix du mode, saisie passphrase (zk), **clé de récupération affichée une fois** (mode zk) |
-| Composant `VaultUnlock.vue` | Modale de déverrouillage quand `vaultLocked` |
-| Page pricing | Tier « Confidentialité+ » 39 €/mois avec la promesse exacte du §1 |
+| Activation (page Sécurité) | Génération clé WebCrypto, téléchargement forcé, checkbox de confirmation |
+| `VaultUnlock.vue` (nouveau) | Drop-zone du fichier-clé, option « mémoriser dans ce navigateur » (IndexedDB) |
+| Settings | Statut vault, rotation de clé, « oublier ce navigateur », disable |
+| Pricing | Tier 39 € avec la promesse du §1 |
 
-## 4. Gating commercial
+### 4.3 Workers Python (×4)
 
-1. **Stripe** : produit « Confidentialité+ » prix récurrent 39 €/mois,
-   `metadata: { type: 'subscription', tier: 'privacy' }`.
-2. **Blocage actuel** : `server/plugins/6_subscription_plan_sync.ts` ne gère
-   qu'UN plan (prend le 1er candidat). À étendre : sync de plusieurs plans
-   dans `subscription_plan` (doc par tier) et `mapSubscription` doit stocker
-   le `priceId` → mapping priceId → tier (déjà persisté : `subscription.priceId`).
-3. `entitlement.js` : `assertCanNest` reste inchangé (illimité pour tout abo
-   actif) ; le tier ne débloque que le chiffrement (`user.encryption` activé
-   quand `subscription.priceId ∈ PRICES_PRIVACY`).
-4. **Downgrade** (privacy → atelier) : re-wrap des DEK zk → standard pour que
-   les fichiers restent lisibles ; proposer l'option « tout supprimer »
-   (crypto-shredding).
+Identique spec v1 : `utils/crypto.py` (AESGCM, `cryptography`), lecture
+`session_keys`, unwrap via `ENCRYPTION_MASTER_KEY` (env), chiffrement des
+**résultats** aussi. **Test d'interop JS ↔ Python obligatoire** sur vecteur
+fixe (mêmes tailles nonce/tag, même AAD).
 
-## 5. Crypto-shredding (argument de vente n°2)
+## 5. Gating commercial (inchangé)
 
-Suppression de compte ou « purge » manuelle : `UNSET encryption.wrappedDek` +
-purge `session_keys` → **tous les fichiers deviennent définitivement
-illisibles**, y compris dans les backups à venir. Bien plus fort qu'un
-`delete` dont les données persistent dans les backups. À exposer dans l'UI :
-« Suppression définitive garantie par destruction de clé ».
+Produit Stripe « Confidentialité+ » 39 €/mois récurrent,
+`metadata: { type: "subscription", tier: "privacy" }`.
+⚠️ Prérequis : étendre `6_subscription_plan_sync.ts` au multi-plans (il ne
+prend aujourd'hui que le premier candidat) et mapper `subscription.priceId`
+→ tier dans `entitlement.js`. Le tier ne débloque que le chiffrement ;
+l'illimité nesting reste commun aux deux abos.
 
-## 6. Rétro-compatibilité et migration
+## 6. Hors scope v1
 
-- Fichiers legacy en clair : servis normalement, **jamais re-chiffrés en
-  masse** (coûteux) ; re-chiffrement paresseux à la prochaine réécriture.
-- Option « chiffrer mes fichiers existants » : job batch par utilisateur qui
-  relit + réécrit chaque fichier (à faire worker-side, par user, à la demande).
+- E2E intégral (nesting WASM dans le navigateur — jagua-rs a un build wasm)
+- KMS externe pour la clé maître
+- Partage de fichiers entre utilisateurs
+- Audit log d'accès (quick win B2B à caser si temps)
 
-## 7. Hors scope v1 (à noter pour plus tard)
+## 7. Checklist implémentation
 
-- E2E réel via nesting WASM dans le navigateur (jagua-rs a un build wasm)
-- KMS externe (Vault, AWS KMS) pour la clé maître
-- Audit log d'accès aux fichiers (bel argument B2B, facile : log dans
-  les download handlers)
-- Partage de fichiers entre utilisateurs (re-wrap par fichier)
-
-## 8. Checklist implémentation
-
-1. [ ] `NUXT_ENCRYPTION_MASTER_KEY` + `ENCRYPTION_MASTER_KEY` (workers) dans
-      `.env.example` et docker-compose (générer : `openssl rand -hex 32`)
-2. [ ] `server/utils/crypto.js` + tests unitaires round-trip
+1. [ ] `NUXT_ENCRYPTION_MASTER_KEY` (app) + `ENCRYPTION_MASTER_KEY` (workers)
+      dans `.env.example` + docker-compose (`openssl rand -hex 32`)
+2. [ ] `server/utils/crypto.js` + tests round-trip + vecteur interop Python
 3. [ ] Wrapper buckets GridFS + flag `enc`
-4. [ ] `utils/crypto.py` workers (round-trip compatible JS ↔ Python : mêmes
-      tailles nonce/tag, même AAD — **tester l'interop sur un vecteur fixe**)
-5. [ ] Endpoints unlock/status + TTL index `session_keys`
-6. [ ] Gating upload/nesting (403 `vault_locked`)
-7. [ ] Multi-plans Stripe (sync + gating tier)
-8. [ ] UI : page sécurité, modale unlock, pricing 39 €, récupération
-9. [ ] Crypto-shredding (purge compte)
-10. [ ] Page marketing : promesses calquées sur le §1, rien de plus
+4. [ ] Endpoints vault (enable/unlock/status/disable) + rate-limit +
+      comparaison fingerprint temps constant + **aucun log de la clé**
+5. [ ] Collection `session_keys` + index TTL
+6. [ ] 403 `vault_locked` sur upload/nesting/download premium verrouillé
+7. [ ] Front : activation (génération + téléchargement + checkbox),
+      `VaultUnlock.vue`, IndexedDB opt-in, settings
+8. [ ] `utils/crypto.py` ×4 workers + chiffrement des résultats
+9. [ ] Multi-plans Stripe (sync + mapping tier) → créer le produit 39 €
+10. [ ] Rotation de clé + re-chiffrement batch
+11. [ ] Page marketing + FAQ « clé perdue = données perdues »
