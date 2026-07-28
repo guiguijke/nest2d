@@ -56,8 +56,12 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 400, statusMessage: 'Vault is not enabled' })
     }
 
-    // Throws 403 vault_locked when no active session exists.
-    const { dek } = await requireFileAccess(userId)
+    // The DEK is only needed for 'decrypt' mode (to read ciphertext back to
+    // plaintext). 'destroy' is crypto-shredding: it deletes files outright,
+    // so it must NOT require an unlocked session — otherwise a user locked
+    // out of their vault (lost key, misconfigured master key) can never
+    // recover. Only gate 'decrypt' behind requireFileAccess.
+    const dek = mode === 'decrypt' ? (await requireFileAccess(userId)).dek : null
 
     for (const getBucket of BUCKET_GETTERS) {
         const bucket = await getBucket()

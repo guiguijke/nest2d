@@ -94,9 +94,19 @@ async function unlockWithKey(base64Key, { silent = false } = {}) {
         await authStore.actions.setUser()
     } catch (err) {
         const message = err?.data?.statusMessage || ''
-        error.value = message === 'wrong_key'
-            ? 'This key does not match your vault. Check you picked the right key file.'
-            : 'Unlock failed. Please try again.'
+        if (message === 'wrong_key') {
+            error.value = 'This key does not match your vault. Check you picked the right key file.'
+        } else if (message) {
+            // Surface the real server message instead of masking every non-
+            // wrong_key error as a generic failure (which previously hid
+            // e.g. a misconfigured deployment master key behind a vague
+            // "try again"). Clean it up slightly for display.
+            error.value = message
+                .replace(/_/g, ' ')
+                .replace(/^\w/, (c) => c.toUpperCase())
+        } else {
+            error.value = 'Unlock failed. Please try again.'
+        }
     } finally {
         loading.value = false
     }
