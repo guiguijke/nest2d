@@ -258,9 +258,13 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
     if len(relo_items) > EXACT_PACK_MAX_ITEMS:
         return None
 
-    template = _try_ring_template(hole_polys, relo_items, space)
-    if template is not None:
-        return template
+    # Ring templates assume an empty hole — with existing occupants (parts
+    # the solver already nested inside, or earlier batches) the generic
+    # search must account for them instead.
+    if not any(occupied.get(bin_id) for bin_id, _poly in hole_polys):
+        template = _try_ring_template(hole_polys, relo_items, space)
+        if template is not None:
+            return template
 
     half = (space or 0) / 2.0
     safe_holes = []  # (bin_id, safe_poly, anchors)
@@ -501,6 +505,9 @@ def relocate_into_holes(containers, input_items, space, run_lbf_fn=run_lbf):
         )
 
         # Collect usable holes from the donor sheets (absolute coordinates).
+        # Holes already hosting a part (the solver can nest natively via the
+        # channel conversion) are NOT offered — the sub-solve does not model
+        # existing occupants and would stack parts on top of them.
         hole_bins = []
         hole_polys = []  # (bin_id, Polygon) in absolute coordinates
         hole_owner = {}  # bin_id -> donor container
@@ -516,6 +523,27 @@ def relocate_into_holes(containers, input_items, space, run_lbf_fn=run_lbf):
                     abs_ring = _close_ring(
                         _transform_ring(hole_ring, transform.angle, transform.x, transform.y)
                     )
+                    abs_poly = Polygon(abs_ring)
+
+                    occupied = False
+                    for other in donor.transforms:
+                        if other is transform:
+                            continue
+                        other_item = items_by_id.get(getattr(other, "item_id", None))
+                        if other_item is None or other_item.get("holes"):
+                            continue
+                        poly = _placed_polygon(other_item, other)
+                        shrunk = poly.buffer(-0.5)
+                        if (
+                            poly.area > 0
+                            and not shrunk.is_empty
+                            and abs_poly.covers(shrunk)
+                        ):
+                            occupied = True
+                            break
+                    if occupied:
+                        continue
+
                     bin_id = len(hole_bins)
                     hole_bins.append({
                         "id": bin_id,
@@ -523,7 +551,7 @@ def relocate_into_holes(containers, input_items, space, run_lbf_fn=run_lbf):
                         "stock": 1,
                         "shape": {"type": "polygon", "data": {"outer": abs_ring}},
                     })
-                    hole_polys.append((bin_id, Polygon(abs_ring)))
+                    hole_polys.append((bin_id, abs_poly))
                     hole_owner[bin_id] = donor
 
         if not hole_bins:
@@ -748,7 +776,28 @@ def compact_into_holes(containers, input_items, space):
         if not hole_polys:
             continue
 
+        # Parts ALREADY hosted in holes (the solver can nest them natively
+        # via the channel conversion, and relocation may have added some):
+        # they count as occupants — packing more parts on top of them caused
+        # overlaps — and are never moved again.
         occupied = {}   # bin_id -> [polygons] already hosted in the hole
+        hosted_ids = set()
+        for bin_id, hole_poly in hole_polys:
+            safe = hole_poly.buffer(-half) if half > 0 else hole_poly
+            for transform in container.transforms:
+                item = items_by_id.get(getattr(transform, "item_id", None))
+                if item is None or item.get("holes"):
+                    continue
+                poly = _placed_polygon(item, transform, half)
+                shrunk = poly.buffer(-0.5)
+                if (
+                    poly.area > 0
+                    and not shrunk.is_empty
+                    and safe.covers(shrunk)
+                ):
+                    occupied.setdefault(bin_id, []).append(poly)
+                    hosted_ids.add(id(transform))
+
         moved_ids = set()
 
         # Batches: moving 3 of 4 edge-stacked parts does not shrink the bbox
@@ -767,7 +816,7 @@ def compact_into_holes(containers, input_items, space):
 
             movers = [
                 t for t in container.transforms
-                if id(t) not in moved_ids
+                if id(t) not in moved_ids and id(t) not in hosted_ids
                 and not (items_by_id.get(getattr(t, "item_id", None)) or {}).get("holes")
             ]
             movers.sort(key=frontier_key, reverse=True)
