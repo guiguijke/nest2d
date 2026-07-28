@@ -1,4 +1,4 @@
-import { connectDB } from "~/server/db/mongo"; 
+import { connectDB } from "~~/server/db/mongo"; 
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId || "anonymous";

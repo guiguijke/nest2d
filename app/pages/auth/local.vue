@@ -53,7 +53,7 @@
 
 <script setup>
 import { themeType } from '~~/constants/theme.constants'
-import { trackEvent } from '~~/utils/track'
+import { trackEvent } from '~/utils/track'
 
 definePageMeta({
     layout: 'doc',

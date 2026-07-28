@@ -30,8 +30,8 @@ const router = useRouter();
 const { getters, actions } = stripStore;
 const { setStripProjects } = actions;
 
-const headers = useRequestHeaders(['cookie']);
-const data = getters.projectsList || await $fetch(API_ROUTES.STRIP_PROJECTS, { headers });
+const $apiFetch = useApiFetch();
+const data = getters.projectsList || await $apiFetch(API_ROUTES.STRIP_PROJECTS);
 
 const projectsList = computed(() => {
     return getters.projectsList || data.projects

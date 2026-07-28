@@ -1,5 +1,5 @@
 import { useSiteConfig } from '~~/data/siteConfig'
-import { FREE_NESTING_LIMIT, TRIAL_DAYS, SUBSCRIPTION_PRICE_LABEL, PRO_PRICE_LABEL } from '~~/constants/payment.constants'
+import { FREE_NESTING_LIMIT, TRIAL_DAYS, SUBSCRIPTION_PRICE_LABEL, PRO_PRICE_LABEL } from '~~/shared/constants/payment.constants'
 
 export const hero = {
     badge: 'Open source · Inspired by Nest2D',

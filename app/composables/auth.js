@@ -7,7 +7,11 @@ const state = reactive({
 })
 async function setUser() {
     try {
-        const { data } = await useFetch(API_ROUTES.USER)
+        // Stable key: Nuxt deduplicates concurrent calls to the same key and
+        // shares the cached payload across the middleware + pages that call
+        // setUser() (9 call sites), avoiding one network round-trip per
+        // navigation.
+        const { data } = await useFetch(API_ROUTES.USER, { key: 'user' })
         const userData = unref(data)
         if (userData && Boolean(userData.id)) {
             state.user = userData

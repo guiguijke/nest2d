@@ -1,5 +1,5 @@
-import { MESSAGE_SENDER } from '~/server/features/support/const'
-import { connectDB } from '~/server/db/mongo'
+import { MESSAGE_SENDER } from '~~/server/features/support/const'
+import { connectDB } from '~~/server/db/mongo'
 
 export async function sendWelcomeMessage(userId) {
     const db = await connectDB()

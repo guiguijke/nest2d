@@ -51,8 +51,8 @@ import {
     keyToBase64,
     parseKeyFile,
     rememberKeyInBrowser,
-} from '~~/utils/vault'
-import { trackEvent } from '~~/utils/track'
+} from '~/utils/vault'
+import { trackEvent } from '~/utils/track'
 
 const isOpen = useVaultUnlockDialog()
 

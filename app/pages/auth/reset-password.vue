@@ -1,68 +1,86 @@
 <template>
-    <div class="forgot-password">
-        <MainTitle label="Reset your password" class="forgot-password__title" />
-        <p class="forgot-password__subtitle">
-            Enter your account email and we will send you a reset link.
-        </p>
+    <div class="reset-password">
+        <MainTitle label="Choose a new password" class="reset-password__title" />
 
-        <template v-if="!sent">
-            <form class="forgot-password__form" @submit.prevent="onSubmit">
+        <template v-if="!token">
+            <p class="reset-password__subtitle">
+                This reset link is invalid. Please request a new one.
+            </p>
+        </template>
+
+        <template v-else-if="!done">
+            <form class="reset-password__form" @submit.prevent="onSubmit">
                 <InputField
-                    v-model="email"
-                    type="email"
-                    placeholder="Email"
+                    v-model="password"
+                    type="password"
+                    placeholder="New password (min. 8 characters)"
                     :is-error="!!fieldError"
-                    class="forgot-password__field"
+                    class="reset-password__field"
+                />
+                <InputField
+                    v-model="passwordConfirm"
+                    type="password"
+                    placeholder="Confirm new password"
+                    :is-error="!!fieldError"
+                    class="reset-password__field"
                 />
 
-                <p v-if="fieldError" class="forgot-password__error">{{ fieldError }}</p>
+                <p v-if="fieldError" class="reset-password__error">{{ fieldError }}</p>
 
                 <MainButton
                     :theme="themeType.primary"
-                    label="Send reset link"
+                    label="Reset password"
                     :isDisable="loading"
-                    trackingTag="forgot_password_submit"
+                    trackingTag="reset_password_submit"
                     tag="button"
                     type="submit"
-                    class="forgot-password__btn"
+                    class="reset-password__btn"
                 />
             </form>
         </template>
-        <p v-else class="forgot-password__success">
-            If an account exists for this email, a reset link is on its way.
-            Check your inbox (and spam folder).
+
+        <p v-else class="reset-password__success">
+            Your password has been updated. You can now log in with your new password.
         </p>
 
-        <NuxtLink to="/auth/local" class="forgot-password__back">
-            Back to login
+        <NuxtLink to="/auth/local" class="reset-password__back">
+            Go to login
         </NuxtLink>
     </div>
 </template>
 
 <script setup>
 import { themeType } from '~~/constants/theme.constants'
-import { trackEvent } from '~~/utils/track'
+import { trackEvent } from '~/utils/track'
 
 definePageMeta({
     layout: 'doc',
 })
 
-const email = ref('')
+const route = useRoute()
+const token = computed(() => String(route.query.token || ''))
+
+const password = ref('')
+const passwordConfirm = ref('')
 const fieldError = ref('')
 const loading = ref(false)
-const sent = ref(false)
+const done = ref(false)
 
 const onSubmit = async () => {
     fieldError.value = ''
+    if (password.value !== passwordConfirm.value) {
+        fieldError.value = 'Passwords do not match'
+        return
+    }
     loading.value = true
-    trackEvent('click_forgot_password', { page: 'forgot_password' })
+    trackEvent('click_reset_password', { page: 'reset_password' })
     try {
-        await $fetch('/api/auth/local/forgot-password', {
+        await $fetch('/api/auth/local/reset-password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email.value }),
+            body: JSON.stringify({ token: token.value, password: password.value }),
         })
-        sent.value = true
+        done.value = true
     } catch (err) {
         fieldError.value = err?.data?.statusMessage || err?.statusMessage || 'Something went wrong. Please try again.'
     } finally {
@@ -72,7 +90,7 @@ const onSubmit = async () => {
 </script>
 
 <style lang="scss" scoped>
-.forgot-password {
+.reset-password {
     display: flex;
     flex-direction: column;
     align-items: center;

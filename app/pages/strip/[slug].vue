@@ -34,7 +34,7 @@ definePageMeta({
     middleware: ["auth", "strip"],
 });
 
-const headers = useRequestHeaders(['cookie']);
+const $apiFetch = useApiFetch();
 
 const { getters, actions } = stripStore;
 const { setProjectFiles, setProjectName, setModalFileData, nest } = actions;
@@ -47,7 +47,7 @@ const apiPath = API_ROUTES.STRIP_PROJECT(slug);
 // Otherwise (e.g. right after creating a new project, or switching projects)
 // the store still holds the previously opened project's files.
 const hasCachedProject = getters.projectFiles !== null && getters.projectSlug === slug;
-const data = hasCachedProject ? null : await $fetch(apiPath, { headers });
+const data = hasCachedProject ? null : await $apiFetch(apiPath);
 
 const projectFiles = computed(() => {
     if (getters.projectFiles !== null && getters.projectSlug === slug) {

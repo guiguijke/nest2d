@@ -1,6 +1,6 @@
-import { connectDB } from '~/server/db/mongo'
-import { MESSAGE_SENDER } from '~/server/features/support/const'
-import { sendNewSupportMessageEmail } from '~/server/features/notification/sendEmail'
+import { connectDB } from '~~/server/db/mongo'
+import { MESSAGE_SENDER } from '~~/server/features/support/const'
+import { sendNewSupportMessageEmail } from '~~/server/features/notification/sendEmail'
 
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId

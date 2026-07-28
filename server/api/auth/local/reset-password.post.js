@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import bcrypt from 'bcryptjs'
-import { connectDB } from '~/server/db/mongo'
+import { connectDB } from '~~/server/db/mongo'
 
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)
