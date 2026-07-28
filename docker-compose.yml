@@ -27,6 +27,12 @@ services:
     # Port 7100 on the host -> 3000 inside the container (Nuxt's default).
     ports:
       - "127.0.0.1:7100:3000"
+    # Inject every variable from .env into the container. This is more robust
+    # than relying solely on ${VAR:-} substitution: env_file is read directly
+    # by Compose regardless of the launching shell, so secrets like
+    # NUXT_ENCRYPTION_MASTER_KEY always reach the app. Explicit `environment:`
+    # entries below take precedence and override anything in the file.
+    env_file: .env
     environment:
       NUXT_PUBLIC_BASE_URL: ${NUXT_PUBLIC_BASE_URL}
       NUXT_MONGO_URI: mongodb://mongo:27017/nest2d
@@ -70,6 +76,7 @@ services:
 
   user-file-processing-worker:
     image: ghcr.io/guiguijke/nest2d-user-file-processing-worker:latest
+    env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
       ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-}
@@ -84,6 +91,7 @@ services:
 
   nesting-worker:
     image: ghcr.io/guiguijke/nest2d-nesting-worker:latest
+    env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
       ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-}
@@ -96,6 +104,7 @@ services:
 
   strip-file-processing-worker:
     image: ghcr.io/guiguijke/nest2d-strip-file-processing-worker:latest
+    env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
       ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-}
@@ -108,6 +117,7 @@ services:
 
   strip-nesting-worker:
     image: ghcr.io/guiguijke/nest2d-strip-nesting-worker:latest
+    env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
       ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-}
