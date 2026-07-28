@@ -9,7 +9,7 @@ from core.nesting_input_builder import build_bin, build_item
 from core.holed_polygons import open_holes_with_channels
 from core.placement import ResultContainer, Transform
 from core.racing import race_solve
-from core.hole_relocation import relocate_into_holes, rescale_density
+from core.hole_relocation import compact_into_holes, relocate_into_holes, rescale_density
 from dxf.dxf_utils import read_dxf
 from core.svg_generator import create_svg_from_doc
 from ezdxf.document import Drawing
@@ -396,6 +396,7 @@ def nesting_process(doc):
         )
 
         freed_sheets = 0
+        compaction_moves = 0
         if rank == 0:
             containers_before = list(result_containers)
             result_containers, freed_sheets = relocate_into_holes(
@@ -407,6 +408,10 @@ def nesting_process(doc):
                     "Hole relocation freed sheets on best alternative",
                     extra={"freed_sheets": freed_sheets, "density": density},
                 )
+            # Compaction: on roomy sheets the solver has no incentive to use
+            # holes — move parts into cutouts when it shrinks the used area,
+            # leaving a clean reusable offcut.
+            compaction_moves = compact_into_holes(result_containers, input_items, space)
 
         alt_slug = f"{slug}_alt{rank}"
         dxf_files, svg_files = build_result_dxf_files(
@@ -419,6 +424,7 @@ def nesting_process(doc):
             "cost": cost,
             "layoutCount": len(result_containers),
             "freedByHoleRelocation": freed_sheets,
+            "compactionMoves": compaction_moves,
             "dxf_files": dxf_files,
             "svg_files": svg_files,
         })
@@ -444,6 +450,7 @@ def nesting_process(doc):
                 "layoutCount": best["layoutCount"],
                 "density": best["density"],
                 "holeRelocation": {"freed_sheets": best["freedByHoleRelocation"]},
+                "compaction": {"moves": best["compactionMoves"]},
                 "update_ts": datetime.now()
             },
         }
