@@ -17,7 +17,7 @@
                     />
                 </div>
                 <p class="result__text result__text--count">
-                    {{ progress.done }}/{{ progress.total }}<template v-if="progress.elapsed_sec != null"> · {{ formatElapsed(progress.elapsed_sec) }}</template>
+                    {{ progressPercent }}% · {{ progress.done }}/{{ progress.total }}<template v-if="progress.elapsed_sec != null"> · {{ formatElapsed(progress.elapsed_sec) }}</template>
                 </p>
             </template>
             <p v-else class="result__text">
@@ -116,6 +116,8 @@ const progress = computed(() => {
 
 const progressPercent = computed(() => {
     if (!progress.value) return 0;
+    // Live percentage from the lbf placement stream when available.
+    if (progress.value.pct != null) return Math.min(100, progress.value.pct);
     return Math.min(100, Math.round((progress.value.done / progress.value.total) * 100));
 });
 

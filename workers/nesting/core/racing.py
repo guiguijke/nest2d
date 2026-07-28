@@ -17,9 +17,11 @@ threads (subprocess.run releases the GIL) and scales with CPU cores.
 
 import json
 import os
+import re
 import secrets
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from core.nesting_input_builder import build_input_json
@@ -40,13 +42,21 @@ ESCALATION_BUDGET_MULT = int(os.environ.get("NEST_ESCALATION_BUDGET_MULT", "4"))
 LBF_TIMEOUT_SECONDS = int(os.environ.get("NEST_LBF_TIMEOUT", "3600"))
 
 
-def run_lbf(input_json):
+# lbf logs "[LBF] placing item X/Y ..." (info level) for every placement —
+# streamed live to report intra-run progress without patching the solver.
+_ITEM_LOG_RE = re.compile(r"placing item (\d+)/(\d+)")
+
+
+def run_lbf(input_json, on_item=None):
     """Runs one lbf subprocess and returns the parsed solution output.
 
     jagua-rs 0.7.x dropped the stdin/stdout JSON interface: lbf is now a
     file-based CLI (`lbf -i instance.json -s out_dir -c config.json -p bpp`)
     writing `sol_<stem>.json` (plus SVGs we ignore). Output rotations are in
     DEGREES since 0.7.x (they were radians in 0.6.x) — callers must convert.
+
+    on_item(placed, total) is invoked for every item lbf places (parsed from
+    its stdout log stream); pass None when progress does not matter.
     """
     with tempfile.TemporaryDirectory(prefix="lbf_") as tmpdir:
         instance_path = os.path.join(tmpdir, "instance.json")
@@ -58,18 +68,48 @@ def run_lbf(input_json):
         with open(config_path, "w") as f:
             json.dump(input_json["config"], f)
 
-        result = subprocess.run(
+        proc = subprocess.Popen(
             ["lbf", "-i", instance_path, "-s", out_dir,
-             "-c", config_path, "-p", "bpp", "-l", "warn"],
-            capture_output=True,
+             "-c", config_path, "-p", "bpp",
+             "-l", "info" if on_item else "warn"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=LBF_TIMEOUT_SECONDS,
         )
 
-        if result.returncode != 0:
-            logger.error("❌ lbf failed with return code: %s", result.returncode)
-            logger.error("Error output: %s", result.stderr)
-            raise Exception(f"❌ lbf failed with return code: {result.returncode}")
+        stderr_lines = []
+
+        def _read_stdout():
+            for line in proc.stdout:
+                match = _ITEM_LOG_RE.search(line)
+                if match and on_item is not None:
+                    try:
+                        on_item(int(match.group(1)), int(match.group(2)))
+                    except Exception:
+                        pass
+
+        def _read_stderr():
+            for line in proc.stderr:
+                stderr_lines.append(line)
+
+        stdout_thread = threading.Thread(target=_read_stdout, daemon=True)
+        stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+
+        try:
+            returncode = proc.wait(timeout=LBF_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+
+        if returncode != 0:
+            logger.error("❌ lbf failed with return code: %s", returncode)
+            logger.error("Error output: %s", "".join(stderr_lines)[-2000:])
+            raise Exception(f"❌ lbf failed with return code: {returncode}")
 
         solution_path = os.path.join(out_dir, "sol_instance.json")
         with open(solution_path) as f:
@@ -79,13 +119,13 @@ def run_lbf(input_json):
     return {"solution": output["solution"], "config": output.get("config")}
 
 
-def _solve_once(bins, jaguar_items, n_samples, seed, min_separation, has_holes=False):
+def _solve_once(bins, jaguar_items, n_samples, seed, min_separation, has_holes=False, on_item=None):
     """Single solver run; returns a candidate dict."""
     input_json = build_input_json(
         bins, jaguar_items, n_samples=n_samples, prng_seed=seed,
         min_separation=min_separation, has_holes=has_holes,
     )
-    output = run_lbf(input_json)
+    output = run_lbf(input_json, on_item=on_item)
     solution = output.get("solution") or {}
     placed = sum(len(layout.get("placed_items", [])) for layout in solution.get("layouts", []))
     return {
@@ -114,9 +154,23 @@ def _run_batch(bins, jaguar_items, n_samples, seeds, min_separation, stage, has_
         extra={"stage": stage, "seeds": len(seeds), "n_samples": n_samples, "workers": workers},
     )
     done = 0
+    fractions = {seed: 0.0 for seed in seeds}
+
+    def _report(stage_name):
+        if on_progress is None:
+            return
+        try:
+            overall = sum(fractions.values()) / len(seeds)
+            on_progress(stage_name, done, len(seeds), int(overall * 100))
+        except Exception:
+            pass
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(_solve_once, bins, jaguar_items, n_samples, seed, min_separation, has_holes): seed
+            pool.submit(
+                _solve_once, bins, jaguar_items, n_samples, seed, min_separation, has_holes,
+                (lambda s: (lambda placed, total: (fractions.__setitem__(s, placed / total), _report(stage))))(seed),
+            ): seed
             for seed in seeds
         }
         for future, seed in futures.items():
@@ -141,11 +195,8 @@ def _run_batch(bins, jaguar_items, n_samples, seeds, min_separation, stage, has_
                 # made the UI report done/total while the last run was still
                 # solving, looking exactly like a hang.
                 done += 1
-                if on_progress is not None:
-                    try:
-                        on_progress(stage, done, len(seeds))
-                    except Exception:
-                        pass  # progress reporting must never break a solve
+                fractions[seed] = 1.0
+                _report(stage)
     return candidates
 
 

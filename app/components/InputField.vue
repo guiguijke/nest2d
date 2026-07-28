@@ -92,14 +92,13 @@ const inputClasses = computed(() => ({
 <style lang="scss" scoped>
 .input {
     $self: &;
-    border-radius: 10px;
-    background-color: var(--background-primary);
+    border-radius: 12px;
+    background-color: var(--fill-tertiary);
     padding: 11px 12px;
     display: flex;
     align-items: center;
     font-weight: 500;
-    border: 1.5px solid var(--separator-secondary);
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--label-primary) 4%, transparent);
+    border: 1.5px solid transparent;
     transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
     &__prefix,
     &__suffix {
@@ -149,15 +148,16 @@ const inputClasses = computed(() => ({
 
     @media (hover:hover) {
         &:hover {
-            border-color: var(--label-tertiary);
+            background-color: var(--fill-secondary);
         }
     }
 
     &:focus-within {
+        background-color: var(--background-primary);
         border-color: var(--accent-primary);
         box-shadow:
             0 0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent),
-            0 1px 2px color-mix(in srgb, var(--label-primary) 4%, transparent);
+            0 2px 6px color-mix(in srgb, var(--label-primary) 8%, transparent);
 
         #{$self}__prefix {
             color: var(--accent-primary);

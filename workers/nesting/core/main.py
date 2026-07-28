@@ -393,8 +393,8 @@ def nesting_process(doc):
     _current_progress = {"stage": "preparing", "done": 0, "total": 1}
     _heartbeat_stop = _threading.Event()
 
-    def report_progress(stage, done, total):
-        _current_progress.update({"stage": stage, "done": done, "total": total})
+    def report_progress(stage, done, total, pct=None):
+        _current_progress.update({"stage": stage, "done": done, "total": total, "pct": pct})
         now = _time.time()
         # Stage changes are always written immediately — throttling them away
         # made the UI look stuck on the previous stage's final count.
@@ -442,6 +442,7 @@ def nesting_process(doc):
                             "label": STAGE_LABELS.get(p["stage"], p["stage"]),
                             "done": p["done"],
                             "total": p["total"],
+                            "pct": p.get("pct"),
                             "elapsed_sec": int(_time.monotonic() - _job_started),
                         },
                         "update_ts": datetime.now(),
@@ -494,6 +495,18 @@ def nesting_process(doc):
         )
         freed_sheets = 0
         compaction_moves = 0
+
+        def _guard():
+            n = sum(len(c.transforms) for c in result_containers)
+            if n != total_requested_count:
+                logger.error(
+                    "Alternative lost parts, discarding it",
+                    extra={"strategy": strategy, "transforms": n,
+                           "requested": total_requested_count},
+                )
+                return False
+            return True
+
         if post_pass:
             containers_before = list(result_containers)
             result_containers, freed_sheets = relocate_into_holes(
@@ -510,6 +523,9 @@ def nesting_process(doc):
             # leaving a clean reusable offcut.
             report_progress("compacting", 0, 1)
             compaction_moves = compact_into_holes(result_containers, input_items, space)
+
+        if not _guard():
+            return
 
         alt_slug = f"{slug}_alt{rank}"
         report_progress("building", rank, n_alternatives)
@@ -547,9 +563,11 @@ def nesting_process(doc):
             _finalize_alternative(band_candidate, "max offcut", rank, post_pass=True)
             rank += 1
 
-    # 3. balanced — next distinct race final, untouched by post-passes.
+    # 3. balanced — next distinct race final, same post-passes: another
+    # take on the compact layout rather than the solver's raw output (which
+    # never uses holes and made the option meaningless).
     while rank < n_alternatives and rank < len(finals):
-        _finalize_alternative(finals[rank], "balanced", rank, post_pass=False)
+        _finalize_alternative(finals[rank], "balanced", rank, post_pass=True)
         rank += 1
 
     _heartbeat_stop.set()
