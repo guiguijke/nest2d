@@ -30,6 +30,18 @@ const vaultLocked = computed(() => {
 watch(vaultLocked, (locked) => {
     if (locked) vaultUnlockDialog.value = true;
 }, { immediate: true });
+
+// Orange "secure environment" border around the whole screen while the user
+// is actively working inside an unlocked vault.
+const vaultActive = computed(() => {
+    const encryption = unref(authGetters.user)?.encryption;
+    return Boolean(encryption?.enabled && !encryption?.locked);
+});
+useHead({
+    htmlAttrs: {
+        'data-vault-active': computed(() => (vaultActive.value ? 'true' : null)),
+    },
+});
 </script>
 <style lang="scss" scoped>
 .main {

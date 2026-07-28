@@ -106,26 +106,61 @@
             </div>
 
             <details class="vault__danger">
-                <summary>Disable the vault</summary>
-                <p class="vault__muted">
-                    Disabling requires an unlocked vault. Choose what happens
-                    to your existing files:
-                </p>
-                <div class="vault__actions">
-                    <MainButton
-                        :theme="themeType.secondary"
-                        label="Decrypt my files & disable"
-                        :isDisable="status.locked || loading"
-                        trackingTag="vault_disable_decrypt"
-                        @click="disable('decrypt')"
-                        class="vault__btn"
+                <summary>Danger zone</summary>
+
+                <div class="vault__danger-block">
+                    <p class="vault__muted">
+                        If you can unlock your vault, you can disable it while
+                        keeping your files (decrypted) or destroying them.
+                    </p>
+                    <div class="vault__actions">
+                        <MainButton
+                            :theme="themeType.secondary"
+                            label="Decrypt my files & disable"
+                            :isDisable="status.locked || loading"
+                            trackingTag="vault_disable_decrypt"
+                            @click="disable('decrypt')"
+                            class="vault__btn"
+                        />
+                        <MainButton
+                            :theme="themeType.secondary"
+                            label="Destroy files & disable"
+                            :isDisable="status.locked || loading"
+                            trackingTag="vault_disable_destroy"
+                            @click="disable('destroy')"
+                            class="vault__btn"
+                        />
+                    </div>
+                </div>
+
+                <div class="vault__danger-block vault__danger-block--critical">
+                    <p class="vault__danger-title">
+                        Destroy the vault completely
+                    </p>
+                    <p class="vault__muted">
+                        Use this only if you have lost your key file or cannot
+                        unlock the vault. <strong>All your files, projects and
+                        results will be permanently deleted — this cannot be
+                        undone.</strong> The vault will then be disabled and you
+                        can start fresh.
+                    </p>
+                    <p class="vault__confirm-challenge">
+                        To confirm, type your key id
+                        <code>{{ status.keyId }}</code> below:
+                    </p>
+                    <input
+                        v-model="destroyConfirm"
+                        :placeholder="status.keyId"
+                        class="vault__confirm-input"
+                        autocomplete="off"
+                        spellcheck="false"
                     />
                     <MainButton
                         :theme="themeType.primary"
-                        label="Destroy everything & disable"
-                        :isDisable="status.locked || loading"
-                        trackingTag="vault_disable_destroy"
-                        @click="disable('destroy')"
+                        label="Destroy everything"
+                        :isDisable="destroyConfirm !== status.keyId || loading"
+                        trackingTag="vault_destroy_full"
+                        @click="destroyVault"
                         class="vault__btn"
                     />
                 </div>
@@ -157,6 +192,9 @@ const notice = ref('')
 const pendingKey = ref(null)
 const pendingKeyFile = ref(null)
 const confirmed = ref(false)
+
+// Full-destroy confirmation: user must retype their keyId to enable the button.
+const destroyConfirm = ref('')
 
 const unlockDialog = useVaultUnlockDialog()
 
@@ -268,6 +306,30 @@ async function disable(mode) {
     }
 }
 
+async function destroyVault() {
+    if (destroyConfirm.value !== status.value?.keyId) return
+    const message = 'LAST WARNING: this permanently deletes ALL your files, projects and results, and destroys the vault. There is no way back. Continue?'
+    if (!window.confirm(message)) return
+    loading.value = true
+    error.value = ''
+    try {
+        await $fetch('/api/security/vault/destroy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirm: 'DESTROY' }),
+        })
+        destroyConfirm.value = ''
+        notice.value = 'Vault destroyed. All your data has been permanently deleted.'
+        trackEvent('vault_destroyed')
+        await refresh()
+        await authStore.actions.setUser()
+    } catch (err) {
+        error.value = err?.data?.statusMessage || 'Destruction failed. Please try again.'
+    } finally {
+        loading.value = false
+    }
+}
+
 onMounted(refresh)
 </script>
 
@@ -346,6 +408,63 @@ onMounted(refresh)
         summary {
             cursor: pointer;
             color: var(--error-border, #ef4444);
+        }
+
+        &[open] summary {
+            margin-bottom: 16px;
+        }
+    }
+    &__danger-block {
+        padding: 16px;
+        border: 1px solid var(--separator-secondary);
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+
+        & + & {
+            margin-top: 12px;
+        }
+
+        &--critical {
+            border-color: var(--error-border, #ef4444);
+            background-color: var(--error-background);
+        }
+    }
+    &__danger-title {
+        font-weight: 700;
+        color: var(--error-border, #ef4444);
+        font-size: 15px;
+    }
+    &__confirm-challenge {
+        font-size: 14px;
+        color: var(--label-secondary);
+
+        code {
+            background-color: var(--fill-tertiary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            color: var(--label-primary);
+            user-select: all;
+        }
+    }
+    &__confirm-input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background-color: var(--background-primary);
+        border: 1px solid var(--separator-primary);
+        color: var(--label-primary);
+        font-size: 15px;
+        font-weight: 600;
+        font-family: $sf_mono;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+
+        &:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent);
         }
     }
     &__error {
