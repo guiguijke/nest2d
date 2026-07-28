@@ -145,8 +145,8 @@ import {
     forgetRememberedKey,
     generateVaultKey,
     keyToBase64,
-} from '~~/utils/vault'
-import { trackEvent } from '~~/utils/track'
+} from '~/utils/vault'
+import { trackEvent } from '~/utils/track'
 
 const status = ref(null)
 const loading = ref(false)

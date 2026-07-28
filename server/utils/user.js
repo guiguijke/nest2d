@@ -1,6 +1,6 @@
-import { connectDB } from '~/server/db/mongo'
+import { connectDB } from '~~/server/db/mongo'
 import { generateSession } from './auth'
-import { sendWelcomeMessage } from '~/server/features/support/welcomemessage'
+import { sendWelcomeMessage } from '~~/server/features/support/welcomemessage'
 import { downloadAndStoreAvatar } from './avatar'
 import logger from './logger'
 

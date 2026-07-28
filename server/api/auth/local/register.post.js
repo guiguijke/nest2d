@@ -1,9 +1,9 @@
 import bcrypt from 'bcryptjs'
-import { connectDB } from '~/server/db/mongo'
-import { generateSession } from '~/server/utils/auth'
-import { setSessionCookie } from '~/server/utils/user'
-import { sendWelcomeMessage } from '~/server/features/support/welcomemessage'
-import logger from '~/server/utils/logger'
+import { connectDB } from '~~/server/db/mongo'
+import { generateSession } from '~~/server/utils/auth'
+import { setSessionCookie } from '~~/server/utils/user'
+import { sendWelcomeMessage } from '~~/server/features/support/welcomemessage'
+import logger from '~~/server/utils/logger'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 

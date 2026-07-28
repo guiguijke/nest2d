@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
-import { connectDB } from '~/server/db/mongo'
-import { generateSession } from '~/server/utils/auth'
-import { setSessionCookie } from '~/server/utils/user'
+import { connectDB } from '~~/server/db/mongo'
+import { generateSession } from '~~/server/utils/auth'
+import { setSessionCookie } from '~~/server/utils/user'
 
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)

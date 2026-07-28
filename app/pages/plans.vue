@@ -74,25 +74,19 @@
 
 <script setup>
 import { themeType } from '~~/constants/theme.constants'
-import { FREE_NESTING_LIMIT, TRIAL_DAYS, SUBSCRIPTION_PRICE_LABEL, PRO_PRICE_LABEL } from '~~/constants/payment.constants'
+import { FREE_NESTING_LIMIT, TRIAL_DAYS, SUBSCRIPTION_PRICE_LABEL, PRO_PRICE_LABEL } from '~~/shared/constants/payment.constants'
 
 onMounted(() => {
     trackEvent('page_view', { page: 'plans' })
-    fetchPlans()
 })
 
 const loginDialog = useLoginDialog()
 const { getters: authGetters } = authStore
 const userIsSet = computed(() => Boolean(unref(authGetters.userIsSet)))
 
-const plans = ref(null)
-async function fetchPlans() {
-    try {
-        plans.value = await $fetch('/api/payment/plans')
-    } catch {
-        plans.value = null
-    }
-}
+// Shared with the landing via the 'payment-plans' cache key (deduplicated +
+// cached for a few minutes). See composables/usePlans.js.
+const { data: plans } = usePlans()
 const formatPlanPrice = (plan) => {
     if (!plan?.available) return null
     return new Intl.NumberFormat('en', {

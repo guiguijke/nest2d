@@ -1,9 +1,15 @@
-import { schemaWebSite } from './utils/schema'
+import { schemaWebSite } from './app/utils/schema'
+import { fileURLToPath } from 'node:url'
+
+// Sass requires forward-slash paths in @import, even on Windows.
+const scssDir = fileURLToPath(new URL('./app/assets/scss/', import.meta.url)).replace(/\\/g, '/')
 
 export default defineNuxtConfig({
-    compatibilityDate: "2024-11-01",
+    compatibilityDate: "2025-07-15",
     devtools: { enabled: true },
-    modules: ["@nuxtjs/tailwindcss"],
+    future: {
+        compatibilityVersion: 4,
+    },
     typescript: {
         strict: false,
         typeCheck: false
@@ -42,10 +48,10 @@ export default defineNuxtConfig({
             preprocessorOptions: {
                 scss: {
                     additionalData: `
-                        @import "./assets/scss/variables.scss";
-                        @import "./assets/scss/mixins.scss";
-                        @import "./assets/scss/fonts.scss";
-                        @import "./assets/scss/global.scss";
+                        @import "${scssDir}variables.scss";
+                        @import "${scssDir}mixins.scss";
+                        @import "${scssDir}fonts.scss";
+                        @import "${scssDir}global.scss";
                     `
                 }
             }
@@ -56,16 +62,8 @@ export default defineNuxtConfig({
         }
     },
 
-    site: {
-        url: process.env.NUXT_PUBLIC_BASE_URL || 'http://localhost:3000',
-        name: 'APlasma Nesting'
-    },
-
     app: {
         head: {
-            htmlAttrs: {
-                lang: 'en'
-            },
             title: 'APlasma Nesting - Smart Nesting for Laser Cutting and CNC machining',
             meta: [
                 { charset: 'utf-8' },
