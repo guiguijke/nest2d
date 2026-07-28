@@ -6,9 +6,24 @@
             <div class="subscription__status">
                 <span class="subscription__badge">{{ statusLabel }}</span>
             </div>
-            <p class="subscription__desc">
+            <p v-if="data?.cancelAtPeriodEnd" class="subscription__cancel-notice">
+                Your subscription will end on
+                <strong>{{ formatDate(data?.currentPeriodEnd) }}</strong>.
+                You keep access until then.
+            </p>
+            <p v-else class="subscription__desc">
                 You have unlimited nesting while your subscription is active.
             </p>
+            <MainButton
+                v-if="!data?.cancelAtPeriodEnd"
+                label="Cancel subscription"
+                :theme="themeType.secondary"
+                :size="sizeType.m"
+                :isDisable="isLoading"
+                trackingTag="subscription_cancel"
+                class="subscription__btn subscription__btn--cancel"
+                @click="cancelSubscription"
+            />
         </div>
 
         <div v-if="isActive && data?.isPrivacyTier" class="subscription__card">
@@ -80,10 +95,17 @@ import MainTitle from './MainTitle.vue'
 import { themeType } from '~~/constants/theme.constants'
 import { sizeType } from '~~/constants/size.constants'
 
-const { data } = await useFetch('/api/payment/subscription')
+const { data, refresh } = await useFetch('/api/payment/subscription')
 
 const isLoading = ref(false)
 const error = ref('')
+
+const formatDate = (iso) => {
+    if (!iso) return ''
+    return new Date(iso).toLocaleDateString(undefined, {
+        year: 'numeric', month: 'long', day: 'numeric',
+    })
+}
 
 const isActive = computed(() => {
     const status = unref(data)?.subscriptionStatus
@@ -128,6 +150,25 @@ const subscribePro = async () => {
         navigateTo(response.url, { external: true })
     } catch (err) {
         error.value = err?.data?.statusMessage || 'Failed to start Pro subscription. Please try again.'
+        isLoading.value = false
+    }
+}
+
+const cancelSubscription = async () => {
+    if (isLoading.value) return
+    const confirmed = window.confirm(
+        'Your subscription will be canceled at the end of the current billing period. ' +
+        'You will keep access until then. Continue?'
+    )
+    if (!confirmed) return
+    error.value = ''
+    isLoading.value = true
+    try {
+        await $fetch('/api/payment/subscription/cancel', { method: 'POST' })
+        await refresh()
+    } catch (err) {
+        error.value = err?.data?.statusMessage || 'Failed to cancel the subscription. Please try again.'
+    } finally {
         isLoading.value = false
     }
 }
@@ -199,6 +240,16 @@ const subscribePro = async () => {
     // specificity enough to win against the child component's own scoped rule.
     &__card &__btn {
         width: 100%;
+    }
+
+    &__btn--cancel {
+        margin-top: 16px;
+    }
+
+    &__cancel-notice {
+        margin-top: 12px;
+        font-size: 14px;
+        color: var(--label-secondary);
     }
 
     &__note {

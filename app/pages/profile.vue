@@ -5,6 +5,7 @@
             <Avatar />
             <MainButton :theme="themeType.primary" trackingTag="logout" @click="logoutHandler" label="Logout" class="profile__btn" />
         </div>
+        <UserStats class="profile__stats" />
         <Subscription v-if="isStripFeatureEnable" />
         <template v-else>
             <UserBalance class="profile__balance" />
@@ -52,6 +53,11 @@ const logoutHandler = async () => {
     }
 
     &__balance {
+        margin-top: 24px;
+        margin-bottom: 24px;
+    }
+
+    &__stats {
         margin-top: 24px;
         margin-bottom: 24px;
     }

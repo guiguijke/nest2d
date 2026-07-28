@@ -16,6 +16,9 @@
             </div>
         </section>
 
+        <!-- Activity stats -->
+        <UserStats class="home__stats" />
+
         <!-- New nesting: the original DXF upload, kept verbatim -->
         <section class="home__create create">
             <MainTitle label="New nesting" class="create__title" />

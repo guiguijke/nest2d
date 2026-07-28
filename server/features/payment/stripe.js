@@ -111,7 +111,7 @@ export async function getSubscription(subscriptionId) {
 /**
  * Maps a raw Stripe subscription object to the fields we persist on the user.
  * @param {any} subscription
- * @returns {{stripeSubscriptionId: string, status: string, currentPeriodEnd: Date, priceId: string, updatedAt: Date}}
+ * @returns {{stripeSubscriptionId: string, status: string, currentPeriodEnd: Date, cancelAtPeriodEnd: boolean, priceId: string, updatedAt: Date}}
  */
 export function mapSubscription(subscription) {
     const item = subscription?.items?.data?.[0]
@@ -121,9 +121,28 @@ export function mapSubscription(subscription) {
         currentPeriodEnd: subscription.current_period_end
             ? new Date(subscription.current_period_end * 1000)
             : null,
+        cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
         priceId: item?.price?.id || null,
         updatedAt: new Date(),
     }
+}
+
+/**
+ * Schedules a subscription to be canceled at the end of the current billing
+ * period. The user keeps access until currentPeriodEnd; status stays
+ * 'active'/'trialing'. This is the self-serve "unsubscribe" path — it never
+ * revokes access mid-cycle.
+ * @param {string} subscriptionId
+ * @returns {Promise<any>} the updated Stripe subscription object
+ */
+export async function cancelSubscriptionAtPeriodEnd(subscriptionId) {
+    const params = new URLSearchParams()
+    params.append('cancel_at_period_end', 'true')
+    return await $fetch(`${STRIPE_BASE}/subscriptions/${subscriptionId}`, {
+        method: 'POST',
+        headers: authHeaders('application/x-www-form-urlencoded'),
+        body: params,
+    })
 }
 
 /**
