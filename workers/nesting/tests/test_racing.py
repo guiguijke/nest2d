@@ -25,11 +25,13 @@ def mock_lbf(monkeypatch):
     """Installs a fake run_lbf; `behavior(seed, n_samples)` -> placed count."""
     state = {"calls": [], "behavior": lambda seed, n: TOTAL_ITEMS}
 
-    def fake_run_lbf(input_json):
+    def fake_run_lbf(input_json, on_item=None):
         seed = input_json["config"].get("prng_seed")
         n = input_json["config"]["n_samples"]
         state["calls"].append({"seed": seed, "n_samples": n})
         placed = state["behavior"](seed, n)
+        if on_item is not None and placed:
+            on_item(placed, TOTAL_ITEMS)
         density = 0.4 + (seed % 10) / 100.0  # deterministic per-seed density
         return _fake_solution(placed, cost=1, density=density)
 
