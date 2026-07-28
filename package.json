@@ -2,6 +2,9 @@
   "name": "aplasma-nesting",
   "private": false,
   "type": "module",
+  "engines": {
+    "node": "^24.11.0"
+  },
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev",
@@ -25,12 +28,12 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^22.10.2",
+    "@types/node": "^24.11.0",
     "kickstart-scripts": "^1.0.1",
     "patch-package": "^8.0.0",
     "postinstall-postinstall": "^2.1.0",
     "prettier": "3.5.3",
-    "sass": "1.77.6",
+    "sass": "^1.83.0",
     "sass-loader": "^16.0.2",
     "typescript": "^5.7.2"
   }

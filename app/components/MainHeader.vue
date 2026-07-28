@@ -8,10 +8,10 @@
         </component>
         <nav v-if="isPrimaryTheme" class="header__tabs tabs">
             <NuxtLink to="/" class="tabs__link" active-class="tabs__link--active">
-                Home
+                APlasma
             </NuxtLink>
             <NuxtLink to="/home" class="tabs__link" active-class="tabs__link--active">
-                Bins
+                Workspace
             </NuxtLink>
             <NuxtLink v-if="isStripFeatureEnabled" to="/strip" class="tabs__link" active-class="tabs__link--active">
                 Strip
@@ -35,10 +35,15 @@
             <MainButton :href="githubIssues" target="_blank"
                 label="Report a problem" tag="a" trackingTag="report_problem" class="header__btn" v-if="isSecondaryTheme" />
             <UserBalance class="header__btn" v-if="isPrimaryTheme && !isStripPage && !isStripFeatureEnabled" />
-            <MainButton v-if="isSecondaryTheme" :theme="themeType.primary" @click="onLoginClick" label="Login / Sign Up"
+            <!-- On the marketing header, signed-in users get a direct way into
+                 the tool + their avatar, instead of being shown a login button. -->
+            <MainButton v-if="isSecondaryTheme && userIsLoggedIn" to="/home"
+                :theme="themeType.primary" label="Open my workspace"
+                trackingTag="open_workspace" class="header__btn" />
+            <MainButton v-if="isSecondaryTheme && !userIsLoggedIn" :theme="themeType.primary" @click="onLoginClick" label="Login / Sign Up"
                 class="header__btn header__btn--login" />
             <LoginView />
-            <Avatar v-if="isPrimaryTheme" :size="sizeType.s" class="header__avatar" />
+            <Avatar v-if="isPrimaryTheme || userIsLoggedIn" :size="sizeType.s" class="header__avatar" />
             <div v-if="isSecondaryTheme" class="header__toggler">
                 <MainButton :theme="themeType.secondary" :icon="iconType.menu" :isLabelShow=false trackingTag="menu_toggle"
                     @click="toggleMenu" label="menu toggler" />
@@ -100,6 +105,7 @@ const { getters: authGetters } = authStore;
 const isStripFeatureEnabled = computed(() => {
     return Boolean(unref(authGetters.user)?.isStripFeatureEnable)
 })
+const userIsLoggedIn = computed(() => Boolean(unref(authGetters.userIsSet)))
 
 const isPrimaryTheme = computed(() => {
     return unref(theme) === themeType.primary
@@ -113,13 +119,14 @@ const isHomePage = computed(() => {
 const isStripPage = computed(() => {
     return route.path === '/strip' || route.path.startsWith('/strip/')
 })
-const logoTag = computed(() => {
-    return unref(isHomePage) ? 'div' : NuxtLink
-})
+// The logo is always a link back to a meaningful home: the tool's workspace
+// when already inside the app (primary theme), the marketing landing
+// otherwise. Previously it was a non-clickable <div> on the landing and on
+// /home, which stranded the user.
+const logoTag = computed(() => NuxtLink)
 const logoHref = computed(() => {
     const hrefValue = unref(isPrimaryTheme) ? '/home' : '/'
-
-    return !unref(isHomePage) ? { to: hrefValue } : {}
+    return { to: hrefValue }
 })
 const navClasses = computed(() => ({
     'nav--is-open': unref(menuIsOpen),

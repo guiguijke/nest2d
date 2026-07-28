@@ -112,7 +112,7 @@ const inputClasses = computed(() => ({
         margin-left: 8px;
     }
     &__value {
-        color: var(--accent-primary);
+        color: var(--label-primary);
         flex-grow: 1;
         background-color: transparent;
         outline: none;
