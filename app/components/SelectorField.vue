@@ -83,7 +83,7 @@ const selectorClasses = computed(() => ({
     }
 
     &__value {
-        color: var(--accent-primary);
+        color: var(--label-primary);
         flex-grow: 1;
         background-color: transparent;
         outline: none;
@@ -92,7 +92,7 @@ const selectorClasses = computed(() => ({
         appearance: none;
         padding-right: 24px;
         font-weight: 500;
-        font-size: 12px;
+        font-size: 14px;
 
         option {
             background-color: var(--background-primary);

@@ -1,5 +1,4 @@
 import { computed, reactive, readonly, unref } from 'vue'
-import { useFetch, useState } from 'nuxt/app'
 
 const state = reactive({
     userIsSet: false,
@@ -11,7 +10,16 @@ async function setUser() {
         // shares the cached payload across the middleware + pages that call
         // setUser() (9 call sites), avoiding one network round-trip per
         // navigation.
-        const { data } = await useFetch(API_ROUTES.USER, { key: 'user' })
+        //
+        // useRequestFetch() (via useApiFetch) forwards the incoming request
+        // headers — including the sessionId cookie — to internal API calls
+        // during SSR. The previous plain useFetch dropped the cookie on the
+        // server, so /api/user answered {} on any server-rendered navigation
+        // (going back to the landing, reload…) and the user appeared logged
+        // out. Wrapping the cookie-aware fetch in useAsyncData('user') keeps
+        // the dedup/cache behaviour of the old useFetch({ key }).
+        const $apiFetch = useApiFetch()
+        const { data } = await useAsyncData('user', () => $apiFetch(API_ROUTES.USER))
         const userData = unref(data)
         if (userData && Boolean(userData.id)) {
             state.user = userData

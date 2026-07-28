@@ -1,17 +1,54 @@
 <template>
     <div class="home">
-        <MainTitle label="Upload your .DXF files" class="home__title" />
-        <DxfUpload @files="handleSubmit" />
-        <p class="home__text">
-            All files will be saved securely and available only to you
-        </p>
-        <div v-if="error" class="home__error">
-            {{ error }}
-        </div>
+        <!-- Account summary -->
+        <section class="home__welcome welcome">
+            <Avatar :size="sizeType.m" class="welcome__avatar" />
+            <div class="welcome__body">
+                <h1 class="welcome__title">
+                    {{ greeting }}, {{ userName }} 👋
+                </h1>
+                <p class="welcome__text">
+                    <UserBalance v-if="!isStripFeatureEnabled" class="welcome__balance" />
+                    <NuxtLink to="/profile" class="welcome__link">
+                        Manage my account →
+                    </NuxtLink>
+                </p>
+            </div>
+        </section>
+
+        <!-- New nesting: the original DXF upload, kept verbatim -->
+        <section class="home__create create">
+            <MainTitle label="New nesting" class="create__title" />
+            <DxfUpload @files="handleSubmit" />
+            <p class="create__text">
+                All files will be saved securely and available only to you
+            </p>
+            <div v-if="error" class="create__error">
+                {{ error }}
+            </div>
+        </section>
+
+        <!-- Recent projects -->
+        <section class="home__recent recent">
+            <h2 class="recent__title">Recent projects</h2>
+            <div v-if="recentProjects.length" class="recent__grid grid">
+                <UserProjectItem
+                    v-for="project in recentProjects"
+                    :key="project.slug"
+                    :project="project"
+                    class="grid__item"
+                />
+            </div>
+            <p v-else class="recent__empty">
+                No projects yet — upload a DXF above to get started.
+            </p>
+        </section>
     </div>
 </template>
 
 <script setup>
+import { sizeType } from '~~/constants/size.constants'
+
 definePageMeta({
     layout: "auth",
     middleware: "auth",
@@ -20,7 +57,7 @@ definePageMeta({
 const router = useRouter();
 
 onMounted(async () => {
-    trackEvent('page_view', { page: 'home' })
+    trackEvent('page_view', { page: 'dashboard' })
     const route = useRoute()
     const checkoutInternalId = route.query.checkoutInternalId
     if (checkoutInternalId) {
@@ -46,12 +83,23 @@ onMounted(async () => {
     }
 })
 
-const { actions: authActions } = authStore;
+const { getters: authGetters, actions: authActions } = authStore;
 const { setUser } = authActions;
+const { user } = authGetters;
 
-const { actions } = globalStore;
+const userName = computed(() => unref(user)?.name || '')
+const isStripFeatureEnabled = computed(() => Boolean(unref(user)?.isStripFeatureEnable))
+
+// Time-of-day greeting — small touch that makes the dashboard feel personal.
+const greeting = computed(() => {
+    const h = new Date().getHours()
+    if (h < 6) return 'Good night'
+    if (h < 12) return 'Good morning'
+    if (h < 18) return 'Good afternoon'
+    return 'Good evening'
+})
+
 const { actions: filesActions } = filesStore;
-const { getProjects } = actions;
 const { getProject } = filesActions;
 
 const error = ref('')
@@ -83,11 +131,103 @@ const handleSubmit = async (files) => {
         }
     }
 }
+
+// Recent projects for the dashboard grid. Reads the shared cache populated by
+// the UserProjects aside; falls back to an SSR-aware fetch on first paint so
+// the dashboard shows data even before the store is hydrated.
+const { getters: globalGetters, actions: globalActions } = globalStore;
+const { getProjects } = globalActions;
+
+const $apiFetch = useApiFetch();
+const projectsData = globalGetters.projectsList
+    ? null
+    : await $apiFetch(API_ROUTES.PROJECTS).catch(() => null)
+
+onMounted(() => {
+    // Hydrate the shared store so the aside + dashboard stay in sync.
+    if (!globalGetters.projectsList && projectsData?.projects) {
+        globalActions.setProjects(projectsData.projects)
+    }
+})
+
+const recentProjects = computed(() => {
+    const list = globalGetters.projectsList || projectsData?.projects || []
+    // Most recent first; cap at 4 for the dashboard overview.
+    return [...list]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 4)
+})
 </script>
 
 <style lang="scss" scoped>
 .home {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
     text-align: center;
+}
+
+// ---------- Welcome ----------
+.welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    text-align: center;
+
+    @media (min-width: 567px) {
+        flex-direction: row;
+        text-align: left;
+    }
+
+    &__body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    &__title {
+        color: var(--label-primary);
+        font-weight: 700;
+        font-size: 1.5rem;
+
+        @media (min-width: 567px) {
+            font-size: 1.75rem;
+        }
+    }
+
+    &__text {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 16px;
+        color: var(--label-secondary);
+        font-size: 14px;
+    }
+
+    &__link {
+        color: var(--accent-primary);
+        font-weight: 600;
+        text-decoration: underline;
+
+        @media (hover:hover) {
+            &:hover {
+                opacity: 0.8;
+            }
+        }
+    }
+}
+
+// ---------- Create / upload ----------
+.create {
+    border: 1px solid var(--separator-secondary);
+    border-radius: 16px;
+    padding: 24px 16px;
+    background-color: var(--fill-tertiary);
+
+    @media (min-width: 567px) {
+        padding: 32px;
+    }
 
     &__title {
         margin-bottom: 16px;
@@ -96,6 +236,7 @@ const handleSubmit = async (files) => {
     &__text {
         margin-top: 16px;
         color: var(--label-tertiary);
+        font-size: 13px;
     }
 
     &__error {
@@ -104,6 +245,35 @@ const handleSubmit = async (files) => {
         background-color: var(--error-background);
         border: solid 1px var(--error-border);
         border-radius: 8px;
+    }
+}
+
+// ---------- Recent projects ----------
+.recent {
+    &__title {
+        color: var(--label-primary);
+        font-weight: 700;
+        font-size: 1.125rem;
+        margin-bottom: 16px;
+    }
+
+    &__empty {
+        color: var(--label-tertiary);
+        font-size: 14px;
+        padding: 24px;
+        border: 1px dashed var(--separator-secondary);
+        border-radius: 12px;
+    }
+}
+
+.grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: 1fr;
+    text-align: left;
+
+    @media (min-width: 567px) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 </style>

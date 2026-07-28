@@ -191,7 +191,7 @@ The project uses the **Authorization Code + PKCE** flow (the current standard re
 
 ## Local development
 
-Prerequisites: Node 20+ and an accessible MongoDB.
+Prerequisites: Node 24+ (see `.nvmrc`) and an accessible MongoDB.
 
 ```bash
 npm install
