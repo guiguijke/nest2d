@@ -38,6 +38,9 @@ export async function getResults(userId, projectSlug) {
             downloadUrl: downloadUrl,
             zipDownloadUrl: zipDownloadUrl,
             isInProgress: queueItem.status === 'processing' || queueItem.status === 'pending',
+            // Live progress written by the worker ({stage, label, done, total}),
+            // null once the job finishes (field is unset on completion).
+            progress: queueItem.progress ?? null,
             svgs: (queueItem.svg_files || []).map((file) => "/api/files/result/svg/" + file),
             dxfs: (queueItem.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),
             // Alternative layouts (best first); empty for jobs run before
@@ -45,10 +48,10 @@ export async function getResults(userId, projectSlug) {
             alternatives: (queueItem.alternatives || []).map((alt) => ({
                 altId: alt.alt_id,
                 density: alt.density,
-                // Used-footprint score: rewards compaction (parts nested in
-                // holes), which the solver density cannot see. Null on
-                // legacy jobs — the UI falls back to density.
-                utilization: alt.utilization ?? null,
+                // Share of sheet actually consumed (used bbox / sheet area,
+                // lower = better): rewards compaction, which the solver
+                // density cannot see. Null on legacy jobs.
+                usedSheetShare: alt.usedSheetShare ?? null,
                 layoutCount: alt.layoutCount,
                 svgs: (alt.svg_files || []).map((file) => "/api/files/result/svg/" + file),
                 dxfs: (alt.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),

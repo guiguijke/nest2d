@@ -125,10 +125,10 @@ const rotationHint = computed(() => {
 
     &__add {
         width: 100%;
-        padding: 10px;
-        border: 1px solid var(--separator-secondary);
-        border-radius: 8px;
-        background-color: var(--fill-tertiary);
+        padding: 11px;
+        border: 1.5px dashed var(--separator-primary);
+        border-radius: 10px;
+        background-color: transparent;
         color: var(--label-secondary);
         font-size: 14px;
         font-weight: 600;
@@ -137,9 +137,9 @@ const rotationHint = computed(() => {
 
         @media (hover:hover) {
             &:hover {
-                border-color: var(--separator-primary);
-                color: var(--label-primary);
-                background-color: var(--fill-secondary);
+                border-color: var(--accent-primary);
+                color: var(--accent-primary);
+                background-color: color-mix(in srgb, var(--accent-primary) 5%, transparent);
             }
         }
     }
@@ -149,22 +149,28 @@ const rotationHint = computed(() => {
         align-items: center;
         gap: 8px;
         color: var(--label-primary);
+        font-size: 14px;
+        font-weight: 500;
         cursor: pointer;
-        padding: 0 12px;
+        padding: 0 4px;
 
         input {
             width: 16px;
             height: 16px;
             cursor: pointer;
+            accent-color: var(--accent-primary);
         }
     }
 }
 
 .sheet {
     border: 1px solid var(--separator-secondary);
-    border-radius: 12px;
-    padding: 12px;
-    background-color: var(--fill-tertiary);
+    border-radius: 14px;
+    padding: 14px;
+    background-color: var(--background-primary);
+    box-shadow:
+        0 1px 2px color-mix(in srgb, var(--label-primary) 4%, transparent),
+        0 4px 12px color-mix(in srgb, var(--label-primary) 5%, transparent);
 
     &>*:not(:last-child) {
         margin-bottom: 10px;
@@ -174,7 +180,7 @@ const rotationHint = computed(() => {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 4px;
+        padding: 0 4px 2px;
     }
 
     &__label {

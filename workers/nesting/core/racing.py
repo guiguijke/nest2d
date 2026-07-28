@@ -104,20 +104,28 @@ def _rank_key(candidate):
     return (cost if cost is not None else float("inf"), -(candidate.get("density") or 0.0))
 
 
-def _run_batch(bins, jaguar_items, n_samples, seeds, min_separation, stage, has_holes=False):
-    """Runs one batch of seeds in parallel; returns the list of candidates."""
+def _run_batch(bins, jaguar_items, n_samples, seeds, min_separation, stage, has_holes=False, on_progress=None):
+    """Runs one batch of seeds in parallel; returns the list of candidates.
+    on_progress(stage, done, total) is invoked as each run completes."""
     candidates = []
     workers = max(1, min(MAX_PARALLEL, len(seeds)))
     logger.info(
         "lbf batch started",
         extra={"stage": stage, "seeds": len(seeds), "n_samples": n_samples, "workers": workers},
     )
+    done = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(_solve_once, bins, jaguar_items, n_samples, seed, min_separation, has_holes): seed
             for seed in seeds
         }
         for future, seed in futures.items():
+            done += 1
+            if on_progress is not None:
+                try:
+                    on_progress(stage, done, len(seeds))
+                except Exception:
+                    pass  # progress reporting must never break a solve
             try:
                 candidate = future.result()
                 candidates.append(candidate)
@@ -148,7 +156,7 @@ def _fresh_seeds(n, exclude=None):
     return seeds
 
 
-def race_solve(bins, jaguar_items, n_samples, n_alternatives, min_separation, total_requested, has_holes=False):
+def race_solve(bins, jaguar_items, n_samples, n_alternatives, min_separation, total_requested, has_holes=False, progress_cb=None):
     """Runs the racing tournament.
 
     Returns up to `n_alternatives` refined candidates (each placing all
@@ -160,7 +168,7 @@ def race_solve(bins, jaguar_items, n_samples, n_alternatives, min_separation, to
 
     # --- Stage 1: race ---
     seeds = _fresh_seeds(n_race)
-    race_candidates = _run_batch(bins, jaguar_items, coarse_samples, seeds, min_separation, "race", has_holes)
+    race_candidates = _run_batch(bins, jaguar_items, coarse_samples, seeds, min_separation, "race", has_holes, progress_cb)
     complete = [c for c in race_candidates if c["placed"] == total_requested]
     complete.sort(key=_rank_key)
 
@@ -174,7 +182,7 @@ def race_solve(bins, jaguar_items, n_samples, n_alternatives, min_separation, to
             extra={"escalation_seeds": len(esc_seeds), "n_samples": esc_samples},
         )
         esc_candidates = _run_batch(
-            bins, jaguar_items, esc_samples, esc_seeds, min_separation, "escalation", has_holes
+            bins, jaguar_items, esc_samples, esc_seeds, min_separation, "escalation", has_holes, progress_cb
         )
         complete = [c for c in esc_candidates if c["placed"] == total_requested]
         complete.sort(key=_rank_key)
@@ -186,7 +194,7 @@ def race_solve(bins, jaguar_items, n_samples, n_alternatives, min_separation, to
     # --- Stage 2: refine the best race seeds with the full budget ---
     finalists = complete[:n_alternatives]
     refine_seeds = [c["seed"] for c in finalists]
-    refined = _run_batch(bins, jaguar_items, n_samples, refine_seeds, min_separation, "refine", has_holes)
+    refined = _run_batch(bins, jaguar_items, n_samples, refine_seeds, min_separation, "refine", has_holes, progress_cb)
     refined_complete = [c for c in refined if c["placed"] == total_requested]
 
     # A refinement can occasionally lose items the coarse run had placed (the
@@ -201,7 +209,7 @@ def race_solve(bins, jaguar_items, n_samples, n_alternatives, min_separation, to
     if len(finals) < n_alternatives:
         used_seeds = {c["seed"] for c in race_candidates}
         topup_seeds = _fresh_seeds(n_alternatives - len(finals), used_seeds)
-        topup = _run_batch(bins, jaguar_items, n_samples, topup_seeds, min_separation, "topup", has_holes)
+        topup = _run_batch(bins, jaguar_items, n_samples, topup_seeds, min_separation, "topup", has_holes, progress_cb)
         finals.extend(c for c in topup if c["placed"] == total_requested)
 
     finals.sort(key=_rank_key)

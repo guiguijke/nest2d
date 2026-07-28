@@ -11,7 +11,7 @@ from core.placement import ResultContainer, Transform
 from core.racing import race_solve
 from core.hole_relocation import (
     compact_into_holes,
-    compute_utilization,
+    compute_used_sheet_share,
     relocate_into_holes,
     rescale_density,
 )
@@ -244,6 +244,17 @@ def get_entities_from_dxf_file(dxf_file_slug, handles, owner_id=None, dek=None):
 N_ALTERNATIVES_DEFAULT = 3
 DEFAULT_N_SAMPLES = 20000
 
+# Human-readable labels for the live progress shown in the UI while a job runs.
+STAGE_LABELS = {
+    "preparing": "Preparing geometry",
+    "race": "Exploring layouts",
+    "refine": "Refining best layouts",
+    "escalation": "Trying harder to fit everything",
+    "topup": "Completing alternatives",
+    "compacting": "Nesting parts into holes",
+    "building": "Building result files",
+}
+
 def parse_result_containers(output, input_items, bin_dims):
     """Parses lbf output into ResultContainers. Each layout keeps the
     container_id lbf assigned (= index of the bin type used), so heterogeneous
@@ -367,13 +378,42 @@ def nesting_process(doc):
         }
     )
 
+    # Live progress for the UI (the results SSE stream polls the job every
+    # second). Writes are throttled: Mongo sees at most one update per 2s
+    # unless a stage completes.
+    import time as _time
+    _last_progress_write = [0.0]
+
+    def report_progress(stage, done, total):
+        now = _time.time()
+        if done < total and now - _last_progress_write[0] < 2.0:
+            return
+        _last_progress_write[0] = now
+        try:
+            db["nesting_jobs"].update_one(
+                {"_id": doc.get("_id")},
+                {"$set": {
+                    "progress": {
+                        "stage": stage,
+                        "label": STAGE_LABELS.get(stage, stage),
+                        "done": done,
+                        "total": total,
+                    },
+                    "update_ts": datetime.now(),
+                }},
+            )
+        except Exception as e:
+            logger.warning("Failed to write progress", extra={"error": str(e)})
+
+    report_progress("preparing", 0, 1)
+
     # Racing tournament (core/racing.py): a batch of coarse parallel runs
     # selects the most promising seeds, which are then refined with the full
     # sample budget — better layouts than N identical sequential runs for the
     # same total compute. Every returned candidate placed all items.
     finals = race_solve(
         bins, jaguar_items, n_samples, n_alternatives, space, total_requested_count,
-        has_holes=has_holes,
+        has_holes=has_holes, progress_cb=report_progress,
     )
 
     if not finals:
@@ -386,7 +426,8 @@ def nesting_process(doc):
                     "finishedAt": datetime.now(),
                     "update_ts": datetime.now(),
                     "information": "Not all items could be placed in the nesting job"
-                }
+                },
+                "$unset": {"progress": ""}
             },
         )
         raise Exception("Not all items could be placed in the nesting job")
@@ -416,9 +457,11 @@ def nesting_process(doc):
             # Compaction: on roomy sheets the solver has no incentive to use
             # holes — move parts into cutouts when it shrinks the used area,
             # leaving a clean reusable offcut.
+            report_progress("compacting", 0, 1)
             compaction_moves = compact_into_holes(result_containers, input_items, space)
 
         alt_slug = f"{slug}_alt{rank}"
+        report_progress("building", rank, len(finals))
         dxf_files, svg_files = build_result_dxf_files(
             owner_id, alt_slug, result_containers, add_out_shape, space, dek
         )
@@ -426,9 +469,9 @@ def nesting_process(doc):
         alternatives.append({
             "seed": candidate["seed"],
             "density": density,
-            # Score that actually rewards compaction: net placed area over
-            # the used bounding box (identical sheets -> different scores).
-            "utilization": compute_utilization(result_containers, input_items),
+            # Share of sheet actually consumed (used bbox / sheet area,
+            # lower = better): the score that rewards compaction.
+            "usedSheetShare": compute_used_sheet_share(result_containers, input_items),
             "cost": cost,
             "layoutCount": len(result_containers),
             "freedByHoleRelocation": freed_sheets,
@@ -437,11 +480,11 @@ def nesting_process(doc):
             "svg_files": svg_files,
         })
 
-    # Best first: fewest sheets, then best used-footprint score (the solver
+    # Best first: fewest sheets, then least sheet consumed (the solver
     # density is identical for every alternative on the same sheets and
     # cannot see compaction).
     alternatives.sort(
-        key=lambda alt: (alt.get("layoutCount") or 0, -(alt.get("utilization") or 0))
+        key=lambda alt: (alt.get("layoutCount") or 0, alt.get("usedSheetShare") or 1.0)
     )
     for alt_id, alt in enumerate(alternatives):
         alt["alt_id"] = alt_id
@@ -458,10 +501,11 @@ def nesting_process(doc):
                 "placed": total_requested_count,
                 "layoutCount": best["layoutCount"],
                 "density": best["density"],
-                "utilization": best["utilization"],
+                "usedSheetShare": best["usedSheetShare"],
                 "holeRelocation": {"freed_sheets": best["freedByHoleRelocation"]},
                 "compaction": {"moves": best["compactionMoves"]},
                 "update_ts": datetime.now()
             },
+            "$unset": {"progress": ""}
         }
     )

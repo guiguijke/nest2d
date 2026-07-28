@@ -225,7 +225,6 @@ async function nest(slug) {
                 body: state.requestBody
             })
             setModalNestData(data)
-            useInfoAboutNest().value = true
             // Refresh the cached user so the free-quota banner reflects the
             // operation that was just consumed.
             await authStore.actions.setUser()

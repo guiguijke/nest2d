@@ -6,7 +6,21 @@
                 :theme="themeType.secondary" 
                 class="result__display"
             />
-            <p class="result__text">
+            <template v-if="progress">
+                <p class="result__text result__text--stage">
+                    {{ progress.label }}
+                </p>
+                <div class="result__progress progress">
+                    <div
+                        class="progress__bar"
+                        :style="{ width: `${progressPercent}%` }"
+                    />
+                </div>
+                <p class="result__text result__text--count">
+                    {{ progress.done }}/{{ progress.total }}
+                </p>
+            </template>
+            <p v-else class="result__text">
                 Nesting
             </p>
         </template>
@@ -94,6 +108,17 @@ const isResultNexting = computed(() => {
     return status === statusType.unfinished || status === statusType.pending;
 });
 
+// Live progress pushed by the nesting worker ({stage, label, done, total}).
+const progress = computed(() => {
+    const p = props.result?.progress;
+    return p && p.total > 0 ? p : null;
+});
+
+const progressPercent = computed(() => {
+    if (!progress.value) return 0;
+    return Math.min(100, Math.round((progress.value.done / progress.value.total) * 100));
+});
+
 const isResultFailed = computed(() => {
     return props.result?.status === statusType.failed;
 });
@@ -172,6 +197,28 @@ const onDownload = () => {
             content: '';
             animation: dots 2s infinite linear;
         }
+
+        &--stage {
+            font-weight: 600;
+            color: var(--label-primary);
+
+            &::after {
+                content: none;
+            }
+        }
+
+        &--count {
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+
+            &::after {
+                content: none;
+            }
+        }
+    }
+
+    &__progress {
+        margin-top: 8px;
     }
 
     &__area {
@@ -207,6 +254,20 @@ const onDownload = () => {
                 color: var(--label-primary);
             }
         }
+    }
+}
+
+.progress {
+    height: 6px;
+    border-radius: 3px;
+    background-color: var(--fill-tertiary);
+    overflow: hidden;
+
+    &__bar {
+        height: 100%;
+        border-radius: 3px;
+        background-color: var(--accent-primary);
+        transition: width 0.6s ease;
     }
 }
 
