@@ -51,6 +51,10 @@ export default defineEventHandler(async (event) => {
         plan: mapPlan(plan),
         privacyPlan: mapPlan(privacyPlan),
         isPrivacyTier,
+        // Surface the cancellation schedule so the UI can show "will end on…"
+        // after a self-serve unsubscribe, without waiting for the polling sync.
+        cancelAtPeriodEnd: Boolean(user?.subscription?.cancelAtPeriodEnd),
+        currentPeriodEnd: user?.subscription?.currentPeriodEnd || null,
         ...entitlement,
     }
 })
