@@ -89,7 +89,8 @@ const rotationHint = computed(() => {
     }
 
     &__content {
-        width: 320px;
+        width: 360px;
+        max-width: 100%;
         margin-left: auto;
         margin-right: auto;
     }
@@ -101,19 +102,20 @@ const rotationHint = computed(() => {
     justify-content: center;
 
     &__size {
-        width: 221px;
+        width: 100%;
+        max-width: 320px;
     }
 }
 
 .size {
     &>*:not(:last-child) {
-        margin-bottom: 8px;
+        margin-bottom: 12px;
     }
 
     &__line {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 8px;
+        gap: 10px;
     }
 
     &__input {
@@ -159,8 +161,9 @@ const rotationHint = computed(() => {
 }
 
 .sheet {
+    border: 1px solid var(--separator-secondary);
     border-radius: 12px;
-    padding: 10px;
+    padding: 12px;
     background-color: var(--fill-tertiary);
 
     &>*:not(:last-child) {
