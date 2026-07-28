@@ -20,6 +20,8 @@ saves no material, so it is never applied.
 """
 
 import math
+import os
+import time
 
 from shapely import prepare
 from shapely.affinity import rotate, translate
@@ -59,6 +61,11 @@ OVERLAP_EPSILON = 1e-6
 # and recursion budget for the backtracking search.
 EXACT_PACK_MAX_CANDIDATES = 200
 EXACT_PACK_NODE_BUDGET = 50000
+# Wall-clock budget for the backtracking search (seconds): on pathological
+# geometry the node budget alone can run for minutes — the packer must yield
+# gracefully (relocation/compaction are best-effort post-passes, the main
+# solution stays valid without them).
+EXACT_PACK_TIME_BUDGET = float(os.environ.get("NEST_EXACT_PACK_TIME", "60"))
 
 
 def _sharp_vertices(ring_coords, max_interior_deg=150.0):
@@ -218,11 +225,12 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
         bin_id: list(occupied.get(bin_id, [])) for bin_id, _safe, _anchors in safe_holes
     }
     nodes = [0]
+    deadline = [time.monotonic() + EXACT_PACK_TIME_BUDGET]
 
     def backtrack(idx):
         if idx == len(ordered):
             return True
-        if nodes[0] >= EXACT_PACK_NODE_BUDGET:
+        if nodes[0] >= EXACT_PACK_NODE_BUDGET or time.monotonic() > deadline[0]:
             return False
         entry = ordered[idx]
         ranked = []
@@ -242,7 +250,7 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
         ranked.sort(key=lambda r: r[0])
         for _score, bin_id, angle, dx, dy, candidate in ranked:
             nodes[0] += 1
-            if nodes[0] >= EXACT_PACK_NODE_BUDGET:
+            if nodes[0] >= EXACT_PACK_NODE_BUDGET or time.monotonic() > deadline[0]:
                 return False
             placed_per_bin[bin_id].append(candidate)
             placements[entry["relo_id"]] = (bin_id, angle, dx, dy)
@@ -552,6 +560,8 @@ def compact_into_holes(containers, input_items, space):
     total_transforms = sum(len(c.transforms) for c in containers)
     max_moves = COMPACTION_MAX_MOVES_FACTOR * max(1, total_transforms)
     moves = 0
+    # Compaction is best-effort: never let it dominate the job runtime.
+    compaction_deadline = time.monotonic() + 3 * EXACT_PACK_TIME_BUDGET
 
     for container in containers:
         # Usable holes on this sheet, in absolute coordinates.
@@ -576,7 +586,7 @@ def compact_into_holes(containers, input_items, space):
         # yet (the 4th still defines the frontier), so moves are evaluated as
         # a group — commit only if the whole batch strictly improves the used
         # bounding box.
-        while moves < max_moves:
+        while moves < max_moves and time.monotonic() < compaction_deadline:
             bbox_before = _used_bbox_area(container, items_by_id)
 
             def frontier_key(transform):

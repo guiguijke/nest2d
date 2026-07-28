@@ -120,12 +120,6 @@ def _run_batch(bins, jaguar_items, n_samples, seeds, min_separation, stage, has_
             for seed in seeds
         }
         for future, seed in futures.items():
-            done += 1
-            if on_progress is not None:
-                try:
-                    on_progress(stage, done, len(seeds))
-                except Exception:
-                    pass  # progress reporting must never break a solve
             try:
                 candidate = future.result()
                 candidates.append(candidate)
@@ -142,6 +136,16 @@ def _run_batch(bins, jaguar_items, n_samples, seeds, min_separation, stage, has_
             except Exception as e:
                 # A crashed/timed-out run loses its seed but must not kill the batch.
                 logger.error("lbf run failed", extra={"stage": stage, "seed": seed, "error": str(e)})
+            finally:
+                # Count only COMPLETED runs — incrementing before result()
+                # made the UI report done/total while the last run was still
+                # solving, looking exactly like a hang.
+                done += 1
+                if on_progress is not None:
+                    try:
+                        on_progress(stage, done, len(seeds))
+                    except Exception:
+                        pass  # progress reporting must never break a solve
     return candidates
 
 
