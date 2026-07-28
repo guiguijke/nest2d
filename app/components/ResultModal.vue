@@ -12,7 +12,7 @@
                     class="alts__tab"
                     @click="selectAlt(alt.altId)"
                 >
-                    Option {{ alt.altId + 1 }} · {{ formatDensity(alt.density) }}
+                    Option {{ alt.altId + 1 }} · {{ formatDensity(alt.utilization ?? alt.density) }}
                 </button>
             </div>
             <div

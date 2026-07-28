@@ -9,7 +9,12 @@ from core.nesting_input_builder import build_bin, build_item
 from core.holed_polygons import open_holes_with_channels
 from core.placement import ResultContainer, Transform
 from core.racing import race_solve
-from core.hole_relocation import compact_into_holes, relocate_into_holes, rescale_density
+from core.hole_relocation import (
+    compact_into_holes,
+    compute_utilization,
+    relocate_into_holes,
+    rescale_density,
+)
 from dxf.dxf_utils import read_dxf
 from core.svg_generator import create_svg_from_doc
 from ezdxf.document import Drawing
@@ -421,6 +426,9 @@ def nesting_process(doc):
         alternatives.append({
             "seed": candidate["seed"],
             "density": density,
+            # Score that actually rewards compaction: net placed area over
+            # the used bounding box (identical sheets -> different scores).
+            "utilization": compute_utilization(result_containers, input_items),
             "cost": cost,
             "layoutCount": len(result_containers),
             "freedByHoleRelocation": freed_sheets,
@@ -429,10 +437,11 @@ def nesting_process(doc):
             "svg_files": svg_files,
         })
 
-    # Best first: fewest sheets, then densest (costs are uniform today, so
-    # layoutCount is the robust primary key in heterogeneous sheet setups).
+    # Best first: fewest sheets, then best used-footprint score (the solver
+    # density is identical for every alternative on the same sheets and
+    # cannot see compaction).
     alternatives.sort(
-        key=lambda alt: (alt.get("layoutCount") or 0, -(alt.get("density") or 0))
+        key=lambda alt: (alt.get("layoutCount") or 0, -(alt.get("utilization") or 0))
     )
     for alt_id, alt in enumerate(alternatives):
         alt["alt_id"] = alt_id
@@ -449,6 +458,7 @@ def nesting_process(doc):
                 "placed": total_requested_count,
                 "layoutCount": best["layoutCount"],
                 "density": best["density"],
+                "utilization": best["utilization"],
                 "holeRelocation": {"freed_sheets": best["freedByHoleRelocation"]},
                 "compaction": {"moves": best["compactionMoves"]},
                 "update_ts": datetime.now()
