@@ -382,11 +382,18 @@ def nesting_process(doc):
     # second). Writes are throttled: Mongo sees at most one update per 2s
     # unless a stage completes.
     import time as _time
+    import threading as _threading
     _last_progress_write = [0.0]
     _last_stage = [None]
     _job_started = _time.monotonic()
+    # Shared with the heartbeat: the latest stage state, re-written with a
+    # fresh elapsed time so the UI timer keeps ticking during long stages
+    # (compaction, big lbf runs) where nothing else reports.
+    _current_progress = {"stage": "preparing", "done": 0, "total": 1}
+    _heartbeat_stop = _threading.Event()
 
     def report_progress(stage, done, total):
+        _current_progress.update({"stage": stage, "done": done, "total": total})
         now = _time.time()
         # Stage changes are always written immediately — throttling them away
         # made the UI look stuck on the previous stage's final count.
@@ -414,7 +421,38 @@ def nesting_process(doc):
         except Exception as e:
             logger.warning("Failed to write progress", extra={"error": str(e)})
 
+    def _progress_heartbeat():
+        while not _heartbeat_stop.is_set():
+            p = dict(_current_progress)
+            try:
+                # Self-terminating: a daemon thread must never rewrite the
+                # progress of a job that already finished or failed (the
+                # field is unset on completion).
+                current = db["nesting_jobs"].find_one(
+                    {"_id": doc.get("_id")}, {"status": 1}
+                )
+                if not current or current.get("status") != "processing":
+                    return
+                db["nesting_jobs"].update_one(
+                    {"_id": doc.get("_id")},
+                    {"$set": {
+                        "progress": {
+                            "stage": p["stage"],
+                            "label": STAGE_LABELS.get(p["stage"], p["stage"]),
+                            "done": p["done"],
+                            "total": p["total"],
+                            "elapsed_sec": int(_time.monotonic() - _job_started),
+                        },
+                        "update_ts": datetime.now(),
+                    }},
+                )
+            except Exception:
+                pass
+            _heartbeat_stop.wait(2.0)
+
     report_progress("preparing", 0, 1)
+    _heartbeat_thread = _threading.Thread(target=_progress_heartbeat, daemon=True)
+    _heartbeat_thread.start()
 
     # Racing tournament (core/racing.py): a batch of coarse parallel runs
     # selects the most promising seeds, which are then refined with the full
@@ -426,6 +464,7 @@ def nesting_process(doc):
     )
 
     if not finals:
+        _heartbeat_stop.set()
         db["nesting_jobs"].update_one(
             { "slug": slug },
             {
@@ -489,6 +528,7 @@ def nesting_process(doc):
             "svg_files": svg_files,
         })
 
+    _heartbeat_stop.set()
     # Best first: fewest sheets, then least sheet consumed (the solver
     # density is identical for every alternative on the same sheets and
     # cannot see compaction).
