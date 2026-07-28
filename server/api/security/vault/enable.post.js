@@ -8,6 +8,12 @@ import { hasPrivacyTier } from '~~/server/utils/entitlement'
  * browser and sends it ONCE over TLS; the server stores only its SHA-256
  * fingerprint (to verify future unlocks) and a wrapped copy in the ephemeral
  * session cache — then forgets it.
+ *
+ * IMPORTANT: the session is created BEFORE the `encryption` fingerprint is
+ * persisted. createVaultSession() wraps the DEK with the deployment master
+ * key (NUXT_ENCRYPTION_MASTER_KEY); if that key is misconfigured the wrap
+ * throws. By doing it first we guarantee the user is never left in a
+ * half-enabled state (fingerprint set, no session, locked out forever).
  */
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId
@@ -41,6 +47,12 @@ export default defineEventHandler(async (event) => {
     const fingerprint = fingerprintKey(dek)
     const keyId = keyIdFromFingerprint(fingerprint)
 
+    // 1. Wrap the DEK into the session cache FIRST. If the deployment master
+    //    key is misconfigured, this throws here — before we touch the user
+    //    document — so the account is never left half-enabled.
+    const { expiresAt } = await createVaultSession(userId, dek)
+
+    // 2. Only then persist the fingerprint that marks the vault as enabled.
     await db.collection('users').updateOne(
         { id: userId },
         {
@@ -55,6 +67,5 @@ export default defineEventHandler(async (event) => {
         }
     )
 
-    const { expiresAt } = await createVaultSession(userId, dek)
     return { ok: true, keyId, expiresAt }
 })

@@ -63,6 +63,19 @@ const vaultLocked = computed(() => {
 watch(vaultLocked, (locked) => {
     if (locked) vaultUnlockDialog.value = true;
 }, { immediate: true });
+
+// Orange "secure environment" border around the whole screen while the user
+// is actively working inside an unlocked vault. Toggled via a reactive
+// htmlAttrs so it is SSR-friendly and auto-syncs when the lock state changes.
+const vaultActive = computed(() => {
+    const encryption = unref(authGetters.user)?.encryption;
+    return Boolean(encryption?.enabled && !encryption?.locked);
+});
+useHead({
+    htmlAttrs: {
+        'data-vault-active': computed(() => (vaultActive.value ? 'true' : null)),
+    },
+});
 const projectsIsOpen = ref(false);
 const resultsIsOpen = ref(false);
 const openProjects = () => {
