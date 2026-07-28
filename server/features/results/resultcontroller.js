@@ -52,6 +52,11 @@ export async function getResults(userId, projectSlug) {
                 // lower = better): rewards compaction, which the solver
                 // density cannot see. Null on legacy jobs.
                 usedSheetShare: alt.usedSheetShare ?? null,
+                // Layout philosophy of this option (compact / max offcut /
+                // balanced) — each alternative is genuinely different.
+                strategy: alt.strategy ?? null,
+                // Largest clean rectangular offcut ({width, height, area}).
+                offcut: alt.offcut ?? null,
                 layoutCount: alt.layoutCount,
                 svgs: (alt.svg_files || []).map((file) => "/api/files/result/svg/" + file),
                 dxfs: (alt.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),
