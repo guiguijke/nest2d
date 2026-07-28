@@ -113,6 +113,46 @@ def _make_svg_file(doc):
     doc["isSvgFileExist"] = True
     doc["svgFileSlug"] = svg_slug
     
+def _check_handle_coverage(drawing, polygon_parts, logger, slug):
+    """
+    Compare how many drawing handles ended up in the saved polygonParts.
+
+    Every entity should be attached to the part that contains it. A handle
+    present in the drawing but missing from the saved parts means an entity
+    was dropped (e.g. it fell outside every part contour, or its type is not
+    convertible). Logged as a warning — not raised — because some entities
+    can legitimately sit outside all parts; the warning surfaces real
+    coverage gaps for inspection.
+    """
+    origin_handles = {entity.dxf.handle for entity in drawing.modelspace()}
+
+    saved_handles = set()
+    for part in polygon_parts:
+        saved_handles.update(part.get("handles", []))
+
+    missing = origin_handles - saved_handles
+
+    logger.info(
+        "handle_coverage_check",
+        extra={
+            "slug": slug,
+            "origin_handles": len(origin_handles),
+            "saved_handles": len(saved_handles),
+            "missing_handles": len(missing),
+        },
+    )
+
+    if missing:
+        logger.warning(
+            "handle_coverage_incomplete",
+            extra={
+                "slug": slug,
+                "missing_count": len(missing),
+                "missing_handles": sorted(missing),
+            },
+        )
+
+
 def _close_polygon_from_dxf(doc, logger_tag: str):
     logger = setup_logger(logger_tag)
      
@@ -137,6 +177,8 @@ def _close_polygon_from_dxf(doc, logger_tag: str):
         mongo_dict = part.to_mongo_dict()
         if mongo_dict is not None:
             polygon_parts.append(mongo_dict)
+
+    _check_handle_coverage(drawing, polygon_parts, logger, doc["slug"])
     
     dek = get_dek(db, doc["ownerId"])
     if dek is not None:
