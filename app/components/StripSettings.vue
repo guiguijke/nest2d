@@ -52,8 +52,8 @@ const localHeight = computed({
 
     &__hint {
         margin-top: 8px;
-        font-size: 12px;
-        color: var(--label-tertiary);
+        font-size: 13px;
+        color: var(--label-secondary);
 
         &--error {
             color: rgb(222, 0, 54);

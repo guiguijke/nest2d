@@ -123,20 +123,21 @@ const rotationHint = computed(() => {
 
     &__add {
         width: 100%;
-        padding: 8px;
-        border: 1px dashed var(--separator-primary);
+        padding: 10px;
+        border: 1px solid var(--separator-secondary);
         border-radius: 8px;
-        background: none;
+        background-color: var(--fill-tertiary);
         color: var(--label-secondary);
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 600;
         cursor: pointer;
-        transition: border-color 0.3s, color 0.3s;
+        transition: border-color 0.3s, color 0.3s, background-color 0.3s;
 
         @media (hover:hover) {
             &:hover {
-                border-color: var(--accent-primary);
-                color: var(--accent-primary);
+                border-color: var(--separator-primary);
+                color: var(--label-primary);
+                background-color: var(--fill-secondary);
             }
         }
     }
@@ -158,12 +159,12 @@ const rotationHint = computed(() => {
 }
 
 .sheet {
-    border: 1px solid var(--separator-secondary);
     border-radius: 12px;
-    padding: 8px;
+    padding: 10px;
+    background-color: var(--fill-tertiary);
 
     &>*:not(:last-child) {
-        margin-bottom: 8px;
+        margin-bottom: 10px;
     }
 
     &__header {
@@ -174,9 +175,9 @@ const rotationHint = computed(() => {
     }
 
     &__label {
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 700;
-        color: var(--label-tertiary);
+        color: var(--label-secondary);
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
@@ -186,7 +187,7 @@ const rotationHint = computed(() => {
         background: none;
         color: var(--label-tertiary);
         cursor: pointer;
-        font-size: 12px;
+        font-size: 14px;
         padding: 2px 6px;
         border-radius: 4px;
         transition: color 0.3s;
@@ -201,12 +202,12 @@ const rotationHint = computed(() => {
 
 .rotations {
     &__hint {
-        margin-top: 4px;
-        font-size: 11px;
+        margin-top: 6px;
+        font-size: 13px;
         color: var(--label-secondary);
         font-family: $sf_mono;
         word-break: break-word;
-        line-height: 1.3;
+        line-height: 1.4;
     }
 }
 </style>

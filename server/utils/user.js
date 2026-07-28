@@ -75,6 +75,10 @@ export async function createOrUpdateUser({
  */
 export function setSessionCookie(event, session) {
     setCookie(event, 'sessionId', session.sessionId, {
-        expires: new Date(session.expiresAt)
+        expires: new Date(session.expiresAt),
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
     })
 } 
