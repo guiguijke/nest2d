@@ -30,7 +30,7 @@ export const features = {
         },
         {
             icon: 'rotate',
-            title: 'Quantities and rotation control',
+            title: 'Quantities & rotation control',
             text: 'Set per-part quantities and allowed rotations — lock the grain direction when the material demands it.'
         },
         {
@@ -89,7 +89,7 @@ export const howItWorks = {
             text: 'Enter your material dimensions, spacing and rotation constraints.'
         },
         {
-            title: 'Nest and download',
+            title: 'Nest & download',
             text: 'Get an optimized, ready-to-cut layout as DXF — and see how much material you saved.'
         }
     ]
