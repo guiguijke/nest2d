@@ -258,6 +258,43 @@ class TestCompactIntoHoles:
                 )
                 assert hole_boundary.distance(placed) >= 1.8
 
+    def test_two_holes_nine_wedges(self):
+        """The reported production case: 2 squares (one r=35 hole each) + 9
+        wedges on a roomy sheet. 8 wedges must move (4 per hole), the 9th
+        stays out, and the used bbox must shrink."""
+        big_a = dict(SQUARE_WITH_HOLE, id=0)
+        big_b = dict(SQUARE_WITH_HOLE, id=3, file_slug="big2.dxf", handles=["D"])
+        wedge9 = dict(WEDGE, count=9)
+        items = [big_a, big_b, wedge9]
+
+        # Squares side by side at the bottom; wedges climbing the left edge,
+        # so the top of the used bbox is defined by the wedges only.
+        transforms = [
+            FakeTransform("big.dxf", ["A"], x=55.0, y=55.0, angle=0.0, item_id=0),
+            FakeTransform("big2.dxf", ["D"], x=165.0, y=55.0, angle=0.0, item_id=3),
+        ]
+        transforms += [
+            FakeTransform("wedge.dxf", ["C"], x=5.0, y=110.0 + i * 25.0, angle=0.0, item_id=2)
+            for i in range(9)
+        ]
+        container = FakeContainer(1, transforms, bin_width=300, bin_height=350)
+
+        moves = compact_into_holes([container], items, space=0)
+
+        assert moves == 8, f"expected 8 wedges moved (4 per hole), got {moves}"
+        from shapely.geometry import Point, Polygon
+        from shapely.affinity import rotate, translate
+        holes = [Point(55.0, 55.0).buffer(35.0), Point(165.0, 55.0).buffer(35.0)]
+        sector = Polygon(WEDGE["coords"])
+        in_hole = 0
+        for t in container.transforms[2:]:
+            placed = translate(
+                rotate(sector, math.degrees(t.angle), origin=(0, 0)), t.x, t.y
+            )
+            if any(h.covers(placed) for h in holes):
+                in_hole += 1
+        assert in_hole == 8
+
 
 class TestUsedSheetShare:
     def test_compaction_lowers_consumed_share(self):

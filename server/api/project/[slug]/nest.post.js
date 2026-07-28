@@ -135,9 +135,14 @@ export default defineEventHandler(async (event) => {
 
   // Server-side compute budget by tier (never trust the client for this).
   // Legacy flag-off users are pay-as-you-go → credits profile.
-  const compute = await getComputeProfile(userId, charge || { type: "credits" });
+  const compute = await getComputeProfile(
+    userId,
+    charge || { type: "credits" },
+    params.computeLevel
+  );
   dbParams.nestQuality = compute.nSamples;
   dbParams.alternativesCount = compute.nAlternatives;
+  dbParams.computeLevel = compute.level;
 
   // Encrypted vaults must be unlocked before a job can be enqueued — the
   // workers need an active session to read the source files. Also refreshes

@@ -1,5 +1,5 @@
 import { connectDB } from "~~/server/db/mongo";
-import { getEntitlement } from "~~/server/utils/entitlement";
+import { getEntitlement, getMaxComputeLevel } from "~~/server/utils/entitlement";
 import { getVaultStatus } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
@@ -18,6 +18,7 @@ export default defineEventHandler(async (event) => {
     : { freeRemaining: 0, creditsRemaining: 0, subscriptionStatus: null, requiresPaywall: false };
 
   const vault = await getVaultStatus(userId);
+  const maxComputeLevel = await getMaxComputeLevel(userId, null);
 
   return {
     id: user.id,
@@ -30,6 +31,7 @@ export default defineEventHandler(async (event) => {
     creditsRemaining: entitlement.creditsRemaining,
     subscriptionStatus: entitlement.subscriptionStatus,
     requiresPaywall: entitlement.requiresPaywall,
+    maxComputeLevel: maxComputeLevel,
     encryption: {
       enabled: vault.enabled,
       locked: vault.locked,

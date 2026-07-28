@@ -69,7 +69,8 @@ const state = reactive({
                 tolerance: Number(state.params.tolerance),
                 space: Number(state.params.space),
                 addOutShape: state.params.addOutShape,
-                rotationCount: Number(state.params.rotationCount)
+                rotationCount: Number(state.params.rotationCount),
+                computeLevel: state.params.computeLevel || undefined
             }
         })
     })
