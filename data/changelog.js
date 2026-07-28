@@ -1,6 +1,6 @@
 import { useSiteConfig } from '~~/data/siteConfig'
 
-export function usePosts() {
+export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
     {
