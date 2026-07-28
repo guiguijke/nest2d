@@ -341,6 +341,57 @@ class TestCompactIntoHoles:
         # At most 3 more wedges fit next to the hosted one.
         assert moves <= 3
 
+    def test_pareto_leftover_keeps_bbox_but_offcut_grows(self):
+        """The screenshot case: 3 holes already host 8 wedges (1+4+3) and 5
+        wedges zigzag outside. Only 4 more fit (3+1); the batch must be
+        accepted (occupied-aware packing), and nothing may overlap."""
+        from shapely.geometry import Point, Polygon
+        from shapely.affinity import rotate, translate
+
+        items = [SQUARE_WITH_HOLE, WEDGE]
+        squares_x = [55.0, 165.0, 275.0]
+        hosted_counts = [1, 4, 3]
+        transforms = []
+        hole_centres = []
+        for sx, n_hosted in zip(squares_x, hosted_counts):
+            transforms.append(
+                FakeTransform("big.dxf", ["A"], x=sx, y=65.0, angle=0.0, item_id=0)
+            )
+            hole_centres.append((sx, 65.0))
+            for k in range(n_hosted):
+                # Hosted wedges as a proper pinwheel: apex at the hole centre.
+                transforms.append(
+                    FakeTransform(
+                        "wedge.dxf", ["C"], x=sx, y=65.0,
+                        angle=math.radians(k * 90.0), item_id=2,
+                    )
+                )
+        for i in range(5):
+            transforms.append(
+                FakeTransform("wedge.dxf", ["C"], x=330.0,
+                              y=20.0 + i * 30.0, angle=0.0, item_id=2)
+            )
+        container = FakeContainer(1, transforms, bin_width=560, bin_height=400)
+
+        moves = compact_into_holes([container], items, space=0)
+
+        assert moves == 4, f"expected 4 wedges moved into remaining hole capacity, got {moves}"
+        sector = Polygon(WEDGE["coords"])
+        for cx, cy in hole_centres:
+            hole = Point(cx, cy).buffer(35.0)
+            inside = []
+            for t in container.transforms:
+                if t.item_id != 2:
+                    continue
+                poly = translate(
+                    rotate(sector, math.degrees(t.angle), origin=(0, 0)), t.x, t.y
+                )
+                if hole.covers(poly):
+                    inside.append(poly)
+            for i, a in enumerate(inside):
+                for b in inside[i + 1:]:
+                    assert a.intersection(b).area < 1e-6, "overlap inside a hole"
+
 
 class TestUsedSheetShare:
     def test_compaction_lowers_consumed_share(self):

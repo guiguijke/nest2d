@@ -858,20 +858,42 @@ def compact_into_holes(containers, input_items, space):
             if not batch:
                 break
 
-            # Tentative application, then commit only on a real bbox gain.
+            # Tentative application, then Pareto acceptance: no regression
+            # on the used bbox NOR on the largest clean rectangle, and an
+            # improvement on at least one. (A leftover part can keep the
+            # bbox wide while emptying its neighbourhood still grows the
+            # clean offcut — a strict bbox-only rule rejected that win.)
+            from core.offcut import largest_empty_rectangle
+
+            ler_before = largest_empty_rectangle([container], input_items)
+            ler_before = ler_before["area"] if ler_before else 0.0
+
             olds = [(m.x, m.y, m.angle) for m, *_ in batch]
             for mover, _bin_id, angle_deg, dx, dy, _poly in batch:
                 mover.x, mover.y, mover.angle = dx, dy, math.radians(angle_deg)
             bbox_after = _used_bbox_area(container, items_by_id)
+            ler_after = largest_empty_rectangle([container], input_items)
+            ler_after = ler_after["area"] if ler_after else 0.0
 
-            if bbox_after < bbox_before - COMPACTION_MIN_GAIN:
+            bbox_ok = bbox_after <= bbox_before + COMPACTION_MIN_GAIN
+            ler_ok = ler_after >= ler_before - COMPACTION_MIN_GAIN
+            improved = (
+                bbox_after < bbox_before - COMPACTION_MIN_GAIN
+                or ler_after > ler_before + COMPACTION_MIN_GAIN
+            )
+
+            if bbox_ok and ler_ok and improved:
                 for mover, bin_id, _angle, _dx, _dy, safe_poly in batch:
                     occupied.setdefault(bin_id, []).append(safe_poly)
                     moved_ids.add(id(mover))
                 moves += len(batch)
                 logger.info(
                     "Parts compacted into holes",
-                    extra={"batch": len(batch), "bbox_gain": bbox_before - bbox_after},
+                    extra={
+                        "batch": len(batch),
+                        "bbox_gain": bbox_before - bbox_after,
+                        "offcut_gain": ler_after - ler_before,
+                    },
                 )
             else:
                 for (mover, *_), (ox, oy, oa) in zip(batch, olds):
