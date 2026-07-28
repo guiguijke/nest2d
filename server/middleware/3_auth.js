@@ -1,5 +1,5 @@
 import { defineEventHandler, parseCookies } from "h3";
-import { getUserBySessionId } from "~/server/utils/auth";
+import { getUserBySessionId } from "~~/server/utils/auth";
 
 export default defineEventHandler(async (event) => {
   const cookie = parseCookies(event);

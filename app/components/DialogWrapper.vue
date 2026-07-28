@@ -14,7 +14,7 @@
 import { iconType } from '~~/constants/icon.constants';
 import { sizeType } from '~~/constants/size.constants';
 import { onMounted, onUnmounted, watch } from 'vue';
-import { trackEvent } from '~~/utils/track';
+import { trackEvent } from '~/utils/track';
 
 const { isModalOpen, trackingTag } = defineProps({
     isModalOpen: {

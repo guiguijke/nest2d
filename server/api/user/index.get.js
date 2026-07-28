@@ -1,6 +1,6 @@
-import { connectDB } from "~/server/db/mongo";
-import { getEntitlement } from "~/server/utils/entitlement";
-import { getVaultStatus } from "~/server/utils/vault";
+import { connectDB } from "~~/server/db/mongo";
+import { getEntitlement } from "~~/server/utils/entitlement";
+import { getVaultStatus } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;

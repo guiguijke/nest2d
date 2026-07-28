@@ -57,7 +57,7 @@
 import { sizeType } from '~~/constants/size.constants';
 import { themeType } from '~~/constants/theme.constants';
 import { statusType } from "~~/constants/status.constants";
-import { trackEvent } from '~~/utils/track';
+import { trackEvent } from '~/utils/track';
 import { computed } from "vue";
 
 const props = defineProps({

@@ -16,7 +16,7 @@
 import { computed, unref } from 'vue';
 import { defaultSizeType } from '~~/constants/size.constants';
 import { defaultThemeType } from '~~/constants/theme.constants';
-import { trackEvent } from '~~/utils/track';
+import { trackEvent } from '~/utils/track';
 
 const { label, icon, target, href, size, theme, isDisable, isLabelShow, isNotClickable, trackingTag } = defineProps({
     label: {

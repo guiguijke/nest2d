@@ -51,7 +51,7 @@ import { NuxtLink } from '#components';
 import { defaultThemeType, themeType } from "~~/constants/theme.constants";
 import { iconType } from '~~/constants/icon.constants';
 import { sizeType } from '~~/constants/size.constants';
-import { trackEvent } from '~~/utils/track';
+import { trackEvent } from '~/utils/track';
 import { useSiteConfig } from '~~/data/siteConfig';
 
 const { githubIssues } = useSiteConfig()

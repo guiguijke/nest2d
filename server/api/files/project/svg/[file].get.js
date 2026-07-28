@@ -1,4 +1,4 @@
-import { getUserDxfFilesSvgBucket } from "~/server/db/mongo";
+import { getUserDxfFilesSvgBucket } from "~~/server/db/mongo";
 import { openOwnedFileStream } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
