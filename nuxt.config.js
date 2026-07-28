@@ -47,6 +47,14 @@ export default defineNuxtConfig({
         css: {
             preprocessorOptions: {
                 scss: {
+                    // Use Dart Sass' modern compiler API. Removes the
+                    // "Sass is currently using the legacy JS API" deprecation.
+                    api: 'modern-compiler',
+                    // The design system still relies on global @import of
+                    // variables/mixins/fonts via additionalData. Migrating to
+                    // @use/@forward is a larger refactor; silence the
+                    // deprecation in the meantime.
+                    silenceDeprecations: ['legacy-js-api', 'import'],
                     additionalData: `
                         @import "${scssDir}variables.scss";
                         @import "${scssDir}mixins.scss";
