@@ -1,7 +1,7 @@
 <template>
     <div class="plans">
         <section class="plans__hero">
-            <h1 class="plans__title title title--large">Plans and pricing</h1>
+            <h1 class="plans__title title title--large">Plans &amp; pricing</h1>
             <p class="plans__subtitle">
                 Start free, upgrade when the material savings speak for themselves.
             </p>

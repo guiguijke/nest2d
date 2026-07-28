@@ -6,7 +6,8 @@
 
 @font-face {
     font-family: 'HeliosStencil';
-    src: url('/fonts/HeliosStencil/heliosstencil-bold.otf') format('opentype');
+    src: url('/fonts/HeliosStencil/HeliosStencil-Bold.woff2') format('woff2'),
+        url('/fonts/HeliosStencil/HeliosStencil-Bold.woff') format('woff');
     font-weight: 700;
     font-style: normal;
     font-display: swap;

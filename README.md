@@ -261,7 +261,7 @@ dark `#232C30`. Display typeface is **Helios Stencil** (titles, logo) with
 **Montserrat** for body text.
 
 ⚠️ Helios Stencil is a **commercial typeface** (W Foundry). The bundled
-`public/fonts/HeliosStencil/heliosstencil-bold.otf` must be covered by a valid
-license for web/production use — buy the webfont license (W Foundry /
-Fontspring) or replace it with a licensed alternative. Montserrat is OFL and
-safe to ship.
+`public/fonts/HeliosStencil/HeliosStencil-Bold.woff2/.woff` come from the
+webfont package kept in `.zcode/font/` — make sure its license covers
+web/production use, or replace it with a licensed alternative. Montserrat is
+OFL and safe to ship.
