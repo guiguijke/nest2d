@@ -46,10 +46,10 @@
                 </li>
                 <li class="list__item">
                     <NuxtLink
-                        to="/blog"
+                        to="/changelog"
                         class="list__link"
                     >
-                        Blog
+                        Changelog
                     </NuxtLink>
                 </li>
             </ul>

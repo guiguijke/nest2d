@@ -140,6 +140,7 @@ export default defineNuxtConfig({
     nitro: {
         compressPublicAssets: true,
         routeRules: {
+            '/blog': { redirect: '/changelog' },
             '/icons/**': {
                 headers: {
                     'cache-control': 'public,max-age=31536000,s-maxage=31536000,immutable'

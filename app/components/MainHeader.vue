@@ -3,7 +3,7 @@
         <component :is="logoTag" v-bind="logoHref" class="header__logo logo">
             <img :src="logoMarkSrc" alt="APlasma" class="logo__mark" />
             <span class="logo__label">
-                Nesting
+                APlasma <span class="logo__label--light">Nesting</span>
             </span>
         </component>
         <nav v-if="isPrimaryTheme" class="header__tabs tabs">
@@ -91,8 +91,8 @@ const nav = [
         href: '/#faq',
     },
     {
-        label: 'Blog',
-        href: '/blog',
+        label: 'Changelog',
+        href: '/changelog',
     },
 ]
 
@@ -140,11 +140,11 @@ const themeIcon = computed(() => {
     return unref(themeGlobal) === themeType.primary ? iconType.light : iconType.dark
 })
 
-// Brand wordmark follows the theme: anthracite+rust on light, white on dark.
+// Brand lockup follows the theme: anthracite+rust on light, white on dark.
 const logoMarkSrc = computed(() => {
     return unref(themeGlobal) === themeType.primary
-        ? '/brand/wordmark-blanc.png'
-        : '/brand/wordmark-gr.png'
+        ? '/brand/logo-blanc.png'
+        : '/brand/logo-gr.png'
 })
 
 </script>
@@ -305,7 +305,7 @@ const logoMarkSrc = computed(() => {
     gap: 10px;
 
     &__mark {
-        height: 26px;
+        height: 42px;
         width: auto;
         object-fit: contain;
     }
@@ -313,10 +313,14 @@ const logoMarkSrc = computed(() => {
     &__label {
         display: block;
         font-size: 22px;
-        font-weight: 400;
-        color: var(--label-secondary);
+        font-weight: 700;
+        color: var(--accent-primary);
         white-space: nowrap;
-        padding-bottom: 4px;
+
+        &--light {
+            font-weight: 400;
+            color: var(--label-secondary);
+        }
     }
 }
 
