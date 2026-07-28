@@ -295,6 +295,52 @@ class TestCompactIntoHoles:
                 in_hole += 1
         assert in_hole == 8
 
+    def test_parts_already_in_hole_are_never_overpacked(self):
+        """Regression for the offcut overlap bug: the solver had already
+        nested one wedge in the hole; the ring template must NOT stack 4
+        fresh wedges on top of it (the template only fires on empty holes,
+        and hosted parts count as occupants)."""
+        from shapely.geometry import Point, Polygon
+        from shapely.affinity import rotate, translate
+
+        items = [SQUARE_WITH_HOLE, WEDGE]
+        hosted_angle = 0.0
+        transforms = [
+            FakeTransform("big.dxf", ["A"], x=55.0, y=55.0, angle=0.0, item_id=0),
+            # Wedge already nested in the hole by the solver (apex at centre).
+            FakeTransform("wedge.dxf", ["C"], x=55.0, y=55.0, angle=hosted_angle, item_id=2),
+        ]
+        # Three more wedges far on the frontier.
+        transforms += [
+            FakeTransform("wedge.dxf", ["C"], x=5.0, y=150.0 + i * 40.0, angle=0.0, item_id=2)
+            for i in range(3)
+        ]
+        container = FakeContainer(1, transforms, bin_width=300, bin_height=350)
+
+        moves = compact_into_holes([container], items, space=0)
+
+        # The hosted wedge is left alone...
+        hosted = container.transforms[1]
+        assert (hosted.x, hosted.y, hosted.angle) == (55.0, 55.0, hosted_angle)
+
+        # ...and NOTHING overlaps it: every wedge placed in the hole must be
+        # disjoint from it and from each other.
+        hole = Point(55.0, 55.0).buffer(35.0)
+        sector = Polygon(WEDGE["coords"])
+        placed_in_hole = []
+        for t in container.transforms[1:]:
+            poly = translate(
+                rotate(sector, math.degrees(t.angle), origin=(0, 0)), t.x, t.y
+            )
+            if hole.covers(poly):
+                placed_in_hole.append(poly)
+        for i, a in enumerate(placed_in_hole):
+            for b in placed_in_hole[i + 1:]:
+                assert a.intersection(b).area < 1e-6, "overlapping parts in hole"
+
+        # At most 3 more wedges fit next to the hosted one.
+        assert moves <= 3
+
 
 class TestUsedSheetShare:
     def test_compaction_lowers_consumed_share(self):
