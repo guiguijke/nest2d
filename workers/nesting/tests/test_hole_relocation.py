@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.hole_relocation import relocate_into_holes, rescale_density
+from core.hole_relocation import compact_into_holes, relocate_into_holes, rescale_density
 
 
 class FakeTransform:
@@ -117,9 +117,13 @@ class TestRelocateIntoHoles:
 
     def test_hole_transformed_with_part_placement(self):
         # Big part placed rotated 90° at (100, 100): its hole must move along.
+        # The 50x50 square cannot fit in the r=35 hole, so the exact packer
+        # fails and the lbf sub-solve receives the holes as bins.
+        big_square = dict(SMALL_ITEM, coords=[[0, 0], [50, 0], [50, 50], [0, 50]])
         big = FakeTransform("big.dxf", ["A"], x=100, y=100, angle=math.pi / 2, item_id=0)
         small = FakeTransform("small.dxf", ["B"], x=5, y=5, angle=0.0, item_id=1)
         containers = [FakeContainer(1, [big]), FakeContainer(2, [small])]
+        items = [SQUARE_WITH_HOLE, big_square]
 
         captured = {}
 
@@ -127,7 +131,7 @@ class TestRelocateIntoHoles:
             captured["bins"] = input_json["instance"]["bins"]
             return {"solution": {"layouts": [], "density": 0.0, "cost": 0}}
 
-        relocate_into_holes(containers, INPUT_ITEMS, space=0, run_lbf_fn=fake_run_lbf)
+        relocate_into_holes(containers, items, space=0, run_lbf_fn=fake_run_lbf)
         hole_ring = captured["bins"][0]["shape"]["data"]["outer"]
         xs = [p[0] for p in hole_ring]
         ys = [p[1] for p in hole_ring]
@@ -146,3 +150,105 @@ class TestRescaleDensity:
 
     def test_zero_density_passthrough(self):
         assert rescale_density(0, [], []) == 0
+
+
+def _quarter_wedge(radius=28.0, n=24):
+    """Quarter-disk sector with apex at origin (tiles a disk 4x at 0/90/180/270)."""
+    pts = [[0.0, 0.0]]
+    pts += [
+        [radius * math.cos(i * (math.pi / 2) / n), radius * math.sin(i * (math.pi / 2) / n)]
+        for i in range(n + 1)
+    ]
+    return pts
+
+
+WEDGE = {
+    "id": 2,
+    "file_slug": "wedge.dxf",
+    "coords": _quarter_wedge(),
+    "holes": [],
+    "handles": ["C"],
+    "count": 4,
+    "rotations": [0.0, 90.0, 180.0, 270.0],
+}
+
+
+class TestCompactIntoHoles:
+    """The reported production scenario: on a roomy 150x150 sheet, the solver
+    stacks the 4 wedges along the top edge instead of using the square's
+    r=35 hole. Compaction must move all 4 into the hole and shrink the used
+    bounding box."""
+
+    def _scenario(self):
+        big = dict(SQUARE_WITH_HOLE)
+        items = [big, WEDGE]
+        square_t = FakeTransform("big.dxf", ["A"], x=55.0, y=55.0, angle=0.0, item_id=0)
+        wedges = [
+            FakeTransform("wedge.dxf", ["C"], x=5.0 + i * 25.0, y=120.0, angle=0.0, item_id=2)
+            for i in range(4)
+        ]
+        container = FakeContainer(1, [square_t] + wedges, bin_width=150, bin_height=150)
+        return [container], items
+
+    def test_wedges_move_into_the_hole(self):
+        containers, items = self._scenario()
+        from shapely.geometry import Point, Polygon
+        from shapely.affinity import rotate, translate
+
+        before = containers[0].transforms
+        bbox_before_y_max = max(
+            rotate(Polygon(WEDGE["coords"]), 0, origin=(0, 0)).bounds[3] + t.y
+            for t in before[1:]
+        )
+
+        moves = compact_into_holes(containers, items, space=0)
+
+        assert moves == 4
+        hole = Point(55.0, 55.0).buffer(35.0)
+        sector = Polygon(WEDGE["coords"])
+        for t in containers[0].transforms[1:]:
+            placed = translate(
+                rotate(sector, math.degrees(t.angle), origin=(0, 0)), t.x, t.y
+            )
+            assert hole.covers(placed), "compacted wedge escapes the hole"
+        # Even distribution: the pinwheel uses 4 distinct orientations.
+        orientations = {round(math.degrees(t.angle)) % 360 for t in containers[0].transforms[1:]}
+        assert orientations == {0, 90, 180, 270}
+        # Used bbox is now just the square's: y_max dropped from 120+ to 90.
+        y_max_after = max(
+            translate(
+                rotate(sector, math.degrees(t.angle), origin=(0, 0)), t.x, t.y
+            ).bounds[3]
+            for t in containers[0].transforms[1:]
+        )
+        assert y_max_after < bbox_before_y_max - 20
+
+    def test_no_holes_no_moves(self):
+        containers, items = self._scenario()
+        items[0] = dict(items[0], holes=[])
+        assert compact_into_holes(containers, items, space=0) == 0
+
+    def test_no_batch_no_gain_no_churn(self):
+        # Wedges already inside the hole region: nothing on the frontier,
+        # moving anything cannot shrink the bbox — positions must be kept.
+        containers, items = self._scenario()
+        for i, t in enumerate(containers[0].transforms[1:]):
+            t.x, t.y, t.angle = 55.0, 55.0, math.radians(i * 90.0)
+        snapshot = [(t.x, t.y, t.angle) for t in containers[0].transforms]
+        compact_into_holes(containers, items, space=0)
+        after = [(t.x, t.y, t.angle) for t in containers[0].transforms]
+        assert after == snapshot
+
+    def test_separation_respected_when_requested(self):
+        containers, items = self._scenario()
+        moves = compact_into_holes(containers, items, space=2.0)
+        if moves:  # tighter fit may still succeed
+            from shapely.geometry import Point, Polygon
+            from shapely.affinity import rotate, translate
+            hole_boundary = Point(55.0, 55.0).buffer(35.0).boundary
+            sector = Polygon(WEDGE["coords"])
+            for t in containers[0].transforms[1:]:
+                placed = translate(
+                    rotate(sector, math.degrees(t.angle), origin=(0, 0)), t.x, t.y
+                )
+                assert hole_boundary.distance(placed) >= 1.8

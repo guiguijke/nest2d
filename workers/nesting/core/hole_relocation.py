@@ -42,6 +42,11 @@ logger = setup_logger("hole_relocation")
 HOLE_AREA_SAFETY_RATIO = 1.2
 # Hard cap on relocation rounds (each round frees at most one sheet).
 MAX_RELOCATION_ROUNDS = 3
+# Up to this many parts, relocation tries the exact packer first: it is
+# deterministic and produces evenly distributed placements, whereas lbf's
+# corner-seeking loss clumps parts in a corner of the hole.
+EXACT_FIRST_MAX_ITEMS = 8
+
 # Sample budget for the relocation sub-solve (small instances → cheap).
 RELOCATION_SAMPLES = 5000
 # Above this many parts on the donor sheet, the exact fallback packer is
@@ -124,7 +129,7 @@ def _item_references(item_poly):
     return refs
 
 
-def _exact_pack_into_holes(hole_polys, relo_items, space):
+def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
     """Deterministic exact-geometry fallback packer.
 
     The lbf sub-solve is great in open sheets, but its corner-seeking loss is
@@ -134,6 +139,9 @@ def _exact_pack_into_holes(hole_polys, relo_items, space):
     vertices) against hole anchors (centroid, pole, coarse grid), validating
     with exact geometry. Separation mirrors jagua's semantics: the hole is
     deflated and the parts inflated by space/2 (rounded joins).
+
+    `occupied` optionally seeds each hole with parts already placed there
+    (bin_id -> list of polygons), so incremental moves account for them.
 
     Returns {relo_id: (bin_id, angle_deg, x, y)} on full success, else None.
     """
@@ -195,9 +203,20 @@ def _exact_pack_into_holes(hole_polys, relo_items, space):
     # Backtracking search: local scoring alone greedily parks parts in
     # positions that globally block tight packings (a wedge pointing at the
     # hole centre is individually compact but prevents the 4-apex tiling), so
-    # we explore candidates best-first and backtrack on dead ends.
+    # we explore candidates and backtrack on dead ends.
+    #
+    # Candidate ranking is re-evaluated at every node for placement QUALITY,
+    # not just feasibility: maximise the clearance to the hole boundary, then
+    # the clearance to the parts already in the hole, then compactness. The
+    # result is centred, evenly distributed placements (pinwheel for tiling
+    # sectors, equal margins for slack holes) instead of a clumped pile.
+    hole_boundaries = {bin_id: safe.boundary for bin_id, safe, _a in safe_holes}
+
     placements = {}
-    placed_per_bin = {bin_id: [] for bin_id, _safe, _anchors in safe_holes}
+    occupied = occupied or {}
+    placed_per_bin = {
+        bin_id: list(occupied.get(bin_id, [])) for bin_id, _safe, _anchors in safe_holes
+    }
     nodes = [0]
 
     def backtrack(idx):
@@ -206,22 +225,31 @@ def _exact_pack_into_holes(hole_polys, relo_items, space):
         if nodes[0] >= EXACT_PACK_NODE_BUDGET:
             return False
         entry = ordered[idx]
-        for _spread, bin_id, angle, dx, dy, candidate in candidates_per_item[idx]:
-            nodes[0] += 1
+        ranked = []
+        for spread, bin_id, angle, dx, dy, candidate in candidates_per_item[idx]:
             already = placed_per_bin[bin_id]
             if any(
                 candidate.intersection(other).area > OVERLAP_EPSILON
                 for other in already
             ):
                 continue
-            already.append(candidate)
+            d_boundary = hole_boundaries[bin_id].distance(candidate)
+            d_others = min(
+                (candidate.distance(other) for other in already),
+                default=float("inf"),
+            )
+            ranked.append(((-d_boundary, -d_others, spread), bin_id, angle, dx, dy, candidate))
+        ranked.sort(key=lambda r: r[0])
+        for _score, bin_id, angle, dx, dy, candidate in ranked:
+            nodes[0] += 1
+            if nodes[0] >= EXACT_PACK_NODE_BUDGET:
+                return False
+            placed_per_bin[bin_id].append(candidate)
             placements[entry["relo_id"]] = (bin_id, angle, dx, dy)
             if backtrack(idx + 1):
                 return True
-            already.pop()
+            placed_per_bin[bin_id].pop()
             del placements[entry["relo_id"]]
-            if nodes[0] >= EXACT_PACK_NODE_BUDGET:
-                return False
         return False
 
     if not backtrack(0):
@@ -344,43 +372,58 @@ def relocate_into_holes(containers, input_items, space, run_lbf_fn=run_lbf):
         # Placements are collected as {relo_id: (bin_id, angle_rad, x, y)}.
         placements = None
 
-        input_json = build_input_json(
-            hole_bins, relo_items,
-            n_samples=RELOCATION_SAMPLES, prng_seed=None,
-            min_separation=space,
-        )
+        def exact_pack():
+            found = _exact_pack_into_holes(hole_polys, relo_items, space)
+            if found is None:
+                return None
+            return {
+                relo_id: (bin_id, math.radians(angle), x, y)
+                for relo_id, (bin_id, angle, x, y) in found.items()
+            }
 
-        try:
-            output = run_lbf_fn(input_json)
+        def lbf_pack():
+            input_json = build_input_json(
+                hole_bins, relo_items,
+                n_samples=RELOCATION_SAMPLES, prng_seed=None,
+                min_separation=space,
+            )
+            try:
+                output = run_lbf_fn(input_json)
+            except Exception as e:
+                logger.error("Relocation sub-solve failed",
+                             extra={"error": str(e)})
+                return None
             solution = output.get("solution") or {}
             placed = sum(
                 len(layout.get("placed_items", [])) for layout in solution.get("layouts", [])
             )
-            if placed == len(relo_items):
-                placements = {}
-                for layout in solution.get("layouts", []):
-                    bin_id = layout.get("container_id", 0)
-                    for placed_item in layout.get("placed_items", []):
-                        transformation = placed_item["transformation"]
-                        x, y = transformation["translation"]
-                        # lbf 0.7.x reports rotations in degrees.
-                        placements[placed_item["item_id"]] = (
-                            bin_id, math.radians(transformation["rotation"]), x, y,
-                        )
-        except Exception as e:
-            logger.error("Relocation sub-solve failed",
-                         extra={"error": str(e)})
+            if placed != len(relo_items):
+                return None
+            found = {}
+            for layout in solution.get("layouts", []):
+                bin_id = layout.get("container_id", 0)
+                for placed_item in layout.get("placed_items", []):
+                    transformation = placed_item["transformation"]
+                    x, y = transformation["translation"]
+                    # lbf 0.7.x reports rotations in degrees.
+                    found[placed_item["item_id"]] = (
+                        bin_id, math.radians(transformation["rotation"]), x, y,
+                    )
+            return found
 
-        if placements is None:
-            # lbf's corner-seeking loss is weak inside small holes: fall back
-            # to the exact deterministic packer for small part counts.
-            placements = _exact_pack_into_holes(hole_polys, relo_items, space)
+        # Small batches: the exact packer goes first (deterministic, evenly
+        # distributed placements). Larger batches: lbf first (faster), exact
+        # packer as fallback for the tilings lbf cannot find.
+        if len(relo_items) <= EXACT_FIRST_MAX_ITEMS:
+            placements = exact_pack() or lbf_pack()
             if placements is not None:
-                placements = {
-                    relo_id: (bin_id, math.radians(angle), x, y)
-                    for relo_id, (bin_id, angle, x, y) in placements.items()
-                }
-                logger.info("Exact fallback packer relocated all parts")
+                logger.info("Exact packer relocated all parts")
+        else:
+            placements = lbf_pack()
+            if placements is None:
+                placements = exact_pack()
+                if placements is not None:
+                    logger.info("Exact fallback packer relocated all parts")
 
         if placements is None:
             logger.info(
@@ -426,3 +469,169 @@ def rescale_density(density, containers_before, containers_after):
     if area_after <= 0 or area_before <= 0:
         return density
     return density * (area_before / area_after)
+
+
+def _placed_polygon(item, transform, half=0.0):
+    """The item's geometry at its placement (optionally inflated)."""
+    poly = Polygon(item["coords"])
+    if half > 0:
+        poly = poly.buffer(half)
+    return translate(
+        rotate(poly, math.degrees(transform.angle), origin=(0, 0)),
+        transform.x, transform.y,
+    )
+
+
+def _used_bbox_area(container, input_items_by_id, skip=None):
+    """Area of the bounding box covering every part placed on a sheet —
+    the footprint the customer actually pays for. The remainder of the
+    sheet is the reusable offcut: the smaller the bbox, the cleaner it is."""
+    min_x = min_y = float("inf")
+    max_x = max_y = float("-inf")
+    for transform in container.transforms:
+        if skip is not None and transform is skip:
+            continue
+        item = input_items_by_id.get(getattr(transform, "item_id", None))
+        if item is None:
+            continue
+        bx = _placed_polygon(item, transform).bounds
+        min_x, min_y = min(min_x, bx[0]), min(min_y, bx[1])
+        max_x, max_y = max(max_x, bx[2]), max(max_y, bx[3])
+    if min_x == float("inf"):
+        return 0.0
+    return (max_x - min_x) * (max_y - min_y)
+
+
+# A compaction move must shrink the used bbox by at least this much (mm²) —
+# below that, the move is churn, not compaction.
+COMPACTION_MIN_GAIN = 0.5
+# Hard cap on moves per job (each move strictly improves, so this only
+# guards against pathological anchor distributions).
+COMPACTION_MAX_MOVES_FACTOR = 3
+
+
+def compact_into_holes(containers, input_items, space):
+    """Compaction post-pass: on every sheet, move parts into the holes of
+    other placed parts whenever doing so shrinks the sheet's used bounding
+    box.
+
+    The main solve has no incentive to use holes on roomy sheets (its loss
+    only minimises the bottom-right corner) and hole relocation only acts
+    when a whole sheet can be freed. Compaction covers the everyday case:
+    parts stacked along an edge move inside cutouts, and the leftover sheet
+    becomes a clean rectangular offcut — reusable, resalable material —
+    instead of a jagged strip.
+
+    Returns the number of parts moved.
+    """
+    items_by_id = {item["id"]: item for item in input_items}
+    if not any(item.get("holes") for item in input_items):
+        return 0
+
+    half = (space or 0) / 2.0
+    total_transforms = sum(len(c.transforms) for c in containers)
+    max_moves = COMPACTION_MAX_MOVES_FACTOR * max(1, total_transforms)
+    moves = 0
+
+    for container in containers:
+        # Usable holes on this sheet, in absolute coordinates.
+        hole_polys = []  # (bin_id, Polygon)
+        for transform in container.transforms:
+            item = items_by_id.get(getattr(transform, "item_id", None))
+            if item is None:
+                continue
+            for hole_ring in item.get("holes") or []:
+                abs_ring = _close_ring(
+                    _transform_ring(hole_ring, transform.angle, transform.x, transform.y)
+                )
+                hole_polys.append((len(hole_polys), Polygon(abs_ring)))
+
+        if not hole_polys:
+            continue
+
+        occupied = {}   # bin_id -> [polygons] already hosted in the hole
+        moved_ids = set()
+
+        # Batches: moving 3 of 4 edge-stacked parts does not shrink the bbox
+        # yet (the 4th still defines the frontier), so moves are evaluated as
+        # a group — commit only if the whole batch strictly improves the used
+        # bounding box.
+        while moves < max_moves:
+            bbox_before = _used_bbox_area(container, items_by_id)
+
+            def frontier_key(transform):
+                item = items_by_id.get(getattr(transform, "item_id", None))
+                if item is None:
+                    return -1.0
+                bx = _placed_polygon(item, transform).bounds
+                return bx[2] + bx[3]  # x_max + y_max
+
+            movers = [
+                t for t in container.transforms
+                if id(t) not in moved_ids
+                and not (items_by_id.get(getattr(t, "item_id", None)) or {}).get("holes")
+            ]
+            movers.sort(key=frontier_key, reverse=True)
+
+            # Tentative batch: pack the frontier movers together. The packer
+            # backtracks across items — packing them one at a time would let
+            # the first part's locally-best placement block the rest.
+            batch = []  # (mover, bin_id, angle_deg, dx, dy, safe_poly)
+            candidates = movers[:EXACT_PACK_MAX_ITEMS]
+            placements = None
+            # Shrink the candidate set from the least-frontier end until the
+            # packer finds a complete packing (a hole may not fit them all).
+            for cut in range(len(candidates), max(0, len(candidates) - 4), -1):
+                trial = candidates[:cut]
+                entries = [
+                    {
+                        "relo_id": i,
+                        "coords": items_by_id[m.item_id]["coords"],
+                        "rotations": items_by_id[m.item_id].get("rotations", [0.0]),
+                    }
+                    for i, m in enumerate(trial)
+                ]
+                placements = _exact_pack_into_holes(
+                    hole_polys, entries, space, occupied=occupied
+                )
+                if placements is not None:
+                    for i, m in enumerate(trial):
+                        bin_id, angle_deg, dx, dy = placements[i]
+                        item = items_by_id[m.item_id]
+                        base = Polygon(item["coords"])
+                        safe_poly = translate(
+                            rotate(
+                                base.buffer(half) if half > 0 else base,
+                                angle_deg, origin=(0, 0),
+                            ),
+                            dx, dy,
+                        )
+                        batch.append((m, bin_id, angle_deg, dx, dy, safe_poly))
+                    break
+
+            if not batch:
+                break
+
+            # Tentative application, then commit only on a real bbox gain.
+            olds = [(m.x, m.y, m.angle) for m, *_ in batch]
+            for mover, _bin_id, angle_deg, dx, dy, _poly in batch:
+                mover.x, mover.y, mover.angle = dx, dy, math.radians(angle_deg)
+            bbox_after = _used_bbox_area(container, items_by_id)
+
+            if bbox_after < bbox_before - COMPACTION_MIN_GAIN:
+                for mover, bin_id, _angle, _dx, _dy, safe_poly in batch:
+                    occupied.setdefault(bin_id, []).append(safe_poly)
+                    moved_ids.add(id(mover))
+                moves += len(batch)
+                logger.info(
+                    "Parts compacted into holes",
+                    extra={"batch": len(batch), "bbox_gain": bbox_before - bbox_after},
+                )
+            else:
+                for (mover, *_), (ox, oy, oa) in zip(batch, olds):
+                    mover.x, mover.y, mover.angle = ox, oy, oa
+                break
+
+    if moves:
+        logger.info("Compaction finished", extra={"moves": moves})
+    return moves
