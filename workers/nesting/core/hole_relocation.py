@@ -61,6 +61,8 @@ OVERLAP_EPSILON = 1e-6
 # and recursion budget for the backtracking search.
 EXACT_PACK_MAX_CANDIDATES = 200
 EXACT_PACK_NODE_BUDGET = 50000
+# Max branches explored per search node.
+EXACT_PACK_BRANCH_K = 15
 # Wall-clock budget for the backtracking search (seconds): on pathological
 # geometry the node budget alone can run for minutes — the packer must yield
 # gracefully (relocation/compaction are best-effort post-passes, the main
@@ -101,15 +103,33 @@ def _sharp_vertices(ring_coords, max_interior_deg=150.0):
     return sharp
 
 
-def _hole_anchors(hole_poly):
+def _hole_anchors(hole_poly, space=0.0):
     """Reference positions inside a hole: centroid, pole of inaccessibility
-    and a coarse interior grid (for slack holes where parts float freely)."""
-    anchors = [(hole_poly.centroid.x, hole_poly.centroid.y)]
+    and a coarse interior grid (for slack holes where parts float freely).
+
+    When a separation is required, tight packings need sub-millimetre
+    adjustments (e.g. 4 wedge apexes that cannot be concurrent anymore and
+    must each shift by ~space/2): a fine grid around the centroid provides
+    those docking points.
+    """
+    cx, cy = hole_poly.centroid.x, hole_poly.centroid.y
+    anchors = [(cx, cy)]
     try:
         pole = polylabel(hole_poly, tolerance=0.5)
         anchors.append((pole.x, pole.y))
     except Exception:
         pass
+
+    if space and space > 0:
+        reach = max(2.0 * space, 2.0)
+        step = max(space / 2.0, 0.5)
+        k = int(reach / step) + 1
+        for i in range(-k, k + 1):
+            for j in range(-k, k + 1):
+                px, py = cx + i * step, cy + j * step
+                if (px, py) != (cx, cy) and hole_poly.covers(Point(px, py)):
+                    anchors.append((px, py))
+
     min_x, min_y, max_x, max_y = hole_poly.bounds
     step = max(2.0, min(max_x - min_x, max_y - min_y) / 8.0)
     x = min_x
@@ -136,6 +156,89 @@ def _item_references(item_poly):
     return refs
 
 
+def _try_ring_template(hole_polys, relo_items, space):
+    """Symmetric ring templates for IDENTICAL parts.
+
+    Tight packings of n identical parts in a hole (e.g. 4 wedges in a disk)
+    are almost always ring/spiral arrangements: the parts' docking point
+    placed on a small circle around the hole centre, each rotated by 360/n.
+    The backtracking search finds those only after exhausting most of its
+    budget — sweeping (reference point, ring radius, ring direction) finds
+    them in milliseconds and produces a perfectly symmetric layout, which is
+    also the prettiest. Returns placements or None (mixed shapes fall back
+    to the generic search).
+    """
+    if len(relo_items) < 2 or len(hole_polys) != 1:
+        return None
+    first_coords = relo_items[0]["coords"]
+    if any(e["coords"] != first_coords for e in relo_items):
+        return None
+
+    n = len(relo_items)
+    bin_id, hole_poly = hole_polys[0]
+    half = (space or 0) / 2.0
+    safe_hole = hole_poly.buffer(-half) if half > 0 else hole_poly
+    if safe_hole.is_empty:
+        return None
+    prepare(safe_hole)
+
+    item_poly = Polygon(first_coords)
+    safe_item = item_poly.buffer(half) if half > 0 else item_poly
+    allowed = set(round(a % 360, 3) for a in (relo_items[0].get("rotations") or [0.0]))
+    start_rots = sorted(allowed)
+
+    # Docking points: sharp vertices first (wedge apexes), then centroid.
+    refs = _sharp_vertices(list(item_poly.exterior.coords))
+    refs.append((item_poly.centroid.x, item_poly.centroid.y))
+
+    cx, cy = safe_hole.centroid.x, safe_hole.centroid.y
+    max_rho = max(
+        math.hypot(x - cx, y - cy) for x, y in safe_hole.exterior.coords
+    )
+
+    def frange(stop, step):
+        v = 0.0
+        while v <= stop + 1e-9:
+            yield v
+            v += step
+
+    for ref in refs:
+        for start in start_rots:
+            rots = [start + k * 360.0 / n for k in range(n)]
+            if any(round(r % 360, 3) not in allowed for r in rots):
+                continue
+            rotated_refs = [rotate(Point(*ref), r, origin=(0, 0)) for r in rots]
+            rotated_items = [rotate(safe_item, r, origin=(0, 0)) for r in rots]
+            for rho in frange(max_rho, 0.25):
+                for base_dir in frange(360.0 / n, 15.0):
+                    placed_geoms = []
+                    placements = []
+                    ok = True
+                    for k in range(n):
+                        theta = math.radians(base_dir + k * 360.0 / n)
+                        dx = cx + rho * math.cos(theta) - rotated_refs[k].x
+                        dy = cy + rho * math.sin(theta) - rotated_refs[k].y
+                        cand = translate(rotated_items[k], dx, dy)
+                        if not safe_hole.covers(cand):
+                            ok = False
+                            break
+                        if any(
+                            cand.intersection(other).area > OVERLAP_EPSILON
+                            for other in placed_geoms
+                        ):
+                            ok = False
+                            break
+                        placed_geoms.append(cand)
+                        placements.append((rots[k], dx, dy))
+                    if ok:
+                        return {
+                            e["relo_id"]: (bin_id, placements[i][0], placements[i][1], placements[i][2])
+                            for i, e in enumerate(relo_items)
+                        }
+    return None
+
+
+
 def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
     """Deterministic exact-geometry fallback packer.
 
@@ -155,6 +258,10 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
     if len(relo_items) > EXACT_PACK_MAX_ITEMS:
         return None
 
+    template = _try_ring_template(hole_polys, relo_items, space)
+    if template is not None:
+        return template
+
     half = (space or 0) / 2.0
     safe_holes = []  # (bin_id, safe_poly, anchors)
     for bin_id, hole_poly in hole_polys:
@@ -162,7 +269,7 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
         if safe.is_empty:
             continue
         prepare(safe)
-        safe_holes.append((bin_id, safe, _hole_anchors(safe)))
+        safe_holes.append((bin_id, safe, _hole_anchors(safe, space)))
 
     if not safe_holes:
         return None
@@ -208,7 +315,15 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
 
         if not candidates:
             return None
-        candidates.sort(key=lambda c: c[0])
+        # Cluster near-duplicate placements (same rotation, position within
+        # 0.5mm, same hole) keeping the best boundary clearance — the search
+        # tree shrinks from thousands of redundant branches to distinct ones.
+        clustered = {}
+        for spread, d_boundary, bin_id, angle, dx, dy, candidate in candidates:
+            key = (bin_id, angle, round(dx * 2) / 2, round(dy * 2) / 2)
+            if key not in clustered or d_boundary > clustered[key][1]:
+                clustered[key] = (spread, d_boundary, bin_id, angle, dx, dy, candidate)
+        candidates = sorted(clustered.values(), key=lambda c: c[0])
         candidates_per_item.append(candidates[:EXACT_PACK_MAX_CANDIDATES])
 
     # Backtracking search: local scoring alone greedily parks parts in
@@ -249,7 +364,10 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
             )
             ranked.append(((-d_boundary, -d_others, spread), bin_id, angle, dx, dy, candidate))
         ranked.sort(key=lambda r: r[0])
-        for _score, bin_id, angle, dx, dy, candidate in ranked:
+        # Branch on the top-K only: tight packings live in the long tail
+        # (contact placements rank low), and an uncapped tree exhausts the
+        # node budget before ever reaching them.
+        for _score, bin_id, angle, dx, dy, candidate in ranked[:EXACT_PACK_BRANCH_K]:
             nodes[0] += 1
             if nodes[0] >= EXACT_PACK_NODE_BUDGET or time.monotonic() > deadline[0]:
                 return False
