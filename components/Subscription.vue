@@ -13,7 +13,7 @@
 
         <div v-if="isActive && data?.isPrivacyTier" class="subscription__card">
             <div class="subscription__status">
-                <span class="subscription__badge">Pro — Confidentialité+</span>
+                <span class="subscription__badge">Pro — Privacy+</span>
             </div>
             <p class="subscription__desc">
                 Zero-knowledge vault, maximum compute budget and priority
@@ -22,7 +22,7 @@
         </div>
 
         <div v-else-if="isActive && data?.privacyPlan" class="subscription__card">
-            <div class="subscription__plan-title">{{ data.privacyPlan.title || 'Pro — Confidentialité+' }}</div>
+            <div class="subscription__plan-title">{{ data.privacyPlan.title || 'Pro — Privacy+' }}</div>
             <div class="subscription__price">
                 {{ formatPrice(data.privacyPlan.amount, data.privacyPlan.currency) }}
                 <span class="subscription__interval">/ {{ data.privacyPlan.interval }}</span>

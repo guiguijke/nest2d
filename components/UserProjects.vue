@@ -1,6 +1,6 @@
 <template>
     <MainAside 
-        label="Bin projects"
+        label="Bin Projects"
         @closeAside="$emit('closeAside')"
         :btnLabel="btnLabelValue"
         @btnClick="createNewProject"

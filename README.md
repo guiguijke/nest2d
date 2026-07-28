@@ -260,8 +260,8 @@ anthracite `#354046` / rust `#ab6715` on beige `#F5F0EB`, white/rust variants on
 dark `#232C30`. Display typeface is **Helios Stencil** (titles, logo) with
 **Montserrat** for body text.
 
-⚠️ The bundled `public/fonts/HeliosStencil/heliosstencil-bold.otf` is a
-**Fontspring DEMO** file: it is licensed for evaluation/mockups only, **not for
-production use**. Before going live, buy the Helios Stencil webfont license
-(Fontspring) or replace it with a licensed alternative. Montserrat is OFL and
+⚠️ Helios Stencil is a **commercial typeface** (W Foundry). The bundled
+`public/fonts/HeliosStencil/heliosstencil-bold.otf` must be covered by a valid
+license for web/production use — buy the webfont license (W Foundry /
+Fontspring) or replace it with a licensed alternative. Montserrat is OFL and
 safe to ship.
