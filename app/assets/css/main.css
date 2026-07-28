@@ -97,12 +97,21 @@ canvas {
 }
 
 /*
- * Vault "secure environment" indicator — an inset accent border around the
+ * Vault "secure environment" indicator — a thin accent border around the
  * whole viewport, visible only while the user is working inside an unlocked
  * zero-knowledge vault. Set as data-vault-active="true" on <html> by the
- * auth/strip layouts. Inset box-shadow so it overlays without affecting
- * layout or scroll.
+ * auth/strip layouts.
+ *
+ * Implementation: a position:fixed pseudo-element pinned to the viewport,
+ * above every layer (z-index: 2147483647) but click-through (pointer-events:
+ * none). A box-shadow on <body> would be hidden by the opaque .main layout
+ * that covers it, so the overlay must live above the DOM tree.
  */
-html[data-vault-active="true"] body {
-    box-shadow: inset 0 0 0 4px var(--accent-primary);
+html[data-vault-active="true"]::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2147483647;
+    border: 3px solid var(--accent-primary);
 }
