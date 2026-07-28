@@ -6,11 +6,14 @@
                 Nesting
             </span>
         </component>
-        <nav v-if="isPrimaryTheme && isStripFeatureEnabled" class="header__tabs tabs">
+        <nav v-if="isPrimaryTheme" class="header__tabs tabs">
+            <NuxtLink to="/" class="tabs__link" active-class="tabs__link--active">
+                Home
+            </NuxtLink>
             <NuxtLink to="/home" class="tabs__link" active-class="tabs__link--active">
                 Bins
             </NuxtLink>
-            <NuxtLink to="/strip" class="tabs__link" active-class="tabs__link--active">
+            <NuxtLink v-if="isStripFeatureEnabled" to="/strip" class="tabs__link" active-class="tabs__link--active">
                 Strip
             </NuxtLink>
         </nav>

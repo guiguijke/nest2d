@@ -190,6 +190,10 @@ export function useFaq() {
                 firstPart: 'While achieving perfect nesting optimization is a complex computational challenge with no guaranteed optimal solution, APlasma Nesting delivers highly efficient material layouts through advanced algorithms. Our system prioritizes both speed and optimization quality to provide practical, time-saving results for your cutting projects.'
             },
             {
+                title: 'Is the platform secure? Is it audited?',
+                firstPart: 'Security is built into the platform and reviewed on a regular basis: hashed passwords, encrypted transport (TLS), per-user access controls on files, and an optional zero-knowledge encryption layer on the Pro plan. Because the code is fully open source, it is available for anyone to inspect. That said, software security can never be guaranteed absolutely, and the Service relies on third-party tools and libraries — we cannot be held responsible for vulnerabilities that remain undiscovered in those third-party components.'
+            },
+            {
                 title: 'Can I contribute to the project?',
                 firstPart: 'Absolutely! Check out our',
                 link: 'GitHub repository',
@@ -199,7 +203,7 @@ export function useFaq() {
             },
             {
                 title: 'I still have questions.',
-                firstPart: 'Feel free to contact me via the support chat or by email at',
+                firstPart: 'Feel free to contact us via the support chat or by email at',
                 link: supportEmail,
                 linkHref: `mailto:${supportEmail}`,
             },
@@ -207,12 +211,11 @@ export function useFaq() {
     }
 }
 export function useRefund() {
-    const { supportEmail } = useSiteConfig()
     return {
-        title: 'Refunds',
-        firstPart: 'My business philosophy is that if you, as a customer, are not happy, then I’m not happy. I have a 30-day, no-questions-asked refund policy. Please email',
-        link: supportEmail,
-        linkHref: `mailto:${supportEmail}`,
-        secondPart: 'for a full refund. I’d appreciate it if you could share the reason you are unhappy with the purchase, but doing so is not necessary for a refund.'
+        title: 'Not satisfied? Get your money back',
+        firstPart: 'We stand behind the Service. If a paid subscription does not meet your expectations, you can request a full refund within 30 days — no questions asked.',
+        link: 'Read the full Refund Policy',
+        linkHref: '/refund',
+        secondPart: 'for the details and the procedure.',
     }
 }

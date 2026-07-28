@@ -8,9 +8,9 @@ export default defineNuxtRouteMiddleware(async (to) => {
     } else if (!unref(userIsSet)) {
         await setUser()
     }
-    if (unref(userIsSet) && to.name === "index") {
-        return navigateTo("/home");
-    }
+    // Authenticated users may freely visit the landing page ("index"). This
+    // used to force-redirect them to /home, which made it impossible to view
+    // the marketing page once signed in.
     if (!unref(userIsSet) && to.name !== "index") {
         return navigateTo("/");
     }

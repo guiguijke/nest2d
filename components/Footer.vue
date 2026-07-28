@@ -13,24 +13,40 @@
                     </a>
                 </li>
                 <li class="list__item">
-                    <NuxtLink 
+                    <NuxtLink
                         to="/terms-and-conditions"
                         class="list__link"
                     >
-                        Terms and Conditions
+                        Terms
                     </NuxtLink>
                 </li>
                 <li class="list__item">
-                    <NuxtLink 
-                        to="/licences" 
+                    <NuxtLink
+                        to="/privacy"
+                        class="list__link"
+                    >
+                        Privacy
+                    </NuxtLink>
+                </li>
+                <li class="list__item">
+                    <NuxtLink
+                        to="/refund"
+                        class="list__link"
+                    >
+                        Refund Policy
+                    </NuxtLink>
+                </li>
+                <li class="list__item">
+                    <NuxtLink
+                        to="/licences"
                         class="list__link"
                     >
                         Licences
                     </NuxtLink>
                 </li>
                 <li class="list__item">
-                    <NuxtLink 
-                        to="/blog" 
+                    <NuxtLink
+                        to="/blog"
                         class="list__link"
                     >
                         Blog
