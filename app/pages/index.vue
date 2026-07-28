@@ -242,22 +242,16 @@ definePageMeta({
 })
 onMounted(() => {
     trackEvent('page_view', { page: 'landing' })
-    fetchPlans()
 })
 import { hero, highlights, features, screenshots, howItWorks, pricing, useStarted, useFaq, useRefund } from '~~/data/index'
-import { FREE_NESTING_LIMIT, TRIAL_DAYS } from '~~/constants/payment.constants'
+import { FREE_NESTING_LIMIT, TRIAL_DAYS } from '~~/shared/constants/payment.constants'
 import { defaultThemeType, themeType } from '~~/constants/theme.constants'
 
 // Plan availability as synced from Stripe — the Pro card activates itself
 // as soon as the privacy product exists in Stripe, no deploy needed.
-const plans = ref(null)
-async function fetchPlans() {
-    try {
-        plans.value = await $fetch('/api/payment/plans')
-    } catch {
-        plans.value = null
-    }
-}
+// Shared with /plans via the 'payment-plans' cache key: concurrent calls are
+// deduplicated and the catalog is cached for a few minutes client-side.
+const { data: plans } = usePlans()
 const formatPlanPrice = (plan) => {
     if (!plan?.available) return null
     return new Intl.NumberFormat('en', {

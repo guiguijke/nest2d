@@ -1,5 +1,5 @@
 import { connectDB } from '~~/server/db/mongo'
-import { getCurrencyByCountry } from '~/server/utils/currency'
+import { getCurrencyByCountry } from '~~/server/utils/currency'
 
 export default defineEventHandler(async (event) => {
     const db = await connectDB()

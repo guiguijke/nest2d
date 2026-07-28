@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+
 const defaultTitle = 'APlasma Nesting - Smart Nesting for Laser Cutting and CNC machining'
 
 export default defineNuxtPlugin((nuxtApp) => {

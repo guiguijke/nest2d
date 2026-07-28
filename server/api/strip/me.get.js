@@ -1,4 +1,4 @@
-import { connectDB } from "~/server/db/mongo";
+import { connectDB } from "~~/server/db/mongo";
 import { assertStripFeatureEnabled } from "~~/server/utils/featureFlags";
 
 export default defineEventHandler(async (event) => {

@@ -1,4 +1,4 @@
-import { connectDB, getAvatarBucket } from "~/server/db/mongo";
+import { connectDB, getAvatarBucket } from "~~/server/db/mongo";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;

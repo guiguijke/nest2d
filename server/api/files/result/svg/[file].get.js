@@ -1,4 +1,4 @@
-import { getSvgResultBucket } from "~/server/db/mongo";
+import { getSvgResultBucket } from "~~/server/db/mongo";
 import { openOwnedFileStream } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {

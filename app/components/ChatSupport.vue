@@ -60,7 +60,7 @@ import { iconType } from '~~/constants/icon.constants'
 import { sizeType } from '~~/constants/size.constants'
 import { themeType } from '~~/constants/theme.constants'
 import { ref, onMounted, onBeforeUnmount, unref } from 'vue'
-import { trackEvent } from '~~/utils/track'
+import { trackEvent } from '~/utils/track'
 
 const supportDialog = useSupportDialog()
 

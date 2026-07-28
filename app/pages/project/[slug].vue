@@ -29,7 +29,7 @@ definePageMeta({
     middleware: "auth",
 });
 
-const headers = useRequestHeaders(['cookie']);
+const $apiFetch = useApiFetch();
 
 const { getters } = globalStore;
 const resultsList = computed(() => getters.resultsList);
@@ -42,7 +42,7 @@ const nestRequestError = computed(() => filesGetters.nestRequestError);
 const route = useRoute();
 const slug = route.params.slug;
 const apiPath = API_ROUTES.PROJECT(slug);
-const data = filesGetters.projectFiles || await $fetch(apiPath, { headers });
+const data = filesGetters.projectFiles || await $apiFetch(apiPath);
 
 
 const projectFiles = computed(() => {

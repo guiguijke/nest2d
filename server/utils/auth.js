@@ -1,5 +1,5 @@
-import { connectDB } from "~/server/db/mongo";
-import { generateRandomString } from "~/server/utils/strings";
+import { connectDB } from "~~/server/db/mongo";
+import { generateRandomString } from "~~/server/utils/strings";
 
 export function generateSession() {
   const sessionId = generateRandomString(64);

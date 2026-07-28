@@ -15,14 +15,7 @@
     "forceConsistentCasingInFileNames": true,
     "types": [
       "node"
-    ],
-    "paths": {
-      "~~/*": ["./*"],
-      "~/*": ["./*"],
-      "@@/*": ["./*"],
-      "@/*": ["./*"],
-      "~~/server/*": ["./server/*"]
-    }
+    ]
   },
   "include": [
     "**/*.ts",

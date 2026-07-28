@@ -1,4 +1,4 @@
-import { removeSessionFromUser } from "~/server/utils/auth";
+import { removeSessionFromUser } from "~~/server/utils/auth";
 
 export default defineEventHandler(async (event) => {
   const cookie = parseCookies(event);
