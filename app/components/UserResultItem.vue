@@ -17,7 +17,7 @@
                     />
                 </div>
                 <p class="result__text result__text--count">
-                    {{ progress.done }}/{{ progress.total }}
+                    {{ progress.done }}/{{ progress.total }}<template v-if="progress.elapsed_sec != null"> · {{ formatElapsed(progress.elapsed_sec) }}</template>
                 </p>
             </template>
             <p v-else class="result__text">
@@ -118,6 +118,12 @@ const progressPercent = computed(() => {
     if (!progress.value) return 0;
     return Math.min(100, Math.round((progress.value.done / progress.value.total) * 100));
 });
+
+const formatElapsed = (sec) => {
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    return `${min}m${String(sec % 60).padStart(2, '0')}`;
+};
 
 const isResultFailed = computed(() => {
     return props.result?.status === statusType.failed;

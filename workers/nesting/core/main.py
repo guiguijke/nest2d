@@ -384,6 +384,7 @@ def nesting_process(doc):
     import time as _time
     _last_progress_write = [0.0]
     _last_stage = [None]
+    _job_started = _time.monotonic()
 
     def report_progress(stage, done, total):
         now = _time.time()
@@ -403,6 +404,9 @@ def nesting_process(doc):
                         "label": STAGE_LABELS.get(stage, stage),
                         "done": done,
                         "total": total,
+                        # Ticking seconds prove the worker is alive even on
+                        # long stages (no per-iteration signal from lbf).
+                        "elapsed_sec": int(_time.monotonic() - _job_started),
                     },
                     "update_ts": datetime.now(),
                 }},

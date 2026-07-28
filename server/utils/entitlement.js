@@ -148,38 +148,75 @@ export async function hasPrivacyTier(userId) {
 }
 
 /**
+ * Selectable compute levels. Users can trade quality for speed within what
+ * their tier allows (see getMaxComputeLevel); the level is validated
+ * SERVER-SIDE at enqueue time — the client can never inflate its budget.
+ */
+export const COMPUTE_LEVELS = {
+  simple: { nSamples: 8000, nAlternatives: 1 },
+  normal: { nSamples: 20000, nAlternatives: 3 },
+  advanced: { nSamples: 60000, nAlternatives: 3 },
+};
+
+const LEVEL_ORDER = ["simple", "normal", "advanced"];
+
+function clampLevel(requested, max) {
+  const reqIdx = LEVEL_ORDER.indexOf(requested);
+  const maxIdx = LEVEL_ORDER.indexOf(max);
+  if (reqIdx === -1) return max;
+  return LEVEL_ORDER[Math.min(reqIdx, maxIdx)];
+}
+
+/**
+ * Highest compute level a user may select, given their tier.
+ */
+export async function getMaxComputeLevel(userId, charge) {
+  const db = await connectDB();
+  const user = await db
+    .collection("users")
+    .findOne({ id: userId }, { projection: { isAdmin: 1, subscription: 1 } });
+
+  if (user?.isAdmin) return "advanced";
+  const tier = await getSubscriptionTier(user);
+  if (tier === "privacy") return "advanced";
+  if (charge?.type === "subscription" || charge?.type === "credits") return "normal";
+  return "simple";
+}
+
+/**
  * Compute budget granted to a nesting job, by tier. Computed SERVER-SIDE at
  * enqueue time and persisted on the job — the client can never inflate its
  * own budget. priority: lower = dequeued first.
  *
  * @param {string} userId
  * @param {{type: string}|null} charge the charge returned by assertCanNest
- * @returns {Promise<{nSamples: number, nAlternatives: number, priority: number}>}
+ * @param {string} [requestedLevel] optional compute level selected in the UI
+ * @returns {Promise<{nSamples: number, nAlternatives: number, priority: number, level: string}>}
  */
-export async function getComputeProfile(userId, charge) {
+export async function getComputeProfile(userId, charge, requestedLevel) {
   const db = await connectDB();
   const user = await db
     .collection("users")
     .findOne({ id: userId }, { projection: { isAdmin: 1, subscription: 1 } });
 
+  let maxLevel = "simple";
+  let priority = 30;
   if (user?.isAdmin) {
-    return { nSamples: 60000, nAlternatives: 3, priority: 0 };
+    maxLevel = "advanced";
+    priority = 0;
+  } else {
+    const tier = await getSubscriptionTier(user);
+    if (tier === "privacy") {
+      maxLevel = "advanced";
+      priority = 10;
+    } else if (charge?.type === "subscription" || charge?.type === "credits") {
+      maxLevel = "normal";
+      priority = 20;
+    }
   }
 
-  const tier = await getSubscriptionTier(user);
-  if (tier === "privacy") {
-    return { nSamples: 50000, nAlternatives: 3, priority: 10 };
-  }
-  if (charge?.type === "subscription") {
-    return { nSamples: 20000, nAlternatives: 3, priority: 20 };
-  }
-  if (charge?.type === "credits") {
-    // Pay-as-you-go users pay per job: full quality, no alternatives.
-    return { nSamples: 20000, nAlternatives: 1, priority: 20 };
-  }
-  // Free quota — intentionally modest: good enough to evaluate the engine,
-  // cheap enough to protect the homelab.
-  return { nSamples: 8000, nAlternatives: 1, priority: 30 };
+  const level = clampLevel(requestedLevel, maxLevel);
+  return { ...COMPUTE_LEVELS[level], priority, level };
 }
 
 /**

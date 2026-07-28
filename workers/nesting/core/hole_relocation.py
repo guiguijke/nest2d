@@ -185,6 +185,7 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
         candidates = []
         for bin_id, safe_hole, anchors in safe_holes:
             hole_center = safe_hole.centroid
+            hole_boundary = safe_hole.boundary
             for angle in rotations:
                 rotated = rotate(safe_item, angle, origin=(0, 0))
                 rotated_refs = [
@@ -200,7 +201,10 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
                             hole_center.distance(Point(vx, vy))
                             for vx, vy in candidate.exterior.coords
                         )
-                        candidates.append((spread, bin_id, angle, dx, dy, candidate))
+                        # Boundary clearance is static (the hole never moves):
+                        # caching it here keeps the per-node re-ranking cheap.
+                        d_boundary = hole_boundary.distance(candidate)
+                        candidates.append((spread, d_boundary, bin_id, angle, dx, dy, candidate))
 
         if not candidates:
             return None
@@ -217,8 +221,6 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
     # the clearance to the parts already in the hole, then compactness. The
     # result is centred, evenly distributed placements (pinwheel for tiling
     # sectors, equal margins for slack holes) instead of a clumped pile.
-    hole_boundaries = {bin_id: safe.boundary for bin_id, safe, _a in safe_holes}
-
     placements = {}
     occupied = occupied or {}
     placed_per_bin = {
@@ -234,14 +236,13 @@ def _exact_pack_into_holes(hole_polys, relo_items, space, occupied=None):
             return False
         entry = ordered[idx]
         ranked = []
-        for spread, bin_id, angle, dx, dy, candidate in candidates_per_item[idx]:
+        for spread, d_boundary, bin_id, angle, dx, dy, candidate in candidates_per_item[idx]:
             already = placed_per_bin[bin_id]
             if any(
                 candidate.intersection(other).area > OVERLAP_EPSILON
                 for other in already
             ):
                 continue
-            d_boundary = hole_boundaries[bin_id].distance(candidate)
             d_others = min(
                 (candidate.distance(other) for other in already),
                 default=float("inf"),
@@ -291,6 +292,56 @@ def _sheet_fill_area(container, items_by_id):
         if item is not None:
             area += Polygon(item["coords"]).area
     return area
+
+
+def _pack_across_holes(hole_polys, entries, space, occupied=None, partial=False):
+    """Packs parts into holes ONE HOLE AT A TIME.
+
+    A single multi-hole backtracking call explodes combinatorially beyond a
+    handful of parts (9 wedges into 2 holes never returned). Per-hole
+    sequential packing keeps each sub-problem small and fast: holes are
+    filled largest-first with a capacity estimate (~75% area ratio), and each
+    hole's share of parts is packed with the exact backtracking packer.
+
+    partial=False (relocation): every entry must be placed, else None.
+    partial=True (compaction): place as many as fit, leftovers stay out.
+    """
+    remaining = list(entries)
+    placements = {}
+    occ = {k: list(v) for k, v in (occupied or {}).items()}
+
+    ordered_holes = sorted(hole_polys, key=lambda hp: hp[1].area, reverse=True)
+    for bin_id, hole_poly in ordered_holes:
+        if not remaining:
+            break
+        largest_item = max(Polygon(e["coords"]).area for e in remaining)
+        k_max = max(1, int(hole_poly.area * 0.75 / largest_item))
+        for k in range(min(k_max, len(remaining)), 0, -1):
+            trial = remaining[:k]
+            found = _exact_pack_into_holes(
+                [(bin_id, hole_poly)], trial, space, occupied=occ
+            )
+            if found is None:
+                continue
+            placements.update(found)
+            # Register the placed geometries so the next hole cannot conflict
+            # (holes are disjoint, but keep the invariant explicit).
+            for e in trial:
+                bin_id_e, angle_e, dx_e, dy_e = found[e["relo_id"]]
+                base = Polygon(e["coords"])
+                half = (space or 0) / 2.0
+                occ.setdefault(bin_id_e, []).append(translate(
+                    rotate(base.buffer(half) if half > 0 else base, angle_e, origin=(0, 0)),
+                    dx_e, dy_e,
+                ))
+            remaining = remaining[k:]
+            break
+
+    if remaining and not partial:
+        return None
+    if not placements:
+        return None
+    return placements
 
 
 def relocate_into_holes(containers, input_items, space, run_lbf_fn=run_lbf):
@@ -381,7 +432,7 @@ def relocate_into_holes(containers, input_items, space, run_lbf_fn=run_lbf):
         placements = None
 
         def exact_pack():
-            found = _exact_pack_into_holes(hole_polys, relo_items, space)
+            found = _pack_across_holes(hole_polys, relo_items, space, partial=False)
             if found is None:
                 return None
             return {
@@ -603,41 +654,39 @@ def compact_into_holes(containers, input_items, space):
             ]
             movers.sort(key=frontier_key, reverse=True)
 
-            # Tentative batch: pack the frontier movers together. The packer
-            # backtracks across items — packing them one at a time would let
-            # the first part's locally-best placement block the rest.
+            # Tentative batch: pack the frontier movers into the holes,
+            # one hole at a time (per-hole packing keeps each sub-problem
+            # small; a single 8+ part multi-hole backtracking call does not
+            # return in useful time). Leftover parts that fit nowhere simply
+            # stay out of the batch.
             batch = []  # (mover, bin_id, angle_deg, dx, dy, safe_poly)
             candidates = movers[:EXACT_PACK_MAX_ITEMS]
-            placements = None
-            # Shrink the candidate set from the least-frontier end until the
-            # packer finds a complete packing (a hole may not fit them all).
-            for cut in range(len(candidates), max(0, len(candidates) - 4), -1):
-                trial = candidates[:cut]
-                entries = [
-                    {
-                        "relo_id": i,
-                        "coords": items_by_id[m.item_id]["coords"],
-                        "rotations": items_by_id[m.item_id].get("rotations", [0.0]),
-                    }
-                    for i, m in enumerate(trial)
-                ]
-                placements = _exact_pack_into_holes(
-                    hole_polys, entries, space, occupied=occupied
-                )
-                if placements is not None:
-                    for i, m in enumerate(trial):
-                        bin_id, angle_deg, dx, dy = placements[i]
-                        item = items_by_id[m.item_id]
-                        base = Polygon(item["coords"])
-                        safe_poly = translate(
-                            rotate(
-                                base.buffer(half) if half > 0 else base,
-                                angle_deg, origin=(0, 0),
-                            ),
-                            dx, dy,
-                        )
-                        batch.append((m, bin_id, angle_deg, dx, dy, safe_poly))
-                    break
+            entries = [
+                {
+                    "relo_id": i,
+                    "coords": items_by_id[m.item_id]["coords"],
+                    "rotations": items_by_id[m.item_id].get("rotations", [0.0]),
+                }
+                for i, m in enumerate(candidates)
+            ]
+            placements = _pack_across_holes(
+                hole_polys, entries, space, occupied=occupied, partial=True
+            )
+            if placements is not None:
+                for i, m in enumerate(candidates):
+                    if i not in placements:
+                        continue
+                    bin_id, angle_deg, dx, dy = placements[i]
+                    item = items_by_id[m.item_id]
+                    base = Polygon(item["coords"])
+                    safe_poly = translate(
+                        rotate(
+                            base.buffer(half) if half > 0 else base,
+                            angle_deg, origin=(0, 0),
+                        ),
+                        dx, dy,
+                    )
+                    batch.append((m, bin_id, angle_deg, dx, dy, safe_poly))
 
             if not batch:
                 break
