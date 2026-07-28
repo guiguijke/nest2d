@@ -92,18 +92,19 @@ const inputClasses = computed(() => ({
 <style lang="scss" scoped>
 .input {
     $self: &;
-    border-radius: 6px;
-    background-color: var(--fill-tertiary);
+    border-radius: 8px;
+    background-color: var(--background-primary);
     padding: 10px 12px;
     display: flex;
     align-items: center;
     font-weight: 500;
-    border: 2px solid transparent;
-    transition: border-color 0.3s, background-color 0.3s;
+    border: 1px solid var(--separator-primary);
+    transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
     &__prefix,
     &__suffix {
         color: var(--label-secondary);
         flex-shrink: 0;
+        font-size: 13px;
     }
     &__prefix {
         margin-right: 8px;
@@ -117,13 +118,16 @@ const inputClasses = computed(() => ({
         background-color: transparent;
         outline: none;
         min-width: 26px;
-        resize: none; 
-        overflow: hidden; 
+        resize: none;
+        overflow: hidden;
         line-height: 1.4;
+        font-size: 15px;
+        font-weight: 600;
+        width: 100%;
 
         &:is(textarea) {
             min-height: 14.39px;
-            height: 14.39px; 
+            height: 14.39px;
             line-height: 1.2;
         }
     }
@@ -131,35 +135,38 @@ const inputClasses = computed(() => ({
     &__value,
     &__suffix,
     &__prefix {
-        transition: opacity 0.3s;   
+        transition: opacity 0.3s;
     }
 
     @media (hover:hover) {
         &:hover {
-            background-color: var(--fill-secondary);
+            border-color: var(--label-tertiary);
         }
     }
 
     &:focus-within {
         border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent);
     }
 
     &--error {
-        background-color: var(--error-background);
         border-color: var(--error-border);
+        background-color: var(--error-background);
 
         &:focus-within {
             border-color: var(--error-border);
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--error-border) 30%, transparent);
         }
     }
 
     &--disable {
         pointer-events: none;
+        opacity: 0.5;
 
         #{$self}__value,
         #{$self}__suffix,
         #{$self}__prefix {
-            opacity: 0.3;
+            opacity: 0.5;
         }
     }
 }
