@@ -12,7 +12,7 @@
                     class="alts__tab"
                     @click="selectAlt(alt.altId)"
                 >
-                    Option {{ alt.altId + 1 }} · {{ formatDensity(alt.utilization ?? alt.density) }}
+                    Option {{ alt.altId + 1 }} · {{ formatScore(alt) }}
                 </button>
             </div>
             <div
@@ -220,6 +220,13 @@ const selectAlt = (altId) => {
 const formatDensity = (density) => {
     if (density == null) return '—'
     return `${(density * 100).toFixed(1)}%`
+}
+// Share of the sheet actually consumed by the layout (lower = better: the
+// rest is a clean reusable offcut). Falls back to solver density on jobs
+// run before the metric existed.
+const formatScore = (alt) => {
+    if (alt.usedSheetShare != null) return `${(alt.usedSheetShare * 100).toFixed(1)}% used`
+    return formatDensity(alt.density)
 }
 const displayClasses = computed(() => ({
     'modal__display--is-fullscreen': unref(isFullScreen) && !unref(isHaveError)

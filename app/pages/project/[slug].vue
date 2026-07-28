@@ -17,12 +17,10 @@
             Change settings or files to generate again
         </div>
     </div>
-    <InfoAboutNestModal v-model:isModalOpen="infoAboutNestDialog" />
 </template>
 
 <script setup async>
 import { themeType } from "~~/constants/theme.constants";
-const infoAboutNestDialog = useInfoAboutNest();
 
 definePageMeta({
     layout: "auth",

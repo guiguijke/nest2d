@@ -502,29 +502,24 @@ def _used_bbox_area(container, input_items_by_id, skip=None):
     return (max_x - min_x) * (max_y - min_y)
 
 
-def compute_utilization(containers, input_items):
-    """Share of the really-used sheet footprint covered by parts.
+def compute_used_sheet_share(containers, input_items):
+    """Fraction of the sheet area actually consumed by the layout
+    (used bounding box / sheet area, per sheet, summed).
 
-    Unlike the solver's density (placed area / full sheet area — identical
-    for every alternative using the same sheets), this divides the NET
-    placed area (holes subtracted) by the sum of the used bounding boxes.
-    It is what rewards compaction: parts moved inside cutouts shrink the
-    used bbox, so the score rises even though the sheet count is unchanged.
+    Lower is better: everything outside the used bounding box is a clean,
+    reusable rectangular offcut. Unlike the solver's density (placed area /
+    sheet area — identical for every alternative using the same sheets),
+    this score rewards compaction: parts moved inside cutouts shrink the
+    used bbox, so the consumed share visibly drops.
     """
     items_by_id = {item["id"]: item for item in input_items}
-    net_area = 0.0
-    for container in containers:
-        for transform in container.transforms:
-            item = items_by_id.get(getattr(transform, "item_id", None))
-            if item is None:
-                continue
-            outer = Polygon(item["coords"]).area
-            holes_area = sum(Polygon(h).area for h in item.get("holes") or [])
-            net_area += outer - holes_area
-    used = sum(_used_bbox_area(c, items_by_id) for c in containers)
-    if used <= 0 or net_area <= 0:
+    bbox_total = sum(_used_bbox_area(c, items_by_id) for c in containers)
+    sheet_total = sum(
+        (c.bin_width or 0) * (c.bin_height or 0) for c in containers
+    )
+    if sheet_total <= 0:
         return None
-    return min(1.0, net_area / used)
+    return min(1.0, bbox_total / sheet_total)
 
 
 # A compaction move must shrink the used bbox by at least this much (mm²) —

@@ -92,19 +92,23 @@ const inputClasses = computed(() => ({
 <style lang="scss" scoped>
 .input {
     $self: &;
-    border-radius: 8px;
+    border-radius: 10px;
     background-color: var(--background-primary);
-    padding: 10px 12px;
+    padding: 11px 12px;
     display: flex;
     align-items: center;
     font-weight: 500;
-    border: 1px solid var(--separator-primary);
+    border: 1.5px solid var(--separator-secondary);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--label-primary) 4%, transparent);
     transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
     &__prefix,
     &__suffix {
-        color: var(--label-secondary);
+        color: var(--label-tertiary);
         flex-shrink: 0;
-        font-size: 13px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
     }
     &__prefix {
         margin-right: 8px;
@@ -130,12 +134,17 @@ const inputClasses = computed(() => ({
             height: 14.39px;
             line-height: 1.2;
         }
+
+        &::placeholder {
+            color: var(--label-tertiary);
+            font-weight: 500;
+        }
     }
 
     &__value,
     &__suffix,
     &__prefix {
-        transition: opacity 0.3s;
+        transition: opacity 0.3s, color 0.2s;
     }
 
     @media (hover:hover) {
@@ -146,7 +155,13 @@ const inputClasses = computed(() => ({
 
     &:focus-within {
         border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent);
+        box-shadow:
+            0 0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent),
+            0 1px 2px color-mix(in srgb, var(--label-primary) 4%, transparent);
+
+        #{$self}__prefix {
+            color: var(--accent-primary);
+        }
     }
 
     &--error {
