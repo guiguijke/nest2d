@@ -36,10 +36,13 @@
                 label="Report a problem" tag="a" trackingTag="report_problem" class="header__btn" v-if="isSecondaryTheme" />
             <UserBalance class="header__btn" v-if="isPrimaryTheme && !isStripPage && !isStripFeatureEnabled" />
             <!-- On the marketing header, signed-in users get a direct way into
-                 the tool + their avatar, instead of being shown a login button. -->
-            <MainButton v-if="isSecondaryTheme && userIsLoggedIn" to="/home"
+                 the tool + their avatar, instead of being shown a login button.
+                 MainButton has no `to` prop, so we drive the navigation via
+                 navigateTo on click (same pattern used by the login handlers). -->
+            <MainButton v-if="isSecondaryTheme && userIsLoggedIn"
                 :theme="themeType.primary" label="Open my workspace"
-                trackingTag="open_workspace" class="header__btn" />
+                trackingTag="open_workspace" @click="openWorkspace"
+                class="header__btn" />
             <MainButton v-if="isSecondaryTheme && !userIsLoggedIn" :theme="themeType.primary" @click="onLoginClick" label="Login / Sign Up"
                 class="header__btn header__btn--login" />
             <LoginView />
@@ -66,6 +69,11 @@ const loginDialog = useLoginDialog()
 async function onLoginClick() {
     trackEvent('click_login', { page: 'main_header' })
     loginDialog.value = true
+}
+
+function openWorkspace() {
+    trackEvent('click_open_workspace', { page: 'main_header' })
+    navigateTo('/home')
 }
 
 const { theme } = defineProps({

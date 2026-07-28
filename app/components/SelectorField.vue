@@ -65,14 +65,14 @@ const selectorClasses = computed(() => ({
 <style lang="scss" scoped>
 .selector {
     $self: &;
-    border-radius: 6px;
-    background-color: var(--fill-tertiary);
+    border-radius: 8px;
+    background-color: var(--background-primary);
     padding: 10px 12px;
     display: flex;
     align-items: center;
     font-weight: 500;
-    border: 2px solid transparent;
-    transition: border-color 0.3s, background-color 0.3s;
+    border: 1px solid var(--separator-primary);
+    transition: border-color 0.2s, box-shadow 0.2s;
     position: relative;
     cursor: pointer;
 
@@ -80,6 +80,7 @@ const selectorClasses = computed(() => ({
         color: var(--label-secondary);
         flex-shrink: 0;
         margin-right: 8px;
+        font-size: 13px;
     }
 
     &__value {
@@ -91,8 +92,8 @@ const selectorClasses = computed(() => ({
         cursor: pointer;
         appearance: none;
         padding-right: 24px;
-        font-weight: 500;
-        font-size: 14px;
+        font-weight: 600;
+        font-size: 15px;
 
         option {
             background-color: var(--background-primary);
@@ -118,17 +119,18 @@ const selectorClasses = computed(() => ({
     &__value,
     &__label,
     &__icon {
-        transition: opacity 0.3s;   
+        transition: opacity 0.3s;
     }
 
     @media (hover:hover) {
         &:hover {
-            background-color: var(--fill-secondary);
+            border-color: var(--label-tertiary);
         }
     }
 
     &:focus-within {
         border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent);
 
         #{$self}__icon {
             transform: rotate(90deg) scale(1.1);
@@ -137,11 +139,12 @@ const selectorClasses = computed(() => ({
 
     &--disable {
         pointer-events: none;
+        opacity: 0.5;
 
         #{$self}__value,
         #{$self}__label,
         #{$self}__icon {
-            opacity: 0.3;
+            opacity: 0.5;
         }
     }
 }
