@@ -7,7 +7,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.hole_relocation import compact_into_holes, relocate_into_holes, rescale_density
+from core.hole_relocation import (
+    compact_into_holes,
+    compute_utilization,
+    relocate_into_holes,
+    rescale_density,
+)
 
 
 class FakeTransform:
@@ -252,3 +257,26 @@ class TestCompactIntoHoles:
                     rotate(sector, math.degrees(t.angle), origin=(0, 0)), t.x, t.y
                 )
                 assert hole_boundary.distance(placed) >= 1.8
+
+
+class TestUtilization:
+    def test_compaction_raises_utilization(self):
+        containers, items = TestCompactIntoHoles()._scenario()
+        before = compute_utilization(containers, items)
+        moves = compact_into_holes(containers, items, space=0)
+        after = compute_utilization(containers, items)
+        assert moves == 4
+        assert before is not None and after is not None
+        assert after > before
+
+    def test_utilization_reflects_net_area(self):
+        # Square 100x100 with r=35 hole, alone on its sheet, bbox = itself:
+        # utilization = net area / bbox area.
+        containers, items = TestCompactIntoHoles()._scenario()
+        containers[0].transforms = containers[0].transforms[:1]  # square only
+        u = compute_utilization(containers, items)
+        net = (100 * 100 - math.pi * 35**2)
+        assert u == pytest.approx(net / (100 * 100), rel=0.02)
+
+    def test_empty_returns_none(self):
+        assert compute_utilization([], []) is None

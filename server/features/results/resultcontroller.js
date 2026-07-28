@@ -45,6 +45,10 @@ export async function getResults(userId, projectSlug) {
             alternatives: (queueItem.alternatives || []).map((alt) => ({
                 altId: alt.alt_id,
                 density: alt.density,
+                // Used-footprint score: rewards compaction (parts nested in
+                // holes), which the solver density cannot see. Null on
+                // legacy jobs — the UI falls back to density.
+                utilization: alt.utilization ?? null,
                 layoutCount: alt.layoutCount,
                 svgs: (alt.svg_files || []).map((file) => "/api/files/result/svg/" + file),
                 dxfs: (alt.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),
