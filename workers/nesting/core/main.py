@@ -15,6 +15,7 @@ from core.hole_relocation import (
     relocate_into_holes,
     rescale_density,
 )
+from core.offcut import largest_empty_rectangle, solve_band
 from dxf.dxf_utils import read_dxf
 from core.svg_generator import create_svg_from_doc
 from ezdxf.document import Drawing
@@ -480,18 +481,20 @@ def nesting_process(doc):
         )
         raise Exception("Not all items could be placed in the nesting job")
 
-    # Best candidate gets the hole-relocation post-pass: parts of its least
-    # filled sheet are moved inside the cutouts of parts on the other sheets
-    # when that frees an entire sheet.
+    # Strategy-labelled alternatives — each option the user sees is a
+    # genuinely different layout philosophy, not just another seed:
+    #   compact  — min footprint (race winner + hole relocation + compaction)
+    #   offcut   — narrowest band: biggest clean rectangular reusable offcut
+    #   balanced — the solver's natural best, untouched
     alternatives = []
-    for rank, candidate in enumerate(finals):
+
+    def _finalize_alternative(candidate, strategy, rank, post_pass):
         result_containers, placed_count, density, cost = parse_result_containers(
             candidate["output"], input_items, bin_dims
         )
-
         freed_sheets = 0
         compaction_moves = 0
-        if rank == 0:
+        if post_pass:
             containers_before = list(result_containers)
             result_containers, freed_sheets = relocate_into_holes(
                 result_containers, input_items, space
@@ -499,8 +502,8 @@ def nesting_process(doc):
             if freed_sheets:
                 density = rescale_density(density, containers_before, result_containers)
                 logger.info(
-                    "Hole relocation freed sheets on best alternative",
-                    extra={"freed_sheets": freed_sheets, "density": density},
+                    "Hole relocation freed sheets",
+                    extra={"strategy": strategy, "freed_sheets": freed_sheets},
                 )
             # Compaction: on roomy sheets the solver has no incentive to use
             # holes — move parts into cutouts when it shrinks the used area,
@@ -509,17 +512,18 @@ def nesting_process(doc):
             compaction_moves = compact_into_holes(result_containers, input_items, space)
 
         alt_slug = f"{slug}_alt{rank}"
-        report_progress("building", rank, len(finals))
+        report_progress("building", rank, n_alternatives)
         dxf_files, svg_files = build_result_dxf_files(
             owner_id, alt_slug, result_containers, add_out_shape, space, dek
         )
-
         alternatives.append({
             "seed": candidate["seed"],
+            "strategy": strategy,
             "density": density,
             # Share of sheet actually consumed (used bbox / sheet area,
             # lower = better): the score that rewards compaction.
             "usedSheetShare": compute_used_sheet_share(result_containers, input_items),
+            "offcut": largest_empty_rectangle(result_containers, input_items),
             "cost": cost,
             "layoutCount": len(result_containers),
             "freedByHoleRelocation": freed_sheets,
@@ -527,6 +531,26 @@ def nesting_process(doc):
             "dxf_files": dxf_files,
             "svg_files": svg_files,
         })
+
+    # 1. compact — the race winner, with every post-pass.
+    _finalize_alternative(finals[0], "compact", 0, post_pass=True)
+
+    # 2. offcut — narrowest band on the sheet (single sheet type only).
+    rank = 1
+    if n_alternatives >= 2 and len(bins) == 1:
+        report_progress("compacting", 0, 1)
+        band_output, band = solve_band(
+            bins, jaguar_items, n_samples, space, has_holes, total_requested_count
+        )
+        if band_output is not None:
+            band_candidate = {"seed": "band", "output": band_output}
+            _finalize_alternative(band_candidate, "max offcut", rank, post_pass=True)
+            rank += 1
+
+    # 3. balanced — next distinct race final, untouched by post-passes.
+    while rank < n_alternatives and rank < len(finals):
+        _finalize_alternative(finals[rank], "balanced", rank, post_pass=False)
+        rank += 1
 
     _heartbeat_stop.set()
     # Best first: fewest sheets, then least sheet consumed (the solver

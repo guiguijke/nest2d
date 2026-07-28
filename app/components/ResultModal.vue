@@ -10,8 +10,10 @@
                     :key="alt.altId"
                     :class="{ 'alts__tab--active': alt.altId === activeAlt }"
                     class="alts__tab"
+                    :title="altTitle(alt)"
                     @click="selectAlt(alt.altId)"
                 >
+                    <span v-if="alt.strategy" class="alts__strategy">{{ alt.strategy }}</span>
                     Option {{ alt.altId + 1 }} · {{ formatScore(alt) }}
                 </button>
             </div>
@@ -228,6 +230,15 @@ const formatScore = (alt) => {
     if (alt.usedSheetShare != null) return `${(alt.usedSheetShare * 100).toFixed(1)}% used`
     return formatDensity(alt.density)
 }
+// Tooltip: what this option is good for, incl. its clean offcut size.
+const altTitle = (alt) => {
+    const parts = []
+    if (alt.strategy) parts.push(`Strategy: ${alt.strategy}`)
+    if (alt.offcut && alt.offcut.area > 1) {
+        parts.push(`Clean offcut: ${alt.offcut.width.toFixed(0)} × ${alt.offcut.height.toFixed(0)} mm`)
+    }
+    return parts.join('\n') || 'Layout option'
+}
 const displayClasses = computed(() => ({
     'modal__display--is-fullscreen': unref(isFullScreen) && !unref(isHaveError)
 }))
@@ -369,7 +380,21 @@ const updatePartPage = (partIndex) => {
         max-width: 420px;
     }
 
+    &__strategy {
+        padding: 2px 7px;
+        border-radius: 999px;
+        background-color: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+        color: var(--accent-primary);
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
     &__tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         padding: 6px 12px;
         border-radius: 999px;
         border: 1px solid var(--separator-secondary);

@@ -53,6 +53,19 @@ def _fits(bins, jaguar_items, n_samples, min_separation, has_holes, total_reques
     return placed == total_requested, output
 
 
+def _fits_any(bins, jaguar_items, n_samples, min_separation, has_holes, total_requested, seed):
+    """Feasibility probe with two seeds: a single coarse lbf run produces
+    false negatives on tight bands, which would inflate the search."""
+    for attempt in range(2):
+        ok, output = _fits(
+            bins, jaguar_items, n_samples, min_separation, has_holes,
+            total_requested, seed + attempt,
+        )
+        if ok:
+            return True, output
+    return False, None
+
+
 def solve_band(bins, jaguar_items, n_samples, min_separation, has_holes,
                total_requested, seed=7):
     """Binary-searches the narrowest band (vertical or horizontal) that holds
@@ -82,7 +95,7 @@ def solve_band(bins, jaguar_items, n_samples, min_separation, has_holes,
         other = sheet_h if axis == "x" else sheet_w
         lo = min(lo_max, max(1.0, total_area / other * 0.9))
         hi = lo_max
-        feasible_hi, _ = _fits(
+        feasible_hi, _ = _fits_any(
             bins,  # full sheet: banding is pointless if even this fails
             jaguar_items, BAND_SEARCH_SAMPLES, min_separation, has_holes,
             total_requested, seed,
@@ -95,7 +108,7 @@ def solve_band(bins, jaguar_items, n_samples, min_separation, has_holes,
             mid = (lo + hi) / 2.0
             w = mid if axis == "x" else sheet_w
             h = mid if axis == "y" else sheet_h
-            ok, _ = _fits(
+            ok, _ = _fits_any(
                 [_band_bin(0, stock, w, h)], jaguar_items,
                 BAND_SEARCH_SAMPLES, min_separation, has_holes,
                 total_requested, seed,
@@ -179,27 +192,36 @@ def largest_empty_rectangle(containers, input_items):
                     xs.add(x)
                     ys.add(y)
         xs = sorted(xs)
-        ys = sorted(ys)
 
-        # For each x-pair, the tallest clear vertical span inside the strip.
+        # For each x-pair, the tallest vertical span of the strip that is
+        # free across the strip's whole width: a placed part intersecting
+        # the strip blocks its full y-range (exact for band layouts,
+        # conservative elsewhere — the score never overestimates an offcut).
         for i in range(len(xs)):
             for j in range(i + 1, len(xs)):
                 x1, x2 = xs[i], xs[j]
-                strip = box(x1, 0, x2, sheet_h)
-                inter = free.intersection(strip)
-                if inter.is_empty:
+                if x2 - x1 <= 0:
                     continue
-                # Free y-intervals: scan sorted y coords, test segment midpoints.
-                span = 0.0
-                current = 0.0
-                from shapely.geometry import Point
-                for k in range(len(ys) - 1):
-                    mid_y = (ys[k] + ys[k + 1]) / 2.0
-                    if inter.covers(Point((x1 + x2) / 2.0, mid_y)):
-                        current += ys[k + 1] - ys[k]
-                        span = max(span, current)
-                    else:
-                        current = 0.0
+                strip = box(x1, 0, x2, sheet_h)
+                blockers = []
+                for poly in placed_polys:
+                    inter = poly.intersection(strip)
+                    if not inter.is_empty and inter.area > 1e-9:
+                        blockers.append((poly.bounds[1], poly.bounds[3]))
+                if not blockers:
+                    span = sheet_h
+                else:
+                    blockers.sort()
+                    merged = [list(blockers[0])]
+                    for lo, hi in blockers[1:]:
+                        if lo <= merged[-1][1]:
+                            merged[-1][1] = max(merged[-1][1], hi)
+                        else:
+                            merged.append([lo, hi])
+                    span = merged[0][0]  # below the first blocker
+                    for k in range(len(merged) - 1):
+                        span = max(span, merged[k + 1][0] - merged[k][1])
+                    span = max(span, sheet_h - merged[-1][1])
                 area = (x2 - x1) * span
                 if area > 0 and (best is None or area > best["area"]):
                     best = {"width": x2 - x1, "height": span, "area": area}
