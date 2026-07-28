@@ -1,14 +1,15 @@
 from datetime import datetime
-import json
-import secrets
-import subprocess
 import sys
 import os
 import io
 from pathlib import Path
 from utils.mongo import valid_dxf_bucket, dxf_result_bucket, svg_result_bucket
 from utils.mongo import db
-from core.nesting_input_builder import build_bin, build_input_json, build_item
+from core.nesting_input_builder import build_bin, build_item
+from core.holed_polygons import open_holes_with_channels
+from core.placement import ResultContainer, Transform
+from core.racing import race_solve
+from core.hole_relocation import relocate_into_holes, rescale_density
 from dxf.dxf_utils import read_dxf
 from core.svg_generator import create_svg_from_doc
 from ezdxf.document import Drawing
@@ -18,7 +19,6 @@ import ezdxf.bbox
 import math
 import io
 from ezdxf.math import Matrix44
-from shapely.geometry import Polygon
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -27,28 +27,16 @@ from utils.crypto import get_dek, read_gridfs, resolve_polygon_parts, write_grid
 
 logger = setup_logger("core_nesting")
 
-class Transform:
-    def __init__(self, file_slug: str, handles, x, y, angle):
-        self.file_slug = file_slug
-        self.handles = handles
-        self.x = x
-        self.y = y
-        self.angle = angle
+def convert_files_to_input_items(files, dek=None):
+    """Builds the nesting input items from the project's files.
 
-    def __str__(self) -> str:
-        return f"Transform -> File(Parts): {self.file_slug}, Handles: {self.handles}, X: {self.x}, Y: {self.y}, Angle: {self.angle}"
-    
-class ResultContainer:
-    def __init__(self, container_id, transforms, bin_width=None, bin_height=None):
-        self.container_id = container_id
-        self.transforms = transforms
-        self.bin_width = bin_width
-        self.bin_height = bin_height
-
-    def __str__(self) -> str:
-        return f"ResultContainer -> Container(ID): {self.container_id}, Transforms: {self.transforms}"
-    
-def convert_files_to_input_items(files, space, dek=None):
+    The raw contours are passed to the solver untouched: the requested gap
+    (`space`) is enforced natively by jagua-rs via `min_item_separation`
+    (exact distance, geometry unmodified). Holes (interior rings extracted at
+    file processing time) are carried along in local coordinates — the solver
+    itself treats items as solid, but the hole-relocation post-pass uses them
+    to nest small parts inside the cutouts of placed parts.
+    """
     input_items = []
     id = 0
     for file in files:
@@ -63,24 +51,23 @@ def convert_files_to_input_items(files, space, dek=None):
         for part in plogonParts:
             coords = part.get("coordinates")
             handles = part.get("handles")
-            
-            shapely_polygon = Polygon(coords)
-            buffered_polygon = shapely_polygon.buffer(space)
-            buffered_polygon_coords = list(buffered_polygon.exterior.coords)
-            
+            # New-style parts may carry interior rings; legacy parts don't.
+            holes = part.get("holes") or []
+
             item = {
                 'id': id,
                 'file_slug': file_slug,
-                'coords': buffered_polygon_coords,
+                'coords': coords,
+                'holes': holes,
                 'handles': handles,
                 'count': count,
                 'rotations': rotations
             }
-            
+
             id += 1
-        
+
             input_items.append(item)
-    
+
     return input_items
 
 
@@ -252,32 +239,15 @@ def get_entities_from_dxf_file(dxf_file_slug, handles, owner_id=None, dek=None):
 N_ALTERNATIVES_DEFAULT = 3
 DEFAULT_N_SAMPLES = 20000
 
-def run_lbf(input_json):
-    input_json_as_string : str = json.dumps(input_json)
-
-    result = subprocess.run(
-        ['lbf'],
-        input=input_json_as_string,
-        capture_output=True,
-        text=True,
-        timeout=3600
-    )
-
-    if result.returncode != 0:
-        logger.error("❌ lbf failed with return code:", result.returncode)
-        logger.error("Error output:")
-        logger.error(result.stderr)
-        raise Exception("❌ lbf failed with return code:", result.returncode)
-
-    logger.info("✅ lbf executed successfully!")
-    return json.loads(result.stdout)
-
 def parse_result_containers(output, input_items, bin_dims):
     """Parses lbf output into ResultContainers. Each layout keeps the
     container_id lbf assigned (= index of the bin type used), so heterogeneous
-    sheets get the right frame. Returns (containers, placed_count, density)."""
+    sheets get the right frame. Returns (containers, placed_count, density, cost)."""
     solution = output.get("solution")
     layouts = solution.get("layouts")
+
+    # O(1) lookups — placed items reference input items by id.
+    items_by_id = {item["id"]: item for item in input_items}
 
     result_containers = []
     total_placed_count = 0
@@ -286,24 +256,35 @@ def parse_result_containers(output, input_items, bin_dims):
         transforms = []
         placedItems = layout.get("placed_items")
         bin_id = layout.get("container_id", 0)
+        if bin_id not in bin_dims:
+            logger.warning(
+                "Unknown container_id in lbf output, falling back to first sheet dims",
+                extra={"bin_id": bin_id, "known_bins": list(bin_dims.keys())},
+            )
         bin_width, bin_height = bin_dims.get(bin_id, bin_dims[0])
         for item in placedItems:
             item_id = item.get("item_id")
             transformation = item.get("transformation")
-            rotation = transformation.get("rotation")
+            # jagua-rs 0.7.x reports rotations in DEGREES (0.6.x was radians);
+            # everything downstream (Matrix44.z_rotate, hole relocation)
+            # works in radians.
+            rotation = math.radians(transformation.get("rotation"))
             translation = transformation.get("translation")
             x = translation[0]
             y = translation[1]
 
-            file_slug = next(item for item in input_items if item.get("id") == item_id).get("file_slug")
-            handles = next(item for item in input_items if item.get("id") == item_id).get("handles")
+            source_item = items_by_id[item_id]
+            file_slug = source_item.get("file_slug")
+            handles = source_item.get("handles")
 
-            transforms.append(Transform(file_slug, handles, x, y, rotation))
+            transforms.append(Transform(file_slug, handles, x, y, rotation, item_id=item_id))
             total_placed_count += 1
 
         result_containers.append(ResultContainer(seq_id, transforms, bin_width, bin_height))
 
-    return result_containers, total_placed_count, solution.get("density")
+    # cost = number of bins used when bin costs are uniform (always the case
+    # today); kept as the primary ranking criterion for alternatives.
+    return result_containers, total_placed_count, solution.get("density"), solution.get("cost")
 
 def nesting_process(doc):
     logger.info("Processing nesting", extra={"doc": doc["slug"]})
@@ -351,15 +332,23 @@ def nesting_process(doc):
     # Map allowRotation boolean to allowed_orientations array (fallback for backward compatibility)
     default_allowed_orientations = [0.0, 90.0, 180.0, 270.0] if allow_rotation else [0.0]
 
-    input_items = convert_files_to_input_items(files, space, dek)
+    input_items = convert_files_to_input_items(files, dek)
     jaguar_items = []
+
+    # Holed parts are opened to the exterior with a hairline channel so the
+    # solver can nest parts inside their cutouts natively (the channel exists
+    # only in the collision geometry; result DXFs use the original entities).
+    has_holes = any(item.get("holes") for item in input_items)
 
     total_requested_count = 0
     for item in input_items:
         count = item.get("count")
         # Use per-file rotations if available, otherwise fall back to global setting
         allowed_orientations = item.get("rotations", default_allowed_orientations)
-        jaguar_item = build_item(item.get("id"), count, item.get("coords"), allowed_orientations)
+        shape_coords = item.get("coords")
+        if item.get("holes"):
+            shape_coords = open_holes_with_channels(shape_coords, item["holes"])
+        jaguar_item = build_item(item.get("id"), count, shape_coords, allowed_orientations)
         total_requested_count += count
         jaguar_items.append(jaguar_item)
 
@@ -373,38 +362,16 @@ def nesting_process(doc):
         }
     )
 
-    # Run the solver N times with different random seeds and keep every
-    # solution that placed all items — the user picks the layout they prefer.
-    alternatives = []
-    for alt_index in range(n_alternatives):
-        seed = secrets.randbelow(2**32)
-        logger.info("Running alternative", extra={"alt": alt_index, "seed": seed, "n_samples": n_samples})
+    # Racing tournament (core/racing.py): a batch of coarse parallel runs
+    # selects the most promising seeds, which are then refined with the full
+    # sample budget — better layouts than N identical sequential runs for the
+    # same total compute. Every returned candidate placed all items.
+    finals = race_solve(
+        bins, jaguar_items, n_samples, n_alternatives, space, total_requested_count,
+        has_holes=has_holes,
+    )
 
-        input_json = build_input_json(bins, jaguar_items, n_samples=n_samples, prng_seed=seed)
-        output = run_lbf(input_json)
-        result_containers, placed_count, density = parse_result_containers(output, input_items, bin_dims)
-
-        if placed_count != total_requested_count:
-            logger.warning(
-                "Alternative did not place all items, discarding",
-                extra={"alt": alt_index, "placed": placed_count, "requested": total_requested_count},
-            )
-            continue
-
-        alt_slug = f"{slug}_alt{alt_index}"
-        dxf_files, svg_files = build_result_dxf_files(
-            owner_id, alt_slug, result_containers, add_out_shape, space, dek
-        )
-
-        alternatives.append({
-            "seed": seed,
-            "density": density,
-            "layoutCount": len(result_containers),
-            "dxf_files": dxf_files,
-            "svg_files": svg_files,
-        })
-
-    if not alternatives:
+    if not finals:
         db["nesting_jobs"].update_one(
             { "slug": slug },
             {
@@ -419,8 +386,48 @@ def nesting_process(doc):
         )
         raise Exception("Not all items could be placed in the nesting job")
 
-    # Best density first — alternatives[0] mirrors the legacy flat fields.
-    alternatives.sort(key=lambda alt: alt.get("density") or 0, reverse=True)
+    # Best candidate gets the hole-relocation post-pass: parts of its least
+    # filled sheet are moved inside the cutouts of parts on the other sheets
+    # when that frees an entire sheet.
+    alternatives = []
+    for rank, candidate in enumerate(finals):
+        result_containers, placed_count, density, cost = parse_result_containers(
+            candidate["output"], input_items, bin_dims
+        )
+
+        freed_sheets = 0
+        if rank == 0:
+            containers_before = list(result_containers)
+            result_containers, freed_sheets = relocate_into_holes(
+                result_containers, input_items, space
+            )
+            if freed_sheets:
+                density = rescale_density(density, containers_before, result_containers)
+                logger.info(
+                    "Hole relocation freed sheets on best alternative",
+                    extra={"freed_sheets": freed_sheets, "density": density},
+                )
+
+        alt_slug = f"{slug}_alt{rank}"
+        dxf_files, svg_files = build_result_dxf_files(
+            owner_id, alt_slug, result_containers, add_out_shape, space, dek
+        )
+
+        alternatives.append({
+            "seed": candidate["seed"],
+            "density": density,
+            "cost": cost,
+            "layoutCount": len(result_containers),
+            "freedByHoleRelocation": freed_sheets,
+            "dxf_files": dxf_files,
+            "svg_files": svg_files,
+        })
+
+    # Best first: fewest sheets, then densest (costs are uniform today, so
+    # layoutCount is the robust primary key in heterogeneous sheet setups).
+    alternatives.sort(
+        key=lambda alt: (alt.get("layoutCount") or 0, -(alt.get("density") or 0))
+    )
     for alt_id, alt in enumerate(alternatives):
         alt["alt_id"] = alt_id
 
@@ -436,6 +443,7 @@ def nesting_process(doc):
                 "placed": total_requested_count,
                 "layoutCount": best["layoutCount"],
                 "density": best["density"],
+                "holeRelocation": {"freed_sheets": best["freedByHoleRelocation"]},
                 "update_ts": datetime.now()
             },
         }

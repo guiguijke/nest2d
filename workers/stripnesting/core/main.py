@@ -23,8 +23,22 @@ _origin_doc_cache = {}
 strip_nesting_jobs = db["strip_nesting_job_queue"]
 
 # Total time budget given to the sparrow solver (seconds). Sparrow splits this
-# ~80% exploration / ~20% compression. Overridable per environment.
+# ~80% exploration / ~20% compression. Overridable per environment. The budget
+# grows with the item count (more parts = more search space needed), bounded
+# by STRIP_NEST_TIME_MAX.
 DEFAULT_SOLVE_TIME_SECONDS = int(os.environ.get("STRIP_NEST_TIME", "30"))
+SOLVE_TIME_PER_ITEM = float(os.environ.get("STRIP_NEST_TIME_PER_ITEM", "0.5"))
+SOLVE_TIME_MAX = int(os.environ.get("STRIP_NEST_TIME_MAX", "300"))
+
+# Several seeds are raced in parallel and the narrowest strip wins — a fixed
+# single seed (the historical behaviour) leaves density on the table.
+SOLVE_SEEDS = [
+    int(s) for s in os.environ.get("STRIP_NEST_SEEDS", "0,1,2").split(",") if s.strip()
+]
+
+
+def _solve_budget_seconds(n_items):
+    return int(min(SOLVE_TIME_MAX, DEFAULT_SOLVE_TIME_SECONDS + SOLVE_TIME_PER_ITEM * n_items))
 
 
 def _transform_coords(coords, rotation_deg, tx, ty):
@@ -192,21 +206,54 @@ def strip_nesting_process(doc):
         {"$set": {"requested": total_requested, "update_ts": datetime.now()}},
     )
 
-    instance = spyrrow.StripPackingInstance(
-        slug if isinstance(slug, str) else "strip",
-        strip_height=float(height),
-        items=spyrrow_items,
-    )
-    config = spyrrow.StripPackingConfig(
-        total_computation_time=DEFAULT_SOLVE_TIME_SECONDS,
-        seed=0,
-    )
+    budget_seconds = _solve_budget_seconds(total_requested)
+
+    def solve_with_seed(seed):
+        instance = spyrrow.StripPackingInstance(
+            slug if isinstance(slug, str) else "strip",
+            strip_height=float(height),
+            items=spyrrow_items,
+        )
+        config = spyrrow.StripPackingConfig(
+            total_computation_time=budget_seconds,
+            seed=seed,
+        )
+        return seed, instance.solve(config)
 
     logger.info(
         "Solving strip packing",
-        extra={"items": len(spyrrow_items), "requested": total_requested},
+        extra={
+            "items": len(spyrrow_items),
+            "requested": total_requested,
+            "seeds": SOLVE_SEEDS,
+            "budget_seconds": budget_seconds,
+        },
     )
-    solution = instance.solve(config)
+
+    # spyrrow is a native (Rust) extension and releases the GIL during solve,
+    # so the seeds genuinely run in parallel on multiple cores.
+    from concurrent.futures import ThreadPoolExecutor
+
+    solutions = []
+    with ThreadPoolExecutor(max_workers=max(1, len(SOLVE_SEEDS))) as pool:
+        futures = [pool.submit(solve_with_seed, seed) for seed in SOLVE_SEEDS]
+        for future in futures:
+            try:
+                seed, sol = future.result()
+                solutions.append((seed, sol))
+                logger.info(
+                    "Strip solve finished",
+                    extra={"seed": seed, "width": float(sol.width)},
+                )
+            except Exception as e:
+                logger.error("Strip solve failed for a seed", extra={"error": str(e)})
+
+    if not solutions:
+        raise Exception("All strip packing solves failed")
+
+    # Narrowest strip wins.
+    best_seed, solution = min(solutions, key=lambda entry: float(entry[1].width))
+    logger.info("Best strip solution", extra={"seed": best_seed, "width": float(solution.width)})
 
     placed_items = solution.placed_items
     total_placed = len(placed_items)

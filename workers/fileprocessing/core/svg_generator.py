@@ -31,6 +31,11 @@ def build_svg_string(drawing, closed_parts):
         coords = part["coordinates"]
         wrapper_coords_str = " ".join([f"{coord[0] - min_x} {coord[1] - min_y}" for coord in coords])
         svg_string += f"<path d=\"M {wrapper_coords_str} Z\" fill=\"none\" stroke=\"#00FF00\" stroke-width=\"{stroke_width}\" />"
+        # Interior rings (cutouts) — dashed blue, so holes are visually
+        # distinct from the outer contour and from raw entities.
+        for hole in part.get("holes") or []:
+            hole_coords_str = " ".join([f"{coord[0] - min_x} {coord[1] - min_y}" for coord in hole])
+            svg_string += f"<path d=\"M {hole_coords_str} Z\" fill=\"none\" stroke=\"#0080FF\" stroke-width=\"{stroke_width}\" stroke-dasharray=\"{stroke_width * 4} {stroke_width * 2}\" />"
         handles = part["handles"]
         entities = get_entity_by_handle(drawing, handles)
         for entity in entities:

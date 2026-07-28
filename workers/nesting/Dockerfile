@@ -1,4 +1,5 @@
-FROM rust:1.83 as builder
+# jagua-rs 0.7.x uses Rust edition 2024 and let-chains, requiring Rust >= 1.88.
+FROM rust:1.88 as builder
 
 RUN apt-get update && apt-get install -y \
     python3 python3-pip python3-dev build-essential libssl-dev && \
