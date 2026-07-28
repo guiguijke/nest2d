@@ -383,12 +383,17 @@ def nesting_process(doc):
     # unless a stage completes.
     import time as _time
     _last_progress_write = [0.0]
+    _last_stage = [None]
 
     def report_progress(stage, done, total):
         now = _time.time()
-        if done < total and now - _last_progress_write[0] < 2.0:
+        # Stage changes are always written immediately — throttling them away
+        # made the UI look stuck on the previous stage's final count.
+        stage_changed = stage != _last_stage[0]
+        if not stage_changed and done < total and now - _last_progress_write[0] < 2.0:
             return
         _last_progress_write[0] = now
+        _last_stage[0] = stage
         try:
             db["nesting_jobs"].update_one(
                 {"_id": doc.get("_id")},
