@@ -12,11 +12,14 @@ SOTA de strip packing, vendored dans `crates/sparrow` — voir `NOTICE`).
     pénalisé, séparation par échantillonnage continu, compaction par réduction
     de la longueur de bande. Objectif = **longueur utilisée minimale**
     (= chute réutilisable maximale, natif).
-  - `bpp` (plusieurs types de tôles) — **recuit simulé** sur la séquence de
-    placement (swaps, insertions, renversements), évaluée par un constructif
-    glouton bottom-left-fill s'appuyant sur le CDE jagua. Objectif
-    lexicographique : toutes les pièces placées → coût des tôles minimal →
-    remplissage inégal (Falkenauer) pour dégager une chute propre.
+  - `bpp` (plusieurs types de tôles, ou dépassement d'une tôle) — **recuit
+    simulé** sur la séquence de placement (swaps, insertions, renversements),
+    évaluée par un constructif **best-fit** : chaque pièce est cherchée dans
+    TOUTES les tôles ouvertes via la machinerie sparrow (échantillonnage
+    uniforme + descente de coordonnées, évaluateur left-bottom-fill), et une
+    nouvelle tôle n'est ouverte que si la pièce ne rentre vraiment nulle part.
+    Objectif lexicographique : toutes les pièces placées → coût des tôles
+    minimal → remplissage inégal (Falkenauer) pour dégager une chute propre.
 - **Compaction bi-axiale (SPP)** : minimiser la largeur seule est indifférent
   à l'usage des trous (empiler dans la colonne = imbriquer dans les découpes).
   Après la phase 1 (min largeur W*), le moteur **transpose le problème à 90°**
