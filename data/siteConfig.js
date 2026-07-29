@@ -12,7 +12,7 @@
 export function useSiteConfig() {
     const config = useRuntimeConfig().public
     return {
-        siteName: 'APlasma Nesting',
+        siteName: 'NestorCut',
         supportEmail: config.supportEmail || 'support@example.com',
         githubRepo: config.githubRepo || 'https://github.com/guiguijke/nest2d',
         githubIssues: (config.githubRepo || 'https://github.com/guiguijke/nest2d') + '/issues/new',

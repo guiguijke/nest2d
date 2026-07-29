@@ -64,11 +64,11 @@ export async function parseKeyFile(file) {
     try {
         parsed = JSON.parse(text)
     } catch {
-        throw new Error('This file is not a valid APlasma Nesting key file.')
+        throw new Error('This file is not a valid NestorCut key file.')
     }
     const validTypes = ['aplasma-vault-key', 'nest2d-vault-key'] // nest2d = legacy brand
     if (!validTypes.includes(parsed?.type) || !parsed?.key) {
-        throw new Error('This file is not a valid APlasma Nesting key file.')
+        throw new Error('This file is not a valid NestorCut key file.')
     }
     const key = base64ToKey(parsed.key)
     if (key.length !== 32) {

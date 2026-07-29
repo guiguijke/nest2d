@@ -14,11 +14,11 @@ const { locale } = useLocale()
 const terms = computed(() => (locale.value === 'fr' ? useTermsFr() : useTermsEn()))
 
 useHead({
-    title: 'Terms and Conditions — APlasma Nesting',
+    title: 'Terms and Conditions — NestorCut',
     meta: [
         {
             name: 'description',
-            content: 'Terms and Conditions governing the use of APlasma Nesting.',
+            content: 'Terms and Conditions governing the use of NestorCut.',
         },
     ],
 })

@@ -14,7 +14,7 @@ const { locale } = useLocale()
 const refund = computed(() => (locale.value === 'fr' ? useRefundFr() : useRefundEn()))
 
 useHead({
-    title: 'Refund Policy — APlasma Nesting',
+    title: 'Refund Policy — NestorCut',
     meta: [
         {
             name: 'description',

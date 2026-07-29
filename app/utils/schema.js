@@ -10,11 +10,11 @@ export function useSchemaWebSite() {
         '@context': 'https://schema.org',
         '@type': 'WebSite',
         url: `${baseUrl}/`,
-        name: 'APlasma Nesting',
-        description: 'Upload your DXF files, input material dimensions, and let APlasma Nesting maximize your material usage. Inspired by Nest2D, fully open-source and built for efficiency.',
+        name: 'NestorCut',
+        description: 'True-shape 2D nesting with a research-grade engine. Upload your DXF files, set your sheet, and get a cut-ready optimized layout in seconds.',
         publisher: {
             '@type': 'Organization',
-            'name': 'APlasma Nesting'
+            'name': 'NestorCut'
         }
     }
 }
@@ -28,10 +28,10 @@ export const schemaWebSite = {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     url: `${baseUrl}/`,
-    name: 'APlasma Nesting',
-    description: 'Upload your DXF files, input material dimensions, and let APlasma Nesting maximize your material usage. Inspired by Nest2D, fully open-source and built for efficiency.',
+    name: 'NestorCut',
+    description: 'True-shape 2D nesting with a research-grade engine. Upload your DXF files, set your sheet, and get a cut-ready optimized layout in seconds.',
     publisher: {
         '@type': 'Organization',
-        'name': 'APlasma Nesting'
+        'name': 'NestorCut'
     }
 }
