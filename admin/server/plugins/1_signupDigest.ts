@@ -61,7 +61,7 @@ export default defineNitroPlugin((nitro) => {
   const timer = setInterval(async () => {
     try {
       const config = useRuntimeConfig()
-      const to = config.notifyEmail as string
+      const to = config.adminNotifyEmail as string
       if (!to) return // no destination configured → skip
 
       const db = await connectDB()
