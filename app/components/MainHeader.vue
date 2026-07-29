@@ -31,8 +31,8 @@
             <div class="header__theme">
                 <MainButton :theme="themeType.primary" :icon="themeIcon" :isLabelShow=false trackingTag="toggle_theme"
                     @click="updateTheme" :label="t('nav.toggleTheme')" />
-                <LocaleSwitcher class="header__locale" />
             </div>
+            <LocaleSwitcher class="header__btn" />
             <MainButton :href="githubIssues" target="_blank"
                 :label="t('nav.reportProblem')" tag="a" trackingTag="report_problem" class="header__btn" v-if="isSecondaryTheme" />
             <UserBalance class="header__btn" v-if="isPrimaryTheme && !isStripPage && !isStripFeatureEnabled" />
