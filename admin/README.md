@@ -16,12 +16,30 @@ npm run dev              # http://localhost:7200
 
 ### Créer le premier compte administrateur
 
+La création du premier admin se fait **dans le conteneur**, via une page de
+configuration intégrée au panneau. Elle n'est disponible que tant qu'aucun
+admin n'existe, et est protégée par un jeton à usage unique.
+
 ```bash
-npm run bootstrap        # interactif : email, nom, mot de passe (≥ 10 caractères)
+# 1. Démarrez le panneau (dev : npm run dev, prod : docker compose up -d admin)
+
+# 2. Récupérez le jeton de configuration affiché dans les logs au boot
+#    (uniquement tant qu'aucun admin n'existe) :
+docker compose logs admin | grep -A12 "FIRST-TIME SETUP"
+
+# 3. Ouvrez la page de configuration et collez le jeton :
+#    http://localhost:7200/setup
+#    → renseignez email, nom, mot de passe → le compte est créé.
+
+#    Ou en CLI :
+curl -X POST http://localhost:7200/api/setup/first-admin \
+  -H "Content-Type: application/json" \
+  -H "X-Setup-Token: <le-jeton-des-logs>" \
+  -d '{"email":"you@example.com","name":"Admin","password":"un-mot-de-passe-fort"}'
 ```
 
-Le script crée (ou met à jour) un document dans la collection `admins`. Le
-panneau est alors utilisable à `http://localhost:7200/login`.
+Une fois le premier admin créé, la page `/setup` est verrouillée et le jeton
+devient inutile. Connectez-vous ensuite normalement à `/login`.
 
 ## Fonctionnalités
 

@@ -66,8 +66,9 @@ services:
   # reverse-proxy rule for it in Nginx Proxy Manager. To restrict it to the host
   # machine only, replace 0.0.0.0 with 127.0.0.1.
   #
-  # First run — create your admin account:
-  #   docker compose run --rm admin node scripts/bootstrap-admin.js
+  # First run — create your admin account from the in-app setup page:
+  #   1. docker compose logs admin | grep -A12 "FIRST-TIME SETUP"  (grab the token)
+  #   2. open http://localhost:7200/setup and paste the token + credentials
   # -----------------------------------------------------------------------------
   admin:
     # Pull from GHCR (built by the CI, image nest2d-admin). To build locally
