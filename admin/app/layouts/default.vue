@@ -1,6 +1,10 @@
 <script setup lang="ts">
 // Main admin shell: top bar + sidebar nav + content.
 const { admin, logout } = useAdminAuth()
+const lanOpen = computed(() => {
+  const v = useRuntimeConfig().public.adminLanOpen
+  return v === true || v === 'true'
+})
 
 const nav = [
   { to: '/', label: 'Tableau de bord', icon: '📊' },
@@ -23,8 +27,13 @@ const nav = [
           <span class="text-sm font-semibold text-white">APlasma Admin</span>
         </div>
         <div class="flex items-center gap-3">
-          <span v-if="admin" class="text-xs text-ink-300">{{ admin.name }} · {{ admin.email }}</span>
-          <button class="btn-ghost" @click="logout">Déconnexion</button>
+          <template v-if="lanOpen">
+            <span class="badge bg-ok/15 text-ok">● Réseau local</span>
+          </template>
+          <template v-else>
+            <span v-if="admin" class="text-xs text-ink-300">{{ admin.name }} · {{ admin.email }}</span>
+            <button class="btn-ghost" @click="logout">Déconnexion</button>
+          </template>
         </div>
       </div>
     </header>

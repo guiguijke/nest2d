@@ -1,12 +1,15 @@
 // Client-side route guard for the admin panel.
 //
-// The server enforces auth on every API (middleware 1_auth + requireAdmin);
-// this middleware is a UX nicety that routes the visitor to the right page:
-//   - If no admin exists yet  → /setup (first-time bootstrap)
-//   - If not logged in        → /login
-//   - If logged in            → the requested page
+// Two modes:
+//   - LAN-open (NUXT_ADMIN_LAN_OPEN=true): no auth at all. The server injects
+//     a virtual admin on every request. Nothing to do here.
+//   - Secured: route to /setup (no admin yet) or /login (not signed in).
 export default defineNuxtRouteMiddleware(async (to) => {
   if (import.meta.server) return
+
+  const config = useRuntimeConfig()
+  const lanOpen = config.public.adminLanOpen === true || config.public.adminLanOpen === 'true'
+  if (lanOpen) return // open access, no guard
 
   const { admin, fetchMe } = useAdminAuth()
 

@@ -11,22 +11,25 @@ export default defineNuxtConfig({
   devServer: { port: 7200, host: '0.0.0.0' },
 
   runtimeConfig: {
-    // Server-only. The admin app reads from the SAME database as the main app.
-    mongoUri: process.env.NUXT_ADMIN_MONGO_URI || process.env.NUXT_MONGO_URI || '',
-    // Secret used to sign/derive admin session ids. Generate a random 64-char string.
-    sessionSecret: process.env.NUXT_ADMIN_SESSION_SECRET || '',
-    // Where admin notifications (new signups) are sent.
-    notifyEmail: process.env.NUXT_ADMIN_NOTIFY_EMAIL || '',
-    // Public base URL of this admin panel (used for links inside emails).
-    adminBaseUrl: process.env.NUXT_ADMIN_BASE_URL || 'http://localhost:7200',
-    // Public base URL of the MAIN app (used for deep links to user projects).
-    appBaseUrl: process.env.NUXT_PUBLIC_BASE_URL || 'http://localhost:3000',
-    // Reused from the main app.
-    resendToken: process.env.NUXT_RESEND_TOKEN || '',
-    resendFrom: process.env.NUXT_RESEND_FROM || 'onboarding@resend.dev',
-    stripeSecretKey: process.env.NUXT_STRIPE_SECRET_KEY || '',
+    // IMPORTANT: values here are BUILD-time defaults. Real values are injected
+    // at RUNTIME from NUXT_* env vars (Nuxt maps NUXT_<KEY> to runtimeConfig.<key>
+    // automatically, camelCasing NUXT_ADMIN_MONGO_URI -> adminMongoUri... except
+    // it matches keys exactly, so we name keys to match the env var suffix).
+    // Keep defaults empty/neutral so nothing sensitive is baked into the image.
+    mongoUri: '',
+    sessionSecret: '',
+    notifyEmail: '',
+    adminBaseUrl: 'http://localhost:7200',
+    appBaseUrl: 'http://localhost:3000',
+    // NUXT_ADMIN_LAN_OPEN=true -> runtimeConfig.adminLanOpen (camelCased by Nuxt).
+    adminLanOpen: false,
+    resendToken: '',
+    resendFrom: 'onboarding@resend.dev',
+    stripeSecretKey: '',
     public: {
-      appBaseUrl: process.env.NUXT_PUBLIC_BASE_URL || 'http://localhost:3000',
+      appBaseUrl: 'http://localhost:3000',
+      // Mirrored for the client-side guard.
+      adminLanOpen: false,
     },
   },
 
