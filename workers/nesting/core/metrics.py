@@ -56,15 +56,60 @@ def compute_used_sheet_share(containers, input_items):
     return min(1.0, bbox_total / sheet_total)
 
 
+def _band_offcut(containers, items_by_id):
+    """Largest guaranteed-free band around the used bbox, across all sheets.
+
+    The four bands (right/top/bottom/left of the used bounding box) are free
+    BY CONSTRUCTION of the bbox — O(n), exact for the band-shaped offcuts
+    that matter in practice (the remnant the user reuses).
+    """
+    best = None
+    for container in containers:
+        sheet_w, sheet_h = container.bin_width or 0, container.bin_height or 0
+        if sheet_w <= 0 or sheet_h <= 0 or not container.transforms:
+            continue
+        min_x = min_y = float("inf")
+        max_x = max_y = float("-inf")
+        for transform in container.transforms:
+            item = items_by_id.get(getattr(transform, "item_id", None))
+            if item is None:
+                continue
+            bx = _placed_polygon(item, transform).bounds
+            min_x, min_y = min(min_x, bx[0]), min(min_y, bx[1])
+            max_x, max_y = max(max_x, bx[2]), max(max_y, bx[3])
+        if min_x == float("inf"):
+            continue
+        for w, h in (
+            (sheet_w - max_x, sheet_h),   # right band
+            (sheet_w, sheet_h - max_y),   # top band
+            (sheet_w, min_y),             # bottom band
+            (min_x, sheet_h),             # left band
+        ):
+            area = w * h
+            if w > 0 and h > 0 and (best is None or area > best["area"]):
+                best = {"width": w, "height": h, "area": area}
+    return best
+
+
+# Above this many placed parts, the exact scan is quadratic in the number of
+# free-space vertices and can take minutes — switch to the band offcut.
+EXACT_OFFCUT_MAX_PARTS = 60
+
+
 def largest_empty_rectangle(containers, input_items):
     """Largest axis-aligned rectangle of free space across all sheets.
 
-    Computed exactly on the free-space polygon: candidate rectangle edges
-    are the sheet edges and every free-space vertex coordinate (a maximal
-    rectangle always has its sides on those lines). Returns
-    {width, height, area} of the best rectangle, or None.
+    Small layouts (<= EXACT_OFFCUT_MAX_PARTS parts): computed exactly on the
+    free-space polygon — candidate rectangle edges are the sheet edges and
+    every free-space vertex coordinate (a maximal rectangle always has its
+    sides on those lines). Large layouts: band offcut around the used bbox
+    (see _band_offcut). Returns {width, height, area} or None.
     """
     items_by_id = {item["id"]: item for item in input_items}
+    total_parts = sum(len(c.transforms) for c in containers)
+    if total_parts > EXACT_OFFCUT_MAX_PARTS:
+        return _band_offcut(containers, items_by_id)
+
     best = None
 
     for container in containers:

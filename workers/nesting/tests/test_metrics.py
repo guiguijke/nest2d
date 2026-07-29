@@ -58,3 +58,27 @@ class TestLargestEmptyRectangle:
         )
         rect = largest_empty_rectangle([container], [item])
         assert rect is None or rect["area"] < 1.0
+
+
+class TestBandOffcut:
+    def test_many_parts_uses_band_approximation(self):
+        # 70+ parts triggers the O(n) band path (exact scan would be quadratic)
+        items = [_square_item(10.0, item_id=0)]
+        transforms = [
+            Transform("f", ["h"], float((i % 8) * 11), float((i // 8) * 11), 0.0, item_id=0)
+            for i in range(70)
+        ]
+        container = ResultContainer(1, transforms, bin_width=400.0, bin_height=560.0)
+        rect = largest_empty_rectangle([container], items)
+        # used bbox: x in [0, 87], y in [0, 98] -> right band 313x560 = 175280
+        assert rect is not None
+        assert rect["area"] >= 313.0 * 560.0 - 1e-6
+
+    def test_small_layout_still_exact(self):
+        item = _square_item(50.0)
+        container = ResultContainer(
+            1, [Transform("f", ["h"], 0.0, 0.0, 0.0, item_id=0)],
+            bin_width=100.0, bin_height=100.0,
+        )
+        rect = largest_empty_rectangle([container], [item])
+        assert rect["area"] >= 5000.0 - 1e-6
