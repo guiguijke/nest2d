@@ -309,6 +309,7 @@ def nesting_process(doc):
     has_holes = any(item.get("holes") for item in input_items)
 
     total_requested_count = 0
+    total_part_area = 0.0
     for item in input_items:
         count = item.get("count")
         # Use per-file rotations if available, otherwise fall back to global setting
@@ -322,6 +323,8 @@ def nesting_process(doc):
             )
         jaguar_item = build_item(item.get("id"), count, shape_coords, allowed_orientations)
         total_requested_count += count
+        from shapely.geometry import Polygon as _Polygon
+        total_part_area += _Polygon(item.get("coords"), item.get("holes") or []).area * count
         jaguar_items.append(jaguar_item)
 
     db["nesting_jobs"].update_one(
@@ -413,12 +416,29 @@ def nesting_process(doc):
 
     # ------------------------------------------------------------------
     # Solve: ONE call to the nest-engine Rust binary.
-    #   - single sheet type  -> SPP (min used length = max offcut, native)
-    #   - multiple types     -> BPP (min sheets via annealing)
+    #   - SPP (single strip = ONE sheet, min used length = max offcut) only
+    #     when every requested part plausibly fits on a single sheet;
+    #   - otherwise BPP (min sheets over the declared stock) — even with a
+    #     single sheet type, since SPP cannot span multiple sheets.
     # The seed is derived from the job payload: runs are reproducible.
     # ------------------------------------------------------------------
-    is_spp = len(bins) == 1
+    SPP_MAX_AREA_RATIO = float(os.environ.get("NEST_SPP_MAX_AREA_RATIO", "0.80"))
+    single_sheet_area = (bin_dims[0][0] * bin_dims[0][1]) if bins else 0.0
+    is_spp = (
+        len(bins) == 1
+        and single_sheet_area > 0
+        and total_part_area <= single_sheet_area * SPP_MAX_AREA_RATIO
+    )
     problem_type = "spp" if is_spp else "bpp"
+    logger.info(
+        "Problem type selected",
+        extra={
+            "problem_type": problem_type,
+            "total_part_area": round(total_part_area),
+            "single_sheet_area": single_sheet_area,
+            "area_ratio": round(total_part_area / single_sheet_area, 3) if single_sheet_area else None,
+        },
+    )
 
     if is_spp:
         instance = build_spp_instance(
