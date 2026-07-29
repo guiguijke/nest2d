@@ -8,7 +8,7 @@
             />
             <template v-if="progress">
                 <p class="result__text result__text--stage">
-                    {{ progress.label }}
+                    {{ stageLabel }}
                 </p>
                 <div class="result__progress progress">
                     <div
@@ -17,11 +17,11 @@
                     />
                 </div>
                 <p class="result__text result__text--count">
-                    {{ progressPercent }}% · {{ progress.done }}/{{ progress.total }}<template v-if="progress.elapsed_sec != null"> · {{ formatElapsed(progress.elapsed_sec) }}</template>
+                    {{ progressPercent }}%<template v-if="showDoneTotal"> · {{ progress.done }}/{{ progress.total }}</template><template v-if="progress.elapsed_sec != null"> · {{ formatElapsed(progress.elapsed_sec) }}</template>
                 </p>
             </template>
             <p v-else class="result__text">
-                Nesting
+                {{ t('results.nesting') }}
             </p>
         </template>
         <template v-else>
@@ -83,6 +83,8 @@ const props = defineProps({
 
 const emit = defineEmits(["openModal"]);
 
+const { t } = useLocale();
+
 const isMultiSheet = computed(() => {
     return props.result?.isMultiSheet ?? false;
 });
@@ -116,9 +118,25 @@ const progress = computed(() => {
 
 const progressPercent = computed(() => {
     if (!progress.value) return 0;
-    // Live percentage from the lbf placement stream when available.
+    // Live percentage from the engine's time budget when available.
     if (progress.value.pct != null) return Math.min(100, progress.value.pct);
     return Math.min(100, Math.round((progress.value.done / progress.value.total) * 100));
+});
+
+// Stage label: translated when we know the stage, worker-provided label
+// otherwise (forward-compatible with future stages).
+const stageLabel = computed(() => {
+    const p = progress.value;
+    if (!p) return '';
+    const key = `progress.stage.${p.stage}`;
+    const translated = t(key);
+    return translated === key ? (p.label || key) : translated;
+});
+
+// done/total duplicates the elapsed seconds for engine-driven jobs (pct
+// present) — only show it for count-based progress (legacy readers).
+const showDoneTotal = computed(() => {
+    return progress.value && progress.value.pct == null;
 });
 
 const formatElapsed = (sec) => {

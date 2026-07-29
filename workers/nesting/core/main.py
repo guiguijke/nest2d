@@ -447,7 +447,11 @@ def nesting_process(doc):
         etype = event.get("type")
         if etype in ("progress", "heartbeat"):
             stage = event.get("stage", "explore")
-            report_progress(stage, 0, 1, None)
+            # Real percentage: the engine reports its elapsed seconds and we
+            # know the time budget it was given (it stops by itself at 100%).
+            elapsed = int(event.get("elapsed_sec") or 0)
+            pct = min(99, round(elapsed / max(1, time_budget_sec) * 100))
+            report_progress(stage, elapsed, time_budget_sec, pct)
 
     try:
         engine_alternatives = run_engine(
@@ -492,7 +496,8 @@ def nesting_process(doc):
             return
 
         alt_slug = f"{slug}_alt{rank}"
-        report_progress("building", rank, n_alternatives)
+        report_progress("building", rank, n_alternatives,
+                        min(99, round(rank / max(1, n_alternatives) * 100)))
         dxf_files, svg_files = build_result_dxf_files(
             owner_id, alt_slug, result_containers, add_out_shape, space, dek
         )
