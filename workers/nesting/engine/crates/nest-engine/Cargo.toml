@@ -1,0 +1,22 @@
+[package]
+name = "nest-engine"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Nest2D nesting engine: separation/compaction optimizer built on jagua-rs + sparrow"
+
+[[bin]]
+name = "nest-engine"
+path = "src/main.rs"
+
+[dependencies]
+sparrow = { path = "../sparrow" }
+jagua-rs = { workspace = true, features = ["spp", "bpp"] }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+rayon = { workspace = true }
+clap = { workspace = true }
+num_cpus = "1.17"

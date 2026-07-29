@@ -1,0 +1,26 @@
+[package]
+name = "sparrow"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "State-of-the-art nesting heuristic for 2D irregular strip packing (vendored from https://github.com/JeroenGar/sparrow)"
+
+[features]
+simd = []
+
+[dependencies]
+jagua-rs = { workspace = true, features = ["spp"] }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+rayon = { workspace = true }
+itertools = "0.15"
+tap = "1.0"
+slotmap = "1.0"
+float-cmp = "0.10"
+ordered-float = "5.0"
+numfmt = "1.1"
+num_cpus = "1.17"

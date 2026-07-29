@@ -5,17 +5,18 @@ import io
 from pathlib import Path
 from utils.mongo import valid_dxf_bucket, dxf_result_bucket, svg_result_bucket
 from utils.mongo import db
-from core.nesting_input_builder import build_bin, build_item
-from core.holed_polygons import open_holes_with_channels
-from core.placement import ResultContainer, Transform
-from core.racing import race_solve
-from core.hole_relocation import (
-    compact_into_holes,
-    compute_used_sheet_share,
-    relocate_into_holes,
-    rescale_density,
+from core.nesting_input_builder import (
+    build_bin,
+    build_bpp_instance,
+    build_engine_config,
+    build_item,
+    build_spp_instance,
+    deterministic_seed,
 )
-from core.offcut import largest_empty_rectangle, solve_band
+from core.engine import run_engine
+from core.holed_polygons import channel_width_for_space, open_holes_with_channels
+from core.placement import ResultContainer, Transform, parse_result_containers
+from core.metrics import compute_used_sheet_share, largest_empty_rectangle
 from dxf.dxf_utils import read_dxf
 from core.svg_generator import create_svg_from_doc
 from ezdxf.document import Drawing
@@ -36,12 +37,11 @@ logger = setup_logger("core_nesting")
 def convert_files_to_input_items(files, dek=None):
     """Builds the nesting input items from the project's files.
 
-    The raw contours are passed to the solver untouched: the requested gap
+    The raw contours are passed to the engine untouched: the requested gap
     (`space`) is enforced natively by jagua-rs via `min_item_separation`
     (exact distance, geometry unmodified). Holes (interior rings extracted at
-    file processing time) are carried along in local coordinates — the solver
-    itself treats items as solid, but the hole-relocation post-pass uses them
-    to nest small parts inside the cutouts of placed parts.
+    file processing time) are carried along and opened with a hairline channel
+    so the engine nests parts inside cutouts natively.
     """
     input_items = []
     id = 0
@@ -131,7 +131,7 @@ def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=Fals
         svg_files.append(svg_file_name)
 
     return dxf_files, svg_files
- 
+
 def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None, bin_width=None, bin_height=None):
     """
     Creates a single new DXF drawing by fetching, transforming, and combining
@@ -150,17 +150,17 @@ def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None
             source_doc, entities_to_process = get_entities_from_dxf_file(
                 transform.file_slug, transform.handles, owner_id, dek
             )
-            
+
             if not entities_to_process:
                 logger.warning("No entities found in file", extra={"file_slug": transform.file_slug})
                 continue
             required_layers = {entity.dxf.layer for entity in entities_to_process}
-            
+
             loader = ezdxf.xref.Loader(source_doc, new_doc)
-            
+
             if required_layers:
                 loader.load_layers(list(required_layers))
-            
+
             loader.execute()
 
             rotationMatrix = Matrix44.z_rotate(transform.angle)
@@ -172,9 +172,9 @@ def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None
                 new_entity.transform(matrix)
                 new_msp.add_entity(new_entity)
                 added_entities.append(new_entity)
-            
+
             logger.info(
-                "Entities from file moved to file", 
+                "Entities from file moved to file",
                 extra={"file_slug": transform.file_slug, "count": len(entities_to_process)}
             )
 
@@ -203,7 +203,7 @@ def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None
                 # Create a new layer for the bounding box
                 if "OUT_SHAPE" not in new_doc.layers:
                     new_doc.layers.new(name="OUT_SHAPE", dxfattribs={"color": 1}) # Red color
-                
+
                 points = [
                     (bbox.extmin.x - space, bbox.extmin.y - space),
                     (bbox.extmax.x + space, bbox.extmin.y - space),
@@ -214,14 +214,14 @@ def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None
                 logger.info("Added bounding box to layout on layer OUT_SHAPE")
         except Exception as e:
             logger.error("Failed to add bounding box", extra={"error": e})
-    
+
     return new_doc
 
 dxf_document_cache = {}
 
 def get_entities_from_dxf_file(dxf_file_slug, handles, owner_id=None, dek=None):
     """
-    Opens a DXF file and returns the doc object and a list of entities 
+    Opens a DXF file and returns the doc object and a list of entities
     matching the given handles.
     """
     if dxf_file_slug in dxf_document_cache:
@@ -230,78 +230,29 @@ def get_entities_from_dxf_file(dxf_file_slug, handles, owner_id=None, dek=None):
         dxf_bytes = read_gridfs(valid_dxf_bucket, dxf_file_slug, owner_id, dek)
         doc = read_dxf(io.BytesIO(dxf_bytes))
         dxf_document_cache[dxf_file_slug] = doc
-        
+
     msp = doc.modelspace()
-    
+
     handle_set = set(handles)
-    
+
     entities = []
     for entity in msp:
         if entity.dxf.handle in handle_set:
             entities.append(entity)
-            
+
     return doc, entities
 
 N_ALTERNATIVES_DEFAULT = 3
-DEFAULT_N_SAMPLES = 20000
+DEFAULT_TIME_BUDGET_SEC = 45
 
 # Human-readable labels for the live progress shown in the UI while a job runs.
 STAGE_LABELS = {
     "preparing": "Preparing geometry",
-    "race": "Exploring layouts",
-    "refine": "Refining best layouts",
-    "escalation": "Trying harder to fit everything",
-    "topup": "Completing alternatives",
-    "compacting": "Nesting parts into holes",
+    "explore": "Exploring layouts",
+    "compress": "Compressing layout",
+    "bpp-search": "Optimizing sheets",
     "building": "Building result files",
 }
-
-def parse_result_containers(output, input_items, bin_dims):
-    """Parses lbf output into ResultContainers. Each layout keeps the
-    container_id lbf assigned (= index of the bin type used), so heterogeneous
-    sheets get the right frame. Returns (containers, placed_count, density, cost)."""
-    solution = output.get("solution")
-    layouts = solution.get("layouts")
-
-    # O(1) lookups — placed items reference input items by id.
-    items_by_id = {item["id"]: item for item in input_items}
-
-    result_containers = []
-    total_placed_count = 0
-
-    for seq_id, layout in enumerate(layouts, start=1):
-        transforms = []
-        placedItems = layout.get("placed_items")
-        bin_id = layout.get("container_id", 0)
-        if bin_id not in bin_dims:
-            logger.warning(
-                "Unknown container_id in lbf output, falling back to first sheet dims",
-                extra={"bin_id": bin_id, "known_bins": list(bin_dims.keys())},
-            )
-        bin_width, bin_height = bin_dims.get(bin_id, bin_dims[0])
-        for item in placedItems:
-            item_id = item.get("item_id")
-            transformation = item.get("transformation")
-            # jagua-rs 0.7.x reports rotations in DEGREES (0.6.x was radians);
-            # everything downstream (Matrix44.z_rotate, hole relocation)
-            # works in radians.
-            rotation = math.radians(transformation.get("rotation"))
-            translation = transformation.get("translation")
-            x = translation[0]
-            y = translation[1]
-
-            source_item = items_by_id[item_id]
-            file_slug = source_item.get("file_slug")
-            handles = source_item.get("handles")
-
-            transforms.append(Transform(file_slug, handles, x, y, rotation, item_id=item_id))
-            total_placed_count += 1
-
-        result_containers.append(ResultContainer(seq_id, transforms, bin_width, bin_height))
-
-    # cost = number of bins used when bin costs are uniform (always the case
-    # today); kept as the primary ranking criterion for alternatives.
-    return result_containers, total_placed_count, solution.get("density"), solution.get("cost")
 
 def nesting_process(doc):
     logger.info("Processing nesting", extra={"doc": doc["slug"]})
@@ -334,11 +285,11 @@ def nesting_process(doc):
         bin_dims[bin_id] = (sheet_width, sheet_height)
         bins.append(build_bin(bin_id, sheet_stock, sheet_width, sheet_height))
 
-    # Exploration budget and number of alternatives are set server-side at
-    # enqueue time based on the owner's tier (params.nestQuality /
+    # Time budget and number of alternatives are set server-side at enqueue
+    # time based on the owner's tier (params.timeBudgetSec /
     # params.alternativesCount). Defaults cover jobs enqueued before the
     # tiered-compute feature existed.
-    n_samples = int(params.get("nestQuality") or DEFAULT_N_SAMPLES)
+    time_budget_sec = int(params.get("timeBudgetSec") or DEFAULT_TIME_BUDGET_SEC)
     n_alternatives = max(1, int(params.get("alternativesCount") or N_ALTERNATIVES_DEFAULT))
 
     # Unwrapped DEK when the owner's vault is unlocked, None on the legacy
@@ -353,7 +304,7 @@ def nesting_process(doc):
     jaguar_items = []
 
     # Holed parts are opened to the exterior with a hairline channel so the
-    # solver can nest parts inside their cutouts natively (the channel exists
+    # engine can nest parts inside their cutouts natively (the channel exists
     # only in the collision geometry; result DXFs use the original entities).
     has_holes = any(item.get("holes") for item in input_items)
 
@@ -364,7 +315,11 @@ def nesting_process(doc):
         allowed_orientations = item.get("rotations", default_allowed_orientations)
         shape_coords = item.get("coords")
         if item.get("holes"):
-            shape_coords = open_holes_with_channels(shape_coords, item["holes"])
+            # Channel widened past the separation inflation, otherwise jagua
+            # seals it and the holes become unreachable (see holed_polygons).
+            shape_coords = open_holes_with_channels(
+                shape_coords, item["holes"], channel_width_for_space(space)
+            )
         jaguar_item = build_item(item.get("id"), count, shape_coords, allowed_orientations)
         total_requested_count += count
         jaguar_items.append(jaguar_item)
@@ -389,7 +344,7 @@ def nesting_process(doc):
     _job_started = _time.monotonic()
     # Shared with the heartbeat: the latest stage state, re-written with a
     # fresh elapsed time so the UI timer keeps ticking during long stages
-    # (compaction, big lbf runs) where nothing else reports.
+    # where nothing else reports.
     _current_progress = {"stage": "preparing", "done": 0, "total": 1}
     _heartbeat_stop = _threading.Event()
 
@@ -413,7 +368,7 @@ def nesting_process(doc):
                         "done": done,
                         "total": total,
                         # Ticking seconds prove the worker is alive even on
-                        # long stages (no per-iteration signal from lbf).
+                        # long stages.
                         "elapsed_sec": int(_time.monotonic() - _job_started),
                     },
                     "update_ts": datetime.now(),
@@ -456,16 +411,114 @@ def nesting_process(doc):
     _heartbeat_thread = _threading.Thread(target=_progress_heartbeat, daemon=True)
     _heartbeat_thread.start()
 
-    # Racing tournament (core/racing.py): a batch of coarse parallel runs
-    # selects the most promising seeds, which are then refined with the full
-    # sample budget — better layouts than N identical sequential runs for the
-    # same total compute. Every returned candidate placed all items.
-    finals = race_solve(
-        bins, jaguar_items, n_samples, n_alternatives, space, total_requested_count,
-        has_holes=has_holes, progress_cb=report_progress,
+    # ------------------------------------------------------------------
+    # Solve: ONE call to the nest-engine Rust binary.
+    #   - single sheet type  -> SPP (min used length = max offcut, native)
+    #   - multiple types     -> BPP (min sheets via annealing)
+    # The seed is derived from the job payload: runs are reproducible.
+    # ------------------------------------------------------------------
+    is_spp = len(bins) == 1
+    problem_type = "spp" if is_spp else "bpp"
+
+    if is_spp:
+        instance = build_spp_instance(
+            jaguar_items, bin_dims[0][0], bin_dims[0][1], name=slug
+        )
+        max_strip_width = bin_dims[0][0]
+    else:
+        instance = build_bpp_instance(jaguar_items, bins, name=slug)
+        max_strip_width = None
+
+    seed = deterministic_seed({
+        "instance": instance,
+        "space": space,
+        "budget": time_budget_sec,
+    })
+    engine_config = build_engine_config(
+        time_budget_sec,
+        seed,
+        n_alternatives,
+        min_separation=space,
+        has_holes=has_holes,
+        max_strip_width=max_strip_width,
     )
 
-    if not finals:
+    def _on_engine_event(event):
+        etype = event.get("type")
+        if etype in ("progress", "heartbeat"):
+            stage = event.get("stage", "explore")
+            report_progress(stage, 0, 1, None)
+
+    try:
+        engine_alternatives = run_engine(
+            instance, engine_config, problem_type, on_event=_on_engine_event
+        )
+    except Exception as e:
+        _heartbeat_stop.set()
+        db["nesting_jobs"].update_one(
+            { "slug": slug },
+            {
+                "$set": {
+                    "placed": 0,
+                    "status": "error",
+                    "finishedAt": datetime.now(),
+                    "update_ts": datetime.now(),
+                    "information": "Not all items could be placed in the nesting job"
+                },
+                "$unset": {"progress": ""}
+            },
+        )
+        raise Exception("Not all items could be placed in the nesting job") from e
+
+    # Strategy-labelled alternatives — the engine already returns its best
+    # distinct layouts, ranked. SPP layouts are inherently max-offcut (used
+    # length minimized); BPP layouts are inherently min-sheets.
+    alternatives = []
+
+    def _finalize_alternative(engine_alt, strategy, rank):
+        result_containers, placed_count, density, cost = parse_result_containers(
+            {"solution": engine_alt["solution"]}, input_items, bin_dims
+        )
+
+        # Part-loss guard: the engine only exports complete placements, but
+        # never trust a solver blindly — discard anything short.
+        n = sum(len(c.transforms) for c in result_containers)
+        if n != total_requested_count:
+            logger.error(
+                "Alternative lost parts, discarding it",
+                extra={"strategy": strategy, "transforms": n,
+                       "requested": total_requested_count},
+            )
+            return
+
+        alt_slug = f"{slug}_alt{rank}"
+        report_progress("building", rank, n_alternatives)
+        dxf_files, svg_files = build_result_dxf_files(
+            owner_id, alt_slug, result_containers, add_out_shape, space, dek
+        )
+        alternatives.append({
+            "seed": engine_alt.get("seed"),
+            "strategy": strategy,
+            "density": density,
+            # Share of sheet actually consumed (used bbox / sheet area,
+            # lower = better): the score that rewards compaction.
+            "usedSheetShare": compute_used_sheet_share(result_containers, input_items),
+            "offcut": largest_empty_rectangle(result_containers, input_items),
+            "cost": cost,
+            "layoutCount": len(result_containers),
+            "dxf_files": dxf_files,
+            "svg_files": svg_files,
+        })
+
+    def _strategy_for(rank):
+        if rank == 0:
+            return "max offcut" if is_spp else "compact"
+        return "balanced"
+
+    for rank, engine_alt in enumerate(engine_alternatives):
+        _finalize_alternative(engine_alt, _strategy_for(rank), rank)
+
+    if not alternatives:
         _heartbeat_stop.set()
         db["nesting_jobs"].update_one(
             { "slug": slug },
@@ -482,98 +535,8 @@ def nesting_process(doc):
         )
         raise Exception("Not all items could be placed in the nesting job")
 
-    # Strategy-labelled alternatives — each option the user sees is a
-    # genuinely different layout philosophy, not just another seed:
-    #   compact  — min footprint (race winner + hole relocation + compaction)
-    #   offcut   — narrowest band: biggest clean rectangular reusable offcut
-    #   balanced — the solver's natural best, untouched
-    alternatives = []
-
-    def _finalize_alternative(candidate, strategy, rank, post_pass):
-        result_containers, placed_count, density, cost = parse_result_containers(
-            candidate["output"], input_items, bin_dims
-        )
-        freed_sheets = 0
-        compaction_moves = 0
-
-        def _guard():
-            n = sum(len(c.transforms) for c in result_containers)
-            if n != total_requested_count:
-                logger.error(
-                    "Alternative lost parts, discarding it",
-                    extra={"strategy": strategy, "transforms": n,
-                           "requested": total_requested_count},
-                )
-                return False
-            return True
-
-        if post_pass:
-            containers_before = list(result_containers)
-            result_containers, freed_sheets = relocate_into_holes(
-                result_containers, input_items, space
-            )
-            if freed_sheets:
-                density = rescale_density(density, containers_before, result_containers)
-                logger.info(
-                    "Hole relocation freed sheets",
-                    extra={"strategy": strategy, "freed_sheets": freed_sheets},
-                )
-            # Compaction: on roomy sheets the solver has no incentive to use
-            # holes — move parts into cutouts when it shrinks the used area,
-            # leaving a clean reusable offcut.
-            report_progress("compacting", 0, 1)
-            compaction_moves = compact_into_holes(result_containers, input_items, space)
-
-        if not _guard():
-            return
-
-        alt_slug = f"{slug}_alt{rank}"
-        report_progress("building", rank, n_alternatives)
-        dxf_files, svg_files = build_result_dxf_files(
-            owner_id, alt_slug, result_containers, add_out_shape, space, dek
-        )
-        alternatives.append({
-            "seed": candidate["seed"],
-            "strategy": strategy,
-            "density": density,
-            # Share of sheet actually consumed (used bbox / sheet area,
-            # lower = better): the score that rewards compaction.
-            "usedSheetShare": compute_used_sheet_share(result_containers, input_items),
-            "offcut": largest_empty_rectangle(result_containers, input_items),
-            "cost": cost,
-            "layoutCount": len(result_containers),
-            "freedByHoleRelocation": freed_sheets,
-            "compactionMoves": compaction_moves,
-            "dxf_files": dxf_files,
-            "svg_files": svg_files,
-        })
-
-    # 1. compact — the race winner, with every post-pass.
-    _finalize_alternative(finals[0], "compact", 0, post_pass=True)
-
-    # 2. offcut — narrowest band on the sheet (single sheet type only).
-    rank = 1
-    if n_alternatives >= 2 and len(bins) == 1:
-        report_progress("compacting", 0, 1)
-        band_output, band = solve_band(
-            bins, jaguar_items, n_samples, space, has_holes, total_requested_count
-        )
-        if band_output is not None:
-            band_candidate = {"seed": "band", "output": band_output}
-            _finalize_alternative(band_candidate, "max offcut", rank, post_pass=True)
-            rank += 1
-
-    # 3. balanced — next distinct race final, same post-passes: another
-    # take on the compact layout rather than the solver's raw output (which
-    # never uses holes and made the option meaningless).
-    while rank < n_alternatives and rank < len(finals):
-        _finalize_alternative(finals[rank], "balanced", rank, post_pass=True)
-        rank += 1
-
     _heartbeat_stop.set()
-    # Best first: fewest sheets, then least sheet consumed (the solver
-    # density is identical for every alternative on the same sheets and
-    # cannot see compaction).
+    # Best first: fewest sheets, then least sheet consumed.
     alternatives.sort(
         key=lambda alt: (alt.get("layoutCount") or 0, alt.get("usedSheetShare") or 1.0)
     )
@@ -593,8 +556,6 @@ def nesting_process(doc):
                 "layoutCount": best["layoutCount"],
                 "density": best["density"],
                 "usedSheetShare": best["usedSheetShare"],
-                "holeRelocation": {"freed_sheets": best["freedByHoleRelocation"]},
-                "compaction": {"moves": best["compactionMoves"]},
                 "update_ts": datetime.now()
             },
             "$unset": {"progress": ""}

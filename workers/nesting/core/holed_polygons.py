@@ -5,17 +5,26 @@ collision engine only knows solid shapes. The upstream-endorsed workaround
 (jagua-rs issue #5) is to open every hole to the exterior with a degenerate
 hairline channel, turning the part into one simply-connected polygon:
 
-  * the channel is CHANNEL_WIDTH mm wide — far below any real part dimension,
-    so no other part can ever pass through it, and its area cost is negligible;
+  * the channel is CHANNEL_WIDTH mm wide by default — far below any real part
+    dimension, so no other part can ever pass through it, and its area cost is
+    negligible;
   * the part remains a single piece (exactly what cutting requires);
   * the hole region becomes ordinary free space, so the MAIN solve can nest
     small parts inside cutouts instead of wasting them;
   * the channel only exists in the collision geometry — result DXFs are
     rebuilt from the original DXF entities, untouched by this conversion.
 
+IMPORTANT (min_item_separation interaction): jagua-rs enforces the requested
+gap by INFLATING every item by space/2. An inflation larger than half the
+channel width seals the channel shut, making holes unreachable again. When a
+separation `space` is requested, the channel must therefore be widened to
+space + margin (see `channel_width_for_space`). Trade-off: a part edge can
+then approach the material along the channel path within ~space/2 — a sliver
+of a few mm², only along the channel, vs. holes completely unusable.
+
 Requires the `narrow_concavity_cutoff` fix from jagua-rs 0.7.0 (#73/#74) and
-concavity closing disabled for holed instances (see build_config), otherwise
-the channel would be sealed shut again.
+concavity closing disabled for holed instances (see build_engine_config),
+otherwise the channel would be sealed shut again.
 """
 
 from shapely import set_precision, unary_union
@@ -30,8 +39,23 @@ logger = setup_logger("holed_polygons")
 # and far below any real feature size so it never admits another part.
 CHANNEL_WIDTH = 0.01
 
+# Extra clearance added to the channel width when a separation is requested:
+# jagua inflates items by space/2 on EACH side, so a channel of exactly
+# `space` would still be sealed; the margin keeps it open.
+CHANNEL_SEPARATION_MARGIN = 0.1
 
-def open_holes_with_channels(outer_ring, hole_rings):
+
+def channel_width_for_space(space):
+    """Channel width surviving jagua's min_item_separation inflation.
+
+    Items are inflated by space/2 on both sides of the slit, so the channel
+    closes by `space` in total: it must be strictly wider than `space`.
+    """
+    space = float(space or 0)
+    return max(CHANNEL_WIDTH, space + CHANNEL_SEPARATION_MARGIN)
+
+
+def open_holes_with_channels(outer_ring, hole_rings, channel_width=None):
     """Returns the exterior ring of `outer_ring` with every hole connected to
     the outside by a hairline channel (a simple polygon, as a point list).
 
@@ -40,7 +64,12 @@ def open_holes_with_channels(outer_ring, hole_rings):
     bounding box. Holes are processed right-to-left so a channel never has to
     cross a not-yet-opened hole (a channel crossing an already-opened hole
     just shares its exit, which is fine).
+
+    channel_width: defaults to CHANNEL_WIDTH; pass channel_width_for_space(s)
+    when the job enforces a separation s (see module docstring).
     """
+    width = float(channel_width) if channel_width else CHANNEL_WIDTH
+
     if not hole_rings:
         return [list(p) for p in outer_ring]
 
@@ -49,8 +78,8 @@ def open_holes_with_channels(outer_ring, hole_rings):
         logger.warning("Holed polygon is empty, falling back to outer ring")
         return [list(p) for p in outer_ring]
 
-    half = CHANNEL_WIDTH / 2.0
-    beyond_x = poly.bounds[2] + CHANNEL_WIDTH * 10.0
+    half = width / 2.0
+    beyond_x = poly.bounds[2] + width * 10.0
 
     # Rightmost hole first: its channel then cannot cross another hole.
     ordered_holes = sorted(
@@ -65,9 +94,9 @@ def open_holes_with_channels(outer_ring, hole_rings):
         # tessellation bulge while staying negligible for real holes. The tiny
         # per-hole y-jitter keeps collinear channels (aligned hole centres)
         # from degenerating the boolean cut.
-        jitter = idx * CHANNEL_WIDTH * 0.37
+        jitter = idx * width * 0.37
         channels.append(box(
-            hx - CHANNEL_WIDTH * 2.0, hy + jitter - half,
+            hx - width * 2.0, hy + jitter - half,
             beyond_x, hy + jitter + half,
         ))
 

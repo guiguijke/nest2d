@@ -151,11 +151,15 @@ export async function hasPrivacyTier(userId) {
  * Selectable compute levels. Users can trade quality for speed within what
  * their tier allows (see getMaxComputeLevel); the level is validated
  * SERVER-SIDE at enqueue time — the client can never inflate its budget.
+ *
+ * Budgets are wall-clock seconds consumed by the nest-engine (separation/
+ * compaction optimizer): quality scales with time and the engine always
+ * returns its incumbent, so more time can never produce a worse layout.
  */
 export const COMPUTE_LEVELS = {
-  simple: { nSamples: 8000, nAlternatives: 1 },
-  normal: { nSamples: 20000, nAlternatives: 3 },
-  advanced: { nSamples: 60000, nAlternatives: 3 },
+  simple: { timeBudgetSec: 15, nAlternatives: 1 },
+  normal: { timeBudgetSec: 45, nAlternatives: 3 },
+  advanced: { timeBudgetSec: 180, nAlternatives: 3 },
 };
 
 const LEVEL_ORDER = ["simple", "normal", "advanced"];
@@ -191,7 +195,7 @@ export async function getMaxComputeLevel(userId, charge) {
  * @param {string} userId
  * @param {{type: string}|null} charge the charge returned by assertCanNest
  * @param {string} [requestedLevel] optional compute level selected in the UI
- * @returns {Promise<{nSamples: number, nAlternatives: number, priority: number, level: string}>}
+ * @returns {Promise<{timeBudgetSec: number, nAlternatives: number, priority: number, level: string}>}
  */
 export async function getComputeProfile(userId, charge, requestedLevel) {
   const db = await connectDB();
