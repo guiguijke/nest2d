@@ -82,6 +82,7 @@ export default defineEventHandler(async (event) => {
   const trackingSessionId = getCookie(event, TRACKING_COOKIE_NAME);
 
   const session = await createOrUpdateUser({
+    event,
     sessionId: trackingSessionId,
     providerId: sub,
     email,

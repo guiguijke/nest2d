@@ -12,7 +12,7 @@ Self-hosted on a homelab (Docker Compose + Nginx Proxy Manager).
 
 - [Architecture](#architecture)
 - [Homelab deployment (Docker Compose)](#homelab-deployment-docker-compose)
-- [Becoming an administrator](#becoming-an-administrator)
+- [Administration panel](#administration-panel)
 - [Configuration (`.env`)](#configuration-env)
 - [Authentication](#authentication)
 - [Local development](#local-development)
@@ -105,29 +105,19 @@ docker compose up -d
 
 ---
 
-## Becoming an administrator
+## Administration panel
 
-The admin UI (`/admin/support` = support chat) is protected: only users with `isAdmin: true` can access it, and the "Support" button only appears on the avatar for them.
+Administration is handled by a **separate application** living in [`./admin`](./admin/README.md): a Nuxt app with its own authentication (collection `admins`), exposed only on the local network. It shares the same MongoDB and provides user management, moderation (ban), credit adjustments, free-month grants (Stripe coupon or local grant), geo analytics, logs, support chat and payments overview.
 
-After creating your account, promote yourself to admin. The simplest way (no Node needed in the container) is via `mongosh` in the `mongo` container:
-
-```bash
-# Promote by email (recommended)
-docker compose exec -T mongo mongosh --quiet nest2d \
-  --eval 'db.users.updateOne({email:"me@example.com"}, {$set:{isAdmin:true}})'
-
-# ... or by exact user id (google:... / local:...)
-docker compose exec -T mongo mongosh --quiet nest2d \
-  --eval 'db.users.updateOne({id:"local:me@example.com"}, {$set:{isAdmin:true}})'
-```
-
-Alternatively, when running with Node locally (dev, `npm run dev`), there is a helper script:
+Create the first admin account after starting the stack:
 
 ```bash
-NUXT_MONGO_URI=mongodb://localhost:27017/nest2d node scripts/promote-admin.js me@example.com
+docker compose run --rm admin node scripts/bootstrap-admin.js
 ```
 
-> Log out and back in after promoting: the "Support" button will appear on your avatar.
+Then open the panel at `http://localhost:7200` (localhost-only by default; expose it via reverse-proxy/VPN only if you want remote access). Instant signup notifications and a periodic digest are sent to `NUXT_ADMIN_NOTIFY_EMAIL`.
+
+> The main app no longer carries an admin role (`isAdmin`, the `/admin/support` page and the `scripts/promote-admin.js` helper have been removed) — all administration goes through the dedicated panel.
 
 ---
 

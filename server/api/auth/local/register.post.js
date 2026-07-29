@@ -3,6 +3,8 @@ import { connectDB } from '~~/server/db/mongo'
 import { generateSession } from '~~/server/utils/auth'
 import { setSessionCookie } from '~~/server/utils/user'
 import { sendWelcomeMessage } from '~~/server/features/support/welcomemessage'
+import { notifyAdminNewUser } from '~~/server/features/notification/adminNotify'
+import { COUNTRY_HEADER_NAME } from '~~/server/tracking/const'
 import logger from '~~/server/utils/logger'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -53,6 +55,13 @@ export default defineEventHandler(async (event) => {
         balance: 30,
         isStripFeatureEnable: true,
         freeNestingUsed: 0,
+        // Geo + provenance, captured at signup for the admin panel. Country
+        // comes from Cloudflare's cf-ipcountry header (null without it).
+        signupCountry: (event.node.req.headers[COUNTRY_HEADER_NAME] || null),
+        signupIp:
+            event.node.req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
+            event.node.req.socket?.remoteAddress ||
+            null,
     })
 
     try {
@@ -60,6 +69,11 @@ export default defineEventHandler(async (event) => {
     } catch (err) {
         logger.warn('Error sending welcome message', err)
     }
+
+    // Best-effort admin notification (never blocks registration).
+    notifyAdminNewUser(event, { id: userId, email, name, provider: 'local' }).catch((err) => {
+        logger.warn('Error notifying admin of new signup', err)
+    })
 
     setSessionCookie(event, session)
     return { ok: true }

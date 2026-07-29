@@ -47,6 +47,13 @@ export async function getUserBySessionId(sessionId) {
     },
   });
 
+  // Banned accounts cannot authenticate: treat them as no session, which logs
+  // them out everywhere (their session no longer resolves). The ban flag is
+  // set from the admin panel.
+  if (user && user.banned) {
+    return null;
+  }
+
   if (user) {
     await db.collection("users").updateOne(
       { _id: user._id },

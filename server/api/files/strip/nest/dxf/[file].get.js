@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: "File not found" });
   }
 
-  if (job.ownerId !== userId && event.context.auth.isAdmin !== true) {
+  if (job.ownerId !== userId) {
     throw createError({
       statusCode: 401,
       statusMessage: "Unauthorized",

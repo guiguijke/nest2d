@@ -23,6 +23,9 @@ export default defineNuxtConfig({
         apiToken: '',
         googleClientSecret: '',
         blockedCountries: '',
+        // Destination for admin notifications (new signups). Optional; when
+        // unset the admin panel's periodic digest still catches new signups.
+        adminNotifyEmail: '',
         public: {
             baseUrl: "http://localhost:3000",
             gitCommitSha: "",

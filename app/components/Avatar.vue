@@ -1,20 +1,11 @@
 <template>
     <div class="avatar__wrapper">
-        <MainButton
-            v-if="size === sizeType.s && user?.isAdmin"
-            label="Support"
-            href="/admin/support"
-            :tag="NuxtLink"
-            :theme="themeType.primary"
-            trackingTag="admin_support_open"
-            class="upload__btn"
-        />
         <component
             :is="avatarTag"
             v-bind="avatarHref"
             class="avatar"
         >
-            <img 
+            <img
                 :class="avatarClasses"
                 :src="user.avatar"
                 :alt="user.name"
@@ -24,7 +15,6 @@
     </div>
 </template>
 <script setup>
-import { themeType } from '~~/constants/theme.constants';
 import { NuxtLink } from '#components';
 import { defaultSizeType, sizeType } from "~~/constants/size.constants";
 

@@ -18,8 +18,8 @@ WORKDIR /src
 FROM base AS build
 
 # Build context is the admin/ directory (configured in docker-compose / CI).
-COPY --link package.json package-lock.json* ./
-RUN npm install
+COPY --link package.json package-lock.json ./
+RUN npm ci
 
 COPY --link . .
 
