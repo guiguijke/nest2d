@@ -1,8 +1,8 @@
 <template>
     <div class="local-auth">
-        <MainTitle :label="isRegister ? 'Create your account' : 'Login to your account'" class="local-auth__title" />
+        <MainTitle :label="isRegister ? t('auth.registerTitle') : t('auth.loginAccount')" class="local-auth__title" />
         <p class="local-auth__subtitle">
-            {{ isRegister ? 'Sign up to start nesting your DXF files.' : 'Welcome back.' }}
+            {{ isRegister ? t('auth.signUpHint') : t('auth.welcomeBack') }}
         </p>
 
         <form class="local-auth__form" @submit.prevent="onSubmit">
@@ -10,21 +10,21 @@
                 v-if="isRegister"
                 v-model="name"
                 type="text"
-                placeholder="Your name"
+                :placeholder="t('auth.namePlaceholder')"
                 :is-error="!!fieldError"
                 class="local-auth__field"
             />
             <InputField
                 v-model="email"
                 type="email"
-                placeholder="Email"
+                :placeholder="t('auth.email')"
                 :is-error="!!fieldError"
                 class="local-auth__field"
             />
             <InputField
                 v-model="password"
                 type="password"
-                :placeholder="isRegister ? 'Password (min. 8 characters)' : 'Password'"
+                :placeholder="isRegister ? t('auth.passwordMinPlaceholder') : t('auth.passwordPlaceholder')"
                 :is-error="!!fieldError"
                 class="local-auth__field"
             />
@@ -33,7 +33,7 @@
 
             <MainButton
                 :theme="themeType.primary"
-                :label="isRegister ? 'Sign up' : 'Login'"
+                :label="isRegister ? t('auth.register') : t('auth.login')"
                 :isDisable="loading"
                 trackingTag="local_auth_submit"
                 tag="button"
@@ -43,10 +43,10 @@
         </form>
 
         <button class="local-auth__toggle" @click="toggleMode">
-            {{ isRegister ? 'Already have an account? Login' : "Don't have an account? Sign up" }}
+            {{ isRegister ? t('auth.toggleToLogin') : t('auth.toggleToRegister') }}
         </button>
         <NuxtLink v-if="!isRegister" to="/auth/forgot-password" class="local-auth__forgot">
-            Forgot password?
+            {{ t('auth.forgotPassword') }}
         </NuxtLink>
     </div>
 </template>
@@ -54,6 +54,8 @@
 <script setup>
 import { themeType } from '~~/constants/theme.constants'
 import { trackEvent } from '~/utils/track'
+
+const { t } = useLocale()
 
 definePageMeta({
     layout: 'doc',
@@ -91,7 +93,7 @@ const onSubmit = async () => {
         })
         router.push({ path: '/home' })
     } catch (err) {
-        fieldError.value = err?.data?.statusMessage || err?.statusMessage || 'Something went wrong. Please try again.'
+        fieldError.value = err?.data?.statusMessage || err?.statusMessage || t('auth.errorGeneric')
     } finally {
         loading.value = false
     }
