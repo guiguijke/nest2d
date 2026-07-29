@@ -61,8 +61,13 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
+        # fileprocessing pins a different pymongo than nesting — both are
+        # compatible with the tests, so keep nesting's pin and install the
+        # rest of fileprocessing's deps without it.
         run: |
-          pip install -r requirements.txt -r ../fileprocessing/requirements.txt pytest
+          pip install -r requirements.txt pytest
+          grep -v pymongo ../fileprocessing/requirements.txt > /tmp/fp_requirements.txt
+          pip install -r /tmp/fp_requirements.txt
 
       - name: Worker tests (unit + integration with the real engine)
         env:
