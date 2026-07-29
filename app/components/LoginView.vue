@@ -2,7 +2,7 @@
     <DialogWrapper v-model:isModalOpen="modelValue" trackingTag="login">
         <div class="modal">
             <MainTitle
-                label="Login to your account"
+                :label="t('auth.loginAccount')"
                 class="modal__title"
             />
             <div v-if="googleEnabled" class="modal__item item">
@@ -16,19 +16,19 @@
                     :theme="themeType.secondary"
                     trackingTag="login_google"
                     @click="doAuth('google')"
-                    label="Login with Google"
+                    :label="t('auth.loginGoogle')"
                 />
             </div>
             <template v-if="localAuthEnabled">
                 <div v-if="googleEnabled" class="modal__divider">
-                    <span>or</span>
+                    <span>{{ t('auth.or') }}</span>
                 </div>
                 <MainButton
                     :theme="themeType.primary"
                     trackingTag="login_email"
                     tag="a"
                     href="/auth/local"
-                    label="Login with email"
+                    :label="t('auth.loginEmail')"
                     class="modal__email"
                 />
             </template>
@@ -38,6 +38,8 @@
 
 <script setup>
 import { themeType } from "~~/constants/theme.constants";
+
+const { t } = useLocale()
 
 const modelValue = useLoginDialog()
 
