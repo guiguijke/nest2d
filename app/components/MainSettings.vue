@@ -34,14 +34,14 @@
                     <p class="rotations__hint">{{ rotationHint }}</p>
                 </div>
                 <div class="size__compute compute">
-                    <span class="compute__label">Compute level</span>
+                    <span class="compute__label">{{ t('settings.compute') }}</span>
                     <div class="compute__options">
                         <button
                             v-for="option in computeOptions"
                             :key="option.value"
                             :class="['compute__option', { 'compute__option--active': localComputeLevel === option.value, 'compute__option--locked': option.locked }]"
                             :disabled="option.locked"
-                            :title="option.locked ? `Requires ${option.value} tier` : option.hint"
+                            :title="option.locked ? t('settings.compute.lockedTier', { tier: option.label }) : option.hint"
                             @click="!option.locked && (localComputeLevel = option.value)"
                         >
                             {{ option.label }}
@@ -88,12 +88,9 @@ const localRotationCount = computed({
 
 // Compute level selector: capped server-side by the user's tier
 // (simple = free, normal = subscription/credits, advanced = pro/privacy).
+// Levels map to wall-clock compute budgets for the nesting engine
+// (15s / 45s / 180s — see server/utils/entitlement.js COMPUTE_LEVELS).
 const LEVEL_ORDER = ['simple', 'normal', 'advanced'];
-const LEVEL_HINTS = {
-    simple: 'Fast — 8k samples, 1 option',
-    normal: 'Balanced — 20k samples, 3 options',
-    advanced: 'Max quality — 60k samples, 3 options',
-};
 const { getters: authGetters } = authStore;
 const maxComputeLevel = computed(() => {
     const lvl = unref(authGetters.user)?.maxComputeLevel;
@@ -103,16 +100,16 @@ const computeOptions = computed(() => {
     const maxIdx = LEVEL_ORDER.indexOf(maxComputeLevel.value);
     return LEVEL_ORDER.map((value, idx) => ({
         value,
-        label: value.charAt(0).toUpperCase() + value.slice(1),
+        label: t(`settings.compute.level.${value}`),
         locked: idx > maxIdx,
-        hint: LEVEL_HINTS[value],
+        hint: t(`settings.compute.${value}`),
     }));
 });
 const localComputeLevel = computed({
     get: () => unref(params).computeLevel || maxComputeLevel.value,
     set: value => updateParams({ computeLevel: value }),
 });
-const activeComputeHint = computed(() => LEVEL_HINTS[localComputeLevel.value] || '');
+const activeComputeHint = computed(() => t(`settings.compute.${localComputeLevel.value}`));
 
 // Preview the angles that the current rotation count produces, so the user
 // understands what "N rotations" means (e.g. 8 -> 0°, 45°, 90°, ... 315°).
