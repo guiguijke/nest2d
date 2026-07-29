@@ -38,7 +38,9 @@ def _normalize_solution(problem_type, solution):
     """
     if problem_type == "spp":
         layout = solution.get("layout") or {}
-        layout.setdefault("container_id", 0)
+        # The strip's internal container id (a jagua internals artifact) is
+        # meaningless downstream — the SPP strip is always THE single sheet.
+        layout["container_id"] = 0
         return {
             "layouts": [layout],
             "density": solution.get("density"),

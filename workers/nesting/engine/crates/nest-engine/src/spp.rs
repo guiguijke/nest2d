@@ -23,11 +23,13 @@ struct WorkerRun {
 
 /// Splitmix-style derivation of independent per-worker seeds from the master
 /// seed. Deterministic and stable across runs/machines.
+/// Masked to 63 bits: seeds round-trip through MongoDB (int64) on the
+/// Python side, so they must never exceed i64::MAX.
 pub fn derive_seed(master: u64, worker: usize) -> u64 {
     let mut z = master.wrapping_add((worker as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
+    (z ^ (z >> 31)) & 0x7FFF_FFFF_FFFF_FFFF
 }
 
 /// Fingerprint of a layout: two runs producing the same placements (to 0.1 mm
@@ -98,6 +100,14 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                 &sparrow_cfg.cmpr_cfg,
                 None,
             );
+            // Gravity post-pass: the search minimizes strip width only, so
+            // under-constrained layouts can come out vertically scattered.
+            // Pull every item down-then-left (exact, collision-free) — the
+            // layout reads clean and the width can only improve.
+            let mut prob = jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
+            prob.restore(&solution);
+            crate::gravity::gravity_compact(&mut prob);
+            let solution = prob.save();
             WorkerRun { seed, solution }
         })
         .collect();
@@ -185,6 +195,15 @@ mod tests {
     fn derive_seed_is_deterministic() {
         assert_eq!(derive_seed(42, 0), derive_seed(42, 0));
         assert_eq!(derive_seed(7, 3), derive_seed(7, 3));
+    }
+
+    #[test]
+    fn derive_seed_fits_signed_63_bits() {
+        for master in [0u64, 1, 42, u64::MAX / 2, u64::MAX] {
+            for w in 0..8 {
+                assert!(derive_seed(master, w) <= i64::MAX as u64);
+            }
+        }
     }
 
     #[test]
