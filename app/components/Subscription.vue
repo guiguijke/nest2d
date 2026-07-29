@@ -1,22 +1,20 @@
 <template>
     <div class="subscription">
-        <MainTitle label="Subscription" class="subscription__title" />
+        <MainTitle :label="t('profile.subscription')" class="subscription__title" />
 
         <div v-if="isActive" class="subscription__card">
             <div class="subscription__status">
                 <span class="subscription__badge">{{ statusLabel }}</span>
             </div>
             <p v-if="data?.cancelAtPeriodEnd" class="subscription__cancel-notice">
-                Your subscription will end on
-                <strong>{{ formatDate(data?.currentPeriodEnd) }}</strong>.
-                You keep access until then.
+                {{ t('sub.cancelNotice', { date: formatDate(data?.currentPeriodEnd) }) }}
             </p>
             <p v-else class="subscription__desc">
-                You have unlimited nesting while your subscription is active.
+                {{ t('sub.activeDesc') }}
             </p>
             <MainButton
                 v-if="!data?.cancelAtPeriodEnd"
-                label="Cancel subscription"
+                :label="t('sub.cancelBtn')"
                 :theme="themeType.secondary"
                 :size="sizeType.m"
                 :isDisable="isLoading"
@@ -28,7 +26,7 @@
 
         <div v-if="isActive && data?.isPrivacyTier" class="subscription__card">
             <div class="subscription__status">
-                <span class="subscription__badge">Pro — Privacy+</span>
+                <span class="subscription__badge">{{ t('sub.proPrivacy') }}</span>
             </div>
             <p class="subscription__desc">
                 Zero-knowledge vault, maximum compute budget and priority
@@ -37,7 +35,7 @@
         </div>
 
         <div v-else-if="isActive && data?.privacyPlan" class="subscription__card">
-            <div class="subscription__plan-title">{{ data.privacyPlan.title || 'Pro — Privacy+' }}</div>
+            <div class="subscription__plan-title">{{ data.privacyPlan.title || t('sub.proPrivacy') }}</div>
             <div class="subscription__price">
                 {{ formatPrice(data.privacyPlan.amount, data.privacyPlan.currency) }}
                 <span class="subscription__interval">/ {{ data.privacyPlan.interval }}</span>
@@ -47,7 +45,7 @@
                 priority queue.
             </p>
             <MainButton
-                label="Upgrade to Pro"
+                :label="t('sub.upgradePro')"
                 :theme="themeType.primary"
                 :size="sizeType.m"
                 :isDisable="isLoading"
@@ -59,16 +57,16 @@
 
         <div v-else class="subscription__card">
             <div v-if="data?.plan" class="subscription__plan">
-                <div class="subscription__plan-title">{{ data.plan.title || 'Monthly plan' }}</div>
+                <div class="subscription__plan-title">{{ data.plan.title || t('sub.monthlyPlan') }}</div>
                 <div class="subscription__price">
                     {{ formatPrice(data.plan.amount, data.plan.currency) }}
                     <span class="subscription__interval">/ {{ data.plan.interval }}</span>
                 </div>
                 <div class="subscription__free">
-                    {{ data.freeRemaining }} free nesting operation{{ data.freeRemaining === 1 ? '' : 's' }} left this month
+                    {{ t('sub.freeLeft', { n: data.freeRemaining }) }}
                 </div>
                 <MainButton
-                    :label="`Start ${data.plan.trialDays}-day free trial`"
+                    :label="t('sub.startTrial', { days: data.plan.trialDays })"
                     :theme="themeType.primary"
                     :size="sizeType.m"
                     :isDisable="isLoading"
@@ -77,11 +75,11 @@
                     @click="subscribe"
                 />
                 <p class="subscription__note">
-                    🛡️ Cancel anytime during the trial and you won't be charged.
+                    {{ t('sub.cancelTrialNote') }}
                 </p>
             </div>
             <div v-else class="subscription__desc">
-                The subscription plan is currently unavailable. Please try again later.
+                {{ t('sub.unavailable') }}
             </div>
         </div>
 
@@ -94,6 +92,8 @@ import MainButton from './MainButton.vue'
 import MainTitle from './MainTitle.vue'
 import { themeType } from '~~/constants/theme.constants'
 import { sizeType } from '~~/constants/size.constants'
+
+const { t, locale } = useLocale()
 
 const { data, refresh } = await useFetch('/api/payment/subscription')
 
@@ -114,8 +114,8 @@ const isActive = computed(() => {
 
 const statusLabel = computed(() => {
     const status = unref(data)?.subscriptionStatus
-    if (status === 'trialing') return 'Free trial active'
-    if (status === 'active') return 'Active'
+    if (status === 'trialing') return t('sub.trialActive')
+    if (status === 'active') return t('sub.active')
     return status || ''
 })
 
@@ -136,7 +136,7 @@ const subscribe = async () => {
         const response = await $fetch('/api/payment/subscribe')
         navigateTo(response.url, { external: true })
     } catch (err) {
-        error.value = err?.data?.statusMessage || 'Failed to start subscription. Please try again.'
+        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec du démarrage de l\'abonnement. Veuillez réessayer.' : 'Failed to start subscription. Please try again.')
         isLoading.value = false
     }
 }
@@ -149,17 +149,14 @@ const subscribePro = async () => {
         const response = await $fetch('/api/payment/subscribe?tier=privacy')
         navigateTo(response.url, { external: true })
     } catch (err) {
-        error.value = err?.data?.statusMessage || 'Failed to start Pro subscription. Please try again.'
+        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec du démarrage de l\'abonnement Pro. Veuillez réessayer.' : 'Failed to start Pro subscription. Please try again.')
         isLoading.value = false
     }
 }
 
 const cancelSubscription = async () => {
     if (isLoading.value) return
-    const confirmed = window.confirm(
-        'Your subscription will be canceled at the end of the current billing period. ' +
-        'You will keep access until then. Continue?'
-    )
+    const confirmed = window.confirm(t('sub.cancelConfirm'))
     if (!confirmed) return
     error.value = ''
     isLoading.value = true
@@ -167,7 +164,7 @@ const cancelSubscription = async () => {
         await $fetch('/api/payment/subscription/cancel', { method: 'POST' })
         await refresh()
     } catch (err) {
-        error.value = err?.data?.statusMessage || 'Failed to cancel the subscription. Please try again.'
+        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec de l\'annulation de l\'abonnement. Veuillez réessayer.' : 'Failed to cancel the subscription. Please try again.')
     } finally {
         isLoading.value = false
     }

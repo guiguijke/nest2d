@@ -3,13 +3,15 @@
 </template>
 
 <script setup>
-import { useTerms } from '~~/data/legal.en'
+import { useTerms as useTermsEn } from '~~/data/legal.en'
+import { useTerms as useTermsFr } from '~~/data/legal.fr'
 
 definePageMeta({
     layout: 'doc',
 })
 
-const terms = useTerms()
+const { locale } = useLocale()
+const terms = computed(() => (locale.value === 'fr' ? useTermsFr() : useTermsEn()))
 
 useHead({
     title: 'Terms and Conditions — APlasma Nesting',

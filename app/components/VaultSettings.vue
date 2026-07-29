@@ -1,24 +1,22 @@
 <template>
     <div class="vault">
-        <MainTitle label="Zero-knowledge vault" class="vault__title" />
+        <MainTitle :label="t('vault.title')" class="vault__title" />
 
         <p class="vault__desc">
-            Your files are encrypted with a key file only you hold. We never
-            store it: <strong>if you lose the key file, your data is lost
-            forever</strong> — even we cannot recover it.
+            {{ t('vault.desc') }}
         </p>
 
         <!-- Loading -->
-        <p v-if="status === null" class="vault__muted">Loading…</p>
+        <p v-if="status === null" class="vault__muted">{{ t('common.loading') }}</p>
 
         <!-- Not eligible -->
         <div v-else-if="!status.eligible && !status.enabled" class="vault__card">
             <p class="vault__muted">
-                The zero-knowledge vault is available on the Pro plan.
+                {{ t('vault.notEligible') }}
             </p>
             <MainButton
                 :theme="themeType.secondary"
-                label="See plans"
+                :label="t('vault.seePlans')"
                 tag="a"
                 href="/plans"
                 trackingTag="vault_see_plans"
@@ -31,7 +29,7 @@
             <template v-if="!pendingKey">
                 <MainButton
                     :theme="themeType.primary"
-                    label="Generate my key file"
+                    :label="t('vault.generate')"
                     :isDisable="loading"
                     trackingTag="vault_generate_key"
                     @click="generate"
@@ -40,21 +38,18 @@
             </template>
             <template v-else>
                 <p class="vault__warning">
-                    ⚠️ Your key file <code>{{ pendingKeyFile.name }}</code> has
-                    been downloaded. Store it somewhere safe — it is the
-                    <strong>only</strong> copy.
+                    {{ locale === 'fr'
+                        ? `⚠️ Votre fichier-clé ${pendingKeyFile.name} a été téléchargé. Conservez-le en lieu sûr — c'est l'unique copie.`
+                        : `⚠️ Your key file ${pendingKeyFile.name} has been downloaded. Store it somewhere safe — it is the only copy.` }}
                 </p>
                 <label class="vault__confirm">
                     <input type="checkbox" v-model="confirmed" />
-                    <span>
-                        I saved my key file and I understand that losing it
-                        makes my data unrecoverable.
-                    </span>
+                    <span>{{ t('vault.confirmSave') }}</span>
                 </label>
                 <div class="vault__actions">
                     <MainButton
                         :theme="themeType.primary"
-                        label="Activate the vault"
+                        :label="t('vault.activate')"
                         :isDisable="!confirmed || loading"
                         trackingTag="vault_enable"
                         @click="enable"
@@ -62,7 +57,7 @@
                     />
                     <MainButton
                         :theme="themeType.secondary"
-                        label="Download again"
+                        :label="t('vault.downloadAgain')"
                         trackingTag="vault_redownload"
                         @click="redownload"
                         class="vault__btn"
@@ -75,22 +70,22 @@
         <div v-else class="vault__card">
             <p class="vault__status">
                 <span class="vault__dot" :class="{ 'vault__dot--locked': status.locked }" />
-                {{ status.locked ? 'Vault locked — files are unreadable until you unlock it.' : 'Vault unlocked — new files are encrypted.' }}
+                {{ status.locked ? t('vault.locked') : t('vault.unlocked') }}
             </p>
-            <p class="vault__muted">Key id: <code>{{ status.keyId }}</code></p>
+            <p class="vault__muted">{{ t('vault.keyId') }}: <code>{{ status.keyId }}</code></p>
 
             <div class="vault__actions">
                 <MainButton
                     v-if="status.locked"
                     :theme="themeType.primary"
-                    label="Unlock now"
+                    :label="t('vault.unlockNow')"
                     trackingTag="vault_unlock_now"
                     @click="openUnlock"
                     class="vault__btn"
                 />
                 <MainButton
                     :theme="themeType.secondary"
-                    label="Rotate my key"
+                    :label="t('vault.rotate')"
                     :isDisable="status.locked || loading"
                     trackingTag="vault_rotate"
                     @click="rotate"
@@ -98,7 +93,7 @@
                 />
                 <MainButton
                     :theme="themeType.secondary"
-                    label="Forget this browser"
+                    :label="t('vault.forgetBrowser')"
                     trackingTag="vault_forget_browser"
                     @click="forgetBrowser"
                     class="vault__btn"
@@ -106,17 +101,16 @@
             </div>
 
             <details class="vault__danger">
-                <summary>Danger zone</summary>
+                <summary>{{ t('vault.dangerZone') }}</summary>
 
                 <div class="vault__danger-block">
                     <p class="vault__muted">
-                        If you can unlock your vault, you can disable it while
-                        keeping your files (decrypted) or destroying them.
+                        {{ t('vault.disableDesc') }}
                     </p>
                     <div class="vault__actions">
                         <MainButton
                             :theme="themeType.secondary"
-                            label="Decrypt my files & disable"
+                            :label="t('vault.decryptDisable')"
                             :isDisable="status.locked || loading"
                             trackingTag="vault_disable_decrypt"
                             @click="disable('decrypt')"
@@ -124,7 +118,7 @@
                         />
                         <MainButton
                             :theme="themeType.secondary"
-                            label="Destroy files & disable"
+                            :label="t('vault.destroyDisable')"
                             :isDisable="status.locked || loading"
                             trackingTag="vault_disable_destroy"
                             @click="disable('destroy')"
@@ -135,18 +129,13 @@
 
                 <div class="vault__danger-block vault__danger-block--critical">
                     <p class="vault__danger-title">
-                        Destroy the vault completely
+                        {{ t('vault.destroyFull') }}
                     </p>
                     <p class="vault__muted">
-                        Use this only if you have lost your key file or cannot
-                        unlock the vault. <strong>All your files, projects and
-                        results will be permanently deleted — this cannot be
-                        undone.</strong> The vault will then be disabled and you
-                        can start fresh.
+                        {{ t('vault.destroyFullDesc') }}
                     </p>
                     <p class="vault__confirm-challenge">
-                        To confirm, type your key id
-                        <code>{{ status.keyId }}</code> below:
+                        {{ t('vault.confirmChallenge', { keyId: status.keyId }) }}
                     </p>
                     <input
                         v-model="destroyConfirm"
@@ -157,7 +146,7 @@
                     />
                     <MainButton
                         :theme="themeType.primary"
-                        label="Destroy everything"
+                        :label="t('vault.destroyBtn')"
                         :isDisable="destroyConfirm !== status.keyId || loading"
                         trackingTag="vault_destroy_full"
                         @click="destroyVault"
@@ -182,6 +171,8 @@ import {
     keyToBase64,
 } from '~/utils/vault'
 import { trackEvent } from '~/utils/track'
+
+const { t, locale } = useLocale()
 
 const status = ref(null)
 const loading = ref(false)
@@ -238,12 +229,12 @@ async function enable() {
         })
         pendingKey.value = null
         pendingKeyFile.value = null
-        notice.value = 'Vault activated. Your next uploads will be encrypted.'
+        notice.value = t('vault.activated')
         trackEvent('vault_enabled')
         await refresh()
         await authStore.actions.setUser()
     } catch (err) {
-        error.value = err?.data?.statusMessage || 'Activation failed. Please try again.'
+        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec de l\'activation. Veuillez réessayer.' : 'Activation failed. Please try again.')
     } finally {
         loading.value = false
     }
@@ -266,11 +257,11 @@ async function rotate() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key: keyToBase64(keyBytes) }),
         })
-        notice.value = 'Key rotated. Your files were re-encrypted with the new key — the old key file is now useless.'
+        notice.value = t('vault.rotated')
         trackEvent('vault_rotated')
         await refresh()
     } catch (err) {
-        error.value = err?.data?.statusMessage || 'Rotation failed. Your files are still encrypted with the old key.'
+        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec du renouvellement. Vos fichiers sont toujours chiffrés avec l\'ancienne clé.' : 'Rotation failed. Your files are still encrypted with the old key.')
     } finally {
         loading.value = false
     }
@@ -278,14 +269,18 @@ async function rotate() {
 
 async function forgetBrowser() {
     await forgetRememberedKey()
-    notice.value = 'This browser will no longer unlock the vault automatically.'
+    notice.value = t('vault.forgetNotice')
     trackEvent('vault_forget_browser')
 }
 
 async function disable(mode) {
-    const message = mode === 'destroy'
-        ? 'This permanently deletes ALL your files and disables the vault. There is no way back. Continue?'
-        : 'Your files will be decrypted and the vault disabled. Continue?'
+    const message = locale.value === 'fr'
+        ? (mode === 'destroy'
+            ? 'Cela supprime DÉFINITIVEMENT tous vos fichiers et désactive le coffre. C\'est irréversible. Continuer ?'
+            : 'Vos fichiers seront déchiffrés et le coffre désactivé. Continuer ?')
+        : (mode === 'destroy'
+            ? 'This permanently deletes ALL your files and disables the vault. There is no way back. Continue?'
+            : 'Your files will be decrypted and the vault disabled. Continue?')
     if (!window.confirm(message)) return
     loading.value = true
     error.value = ''
@@ -295,12 +290,12 @@ async function disable(mode) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mode }),
         })
-        notice.value = mode === 'destroy' ? 'Vault disabled — all files were destroyed.' : 'Vault disabled — your files were decrypted.'
+        notice.value = mode === 'destroy' ? t('vault.disabledDestroy') : t('vault.disabledDecrypt')
         trackEvent('vault_disabled', { mode })
         await refresh()
         await authStore.actions.setUser()
     } catch (err) {
-        error.value = err?.data?.statusMessage || 'Disable failed. Please try again.'
+        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec de la désactivation. Veuillez réessayer.' : 'Disable failed. Please try again.')
     } finally {
         loading.value = false
     }
@@ -308,8 +303,7 @@ async function disable(mode) {
 
 async function destroyVault() {
     if (destroyConfirm.value !== status.value?.keyId) return
-    const message = 'LAST WARNING: this permanently deletes ALL your files, projects and results, and destroys the vault. There is no way back. Continue?'
-    if (!window.confirm(message)) return
+    if (!window.confirm(t('vault.destroyConfirm'))) return
     loading.value = true
     error.value = ''
     try {
@@ -319,12 +313,12 @@ async function destroyVault() {
             body: JSON.stringify({ confirm: 'DESTROY' }),
         })
         destroyConfirm.value = ''
-        notice.value = 'Vault destroyed. All your data has been permanently deleted.'
+        notice.value = t('vault.destroyed')
         trackEvent('vault_destroyed')
         await refresh()
         await authStore.actions.setUser()
     } catch (err) {
-        error.value = err?.data?.statusMessage || 'Destruction failed. Please try again.'
+        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec de la destruction. Veuillez réessayer.' : 'Destruction failed. Please try again.')
     } finally {
         loading.value = false
     }

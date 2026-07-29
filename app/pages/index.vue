@@ -124,7 +124,7 @@
                 {{ pricing.subtitle }}
             </p>
             <NuxtLink to="/plans" class="pricing__compare-link">
-                Compare all features →
+                {{ locale === 'fr' ? 'Comparer toutes les offres →' : 'Compare all features →' }}
             </NuxtLink>
             <div class="pricing__list pricing-list">
                 <div
@@ -243,9 +243,22 @@ definePageMeta({
 onMounted(() => {
     trackEvent('page_view', { page: 'landing' })
 })
-import { hero, highlights, features, screenshots, howItWorks, pricing, useStarted, useFaq, useRefund } from '~~/data/index'
+import * as enData from '~~/data/index'
+import * as frData from '~~/data/index.fr'
 import { FREE_NESTING_LIMIT, TRIAL_DAYS } from '~~/shared/constants/payment.constants'
 import { defaultThemeType, themeType } from '~~/constants/theme.constants'
+
+const { locale } = useLocale()
+const data = computed(() => (locale.value === 'fr' ? frData : enData))
+const hero = computed(() => data.value.hero)
+const highlights = computed(() => data.value.highlights)
+const features = computed(() => data.value.features)
+const screenshots = computed(() => data.value.screenshots)
+const howItWorks = computed(() => data.value.howItWorks)
+const pricing = computed(() => data.value.pricing)
+const started = computed(() => data.value.useStarted())
+const faq = computed(() => data.value.useFaq())
+const refund = computed(() => data.value.useRefund())
 
 // Plan availability as synced from Stripe — the Pro card activates itself
 // as soon as the privacy product exists in Stripe, no deploy needed.
@@ -254,14 +267,14 @@ import { defaultThemeType, themeType } from '~~/constants/theme.constants'
 const { data: plans } = usePlans()
 const formatPlanPrice = (plan) => {
     if (!plan?.available) return null
-    return new Intl.NumberFormat('en', {
+    return new Intl.NumberFormat(locale.value === 'fr' ? 'fr-FR' : 'en', {
         style: 'currency',
         currency: plan.currency || 'eur',
         maximumFractionDigits: plan.amount % 1 === 0 ? 0 : 2,
     }).format(plan.amount)
 }
 const pricingTiers = computed(() => {
-    return pricing.tiers.map((tier) => {
+    return pricing.value.tiers.map((tier) => {
         if (!tier.comingSoon) return tier
         const proPlan = unref(plans)?.privacy
         if (!proPlan?.available) return tier
@@ -269,15 +282,11 @@ const pricingTiers = computed(() => {
         return {
             ...tier,
             price: formatPlanPrice(proPlan) || tier.price,
-            cta: 'Get Pro',
+            cta: locale.value === 'fr' ? 'Passer Pro' : 'Get Pro',
             comingSoon: false,
         }
     })
 })
-
-const started = useStarted()
-const faq = useFaq()
-const refund = useRefund()
 
 const loginDialog = useLoginDialog()
 
@@ -297,7 +306,12 @@ function onPricingClick(tier) {
     loginDialog.value = true
 }
 
-const freeNestingsHint = `${FREE_NESTING_LIMIT} free nestings / month · No installation · ${TRIAL_DAYS}-day free trial`
+const freeNestingsHint = computed(() => {
+    if (locale.value === 'fr') {
+        return `${FREE_NESTING_LIMIT} imbrications gratuites / mois · Sans installation · Essai gratuit de ${TRIAL_DAYS} jours`
+    }
+    return `${FREE_NESTING_LIMIT} free nestings / month · No installation · ${TRIAL_DAYS}-day free trial`
+})
 
 // Inline monochrome stroke icons matching the design system.
 const featureIcons = {

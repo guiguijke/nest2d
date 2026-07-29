@@ -1,36 +1,38 @@
 <template>
     <div class="stats">
-        <MainTitle label="Your activity" class="stats__title" />
+        <MainTitle :label="t('stats.title')" class="stats__title" />
         <div class="stats__grid grid">
             <div class="grid__item item">
                 <span class="item__value">{{ stats.projects }}</span>
-                <span class="item__label">Projects</span>
+                <span class="item__label">{{ t('stats.projects') }}</span>
             </div>
             <div class="grid__item item">
                 <span class="item__value">{{ stats.nestings }}</span>
-                <span class="item__label">Nestings run</span>
+                <span class="item__label">{{ t('stats.nestings') }}</span>
             </div>
             <div class="grid__item item">
                 <span class="item__value">{{ stats.partsNested }}</span>
-                <span class="item__label">Parts nested</span>
+                <span class="item__label">{{ t('stats.partsNested') }}</span>
             </div>
             <div class="grid__item item">
                 <span class="item__value">{{ stats.dxfFiles }}</span>
-                <span class="item__label">DXF files</span>
+                <span class="item__label">{{ t('stats.dxfFiles') }}</span>
             </div>
             <div class="grid__item item">
                 <span class="item__value">{{ stats.nestingsThisMonth }}</span>
-                <span class="item__label">This month</span>
+                <span class="item__label">{{ t('stats.thisMonth') }}</span>
             </div>
             <div class="grid__item item">
                 <span class="item__value">{{ successRate }}%</span>
-                <span class="item__label">Success rate</span>
+                <span class="item__label">{{ t('stats.successRate') }}</span>
             </div>
         </div>
     </div>
 </template>
 
 <script setup>
+const { t } = useLocale()
+
 const stats = ref({
     projects: 0,
     nestings: 0,
