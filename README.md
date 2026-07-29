@@ -112,8 +112,11 @@ Administration is handled by a **separate application** living in [`./admin`](./
 Create the first admin account after starting the stack:
 
 ```bash
-docker compose run --rm admin node scripts/bootstrap-admin.js
+docker compose up -d admin
+docker compose logs admin | grep -A12 "FIRST-TIME SETUP"   # grab the one-time token
 ```
+
+Then open `http://localhost:7200/setup`, paste the token and fill in the credentials. The setup page locks itself once the first admin exists; afterwards everyone signs in at `/login`.
 
 Then open the panel at `http://localhost:7200` (localhost-only by default; expose it via reverse-proxy/VPN only if you want remote access). Instant signup notifications and a periodic digest are sent to `NUXT_ADMIN_NOTIFY_EMAIL`.
 

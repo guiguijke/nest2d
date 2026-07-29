@@ -10,8 +10,7 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare",
-    "bootstrap": "node scripts/bootstrap-admin.js"
+    "postinstall": "nuxt prepare"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
