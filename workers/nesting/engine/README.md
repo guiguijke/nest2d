@@ -19,7 +19,8 @@ SOTA de strip packing, vendored dans `crates/sparrow` — voir `NOTICE`).
     uniforme + descente de coordonnées, évaluateur left-bottom-fill), et une
     nouvelle tôle n'est ouverte que si la pièce ne rentre vraiment nulle part.
     Objectif lexicographique : toutes les pièces placées → coût des tôles
-    minimal → remplissage inégal (Falkenauer) pour dégager une chute propre.
+    minimal → **chute maximale** (plus grand rectangle ou L libre autour du
+    bbox utilisé, par tôle) → remplissage inégal (Falkenauer).
 - **Compaction bi-axiale (SPP)** : minimiser la largeur seule est indifférent
   à l'usage des trous (empiler dans la colonne = imbriquer dans les découpes).
   Après la phase 1 (min largeur W*), le moteur **transpose le problème à 90°**

@@ -1,0 +1,66 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-ink-950 text-ink-100 antialiased;
+  }
+  body {
+    @apply text-[13px] leading-relaxed;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold tracking-tight text-white;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-ink-700 bg-ink-900 p-4 shadow-sm;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-rust text-white hover:bg-rust-light;
+  }
+  .btn-secondary {
+    @apply btn border border-ink-600 bg-ink-800 text-ink-100 hover:bg-ink-700;
+  }
+  .btn-danger {
+    @apply btn bg-err text-white hover:opacity-90;
+  }
+  .btn-ghost {
+    @apply btn text-ink-300 hover:bg-ink-800;
+  }
+  .input {
+    @apply w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-1.5 text-ink-100 placeholder-ink-400 outline-none focus:border-rust;
+  }
+  .label {
+    @apply mb-1 block text-[11px] font-medium uppercase tracking-wide text-ink-400;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide;
+  }
+  .table-row-clickable {
+    @apply cursor-pointer transition-colors hover:bg-ink-850;
+  }
+}
+
+/* Thin scrollbars for dense admin tables */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #323c41 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #323c41;
+  border-radius: 4px;
+}

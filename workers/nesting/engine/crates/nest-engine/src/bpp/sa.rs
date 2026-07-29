@@ -1,11 +1,12 @@
 //! Simulated annealing over the item placement sequence (with late-incumbent
 //! guarantee): the order in which the greedy constructor places items is the
 //! search space, sequence permutations are the moves. Objective is
-//! lexicographic: (1) every item placed, (2) fewest bin cost, (3) most uneven
-//! fill (Falkenauer) — full bins and one light bin leave a reusable offcut.
+//! lexicographic: (1) every item placed, (2) fewest bin cost, (3) biggest
+//! reusable remnant per sheet, (4) most uneven fill (Falkenauer).
 
 use super::constructive::construct;
 use jagua_rs::entities::Instance;
+use jagua_rs::entities::LayoutSnapshot;
 use jagua_rs::probs::bpp::entities::{BPInstance, BPSolution};
 use rand::{Rng, RngExt};
 use std::time::{Duration, Instant};
@@ -15,23 +16,84 @@ use std::time::{Duration, Instant};
 pub struct Cost {
     pub unplaced: usize,
     pub bin_cost: u64,
+    /// Mean remnant score over used bins, as a fraction of one bin's area
+    /// in [0, 1]: biggest free rectangle or L-shape per sheet. Higher = a
+    /// cleaner, more reusable offcut.
+    pub remnant: f64,
     /// Falkenauer fitness in (0, 1]: higher = more uneven fill = better.
     pub falkenauer: f64,
 }
 
 impl Cost {
     pub fn scalar(&self) -> f64 {
-        self.unplaced as f64 * 1000.0 + self.bin_cost as f64 * 10.0 - self.falkenauer
+        // bin_cost dominates (10 per sheet); remnant worth ~3 per full sheet
+        // of clean offcut; falkenauer a nudge (0.5).
+        self.unplaced as f64 * 1000.0 + self.bin_cost as f64 * 10.0
+            - self.remnant * 3.0
+            - self.falkenauer * 0.5
     }
-    /// Lexicographic ordering: unplaced, then bin cost, then fill evenness.
-    pub fn cmp_key(&self) -> (usize, u64, i64) {
+    /// Lexicographic ordering: unplaced, then bin cost, then remnant, then fill.
+    pub fn cmp_key(&self) -> (usize, u64, i64, i64) {
         (
             self.unplaced,
             self.bin_cost,
-            // negate: higher falkenauer is better
+            // negate: higher remnant / falkenauer is better
+            (-self.remnant * 1e9) as i64,
             (-self.falkenauer * 1e9) as i64,
         )
     }
+}
+
+/// Remnant score of one layout: the largest free rectangle OR L-shape around
+/// the used bounding box (right/top/bottom/left bands, and the two L
+/// combinations of adjacent bands). Expressed as a fraction of the bin area.
+///
+/// A band is free BY CONSTRUCTION of the used bbox, and each L is the union
+/// of two adjacent bands (a full-side band plus the continuation over the
+/// used region on the adjacent side) — the shape a shop can actually reuse
+/// for L-shaped parts.
+fn layout_remnant(ls: &LayoutSnapshot) -> f64 {
+    let bbox = ls.container.outer_cd.bbox;
+    let (w, h) = (bbox.width() as f64, bbox.height() as f64);
+    if w <= 0.0 || h <= 0.0 {
+        return 0.0;
+    }
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for pi in ls.placed_items.values() {
+        let b = &pi.shape.bbox;
+        min_x = min_x.min(b.x_min);
+        min_y = min_y.min(b.y_min);
+        max_x = max_x.max(b.x_max);
+        max_y = max_y.max(b.y_max);
+    }
+    if !min_x.is_finite() {
+        return 1.0; // empty layout: fully reusable
+    }
+    let (min_x, min_y) = (min_x as f64, min_y as f64);
+    let (max_x, max_y) = (max_x as f64, max_y as f64);
+
+    let right = (w - max_x) * h;
+    let top = w * (h - max_y);
+    let left = min_x * h;
+    let bottom = w * min_y;
+    // L-shapes: full band + adjacent band over the used region (no overlap).
+    let l_right_top = (w - max_x) * h + max_x * (h - max_y);
+    let l_top_right = w * (h - max_y) + (w - max_x) * max_y;
+    let l_left_bottom = min_x * h + (w - min_x) * min_y;
+    let l_bottom_left = w * min_y + min_x * (h - min_y);
+
+    let best = right
+        .max(top)
+        .max(left)
+        .max(bottom)
+        .max(l_right_top)
+        .max(l_top_right)
+        .max(l_left_bottom)
+        .max(l_bottom_left);
+    (best / (w * h)).clamp(0.0, 1.0)
 }
 
 pub fn cost_of(solution: &BPSolution, instance: &BPInstance, unplaced: usize) -> Cost {
@@ -45,9 +107,16 @@ pub fn cost_of(solution: &BPSolution, instance: &BPInstance, unplaced: usize) ->
         })
         .sum::<f64>()
         / n_layouts;
+    let remnant = solution
+        .layout_snapshots
+        .values()
+        .map(layout_remnant)
+        .sum::<f64>()
+        / n_layouts;
     Cost {
         unplaced,
         bin_cost: solution.cost(instance),
+        remnant,
         falkenauer,
     }
 }
@@ -202,15 +271,18 @@ mod tests {
 
     #[test]
     fn cost_is_lexicographic() {
-        let a = Cost { unplaced: 0, bin_cost: 3, falkenauer: 0.5 };
-        let b = Cost { unplaced: 1, bin_cost: 1, falkenauer: 0.9 };
+        let a = Cost { unplaced: 0, bin_cost: 3, remnant: 0.2, falkenauer: 0.5 };
+        let b = Cost { unplaced: 1, bin_cost: 1, remnant: 0.9, falkenauer: 0.9 };
         // feasibility dominates everything
         assert!(a.cmp_key() < b.cmp_key());
-        let c = Cost { unplaced: 0, bin_cost: 2, falkenauer: 0.1 };
-        // fewer bins beats better fill
+        let c = Cost { unplaced: 0, bin_cost: 2, remnant: 0.1, falkenauer: 0.1 };
+        // fewer bins beats better remnant and fill
         assert!(c.cmp_key() < a.cmp_key());
-        let d = Cost { unplaced: 0, bin_cost: 2, falkenauer: 0.9 };
-        // at equal bins, more uneven fill wins
+        let d = Cost { unplaced: 0, bin_cost: 2, remnant: 0.6, falkenauer: 0.1 };
+        // at equal bins, bigger remnant wins
         assert!(d.cmp_key() < c.cmp_key());
+        let e = Cost { unplaced: 0, bin_cost: 2, remnant: 0.6, falkenauer: 0.9 };
+        // at equal remnant, more uneven fill wins
+        assert!(e.cmp_key() < d.cmp_key());
     }
 }
