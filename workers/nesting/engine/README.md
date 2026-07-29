@@ -17,6 +17,17 @@ SOTA de strip packing, vendored dans `crates/sparrow` — voir `NOTICE`).
     glouton bottom-left-fill s'appuyant sur le CDE jagua. Objectif
     lexicographique : toutes les pièces placées → coût des tôles minimal →
     remplissage inégal (Falkenauer) pour dégager une chute propre.
+- **Compaction bi-axiale (SPP)** : minimiser la largeur seule est indifférent
+  à l'usage des trous (empiler dans la colonne = imbriquer dans les découpes).
+  Après la phase 1 (min largeur W*), le moteur **transpose le problème à 90°**
+  et ré-optimise dans un couloir de hauteur W* (+`phase2_slack_mm`, 2 mm) :
+  empiler devient impossible, donc minimiser la longueur transposée **pousse
+  les pièces dans les trous** et réduit la hauteur consommée. Config :
+  `two_phase` (défaut true), `phase1_ratio` (0.6), `phase2_slack_mm` (2.0).
+- **Passe gravité** : après chaque recherche, chaque pièce est tirée vers le
+  bas puis vers la gauche par bissection exacte contre le CDE (déterministe,
+  sans chevauchement possible, la largeur ne peut que diminuer) — les layouts
+  restent lisibles même quand le budget est court (machine lente).
 - **Incumbent garanti** : la meilleure solution faisable rencontrée est toujours
   exportée — jamais de régression, quel que soit le budget.
 - **Seed déterministe** : `prng_seed` obligatoire (dérivé d'un hash du job côté

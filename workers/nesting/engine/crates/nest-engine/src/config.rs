@@ -32,6 +32,17 @@ pub struct EngineConfig {
     /// opened with a hairline channel, otherwise the channel gets sealed).
     #[serde(default = "default_concavity_cutoff")]
     pub narrow_concavity_cutoff: Option<(f32, f32)>,
+    /// SPP only: run the second compaction phase on the 90°-transposed
+    /// problem (minimizes used height, drives parts into holes). Default true.
+    pub two_phase: Option<bool>,
+    /// Share of the budget given to phase 1 (width minimization).
+    pub phase1_ratio: Option<f32>,
+    /// Breathing room added to the phase-2 corridor (mm): the corridor is
+    /// best_width + slack so the sampler can manoeuvre around tight fits.
+    pub phase2_slack_mm: Option<f32>,
+    /// Apply the gravity post-pass (default true). Mainly a debug/ablation
+    /// knob for benchmark comparisons.
+    pub gravity: Option<bool>,
 }
 
 fn default_n_alternatives() -> usize {
@@ -48,6 +59,18 @@ fn default_concavity_cutoff() -> Option<(f32, f32)> {
 }
 
 impl EngineConfig {
+    pub fn two_phase(&self) -> bool {
+        self.two_phase.unwrap_or(true)
+    }
+    pub fn phase1_ratio(&self) -> f32 {
+        self.phase1_ratio.unwrap_or(0.6).clamp(0.1, 0.9)
+    }
+    pub fn phase2_slack_mm(&self) -> f32 {
+        self.phase2_slack_mm.unwrap_or(1.0).max(0.0)
+    }
+    pub fn gravity(&self) -> bool {
+        self.gravity.unwrap_or(true)
+    }
     pub fn n_workers(&self) -> usize {
         self.n_workers.unwrap_or_else(|| {
             let inner = DEFAULT_SPARROW_CONFIG.expl_cfg.separator_config.n_workers;
