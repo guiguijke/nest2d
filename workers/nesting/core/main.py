@@ -137,6 +137,10 @@ def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None
     Creates a single new DXF drawing by fetching, transforming, and combining
     entities from a list of transform operations. When bin dimensions are
     provided, the sheet boundary is always drawn on a BIN_BOUNDARY layer.
+
+    Transforms are grouped by source file: the xref Loader is created once
+    per file (it re-processes the source document's tables on execute —
+    one call per placed part made large jobs crawl).
     """
 
     logger.info("Building part", extra={"add_out_shape": add_out_shape})
@@ -145,14 +149,20 @@ def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None
     new_msp = new_doc.modelspace()
     added_entities = []
 
+    # Group transforms by source file, preserving placement order within a file.
+    transforms_by_file = {}
     for transform in transforms:
+        transforms_by_file.setdefault(transform.file_slug, []).append(transform)
+
+    for file_slug, file_transforms in transforms_by_file.items():
         try:
+            all_handles = [h for t in file_transforms for h in t.handles]
             source_doc, entities_to_process = get_entities_from_dxf_file(
-                transform.file_slug, transform.handles, owner_id, dek
+                file_slug, all_handles, owner_id, dek
             )
 
             if not entities_to_process:
-                logger.warning("No entities found in file", extra={"file_slug": transform.file_slug})
+                logger.warning("No entities found in file", extra={"file_slug": file_slug})
                 continue
             required_layers = {entity.dxf.layer for entity in entities_to_process}
 
@@ -163,23 +173,29 @@ def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None
 
             loader.execute()
 
-            rotationMatrix = Matrix44.z_rotate(transform.angle)
-            translationMatrix = Matrix44.translate(transform.x, transform.y, 0)
-            matrix = rotationMatrix * translationMatrix
+            entities_by_handle = {e.dxf.handle: e for e in entities_to_process}
 
-            for entity in entities_to_process:
-                new_entity = entity.copy()
-                new_entity.transform(matrix)
-                new_msp.add_entity(new_entity)
-                added_entities.append(new_entity)
+            for transform in file_transforms:
+                rotationMatrix = Matrix44.z_rotate(transform.angle)
+                translationMatrix = Matrix44.translate(transform.x, transform.y, 0)
+                matrix = rotationMatrix * translationMatrix
+
+                for handle in transform.handles:
+                    entity = entities_by_handle.get(handle)
+                    if entity is None:
+                        continue
+                    new_entity = entity.copy()
+                    new_entity.transform(matrix)
+                    new_msp.add_entity(new_entity)
+                    added_entities.append(new_entity)
 
             logger.info(
                 "Entities from file moved to file",
-                extra={"file_slug": transform.file_slug, "count": len(entities_to_process)}
+                extra={"file_slug": file_slug, "count": len(entities_to_process)}
             )
 
         except Exception as e:
-            logger.error("Error processing transform", extra={"file_slug": transform.file_slug, "error": e})
+            logger.error("Error processing transform", extra={"file_slug": file_slug, "error": e})
             raise e
 
     if bin_width is not None and bin_height is not None:
