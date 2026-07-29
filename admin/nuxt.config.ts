@@ -11,18 +11,22 @@ export default defineNuxtConfig({
   devServer: { port: 7200, host: '0.0.0.0' },
 
   runtimeConfig: {
-    // IMPORTANT: values here are BUILD-time defaults. Real values are injected
-    // at RUNTIME from NUXT_* env vars (Nuxt maps NUXT_<KEY> to runtimeConfig.<key>
-    // automatically, camelCasing NUXT_ADMIN_MONGO_URI -> adminMongoUri... except
-    // it matches keys exactly, so we name keys to match the env var suffix).
-    // Keep defaults empty/neutral so nothing sensitive is baked into the image.
-    mongoUri: '',
-    sessionSecret: '',
-    notifyEmail: '',
+    // IMPORTANT: Nuxt maps NUXT_* env vars to runtimeConfig keys by camelCasing
+    // the suffix of an EXACT key match. So NUXT_ADMIN_MONGO_URI -> runtimeConfig.
+    // adminMongoUri. The key names below are chosen to match the env vars used
+    // in docker-compose.yml. Keep defaults empty/neutral so nothing sensitive is
+    // baked into the image.
+    // Mongo URI of the MAIN app (shared DB). NUXT_ADMIN_MONGO_URI.
+    adminMongoUri: '',
+    adminSessionSecret: '',
+    adminNotifyEmail: '',
     adminBaseUrl: 'http://localhost:7200',
+    // NUXT_PUBLIC_BASE_URL -> public.appBaseUrl (Nuxt camelCases public.* too,
+    // NUXT_PUBLIC_BASE_URL matches the public.appBaseUrl key).
     appBaseUrl: 'http://localhost:3000',
-    // NUXT_ADMIN_LAN_OPEN=true -> runtimeConfig.adminLanOpen (camelCased by Nuxt).
+    // NUXT_ADMIN_LAN_OPEN=true -> runtimeConfig.adminLanOpen.
     adminLanOpen: false,
+    // NUXT_RESEND_TOKEN / NUXT_STRIPE_SECRET_KEY map directly (exact key match).
     resendToken: '',
     resendFrom: 'onboarding@resend.dev',
     stripeSecretKey: '',

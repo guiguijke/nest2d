@@ -13,7 +13,7 @@ let dbInstance: Db | null = null
 export async function connectDB(): Promise<Db> {
   if (dbInstance) return dbInstance
 
-  const uri = useRuntimeConfig().mongoUri as string
+  const uri = useRuntimeConfig().adminMongoUri as string
   if (!uri) {
     throw createError({
       statusCode: 500,
