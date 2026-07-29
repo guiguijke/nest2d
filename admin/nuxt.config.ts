@@ -43,7 +43,7 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'APlasma — Administration',
+      title: 'NestorCut — Administration',
       htmlAttrs: { lang: 'fr' },
       meta: [
         { charset: 'utf-8' },

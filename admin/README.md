@@ -1,6 +1,6 @@
 # APlasma — Panneau d'administration
 
-Panneau d'administration autonome (Nuxt 4) pour la plateforme APlasma Nesting.
+Panneau d'administration autonome (Nuxt 4) pour la plateforme NestorCut.
 Il partage la **même base MongoDB** que l'application principale mais possède sa
 propre authentification (collection `admins`), son propre process et son propre
 port — non exposé au public par défaut.

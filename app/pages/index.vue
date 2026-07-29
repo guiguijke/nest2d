@@ -32,7 +32,7 @@
             <button class="hero__visual" @click="openModal({ src: heroScreenshot, index: 0, theme: theme })">
                 <img
                     :src="heroScreenshot"
-                    alt="APlasma Nesting workspace — parts nested on a sheet"
+                    alt="NestorCut workspace — parts nested on a sheet"
                     class="hero__img"
                 />
             </button>
@@ -109,7 +109,7 @@
                 >
                     <img
                         :src="screenshot.src"
-                        alt="APlasma Nesting user interface"
+                        alt="NestorCut user interface"
                         class="screenshots-list__img"
                     />
                 </button>
@@ -335,10 +335,8 @@ const theme = computed(() => {
     return unref(themeGlobal)
 })
 const heroScreenshot = computed(() => `/screenshots/second-${unref(theme)}.png`)
-// Brand watermark ("forme découpée APLASMA", charte §5 — filigrane fond de page)
-const watermarkSrc = computed(() => unref(theme) === 'primary'
-    ? '/brand/forme-blanc.png'
-    : '/brand/forme-rouille.png')
+// Brand watermark: the NestorCut "N" tile, theme-independent.
+const watermarkSrc = computed(() => '/brand/n-mark.png')
 const openModal = (screenshot) => {
     setModalScreenshotData(screenshot)
     screenshotDialog.value = true

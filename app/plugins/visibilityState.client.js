@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 
-const defaultTitle = 'APlasma Nesting - Smart Nesting for Laser Cutting and CNC machining'
+const defaultTitle = 'NestorCut — State-of-the-art nesting for laser, plasma & CNC cutting'
 
 export default defineNuxtPlugin((nuxtApp) => {
     let interval

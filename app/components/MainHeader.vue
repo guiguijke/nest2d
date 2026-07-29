@@ -1,14 +1,14 @@
 <template>
     <header class="header">
         <component :is="logoTag" v-bind="logoHref" class="header__logo logo">
-            <img :src="logoMarkSrc" alt="APlasma" class="logo__mark" />
+            <img :src="logoMarkSrc" alt="NestorCut" class="logo__mark" />
             <span class="logo__label">
-                APlasma <span class="logo__label--light">Nesting</span>
+                Nestor<span class="logo__label--light">Cut</span>
             </span>
         </component>
         <nav v-if="isPrimaryTheme" class="header__tabs tabs">
             <NuxtLink to="/" class="tabs__link" active-class="tabs__link--active">
-                APlasma
+                NestorCut
             </NuxtLink>
             <NuxtLink to="/home" class="tabs__link" active-class="tabs__link--active">
                 {{ t('nav.workspace') }}
@@ -154,12 +154,8 @@ const themeIcon = computed(() => {
     return unref(themeGlobal) === themeType.primary ? iconType.light : iconType.dark
 })
 
-// Brand lockup follows the theme: anthracite+rust on light, white on dark.
-const logoMarkSrc = computed(() => {
-    return unref(themeGlobal) === themeType.primary
-        ? '/brand/logo-blanc.png'
-        : '/brand/logo-gr.png'
-})
+// Brand mark: the NestorCut "N" tile works on both light and dark themes.
+const logoMarkSrc = computed(() => '/brand/n-mark.png')
 
 </script>
 <style lang="scss" scoped>

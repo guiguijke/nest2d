@@ -1,7 +1,7 @@
 <template>
     <footer class="footer"> 
         <div class="footer__content content">
-            <img src="/brand/logo-blanc.png" alt="APlasma" class="footer__logo" />
+            <img src="/brand/logo-dark-stacked.png" alt="NestorCut" class="footer__logo" />
             <ul class="list">
                 <li class="list__item">
                     <a
@@ -54,7 +54,7 @@
                 </li>
             </ul>
             <p class="footer__copyright">
-                © {{ copyrightYear }} APlasma Nesting. Inspired by Nest2D — forked from <a href="https://github.com/VovaStelmashchuk/nest2d" target="_blank" class="footer__link">VovaStelmashchuk/nest2d</a>. Built with ♥ and open source principles.
+                © {{ copyrightYear }} NestorCut · APlasma. Inspired by Nest2D — forked from <a href="https://github.com/VovaStelmashchuk/nest2d" target="_blank" class="footer__link">VovaStelmashchuk/nest2d</a>. Built with ♥ and open source principles.
             </p>
         </div>
     </footer>
@@ -72,8 +72,9 @@ const { copyrightYear } = useSiteConfig();
     background-color: var(--footer-bg);
 
     &__logo {
-        height: 28px;
+        height: 64px;
         width: auto;
+        border-radius: 4px;
         margin-bottom: 12px;
 
         @media (min-width: 1199px) {
