@@ -1,9 +1,6 @@
 <template>
     <div v-if="show" class="free-nest" :class="{ 'free-nest--empty': isEmpty }">
-        <template v-if="isAdmin">
-            <span class="free-nest__text">Unlimited nesting (admin)</span>
-        </template>
-        <template v-else-if="isEmpty">
+        <template v-if="isEmpty">
             <span class="free-nest__text">You've used all your free nestings for this month.</span>
             <button type="button" class="free-nest__link" @click="openPaywall">
                 Start free trial
@@ -28,8 +25,6 @@ const { getters } = authStore;
 
 const user = computed(() => unref(getters.user) || {});
 
-const isAdmin = computed(() => Boolean(user.value.isAdmin));
-
 const isSubscribed = computed(() => {
     const status = user.value.subscriptionStatus;
     return status === 'active' || status === 'trialing';
@@ -44,7 +39,7 @@ const show = computed(() =>
 );
 
 const isEmpty = computed(() =>
-    !isAdmin.value && freeRemaining.value <= 0 && creditsRemaining.value <= 0
+    freeRemaining.value <= 0 && creditsRemaining.value <= 0
 );
 
 const buyCreditsDialog = useBuyCreditsDialog();

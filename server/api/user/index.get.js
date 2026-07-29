@@ -25,7 +25,6 @@ export default defineEventHandler(async (event) => {
     name: user.name,
     email: user.email,
     avatar: user.avatarUrl || "/api/user/avatar",
-    isAdmin: user.isAdmin || false,
     isStripFeatureEnable: isStripFeatureEnable,
     freeRemaining: entitlement.freeRemaining,
     creditsRemaining: entitlement.creditsRemaining,

@@ -90,11 +90,15 @@ export async function getEntitlement(userId) {
     .collection("users")
     .findOne(
       { id: userId },
-      { projection: { freeNestingUsed: 1, subscription: 1, isAdmin: 1, balance: 1 } }
+      { projection: { freeNestingUsed: 1, subscription: 1, grantedUntil: 1, balance: 1 } }
     );
 
   const subscriptionStatus = user?.subscription?.status || null;
   const active = hasActiveSubscription(user);
+  // An admin-granted free period (set from the admin panel) grants full access
+  // until its expiry, exactly like an active subscription would.
+  const granted =
+    user?.grantedUntil && new Date(user.grantedUntil) > new Date();
   const freeRemaining = Math.max(
     0,
     FREE_NESTING_LIMIT - (user?.freeNestingUsed || 0)
@@ -105,9 +109,9 @@ export async function getEntitlement(userId) {
     freeRemaining,
     creditsRemaining,
     subscriptionStatus,
-    // Admins are never paywalled — they get unlimited nesting.
+    // An active grant (admin "mois gratuit") bypasses the paywall.
     requiresPaywall:
-      !user?.isAdmin && !active && freeRemaining === 0 && creditsRemaining === 0,
+      !granted && !active && freeRemaining === 0 && creditsRemaining === 0,
   };
 }
 
@@ -132,7 +136,7 @@ export async function getSubscriptionTier(user) {
 
 /**
  * Whether the user may enable the zero-knowledge vault ("Confidentialité+"
- * tier). Admins always qualify (dogfooding + support).
+ * tier).
  * @param {string} userId
  * @returns {Promise<boolean>}
  */
@@ -140,10 +144,7 @@ export async function hasPrivacyTier(userId) {
   const db = await connectDB();
   const user = await db
     .collection("users")
-    .findOne({ id: userId }, { projection: { isAdmin: 1, subscription: 1 } });
-  if (user?.isAdmin) {
-    return true;
-  }
+    .findOne({ id: userId }, { projection: { subscription: 1 } });
   return (await getSubscriptionTier(user)) === "privacy";
 }
 
@@ -178,9 +179,8 @@ export async function getMaxComputeLevel(userId, charge) {
   const db = await connectDB();
   const user = await db
     .collection("users")
-    .findOne({ id: userId }, { projection: { isAdmin: 1, subscription: 1 } });
+    .findOne({ id: userId }, { projection: { subscription: 1 } });
 
-  if (user?.isAdmin) return "advanced";
   const tier = await getSubscriptionTier(user);
   if (tier === "privacy") return "advanced";
   if (charge?.type === "subscription" || charge?.type === "credits") return "normal";
@@ -201,22 +201,17 @@ export async function getComputeProfile(userId, charge, requestedLevel) {
   const db = await connectDB();
   const user = await db
     .collection("users")
-    .findOne({ id: userId }, { projection: { isAdmin: 1, subscription: 1 } });
+    .findOne({ id: userId }, { projection: { subscription: 1 } });
 
   let maxLevel = "simple";
   let priority = 30;
-  if (user?.isAdmin) {
+  const tier = await getSubscriptionTier(user);
+  if (tier === "privacy") {
     maxLevel = "advanced";
-    priority = 0;
-  } else {
-    const tier = await getSubscriptionTier(user);
-    if (tier === "privacy") {
-      maxLevel = "advanced";
-      priority = 10;
-    } else if (charge?.type === "subscription" || charge?.type === "credits") {
-      maxLevel = "normal";
-      priority = 20;
-    }
+    priority = 10;
+  } else if (charge?.type === "subscription" || charge?.type === "credits") {
+    maxLevel = "normal";
+    priority = 20;
   }
 
   const level = clampLevel(requestedLevel, maxLevel);
@@ -226,7 +221,7 @@ export async function getComputeProfile(userId, charge, requestedLevel) {
 /**
  * Gate for nesting requests of feature-flagged users.
  *
- * Charge order: admin (free) → active subscription → free quota → paid
+ * Charge order: admin grant → active subscription → free quota → paid
  * credits. The consumed unit is recorded and returned so the caller can
  * persist it on the job — the workers refund it if the nesting fails.
  *
@@ -236,7 +231,7 @@ export async function getComputeProfile(userId, charge, requestedLevel) {
  * (flag-off) users keep their balance-based flow.
  *
  * @param {string} userId
- * @returns {Promise<{type: 'admin'|'subscription'|'free'|'credits', amount?: number}>}
+ * @returns {Promise<{type: 'grant'|'subscription'|'free'|'credits', amount?: number}>}
  */
 export async function assertCanNest(userId) {
   const db = await connectDB();
@@ -244,16 +239,23 @@ export async function assertCanNest(userId) {
     .collection("users")
     .findOne(
       { id: userId },
-      { projection: { id: 1, freeNestingUsed: 1, subscription: 1, isAdmin: 1, balance: 1 } }
+      { projection: { id: 1, freeNestingUsed: 1, subscription: 1, balance: 1, grantedUntil: 1 } }
     );
 
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }
 
-  // Admins have unlimited nesting — no quota is consumed.
-  if (user.isAdmin) {
-    return { type: "admin" };
+  // An admin-granted free period ("mois gratuit", set from the admin panel)
+  // grants full access until its expiry, consuming no quota.
+  if (user.grantedUntil && new Date(user.grantedUntil) > new Date()) {
+    return { type: "grant" };
+  }
+
+  // An admin-granted free period ("mois gratuit", set from the admin panel)
+  // grants full access until its expiry, consuming no quota.
+  if (user.grantedUntil && new Date(user.grantedUntil) > new Date()) {
+    return { type: "grant" };
   }
 
   if (hasActiveSubscription(user)) {

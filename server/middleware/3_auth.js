@@ -8,7 +8,6 @@ export default defineEventHandler(async (event) => {
   if (user) {
     event.context.auth = {
       userId: user.id,
-      isAdmin: user.isAdmin,
     };
   }
 });

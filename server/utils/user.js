@@ -1,10 +1,13 @@
 import { connectDB } from '~~/server/db/mongo'
 import { generateSession } from './auth'
 import { sendWelcomeMessage } from '~~/server/features/support/welcomemessage'
+import { notifyAdminNewUser } from '~~/server/features/notification/adminNotify'
+import { COUNTRY_HEADER_NAME } from '~~/server/tracking/const'
 import { downloadAndStoreAvatar } from './avatar'
 import logger from './logger'
 
 export async function createOrUpdateUser({
+    event,
     sessionId,
     providerId,
     email,
@@ -25,6 +28,16 @@ export async function createOrUpdateUser({
 
     const avatarKey = await downloadAndStoreAvatar(providerId, avatarUrl)
 
+    // Geo + provenance captured at signup (admin panel). Only meaningful on
+    // first insert; we pass them via $setOnInsert so they never overwrite a
+    // real signup country on subsequent logins.
+    const signupCountry = event ? (event.node.req.headers[COUNTRY_HEADER_NAME] || null) : null
+    const signupIp = event
+        ? (event.node.req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
+            event.node.req.socket?.remoteAddress ||
+            null)
+        : null
+
     const updateData = {
         $set: {
             provider: 'google',
@@ -37,6 +50,8 @@ export async function createOrUpdateUser({
             balance: 30,
             isStripFeatureEnable: true,
             freeNestingUsed: 0,
+            signupCountry,
+            signupIp,
         },
         $push: {
             sessions: session
@@ -45,6 +60,11 @@ export async function createOrUpdateUser({
 
     const userId = `google:${providerId}`
     const isUserExists = await db.collection('users').findOne({ id: userId })
+
+    // Banned accounts cannot authenticate via Google either.
+    if (isUserExists?.banned) {
+        throw new Error('This account has been suspended')
+    }
 
     await db.collection('users').updateOne(
         { id: userId },
@@ -57,6 +77,12 @@ export async function createOrUpdateUser({
             await sendWelcomeMessage(userId)
         } catch (err) {
             logger.warn('Error sending welcome message', err)
+        }
+        // Best-effort admin notification for new Google signups.
+        if (event) {
+            notifyAdminNewUser(event, { id: userId, email, name, provider: 'google' }).catch((err) => {
+                logger.warn('Error notifying admin of new signup', err)
+            })
         }
     }
 

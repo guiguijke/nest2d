@@ -30,6 +30,11 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 401, statusMessage: 'Invalid email or password' })
     }
 
+    // Banned accounts cannot log in (ban is set from the admin panel).
+    if (user.banned) {
+        throw createError({ statusCode: 403, statusMessage: 'This account has been suspended' })
+    }
+
     const session = generateSession()
     await db.collection('users').updateOne(
         { id: userId },

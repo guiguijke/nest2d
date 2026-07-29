@@ -30,7 +30,6 @@ export default defineEventHandler(async (event) => {
   return {
     userId: userId,
     provider: user?.provider || "unknown",
-    isAdmin: user?.isAdmin || false,
     isDbConnected: isDbConnected,
     commitSha: commitSha,
   };

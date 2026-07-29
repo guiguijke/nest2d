@@ -26,7 +26,7 @@ services:
     # Expose only on localhost so the public ingress is your reverse proxy.
     # Port 7100 on the host -> 3000 inside the container (Nuxt's default).
     ports:
-      - "127.0.0.1:7100:3000"
+      - 0.0.0.0:7100:3000
     # Inject every variable from .env into the container. This is more robust
     # than relying solely on ${VAR:-} substitution: env_file is read directly
     # by Compose regardless of the launching shell, so secrets like
@@ -48,6 +48,47 @@ services:
       NUXT_PUBLIC_COPYRIGHT_YEAR: ${NUXT_PUBLIC_COPYRIGHT_YEAR:-}
       NUXT_BLOCKED_COUNTRIES: ${NUXT_BLOCKED_COUNTRIES:-}
       NUXT_ENCRYPTION_MASTER_KEY: ${NUXT_ENCRYPTION_MASTER_KEY:-}
+      # Destination for instant signup notifications (sent by the app).
+      NUXT_ADMIN_NOTIFY_EMAIL: ${NUXT_ADMIN_NOTIFY_EMAIL:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nest2d
+
+  # -----------------------------------------------------------------------------
+  # Admin panel — a SEPARATE Nuxt app (./admin) with its OWN authentication
+  # (collection `admins`), sharing the same MongoDB over the internal network.
+  #
+  # Binding: 0.0.0.0:7200 -> reachable from any machine on the LAN ("réseau
+  # local"), but NOT reachable from the Internet as long as you do NOT create a
+  # reverse-proxy rule for it in Nginx Proxy Manager. To restrict it to the host
+  # machine only, replace 0.0.0.0 with 127.0.0.1.
+  #
+  # First run — create your admin account:
+  #   docker compose run --rm admin node scripts/bootstrap-admin.js
+  # -----------------------------------------------------------------------------
+  admin:
+    # Pull from GHCR (built by the CI, image nest2d-admin). To build locally
+    # instead (e.g. before the first CI run), uncomment the `build:` lines and
+    # comment the `image:` line.
+    image: ghcr.io/guiguijke/nest2d-admin:latest
+    # build:
+    #   context: ./admin
+    # LAN-accessible by default; switch to 127.0.0.1 for host-only access.
+    ports:
+      - 0.0.0.0:7200:3000
+    env_file: .env
+    environment:
+      NUXT_ADMIN_MONGO_URI: mongodb://mongo:27017/nest2d
+      NUXT_ADMIN_SESSION_SECRET: ${NUXT_ADMIN_SESSION_SECRET:-}
+      NUXT_ADMIN_NOTIFY_EMAIL: ${NUXT_ADMIN_NOTIFY_EMAIL:-}
+      NUXT_ADMIN_BASE_URL: ${NUXT_ADMIN_BASE_URL:-http://localhost:7200}
+      NUXT_PUBLIC_BASE_URL: ${NUXT_PUBLIC_BASE_URL}
+      NUXT_STRIPE_SECRET_KEY: ${NUXT_STRIPE_SECRET_KEY:-}
+      NUXT_RESEND_TOKEN: ${NUXT_RESEND_TOKEN:-}
+      NUXT_RESEND_FROM: ${NUXT_RESEND_FROM:-onboarding@resend.dev}
     depends_on:
       mongo:
         condition: service_healthy
@@ -65,7 +106,12 @@ services:
     # ports:
     #   - "127.0.0.1:27017:27017"
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - db.adminCommand('ping')
       interval: 10s
       timeout: 10s
       retries: 10

@@ -88,6 +88,8 @@ jobs:
         include:
           - image: nest2d-app
             context: .
+          - image: nest2d-admin
+            context: ./admin
           - image: nest2d-user-file-processing-worker
             context: ./workers/fileprocessing
           - image: nest2d-nesting-worker

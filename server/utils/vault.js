@@ -197,7 +197,7 @@ export async function openOwnedFileStream(event, bucket, fileName) {
     }
 
     const ownerId = fileDoc.metadata?.ownerId
-    if (ownerId !== userId && event.context.auth?.isAdmin !== true) {
+    if (ownerId !== userId) {
         throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
     }
 
