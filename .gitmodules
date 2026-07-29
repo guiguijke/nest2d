@@ -1,3 +1,0 @@
-[submodule "workers/nesting/jagua-rs"]
-	path = workers/nesting/jagua-rs
-	url = https://github.com/JeroenGar/jagua-rs.git

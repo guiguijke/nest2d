@@ -1,0 +1,19 @@
+NOTICE
+======
+
+This workspace contains code vendored from sparrow
+(https://github.com/JeroenGar/sparrow), licensed under the MIT License:
+
+    MIT License
+    Copyright (c) 2025 Jeroen Gardeyn, KU Leuven
+
+See crates/sparrow/LICENSE for the full license text.
+
+The vendored copy in crates/sparrow was adapted for use as a library:
+the upstream CLI binary, benchmark binary, SVG exporter and the
+ctrl-c/fern/clap utilities were removed; the optimization core
+(exploration, compression, separation, sampling, quantification)
+is unmodified.
+
+It is built on top of jagua-rs (https://github.com/JeroenGar/jagua-rs),
+used as a library dependency under the MPL-2.0 license.

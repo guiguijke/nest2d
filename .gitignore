@@ -52,3 +52,7 @@ __pycache__
 .mongo-data
 
 .playwright-mcp/
+
+# Rust build artifacts
+workers/nesting/engine/target
+workers/nesting/benchmarks/tmp

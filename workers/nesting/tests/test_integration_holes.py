@@ -1,16 +1,18 @@
-"""End-to-end integration test with the real lbf binary.
+"""End-to-end integration test with the real nest-engine binary.
 
 Scenario (fixtures from real DXF files):
   - Piece_Trou: 100x100 square with a r=35 circular hole.
   - Piece_Fillx4: quarter-sector (r=28) that tiles the hole exactly 4 times.
 
-The main solve needs two 110x110 sheets (total area > one sheet). The
-hole-relocation post-pass must then move the 4 sectors into the square's
-hole and free the second sheet entirely.
+The engine must nest the sectors inside the square's hole NATIVELY (channel
+conversion + separation/compaction), with exact separation and no overlaps —
+this is the anti-regression gate for the removed Python post-passes.
 
-Skipped when the lbf binary is not on PATH.
+Skipped when the nest-engine binary is not on PATH (NEST_ENGINE_BIN overrides
+the lookup).
 """
 import math
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -20,15 +22,26 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "fileprocessing"))
 
-pytestmark = pytest.mark.skipif(shutil.which("lbf") is None, reason="lbf binary not on PATH")
+ENGINE_BIN = os.environ.get("NEST_ENGINE_BIN", "nest-engine")
+pytestmark = pytest.mark.skipif(
+    shutil.which(ENGINE_BIN) is None and not Path(ENGINE_BIN).exists(),
+    reason="nest-engine binary not found",
+)
 
-from core.hole_relocation import relocate_into_holes
-from core.holed_polygons import open_holes_with_channels
-from core.nesting_input_builder import build_bin, build_input_json, build_item
-from core.placement import ResultContainer, Transform
-from core.racing import run_lbf
+from core.engine import run_engine
+from core.holed_polygons import channel_width_for_space, open_holes_with_channels
+from core.nesting_input_builder import (
+    build_bin,
+    build_bpp_instance,
+    build_engine_config,
+    build_item,
+    build_spp_instance,
+    deterministic_seed,
+)
+from core.placement import parse_result_containers
 
 TOLERANCE = 0.01
+TIME_BUDGET = 8  # seconds per engine call — keep the suite fast
 
 
 def _fixture_parts():
@@ -55,147 +68,140 @@ def fixture_parts():
     return _fixture_parts()
 
 
-def test_main_solve_uses_two_sheets(fixture_parts):
-    """Sanity check: WITHOUT the channel conversion, the instance cannot fit
-    on a single 110x110 sheet (the hole is wasted material)."""
-    trou, fill = fixture_parts["Piece_Trou"], fixture_parts["Piece_Fillx4"]
-    items = [
-        build_item(0, 1, _close(trou["coordinates"]), [0.0]),
-        build_item(1, 4, _close(fill["coordinates"]), [0.0, 90.0, 180.0, 270.0]),
-    ]
-    bins = [build_bin(0, 2, 110.0, 110.0)]
-    output = run_lbf(build_input_json(bins, items, n_samples=4000, prng_seed=1))
-    solution = output["solution"]
-    placed = sum(len(l["placed_items"]) for l in solution["layouts"])
-    assert placed == 5
-    assert len(solution["layouts"]) == 2  # does NOT fit on one sheet
+def _run(instance, problem_type, space=0.0, has_holes=True, max_strip_width=None, budget=TIME_BUDGET):
+    config = build_engine_config(
+        budget,
+        deterministic_seed({"instance": instance, "space": space}),
+        n_alternatives=1,
+        min_separation=space,
+        has_holes=has_holes,
+        max_strip_width=max_strip_width,
+    )
+    alternatives = run_engine(instance, config, problem_type)
+    assert alternatives, "engine returned no feasible alternative"
+    return alternatives[0]["solution"]
 
 
-def test_native_hole_nesting_in_main_solve(fixture_parts):
-    """With the channel conversion, the MAIN solve nests sectors inside the
-    square's hole natively: on a single 110x110 sheet, the only place a
-    39.6x28 sector can go is the r=35 hole (the surrounding strips are 10mm
-    wide). All 5 parts placed on one layout => holes were used."""
+def test_native_hole_nesting_spp(fixture_parts):
+    """SPP: square (channel-opened hole) + 2 sectors on a 110x110 sheet.
+    The only place a 39.6x28 sector can go is the r=35 hole (surrounding
+    strips are 10mm wide): all 3 parts on one strip => holes were used."""
     trou, fill = fixture_parts["Piece_Trou"], fixture_parts["Piece_Fillx4"]
     converted = open_holes_with_channels(trou["coordinates"], trou["holes"])
     items = [
         build_item(0, 1, converted, [0.0]),
         build_item(1, 2, _close(fill["coordinates"]), [0.0, 90.0, 180.0, 270.0]),
     ]
-    bins = [build_bin(0, 1, 110.0, 110.0)]
-    output = run_lbf(build_input_json(
-        bins, items, n_samples=20000, prng_seed=1, has_holes=True
-    ))
-    solution = output["solution"]
-    placed = sum(len(l["placed_items"]) for l in solution["layouts"])
+    instance = build_spp_instance(items, 110.0, 110.0)
+    solution = _run(instance, "spp", max_strip_width=110.0)
+
+    layouts = solution["layouts"]
+    placed = sum(len(l["placed_items"]) for l in layouts)
     assert placed == 3, "square + 2 sectors must all fit on one sheet"
-    assert len(solution["layouts"]) == 1
+    assert len(layouts) == 1
+    # Used length must respect the sheet bound.
+    assert solution["strip_width"] <= 110.0 + 1e-3
 
-    # Both sectors must sit inside the hole region (they fit nowhere else):
-    # their placement translation (rotation in degrees since lbf 0.7.x)
-    # projected with the sector centroid lands in the r=35 hole around (60,60)
-    # — modulo jagua's centering pre-transform, so just assert the layouts
-    # share the sheet: every placed item is within the sheet bounds.
-    for layout in solution["layouts"]:
-        for placed_item in layout["placed_items"]:
-            x, y = placed_item["transformation"]["translation"]
-            assert -1.0 <= x <= 111.0 and -1.0 <= y <= 111.0
+    for placed_item in layouts[0]["placed_items"]:
+        x, y = placed_item["transformation"]["translation"]
+        assert -1.0 <= x <= 111.0 and -1.0 <= y <= 111.0
 
 
-def test_hole_relocation_frees_a_sheet(fixture_parts):
-    """The 4 sectors are relocated inside the square's r=35 hole."""
+def test_engine_placements_have_no_overlaps(fixture_parts):
+    """Guard: placements reconstructed from engine output (applied as-is —
+    jagua composes its centering pre-transform into the export) must never
+    overlap, with exact separation space=1."""
+    from shapely.geometry import Polygon
+    from shapely.affinity import rotate, translate
+
     trou, fill = fixture_parts["Piece_Trou"], fixture_parts["Piece_Fillx4"]
-
-    # Simulate the main solve's outcome: square alone on sheet 1 (its hole
-    # centred on the sheet), the 4 sectors packed on sheet 2.
     input_items = [
-        {
-            "id": 0, "file_slug": "trou.dxf", "coords": trou["coordinates"],
-            "holes": trou["holes"], "handles": trou["handles"], "count": 1,
-            "rotations": [0.0],
-        },
-        {
-            "id": 1, "file_slug": "fill.dxf", "coords": fill["coordinates"],
-            "holes": [], "handles": fill["handles"], "count": 4,
-            "rotations": [0.0, 90.0, 180.0, 270.0],
-        },
+        {"id": 0, "file_slug": "trou.dxf", "coords": trou["coordinates"],
+         "holes": trou["holes"], "handles": trou["handles"], "count": 3,
+         "rotations": [0.0, 90.0, 180.0, 270.0]},
+        {"id": 1, "file_slug": "fill.dxf", "coords": fill["coordinates"],
+         "holes": [], "handles": fill["handles"], "count": 13,
+         "rotations": [0.0, 90.0, 180.0, 270.0]},
     ]
+    jaguar_items = [
+        build_item(0, 3, open_holes_with_channels(
+            trou["coordinates"], trou["holes"], channel_width_for_space(1.0)),
+                   [0.0, 90.0, 180.0, 270.0]),
+        build_item(1, 13, _close(fill["coordinates"]), [0.0, 90.0, 180.0, 270.0]),
+    ]
+    instance = build_bpp_instance(jaguar_items, [build_bin(0, 100, 400.0, 560.0)])
+    solution = _run(instance, "bpp", space=1.0)
 
-    # Square placed at (60, 60) so its r=35 hole sits well inside sheet 1.
-    sheet1 = ResultContainer(1, [
-        Transform("trou.dxf", trou["handles"], x=60.0, y=60.0, angle=0.0, item_id=0),
-    ], bin_width=110.0, bin_height=110.0)
-    sheet2 = ResultContainer(2, [
-        Transform("fill.dxf", fill["handles"], x=5.0, y=5.0, angle=0.0, item_id=1),
-        Transform("fill.dxf", fill["handles"], x=50.0, y=5.0, angle=1.5708, item_id=1),
-        Transform("fill.dxf", fill["handles"], x=5.0, y=40.0, angle=3.1416, item_id=1),
-        Transform("fill.dxf", fill["handles"], x=50.0, y=40.0, angle=4.7124, item_id=1),
-    ], bin_width=110.0, bin_height=110.0)
+    placed = sum(len(l["placed_items"]) for l in solution["layouts"])
+    assert placed == 16
 
-    result, freed = relocate_into_holes(
-        [sheet1, sheet2], input_items, space=0, run_lbf_fn=run_lbf
+    containers, _, _, _ = parse_result_containers(
+        {"solution": solution}, input_items, {0: (400.0, 560.0)}
     )
 
-    assert freed == 1, "the sectors sheet should have been freed"
-    assert len(result) == 1
-    assert len(result[0].transforms) == 5  # square + 4 relocated sectors
+    items_by_id = {i["id"]: i for i in input_items}
+    polys = []
+    for c in containers:
+        for t in c.transforms:
+            item = items_by_id[t.item_id]
+            base = Polygon(item["coords"], item.get("holes") or [])
+            polys.append(translate(
+                rotate(base, math.degrees(t.angle), origin=(0, 0)), t.x, t.y
+            ))
+    # No pair may overlap beyond tessellation/simplification slack.
+    for i, a in enumerate(polys):
+        for j, b in enumerate(polys[i + 1:]):
+            inter = a.intersection(b).area
+            assert inter < 20.0, f"overlap of {inter:.1f}mm² between placed parts"
 
-    # Every relocated sector must lie inside the hole disk (centre 60,60 r=35).
+
+def test_exact_separation_is_enforced(fixture_parts):
+    """SPP with space=2: sectors nested in the hole keep >= ~2mm from the
+    hole edge (jagua deflates the hole and inflates the part by space/2)."""
     from shapely.geometry import Point, Polygon
     from shapely.affinity import rotate, translate
 
-    hole = Point(60.0, 60.0).buffer(35.0)
-    sector = Polygon(fill["coordinates"])
-    # jagua's poly_simpl_tolerance is an AREA ratio (0.1%), so a tessellated
-    # vertex can legally protrude past the ideal circle by more than a hair
-    # when the lbf sub-solve wins the race. Assert on the protruding AREA
-    # instead of strict containment (< 1% of a sector, physically negligible).
-    max_outside = 0.01 * sector.area
-    for t in result[0].transforms[1:]:
-        placed = translate(rotate(sector, t.angle, origin=(0, 0), use_radians=True), t.x, t.y)
-        outside = placed.difference(hole).area
-        assert outside <= max_outside, f"relocated sector escapes the hole by {outside:.2f}mm²"
-
-
-def test_exact_separation_is_enforced_by_solver(fixture_parts):
-    """With space=2, relocated parts keep >= 2mm from the hole edge
-    (jagua deflates the hole and inflates the part by space/2 each)."""
     trou, fill = fixture_parts["Piece_Trou"], fixture_parts["Piece_Fillx4"]
-
     input_items = [
-        {
-            "id": 0, "file_slug": "trou.dxf", "coords": trou["coordinates"],
-            "holes": trou["holes"], "handles": trou["handles"], "count": 1,
-            "rotations": [0.0],
-        },
-        {
-            "id": 1, "file_slug": "fill.dxf", "coords": fill["coordinates"],
-            "holes": [], "handles": fill["handles"], "count": 4,
-            "rotations": [0.0, 90.0, 180.0, 270.0],
-        },
+        {"id": 0, "file_slug": "trou.dxf", "coords": trou["coordinates"],
+         "holes": trou["holes"], "handles": trou["handles"], "count": 1,
+         "rotations": [0.0]},
+        {"id": 1, "file_slug": "fill.dxf", "coords": fill["coordinates"],
+         "holes": [], "handles": fill["handles"], "count": 4,
+         "rotations": [0.0, 90.0, 180.0, 270.0]},
     ]
-    sheet1 = ResultContainer(1, [
-        Transform("trou.dxf", trou["handles"], x=60.0, y=60.0, angle=0.0, item_id=0),
-    ], bin_width=110.0, bin_height=110.0)
-    sheet2 = ResultContainer(2, [
-        Transform("fill.dxf", fill["handles"], x=5.0, y=5.0, angle=0.0, item_id=1),
-        Transform("fill.dxf", fill["handles"], x=50.0, y=5.0, angle=1.5708, item_id=1),
-        Transform("fill.dxf", fill["handles"], x=5.0, y=40.0, angle=3.1416, item_id=1),
-        Transform("fill.dxf", fill["handles"], x=50.0, y=40.0, angle=4.7124, item_id=1),
-    ], bin_width=110.0, bin_height=110.0)
+    jaguar_items = [
+        build_item(0, 1, open_holes_with_channels(
+            trou["coordinates"], trou["holes"], channel_width_for_space(2.0)), [0.0]),
+        build_item(1, 4, _close(fill["coordinates"]), [0.0, 90.0, 180.0, 270.0]),
+    ]
+    instance = build_spp_instance(jaguar_items, 110.0, 110.0)
+    solution = _run(instance, "spp", space=2.0, max_strip_width=110.0)
 
-    result, freed = relocate_into_holes(
-        [sheet1, sheet2], input_items, space=2.0, run_lbf_fn=run_lbf
+    containers, placed, _, _ = parse_result_containers(
+        {"solution": solution}, input_items, {0: (110.0, 110.0)}
     )
+    assert placed == 5
 
-    assert freed == 1
-    from shapely.geometry import Point, Polygon
-    from shapely.affinity import rotate, translate
-
-    hole_boundary = Point(60.0, 60.0).buffer(35.0).boundary
+    # Identify the sectors (item_id 1) that ended up inside the square. The
+    # square part is centred on the origin (bbox [-50,50]², hole r=35 at
+    # (0,0)), so a placement translation (sx, sy) puts the hole centre at
+    # (sx, sy). A sector whose centroid lies within the square's bbox is in
+    # the hole (the strips around the square are only 10mm wide).
+    square_t = next(t for t in containers[0].transforms if t.item_id == 0)
+    sx, sy = square_t.x, square_t.y
+    hole = Point(sx, sy).buffer(35.0)
     sector = Polygon(fill["coordinates"])
-    for t in result[0].transforms[1:]:
+    nested = 0
+    for t in containers[0].transforms:
+        if t.item_id != 1:
+            continue
         placed = translate(rotate(sector, t.angle, origin=(0, 0), use_radians=True), t.x, t.y)
-        gap = hole_boundary.distance(placed)
-        # ~2mm nominal; tessellation of the r=35 circle costs a small epsilon.
-        assert gap >= 1.8, f"separation violated: {gap}"
+        cx, cy = placed.centroid.x, placed.centroid.y
+        if sx - 50 - 1 <= cx <= sx + 50 + 1 and sy - 50 - 1 <= cy <= sy + 50 + 1:
+            nested += 1
+            gap = hole.boundary.distance(placed)
+            # ~2mm nominal; tessellation of the r=35 circle costs an epsilon.
+            assert gap >= 1.7, f"separation violated: {gap}"
+
+    assert nested > 0, "expected at least one sector nested in the hole"

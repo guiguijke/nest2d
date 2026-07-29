@@ -11,9 +11,8 @@ name: Build and publish Docker images
 #   - :<git-sha>     (immutable, pinned to the exact commit)
 #
 # Notes:
-#  - The nesting worker depends on the jagua-rs Rust submodule. The SSH URL in
-#    .gitmodules has been switched to HTTPS, and we additionally rewrite SSH to
-#    HTTPS as a safety net so the checkout never fails on a fresh runner.
+#  - The nesting worker builds the nest-engine Rust workspace (workers/nesting/engine),
+#    no external submodule required.
 #  - The strip-nesting worker pulls spyrrow wheels that only ship for linux/amd64,
 #    so the whole matrix runs on amd64 runners.
 
@@ -27,9 +26,53 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  tests:
+    name: nest-engine + worker tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: workers/nesting
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            workers/nesting/engine/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('workers/nesting/engine/Cargo.lock') }}
+
+      - name: Build nest-engine
+        run: cargo build --release --manifest-path engine/Cargo.toml
+
+      - name: Rust tests
+        run: cargo test --release --manifest-path engine/Cargo.toml
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt -r ../fileprocessing/requirements.txt pytest
+
+      - name: Worker tests (unit + integration with the real engine)
+        env:
+          NEST_ENGINE_BIN: ${{ github.workspace }}/workers/nesting/engine/target/release/nest-engine
+        run: python -m pytest tests/ -m "not slow" -q
+
   build-and-push:
     name: ${{ matrix.image }}
     runs-on: ubuntu-24.04
+    needs: tests
     permissions:
       contents: read
       packages: write
@@ -44,7 +87,6 @@ jobs:
             context: ./workers/fileprocessing
           - image: nest2d-nesting-worker
             context: ./workers/nesting
-            needs_submodule: "true"
           - image: nest2d-strip-file-processing-worker
             context: ./workers/stripfileprocessing
           - image: nest2d-strip-nesting-worker
@@ -53,16 +95,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          # Fetch submodules so the nesting worker gets the jagua-rs Rust sources.
-          submodules: ${{ matrix.needs_submodule == 'true' && 'recursive' || 'false' }}
-
-      - name: Rewrite SSH GitHub URLs to HTTPS (submodule safety net)
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
-
-      - name: Re-sync submodules over HTTPS (in case they were fetched via SSH)
-        if: matrix.needs_submodule == 'true'
-        run: git submodule update --init --recursive
 
       - name: Set up Docker Buildx
         # The GHA cache backend requires the docker-container buildx driver,

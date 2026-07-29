@@ -1,28 +1,16 @@
-# jagua-rs 0.7.x uses Rust edition 2024 and let-chains, requiring Rust >= 1.88.
-FROM rust:1.88 as builder
-
-RUN apt-get update && apt-get install -y \
-    python3 python3-pip python3-dev build-essential libssl-dev && \
-    rm -rf /var/lib/apt/lists/*
+# nest-engine (engine/) uses Rust edition 2024, requiring Rust >= 1.88.
+FROM rust:1.88 AS builder
 
 WORKDIR /app
 
-COPY . .
+# Only the engine workspace is needed to build the binary.
+COPY engine ./engine
 
-WORKDIR /app/jagua-rs
+WORKDIR /app/engine
 RUN cargo build --release
-
-# Verify the binary was created
-RUN ls -la target/release/
-RUN file target/release/lbf || echo "Binary not found, checking for library"
 
 # Stage 2: Create the final runtime image
 FROM python:3.11-slim
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -36,9 +24,9 @@ RUN pip install --upgrade pip
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the built lbf binary from the builder stage
-COPY --from=builder /app/jagua-rs/target/release/lbf /usr/local/bin/lbf
-RUN chmod +x /usr/local/bin/lbf
+# Copy the built nest-engine binary from the builder stage
+COPY --from=builder /app/engine/target/release/nest-engine /usr/local/bin/nest-engine
+RUN chmod +x /usr/local/bin/nest-engine
 
 # Copy the Python application code
 COPY . .
@@ -49,7 +37,7 @@ RUN chown -R appuser:appuser /app
 # Switch to non-root user
 USER appuser
 
-# Verify lbf is available
-RUN lbf --help || echo "lbf help check failed"
+# Verify nest-engine is available
+RUN nest-engine --help || echo "nest-engine help check failed"
 
 CMD ["python", "main.py"]

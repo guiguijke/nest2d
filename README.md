@@ -28,7 +28,7 @@ A **Nuxt 3 fullstack** application (frontend + API in the same process) built on
 - **MongoDB** — stores users, projects, and **all files (DXF/SVG/avatars) via GridFS**.
 - **4 Python workers** that consume a queue in Mongo:
   - `user-file-processing-worker` — DXF validation/preparation (bins)
-  - `nesting-worker` — nesting algorithm (bins), via the Rust `lbf` binary (jagua-rs)
+  - `nesting-worker` — nesting algorithm (bins), via the Rust `nest-engine` binary (separation/compaction optimizer built on jagua-rs + sparrow)
   - `strip-file-processing-worker` — DXF preparation (strip)
   - `strip-nesting-worker` — strip nesting, via the `spyrrow` library
 - **Authentication**: Google OAuth (PKCE) **and/or** a local email/password account.
@@ -238,7 +238,7 @@ The code handles two models (selected by a feature flag `isStripFeatureEnable` o
 
 ## Credits
 
-This project builds on open-source work, in particular the [jagua-rs](https://github.com/JeroenGar/jagua-rs) nesting algorithm by **[JeroenGar](https://github.com/JeroenGar)**.
+This project builds on open-source work, in particular the [jagua-rs](https://github.com/JeroenGar/jagua-rs) collision-detection engine and the [sparrow](https://github.com/JeroenGar/sparrow) strip-packing heuristic by **[JeroenGar](https://github.com/JeroenGar)** (see `workers/nesting/engine/NOTICE`).
 
 Other inspirations:
 - [SVGNest](https://github.com/Jack000/SVGnest)

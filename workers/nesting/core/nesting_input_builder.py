@@ -1,13 +1,44 @@
-def build_config(n_samples=20000, prng_seed=None, min_separation=None, has_holes=False):
-    """Solver config. n_samples is the exploration budget (higher = better
-    layouts, slower). prng_seed None = non-deterministic run (lbf picks its
-    own seed); pass an int for reproducible runs.
+"""Builds the nest-engine input: instance JSON (jagua-rs external
+representation) and engine config JSON.
+
+Problem type selection:
+  - single sheet type  -> SPP (strip packing): the sheet is the strip, the
+    engine minimizes the used length natively (= maximum reusable offcut).
+    strip_height is the sheet's height, max_strip_width its width.
+  - multiple sheet types -> BPP (bin packing): the engine minimizes the
+    number of sheets, then compacts via its annealing objective.
+
+Determinism: the master PRNG seed is derived from a SHA-256 of the canonical
+instance + parameters, so a job always replays the same search trajectory
+(the wall-clock budget may cut it at slightly different points under varying
+machine load — standard for anytime solvers).
+"""
+import hashlib
+import json
+
+
+def deterministic_seed(payload):
+    """Stable 63-bit seed derived from the job payload (geometry + params)."""
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") & 0x7FFF_FFFF_FFFF_FFFF
+
+
+def build_engine_config(
+    time_budget_sec,
+    prng_seed,
+    n_alternatives,
+    min_separation=None,
+    has_holes=False,
+    max_strip_width=None,
+):
+    """Engine configuration (consumed by nest-engine's `-c config.json`).
 
     min_separation is the exact minimum distance between any two placed items
     (and between items and the bin edge). jagua-rs enforces it natively by
     inflating items / deflating containers by half the value, so the geometry
     stays untouched and the gap is exactly `min_separation` — do NOT pre-buffer
-    the polygons on the Python side (that used to double the requested gap).
+    the polygons on the Python side.
 
     has_holes disables narrow-concavity closing: holed items are opened to
     the exterior by a hairline channel (core/holed_polygons.py) and the
@@ -16,70 +47,65 @@ def build_config(n_samples=20000, prng_seed=None, min_separation=None, has_holes
     checks on noisy contours).
     """
     config = {
-        'cde_config': {
-            'quadtree_depth': 5,
-            'cd_threshold': 16,
-            'item_surrogate_config': {
-                'n_pole_limits': [[100, 0.0], [20, 0.75], [10, 0.90]],
-                'n_ff_poles': 2,
-                'n_ff_piers': 0
-            }
-        },
-        'poly_simpl_tolerance': 0.001,
-        'min_item_separation': float(min_separation) if min_separation else None,
-        # Explicit null disables concavity closing for holed instances; omit
-        # the field otherwise to keep the solver default (Some((0.01, 0.01))).
-        'narrow_concavity_cutoff': None,
-        'n_samples': n_samples,
-        'ls_frac': 0.2
+        "time_budget_sec": int(time_budget_sec),
+        "prng_seed": int(prng_seed),
+        "n_alternatives": int(n_alternatives),
+        "poly_simpl_tolerance": 0.001,
+        "min_item_separation": float(min_separation) if min_separation else None,
+        # Explicit null disables concavity closing for holed instances.
+        "narrow_concavity_cutoff": None if has_holes else [0.01, 0.01],
     }
-    if not has_holes:
-        del config['narrow_concavity_cutoff']
-    if prng_seed is not None:
-        config['prng_seed'] = prng_seed
+    if max_strip_width is not None:
+        config["max_strip_width"] = float(max_strip_width)
     return config
+
 
 def build_item(id, demand, points, allowed_orientations):
     return {
-        'id': id,
-        'demand': demand,
-        'allowed_orientations': allowed_orientations,
-        'shape': {
-            'type': 'simple_polygon',
-            'data': points
-        }
+        "id": id,
+        "demand": demand,
+        "allowed_orientations": allowed_orientations,
+        "shape": {
+            "type": "simple_polygon",
+            "data": points,
+        },
     }
+
 
 def build_bin(bin_id, stock, width, height):
     return {
-        'id': bin_id,
-        'cost': 1,
-        'stock': stock,
-        'shape': {
-            'type': 'polygon',
-            'data': {
-                'outer': [
+        "id": bin_id,
+        "cost": 1,
+        "stock": stock,
+        "shape": {
+            "type": "polygon",
+            "data": {
+                "outer": [
                     [0.0, 0.0],
                     [width, 0.0],
                     [width, height],
                     [0.0, height],
-                    [0.0, 0.0]
+                    [0.0, 0.0],
                 ]
-            }
-        }
+            },
+        },
     }
 
-def build_input_json(bins, items, n_samples=20000, prng_seed=None, min_separation=None, has_holes=False):
-    """bins: list of build_bin dicts (heterogeneous sheet types supported by
-    jagua-rs natively, each with its own stock). min_separation: exact gap
-    enforced between items and hazards (see build_config). has_holes: set when
-    any item was channel-converted from a holed polygon (see build_config)."""
+
+def build_spp_instance(items, sheet_width, sheet_height, name="nest2d"):
+    """Strip packing instance: fixed strip height = sheet height, the engine
+    minimizes the used width (<= sheet width = max_strip_width)."""
     return {
-        'config': build_config(n_samples, prng_seed, min_separation, has_holes),
-        'problem_type': 'bpp',
-        'instance': {
-            'name': 'Test',
-            'items': items,
-            'bins': bins
-        },
+        "name": name,
+        "items": items,
+        "strip_height": float(sheet_height),
+    }
+
+
+def build_bpp_instance(items, bins, name="nest2d"):
+    """Bin packing instance: heterogeneous sheet types, each with a stock."""
+    return {
+        "name": name,
+        "items": items,
+        "bins": bins,
     }

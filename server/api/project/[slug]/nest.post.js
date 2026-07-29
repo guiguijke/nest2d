@@ -140,7 +140,7 @@ export default defineEventHandler(async (event) => {
     charge || { type: "credits" },
     params.computeLevel
   );
-  dbParams.nestQuality = compute.nSamples;
+  dbParams.timeBudgetSec = compute.timeBudgetSec;
   dbParams.alternativesCount = compute.nAlternatives;
   dbParams.computeLevel = compute.level;
 
