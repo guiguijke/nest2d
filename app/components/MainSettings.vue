@@ -1,6 +1,6 @@
 <template>
     <div class="settings">
-        <MainTitle label="Nesting settings" class="settings__title" />
+        <MainTitle :label="t('settings.nesting')" class="settings__title" />
         <div class="settings__content content">
             <div class="content__size size">
                 <div
@@ -9,12 +9,12 @@
                     class="size__sheet sheet"
                 >
                     <div class="sheet__header">
-                        <span class="sheet__label">Sheet {{ index + 1 }}</span>
+                        <span class="sheet__label">{{ t('settings.sheet', { n: index + 1 }) }}</span>
                         <button
                             v-if="sheets.length > 1"
                             class="sheet__remove"
                             @click="removeSheet(index)"
-                            title="Remove this sheet type"
+                            :title="t('settings.removeSheet')"
                         >
                             ✕
                         </button>
@@ -23,14 +23,14 @@
                         <InputField prefix="W" suffix="mm" :modelValue="sheet.width" @update:modelValue="value => updateSheet(index, { width: value })" class="size__input" />
                         <InputField prefix="H" suffix="mm" :modelValue="sheet.height" @update:modelValue="value => updateSheet(index, { height: value })" class="size__input" />
                     </div>
-                    <InputField prefix="Count" suffix="units" :modelValue="sheet.count" @update:modelValue="value => updateSheet(index, { count: value })" class="size__input" />
+                    <InputField :prefix="t('settings.count')" :suffix="t('settings.units')" :modelValue="sheet.count" @update:modelValue="value => updateSheet(index, { count: value })" class="size__input" />
                 </div>
                 <button class="size__add" @click="addSheet">
-                    + Add sheet type
+                    {{ t('settings.addSheet') }}
                 </button>
-                <InputField prefix="Spacing" suffix="mm" v-model="localSpace" class="size__input" />
+                <InputField :prefix="t('settings.spacing')" suffix="mm" v-model="localSpace" class="size__input" />
                 <div class="size__rotations rotations">
-                    <InputField prefix="Rotations" suffix="steps" v-model="localRotationCount" class="rotations__input" />
+                    <InputField :prefix="t('settings.rotations')" :suffix="t('settings.steps')" v-model="localRotationCount" class="rotations__input" />
                     <p class="rotations__hint">{{ rotationHint }}</p>
                 </div>
                 <div class="size__compute compute">
@@ -51,7 +51,7 @@
                 </div>
                 <label class="size__checkbox">
                     <input type="checkbox" v-model="localAddOutShape">
-                    Add out shape
+                    {{ t('settings.addOutShape') }}
                 </label>
             </div>
         </div>
@@ -59,6 +59,7 @@
 </template>
 
 <script setup>
+const { t } = useLocale();
 const { getters, actions } = filesStore;
 const { updateParams, updateSheet, addSheet, removeSheet } = actions;
 const params = computed(() => getters.params);
@@ -117,7 +118,7 @@ const activeComputeHint = computed(() => LEVEL_HINTS[localComputeLevel.value] ||
 // understands what "N rotations" means (e.g. 8 -> 0°, 45°, 90°, ... 315°).
 const rotationHint = computed(() => {
     const n = Math.min(360, Math.max(1, Math.floor(Number(unref(params).rotationCount) || 4)))
-    if (n === 1) return 'No rotation (0° only)'
+    if (n === 1) return t('settings.noRotation')
     const step = 360 / n
     const angles = Array.from({ length: n }, (_, i) => Math.round(i * step))
     return `→ ${angles.map(a => a + '°').join(', ')}`

@@ -1,11 +1,9 @@
 <template>
     <DialogWrapper v-model:isModalOpen="isOpen" trackingTag="vault_unlock">
         <div class="vault-unlock">
-            <MainTitle label="Unlock your vault" class="vault-unlock__title" />
+            <MainTitle :label="t('vault.unlockTitle')" class="vault-unlock__title" />
             <p class="vault-unlock__text">
-                Your files are encrypted with your personal key file
-                (<code>aplasma-vault-…​.key.json</code>). Drop it here to unlock
-                this work session.
+                {{ t('vault.unlockText') }}
             </p>
 
             <label
@@ -19,14 +17,14 @@
                     class="vault-unlock__input"
                     @change="onPick"
                 />
-                {{ keyName || 'Drop your key file here, or click to browse' }}
+                {{ keyName || t('vault.drop') }}
             </label>
 
             <label class="vault-unlock__remember">
                 <input type="checkbox" v-model="remember" />
                 <span>
-                    Remember the key in this browser
-                    <small>Anyone using this browser will be able to unlock the vault.</small>
+                    {{ t('vault.remember') }}
+                    <small>{{ t('vault.rememberHint') }}</small>
                 </span>
             </label>
 
@@ -34,7 +32,7 @@
 
             <MainButton
                 :theme="themeType.primary"
-                label="Unlock"
+                :label="t('vault.unlockBtn')"
                 :isDisable="!keyBytes || loading"
                 trackingTag="vault_unlock_submit"
                 @click="unlock"
@@ -53,6 +51,8 @@ import {
     rememberKeyInBrowser,
 } from '~/utils/vault'
 import { trackEvent } from '~/utils/track'
+
+const { t } = useLocale()
 
 const isOpen = useVaultUnlockDialog()
 
@@ -95,17 +95,13 @@ async function unlockWithKey(base64Key, { silent = false } = {}) {
     } catch (err) {
         const message = err?.data?.statusMessage || ''
         if (message === 'wrong_key') {
-            error.value = 'This key does not match your vault. Check you picked the right key file.'
+            error.value = t('vault.wrongKey')
         } else if (message) {
-            // Surface the real server message instead of masking every non-
-            // wrong_key error as a generic failure (which previously hid
-            // e.g. a misconfigured deployment master key behind a vague
-            // "try again"). Clean it up slightly for display.
             error.value = message
                 .replace(/_/g, ' ')
                 .replace(/^\w/, (c) => c.toUpperCase())
         } else {
-            error.value = 'Unlock failed. Please try again.'
+            error.value = t('vault.unlockFailed')
         }
     } finally {
         loading.value = false

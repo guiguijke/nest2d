@@ -10,7 +10,7 @@
                 <p class="welcome__text">
                     <UserBalance v-if="!isStripFeatureEnabled" class="welcome__balance" />
                     <NuxtLink to="/profile" class="welcome__link">
-                        Manage my account →
+                        {{ t('home.manageAccount') }}
                     </NuxtLink>
                 </p>
             </div>
@@ -21,10 +21,10 @@
 
         <!-- New nesting: the original DXF upload, kept verbatim -->
         <section class="home__create create">
-            <MainTitle label="New nesting" class="create__title" />
+            <MainTitle :label="t('home.newNesting')" class="create__title" />
             <DxfUpload @files="handleSubmit" />
             <p class="create__text">
-                All files will be saved securely and available only to you
+                {{ t('home.uploadHint') }}
             </p>
             <div v-if="error" class="create__error">
                 {{ error }}
@@ -33,7 +33,7 @@
 
         <!-- Recent projects -->
         <section class="home__recent recent">
-            <h2 class="recent__title">Recent projects</h2>
+            <h2 class="recent__title">{{ t('home.recentProjects') }}</h2>
             <div v-if="recentProjects.length" class="recent__grid grid">
                 <UserProjectItem
                     v-for="project in recentProjects"
@@ -43,7 +43,7 @@
                 />
             </div>
             <p v-else class="recent__empty">
-                No projects yet — upload a DXF above to get started.
+                {{ t('home.noProjects') }}
             </p>
         </section>
     </div>
@@ -51,6 +51,8 @@
 
 <script setup>
 import { sizeType } from '~~/constants/size.constants'
+
+const { t } = useLocale()
 
 definePageMeta({
     layout: "auth",
@@ -96,10 +98,10 @@ const isStripFeatureEnabled = computed(() => Boolean(unref(user)?.isStripFeature
 // Time-of-day greeting — small touch that makes the dashboard feel personal.
 const greeting = computed(() => {
     const h = new Date().getHours()
-    if (h < 6) return 'Good night'
-    if (h < 12) return 'Good morning'
-    if (h < 18) return 'Good afternoon'
-    return 'Good evening'
+    if (h < 6) return t('home.greeting.night')
+    if (h < 12) return t('home.greeting.morning')
+    if (h < 18) return t('home.greeting.afternoon')
+    return t('home.greeting.evening')
 })
 
 const { actions: filesActions } = filesStore;
@@ -130,7 +132,7 @@ const handleSubmit = async (files) => {
             const errorData = await err.response.json();
             error.value = errorData.message;
         } else {
-            error.value = "An unexpected error occurred.";
+            error.value = t('home.error.unexpected');
         }
     }
 }
