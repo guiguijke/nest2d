@@ -4,23 +4,27 @@
 //! evaluation function of the simulated annealing loop (sa.rs) — it replaces
 //! both the lbf CLI subprocess and the Python racing tournament.
 
+use jagua_rs::collision_detection::hazards::filter::NoFilter;
 use jagua_rs::entities::{Instance, Layout};
 use jagua_rs::geometry::DTransformation;
+use jagua_rs::geometry::geo_traits::TransformableFrom;
+use jagua_rs::geometry::primitives::{Rect, SPolygon};
 use jagua_rs::probs::bpp::entities::{
     BPInstance, BPLayoutType, BPPlacement, BPProblem, BPSolution,
 };
 use rand::Rng;
-use sparrow::eval::lbf_evaluator::LBFEvaluator;
-use sparrow::eval::sample_eval::SampleEval;
+use sparrow::eval::sample_eval::{SampleEval, SampleEvaluator};
 use sparrow::sample::search::{SampleConfig, search_placement};
 
 /// Sampling budget per item per candidate layout. The coordinate descents
 /// are what pull placements tight against their neighbours (uniform sampling
-/// alone leaves gaps that cost whole sheets at 100+ items).
+/// alone leaves gaps that cost whole sheets at 100+ items). The focussed
+/// samples concentrate around a "host" item (see search_layout) — that is
+/// what finds the exact slots inside partially filled holes.
 const SAMPLE_CFG: SampleConfig = SampleConfig {
     n_container_samples: 300,
-    n_focussed_samples: 0,
-    n_coord_descents: 2,
+    n_focussed_samples: 100,
+    n_coord_descents: 3,
 };
 
 pub struct ConstructiveResult {
@@ -29,15 +33,121 @@ pub struct ConstructiveResult {
     pub unplaced: usize,
 }
 
+fn merge_rect(a: &Rect, b: &Rect) -> Rect {
+    Rect {
+        x_min: a.x_min.min(b.x_min),
+        y_min: a.y_min.min(b.y_min),
+        x_max: a.x_max.max(b.x_max),
+        y_max: a.y_max.max(b.y_max),
+    }
+}
+
+fn rect_area(r: &Rect) -> f32 {
+    (r.x_max - r.x_min).max(0.0) * (r.y_max - r.y_min).max(0.0)
+}
+
+/// Bottom-left weight inside a placement loss (same shape as sparrow's LBF).
+const BL_X: f32 = 10.0;
+/// Marginal bbox growth (mm^2) dominates the loss: a placement inside a hole
+/// or pocket grows the used bbox by 0 and always beats an edge placement.
+/// This is what fills cutouts instead of sprinkling parts along the edges.
+const GROWTH_WEIGHT: f32 = 10.0;
+
+/// Placement evaluator that primarily minimizes the MARGINAL GROWTH of the
+/// layout's used bbox (hole/pocket filling), with bottom-left as tie-break.
+/// Directly aligned with the SA's remnant objective: what does not grow the
+/// bbox does not shrink the offcut.
+pub struct HoleFillEvaluator<'a> {
+    layout: &'a Layout,
+    item: &'a jagua_rs::entities::Item,
+    shape_buff: SPolygon,
+    used_bbox: Rect,
+    used_area: f32,
+    n_evals: usize,
+}
+
+impl<'a> HoleFillEvaluator<'a> {
+    pub fn new(layout: &'a Layout, item: &'a jagua_rs::entities::Item) -> Self {
+        let used_bbox = layout
+            .placed_items
+            .values()
+            .map(|pi| pi.shape.bbox)
+            .reduce(|acc, b| merge_rect(&acc, &b))
+            // Empty layout: degenerate bbox at the origin, so the first
+            // placement is pushed to the bottom-left corner.
+            .unwrap_or(Rect {
+                x_min: 0.0,
+                y_min: 0.0,
+                x_max: 0.0,
+                y_max: 0.0,
+            });
+        let used_area = rect_area(&used_bbox);
+        Self {
+            layout,
+            item,
+            shape_buff: item.shape_cd.as_ref().clone(),
+            used_bbox,
+            used_area,
+            n_evals: 0,
+        }
+    }
+}
+
+impl<'a> SampleEvaluator for HoleFillEvaluator<'a> {
+    fn evaluate_sample(&mut self, dt: DTransformation, _upper_bound: Option<SampleEval>) -> SampleEval {
+        self.n_evals += 1;
+        let cde = self.layout.cde();
+        let transf = dt.into();
+        if cde.detect_surrogate_collision(self.item.shape_cd.surrogate(), &transf, &NoFilter) {
+            return SampleEval::Invalid;
+        }
+        self.shape_buff.transform_from(&self.item.shape_cd, &transf);
+        if cde.detect_poly_collision(&self.shape_buff, &NoFilter) {
+            return SampleEval::Invalid;
+        }
+        let b = self.shape_buff.bbox;
+        let merged = merge_rect(&self.used_bbox, &b);
+        let growth = (rect_area(&merged) - self.used_area).max(0.0);
+        let corner = b.corners()[0];
+        let poi = self.shape_buff.poi.center;
+        let bottom_left = BL_X * (poi.0 + corner.0) + (poi.1 + corner.1);
+        SampleEval::Clear {
+            loss: growth * GROWTH_WEIGHT + bottom_left,
+        }
+    }
+
+    fn n_evals(&self) -> usize {
+        self.n_evals
+    }
+}
+
+/// Picks a "host" reference item in the layout for focussed sampling: the
+/// largest placed item able to contain `item` (its bbox spans the item's).
+/// Sampling around a holed host concentrates candidates on its cutouts,
+/// which uniform container sampling misses once holes get crowded.
+fn pick_host<'a>(
+    layout: &'a Layout,
+    item: &jagua_rs::entities::Item,
+) -> Option<jagua_rs::entities::PItemKey> {
+    let item_area = item.shape_cd.area;
+    layout
+        .placed_items
+        .iter()
+        .filter(|(_, pi)| pi.shape.area > item_area * 1.5)
+        .max_by(|(_, a), (_, b)| a.shape.area.total_cmp(&b.shape.area))
+        .map(|(pk, _)| pk)
+}
+
 /// Searches one layout for a feasible placement of `item`, returning the
-/// transformation and its bottom-left loss.
+/// transformation and its loss.
 fn search_layout(
     layout: &Layout,
     item: &jagua_rs::entities::Item,
     rng: &mut impl Rng,
 ) -> Option<(DTransformation, f32)> {
-    let evaluator = LBFEvaluator::new(layout, item);
-    let (best, _) = search_placement(layout, item, None, evaluator, SAMPLE_CFG, rng);
+    let evaluator = HoleFillEvaluator::new(layout, item);
+    let host = pick_host(layout, item);
+    let (best, _) = search_placement(layout, item, host, evaluator, SAMPLE_CFG, rng);
     best.and_then(|(dt, eval)| match eval {
         SampleEval::Clear { loss } => Some((dt, loss)),
         _ => None,
@@ -212,8 +322,15 @@ mod scale_tests {
         pts
     }
 
+    /// The real Piece_Trou geometry (100x100 square, r=35 hole) after the
+    /// pipeline's channel conversion at space=1.5mm — generated by
+    /// core/holed_polygons.py::open_holes_with_channels.
+    fn channel_opened_square() -> Vec<[f32; 2]> {
+        vec![[-50.000,-50.000], [-50.000,50.000], [50.000,50.000], [50.000,0.800], [34.981,0.800], [34.960,1.665], [34.842,3.327], [34.644,4.981], [34.367,6.624], [34.013,8.252], [33.582,9.861], [33.075,11.447], [32.493,13.008], [31.837,14.540], [31.109,16.038], [30.311,17.500], [29.444,18.922], [28.510,20.302], [27.512,21.636], [26.451,22.920], [25.331,24.153], [24.153,25.331], [22.920,26.451], [21.636,27.512], [20.302,28.510], [18.922,29.444], [17.500,30.311], [16.038,31.109], [14.540,31.837], [13.008,32.493], [11.447,33.075], [9.861,33.582], [8.252,34.013], [6.624,34.367], [4.981,34.644], [3.327,34.842], [1.665,34.960], [0.000,35.000], [-1.665,34.960], [-3.327,34.842], [-4.981,34.644], [-6.624,34.367], [-8.252,34.013], [-9.861,33.582], [-11.447,33.075], [-13.008,32.493], [-14.540,31.837], [-16.038,31.109], [-17.500,30.311], [-18.922,29.444], [-20.302,28.510], [-21.636,27.512], [-22.920,26.451], [-24.153,25.331], [-25.331,24.153], [-26.451,22.920], [-27.512,21.636], [-28.510,20.302], [-29.444,18.922], [-30.311,17.500], [-31.109,16.038], [-31.837,14.540], [-32.493,13.008], [-33.075,11.447], [-33.582,9.861], [-34.013,8.252], [-34.367,6.624], [-34.644,4.981], [-34.842,3.327], [-34.960,1.665], [-35.000,0.000], [-34.960,-1.665], [-34.842,-3.327], [-34.644,-4.981], [-34.367,-6.624], [-34.013,-8.252], [-33.582,-9.861], [-33.075,-11.447], [-32.493,-13.008], [-31.837,-14.540], [-31.109,-16.038], [-30.311,-17.500], [-29.444,-18.922], [-28.510,-20.302], [-27.512,-21.636], [-26.451,-22.920], [-25.331,-24.153], [-24.153,-25.331], [-22.920,-26.451], [-21.636,-27.512], [-20.302,-28.510], [-18.922,-29.444], [-17.500,-30.311], [-16.038,-31.109], [-14.540,-31.837], [-13.008,-32.493], [-11.447,-33.075], [-9.861,-33.582], [-8.252,-34.013], [-6.624,-34.367], [-4.981,-34.644], [-3.327,-34.842], [-1.665,-34.960], [-0.000,-35.000], [1.665,-34.960], [3.327,-34.842], [4.981,-34.644], [6.624,-34.367], [8.252,-34.013], [9.861,-33.582], [11.447,-33.075], [13.008,-32.493], [14.540,-31.837], [16.038,-31.109], [17.500,-30.311], [18.922,-29.444], [20.302,-28.510], [21.636,-27.512], [22.920,-26.451], [24.153,-25.331], [25.331,-24.153], [26.451,-22.920], [27.512,-21.636], [28.510,-20.302], [29.444,-18.922], [30.311,-17.500], [31.109,-16.038], [31.837,-14.540], [32.493,-13.008], [33.075,-11.447], [33.582,-9.861], [34.013,-8.252], [34.367,-6.624], [34.644,-4.981], [34.842,-3.327], [34.960,-1.665], [34.981,-0.800], [50.000,-0.800], [50.000,-50.000], [-50.000,-50.000]]
+    }
+
     fn instance_160() -> BPInstance {
-        let square: Vec<[f32; 2]> = vec![[-50.0,-50.0],[50.0,-50.0],[50.0,50.0],[-50.0,50.0],[-50.0,-50.0]];
+        let square: Vec<[f32; 2]> = channel_opened_square();
         let sector: Vec<[f32; 2]> = sector_points().iter().map(|p| [p.0, p.1]).collect();
         let json = serde_json::json!({
             "name": "160",
@@ -251,21 +368,45 @@ mod scale_tests {
         }
         eprintln!("total bins: {}", result.solution.layout_snapshots.len());
         assert_eq!(result.unplaced, 0);
-        // Anti-regression guard for the 160-piece production case: the
-        // constructive must pack the main sheets tight (~15 squares + ~60
-        // sectors each = >75% density). A loose constructive (first-fit or
-        // plain uniform sampling) lands at ~59% and costs a whole sheet.
-        let mut densities: Vec<f32> = result
-            .solution
-            .layout_snapshots
-            .values()
-            .map(|ls| ls.density(&instance))
-            .collect();
-        densities.sort_by(|a, b| b.total_cmp(a));
+
+        // The 160-piece production target: 2 sheets (area bound), with the
+        // sectors filling the squares' holes (4 slots each).
+        assert_eq!(
+            result.solution.layout_snapshots.len(),
+            2,
+            "expected 2 sheets for the 160-piece case"
+        );
+
+        // Count sectors nested in holes: centroid within the r=35 hole of a
+        // square (hole centre = square translation, geometry is centred).
+        let mut nested = 0usize;
+        let mut total_sectors = 0usize;
+        for ls in result.solution.layout_snapshots.values() {
+            let mut square_centres = Vec::new();
+            for pi in ls.placed_items.values() {
+                if pi.item_id == 0 {
+                    square_centres.push(pi.d_transf.translation());
+                }
+            }
+            for pi in ls.placed_items.values() {
+                if pi.item_id != 1 {
+                    continue;
+                }
+                total_sectors += 1;
+                let c = pi.shape.poi.center;
+                if square_centres.iter().any(|&(sx, sy)| {
+                    let dx = c.0 - sx;
+                    let dy = c.1 - sy;
+                    dx * dx + dy * dy < 35.0 * 35.0
+                }) {
+                    nested += 1;
+                }
+            }
+        }
+        eprintln!("sectors nested in holes: {nested}/{total_sectors}");
         assert!(
-            densities[0] > 0.75,
-            "main sheet density regressed: {:.3}",
-            densities[0]
+            nested * 2 >= total_sectors,
+            "holes underfilled: {nested}/{total_sectors} sectors nested"
         );
     }
 }
