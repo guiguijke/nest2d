@@ -11,10 +11,10 @@
                 APlasma
             </NuxtLink>
             <NuxtLink to="/home" class="tabs__link" active-class="tabs__link--active">
-                Workspace
+                {{ t('nav.workspace') }}
             </NuxtLink>
             <NuxtLink v-if="isStripFeatureEnabled" to="/strip" class="tabs__link" active-class="tabs__link--active">
-                Strip
+                {{ t('nav.strip') }}
             </NuxtLink>
         </nav>
         <nav v-if="isSecondaryTheme" :class="navClasses" class="header__nav nav">
@@ -30,26 +30,23 @@
         <div :class="{ 'header__wrapper--is-primary': isPrimaryTheme }" class="header__wrapper">
             <div class="header__theme">
                 <MainButton :theme="themeType.primary" :icon="themeIcon" :isLabelShow=false trackingTag="toggle_theme"
-                    @click="updateTheme" label="Toggle theme" />
+                    @click="updateTheme" :label="t('nav.toggleTheme')" />
+                <LocaleSwitcher class="header__locale" />
             </div>
             <MainButton :href="githubIssues" target="_blank"
-                label="Report a problem" tag="a" trackingTag="report_problem" class="header__btn" v-if="isSecondaryTheme" />
+                :label="t('nav.reportProblem')" tag="a" trackingTag="report_problem" class="header__btn" v-if="isSecondaryTheme" />
             <UserBalance class="header__btn" v-if="isPrimaryTheme && !isStripPage && !isStripFeatureEnabled" />
-            <!-- On the marketing header, signed-in users get a direct way into
-                 the tool + their avatar, instead of being shown a login button.
-                 MainButton has no `to` prop, so we drive the navigation via
-                 navigateTo on click (same pattern used by the login handlers). -->
             <MainButton v-if="isSecondaryTheme && userIsLoggedIn"
-                :theme="themeType.primary" label="Open my workspace"
+                :theme="themeType.primary" :label="t('nav.openWorkspace')"
                 trackingTag="open_workspace" @click="openWorkspace"
                 class="header__btn" />
-            <MainButton v-if="isSecondaryTheme && !userIsLoggedIn" :theme="themeType.primary" @click="onLoginClick" label="Login / Sign Up"
+            <MainButton v-if="isSecondaryTheme && !userIsLoggedIn" :theme="themeType.primary" @click="onLoginClick" :label="t('nav.login')"
                 class="header__btn header__btn--login" />
             <LoginView />
             <Avatar v-if="isPrimaryTheme || userIsLoggedIn" :size="sizeType.s" class="header__avatar" />
             <div v-if="isSecondaryTheme" class="header__toggler">
                 <MainButton :theme="themeType.secondary" :icon="iconType.menu" :isLabelShow=false trackingTag="menu_toggle"
-                    @click="toggleMenu" label="menu toggler" />
+                    @click="toggleMenu" :label="t('nav.menu')" />
             </div>
         </div>
     </header>
@@ -63,6 +60,8 @@ import { trackEvent } from '~/utils/track';
 import { useSiteConfig } from '~~/data/siteConfig';
 
 const { githubIssues } = useSiteConfig()
+
+const { t } = useLocale()
 
 const loginDialog = useLoginDialog()
 
@@ -86,28 +85,28 @@ const { theme } = defineProps({
 const route = useRoute()
 
 const menuIsOpen = ref(false);
-const nav = [
+const nav = computed(() => [
     {
-        label: 'Features',
+        label: t('nav.features'),
         href: '/#features',
     },
     {
-        label: 'How It Works',
+        label: t('nav.howItWorks'),
         href: '/#how-it-works',
     },
     {
-        label: 'Pricing',
+        label: t('nav.pricing'),
         href: '/plans',
     },
     {
-        label: 'FAQ',
+        label: t('nav.faq'),
         href: '/#faq',
     },
     {
-        label: 'Changelog',
+        label: t('nav.changelog'),
         href: '/changelog',
     },
-]
+])
 
 const { getters: authGetters } = authStore;
 const isStripFeatureEnabled = computed(() => {

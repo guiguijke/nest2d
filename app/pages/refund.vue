@@ -3,13 +3,15 @@
 </template>
 
 <script setup>
-import { useRefund as useRefundPolicy } from '~~/data/legal.en'
+import { useRefund as useRefundEn } from '~~/data/legal.en'
+import { useRefund as useRefundFr } from '~~/data/legal.fr'
 
 definePageMeta({
     layout: 'doc',
 })
 
-const refund = useRefundPolicy()
+const { locale } = useLocale()
+const refund = computed(() => (locale.value === 'fr' ? useRefundFr() : useRefundEn()))
 
 useHead({
     title: 'Refund Policy — APlasma Nesting',
