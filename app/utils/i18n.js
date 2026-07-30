@@ -62,7 +62,6 @@ const dict = {
         'stats.successRate': 'Success rate',
 
         'profile.subscription': 'Subscription',
-        'profile.balance': 'Balance',
 
         'sub.active': 'Active',
         'sub.trialActive': 'Free trial active',
@@ -70,11 +69,15 @@ const dict = {
         'sub.activeDesc': 'You have unlimited nesting while your subscription is active.',
         'sub.cancelNotice': 'Your subscription will end on {date}. You keep access until then.',
         'sub.cancelBtn': 'Cancel subscription',
-        'sub.cancelConfirm': 'Your subscription will be canceled at the end of the current billing period. You will keep access until then. Continue?',
+        'sub.cancelConfirm':
+            'Your subscription will be canceled at the end of the current billing period. You will keep access until then. Continue?',
         'sub.upgradePro': 'Upgrade to Pro',
         'sub.startTrial': 'Start {days}-day free trial',
-        'sub.cancelTrialNote': '🛡️ Cancel anytime during the trial and you won\'t be charged.',
+        'sub.cancelTrialNote': "🛡️ Cancel anytime during the trial and you won't be charged.",
         'sub.freeLeft': '{n} free nesting operation(s) left this month',
+        'banner.remaining': '{n} / {total} nestings left this month',
+        'banner.empty': "You've used all your free nestings for this month.",
+        'banner.cta': 'Start free trial',
         'sub.unavailable': 'The subscription plan is currently unavailable. Please try again later.',
         'sub.monthlyPlan': 'Monthly plan',
 
@@ -109,7 +112,8 @@ const dict = {
         'project.files': 'Files: {n}',
         'project.result': 'result',
         'project.results': 'results',
-        'project.minSheet': 'The biggest part needs a sheet of at least {w} × {h} mm — no declared sheet type is large enough.',
+        'project.minSheet':
+            'The biggest part needs a sheet of at least {w} × {h} mm — no declared sheet type is large enough.',
         'project.changeToRegenerate': 'Change settings or files to generate again',
 
         'time.justNow': 'just now',
@@ -149,9 +153,11 @@ const dict = {
         'results.nesting': 'Nesting',
 
         'vault.title': 'Zero-knowledge vault',
-        'vault.desc': 'Your files are encrypted with a key file only you hold. We never store it: if you lose the key file, your data is lost forever — even we cannot recover it.',
+        'vault.desc':
+            'Your files are encrypted with a key file only you hold. We never store it: if you lose the key file, your data is lost forever — even we cannot recover it.',
         'vault.unlockTitle': 'Unlock your vault',
-        'vault.unlockText': 'Your files are encrypted with your personal key file (aplasma-vault-….key.json). Drop it here to unlock this work session.',
+        'vault.unlockText':
+            'Your files are encrypted with your personal key file (aplasma-vault-….key.json). Drop it here to unlock this work session.',
         'vault.drop': 'Drop your key file here, or click to browse',
         'vault.remember': 'Remember the key in this browser',
         'vault.rememberHint': 'Anyone using this browser will be able to unlock the vault.',
@@ -170,18 +176,22 @@ const dict = {
         'vault.forgetBrowser': 'Forget this browser',
         'vault.forgetNotice': 'This browser will no longer unlock the vault automatically.',
         'vault.dangerZone': 'Danger zone',
-        'vault.disableDesc': 'If you can unlock your vault, you can disable it while keeping your files (decrypted) or destroying them.',
+        'vault.disableDesc':
+            'If you can unlock your vault, you can disable it while keeping your files (decrypted) or destroying them.',
         'vault.decryptDisable': 'Decrypt my files & disable',
         'vault.destroyDisable': 'Destroy files & disable',
         'vault.destroyFull': 'Destroy the vault completely',
-        'vault.destroyFullDesc': 'Use this only if you have lost your key file or cannot unlock the vault. All your files, projects and results will be permanently deleted — this cannot be undone. The vault will then be disabled and you can start fresh.',
+        'vault.destroyFullDesc':
+            'Use this only if you have lost your key file or cannot unlock the vault. All your files, projects and results will be permanently deleted — this cannot be undone. The vault will then be disabled and you can start fresh.',
         'vault.confirmChallenge': 'To confirm, type your key id {keyId} below:',
         'vault.destroyBtn': 'Destroy everything',
-        'vault.destroyConfirm': 'LAST WARNING: this permanently deletes ALL your files, projects and results, and destroys the vault. There is no way back. Continue?',
+        'vault.destroyConfirm':
+            'LAST WARNING: this permanently deletes ALL your files, projects and results, and destroys the vault. There is no way back. Continue?',
         'vault.notEligible': 'The zero-knowledge vault is available on the Pro plan.',
         'vault.seePlans': 'See plans',
         'vault.activated': 'Vault activated. Your next uploads will be encrypted.',
-        'vault.rotated': 'Key rotated. Your files were re-encrypted with the new key — the old key file is now useless.',
+        'vault.rotated':
+            'Key rotated. Your files were re-encrypted with the new key — the old key file is now useless.',
         'vault.disabledDestroy': 'Vault disabled — all files were destroyed.',
         'vault.disabledDecrypt': 'Vault disabled — your files were decrypted.',
         'vault.destroyed': 'Vault destroyed. All your data has been permanently deleted.',
@@ -261,23 +271,26 @@ const dict = {
         'stats.successRate': 'Taux de réussite',
 
         'profile.subscription': 'Abonnement',
-        'profile.balance': 'Solde',
 
         'sub.active': 'Actif',
         'sub.trialActive': 'Essai gratuit en cours',
         'sub.proPrivacy': 'Pro — Confidentialité+',
-        'sub.activeDesc': 'Vous bénéficiez d\'imbrications illimitées pendant votre abonnement.',
-        'sub.cancelNotice': 'Votre abonnement se terminera le {date}. Vous gardez l\'accès jusque-là.',
+        'sub.activeDesc': "Vous bénéficiez d'imbrications illimitées pendant votre abonnement.",
+        'sub.cancelNotice': "Votre abonnement se terminera le {date}. Vous gardez l'accès jusque-là.",
         'sub.cancelBtn': 'Se désabonner',
-        'sub.cancelConfirm': 'Votre abonnement sera annulé à la fin de la période de facturation en cours. Vous conserverez l\'accès jusque-là. Continuer ?',
+        'sub.cancelConfirm':
+            "Votre abonnement sera annulé à la fin de la période de facturation en cours. Vous conserverez l'accès jusque-là. Continuer ?",
         'sub.upgradePro': 'Passer à Pro',
-        'sub.startTrial': 'Commencer l\'essai de {days} jours',
-        'sub.cancelTrialNote': '🛡️ Annulez à tout moment pendant l\'essai, vous ne serez pas facturé.',
+        'sub.startTrial': "Commencer l'essai de {days} jours",
+        'sub.cancelTrialNote': "🛡️ Annulez à tout moment pendant l'essai, vous ne serez pas facturé.",
         'sub.freeLeft': '{n} imbrication(s) gratuite(s) restante(s) ce mois-ci',
-        'sub.unavailable': 'L\'offre d\'abonnement est actuellement indisponible. Veuillez réessayer plus tard.',
+        'banner.remaining': '{n} / {total} imbrications restantes ce mois-ci',
+        'banner.empty': 'Vous avez utilisé toutes vos imbrications gratuites ce mois-ci.',
+        'banner.cta': "Démarrer l'essai gratuit",
+        'sub.unavailable': "L'offre d'abonnement est actuellement indisponible. Veuillez réessayer plus tard.",
         'sub.monthlyPlan': 'Offre mensuelle',
 
-        'settings.nesting': 'Réglages d\'imbrication',
+        'settings.nesting': "Réglages d'imbrication",
         'settings.sheet': 'Plaque {n}',
         'settings.removeSheet': 'Retirer ce type de plaque',
         'settings.addSheet': '+ Ajouter un type de plaque',
@@ -299,7 +312,7 @@ const dict = {
         'settings.compute.level.simple': 'Simple',
         'settings.compute.level.normal': 'Normal',
         'settings.compute.level.advanced': 'Avancé',
-        'settings.compute.lockedTier': 'Nécessite l\'offre {tier}',
+        'settings.compute.lockedTier': "Nécessite l'offre {tier}",
         'settings.requiredHeight': 'Hauteur requise : au moins {h} mm (5 % au-dessus de la plus haute pièce).',
 
         'project.projects': 'Projets',
@@ -308,10 +321,11 @@ const dict = {
         'project.files': 'Fichiers : {n}',
         'project.result': 'résultat',
         'project.results': 'résultats',
-        'project.minSheet': 'La plus grande pièce nécessite une plaque d\'au moins {w} × {h} mm — aucun type de plaque déclaré n\'est assez grand.',
+        'project.minSheet':
+            "La plus grande pièce nécessite une plaque d'au moins {w} × {h} mm — aucun type de plaque déclaré n'est assez grand.",
         'project.changeToRegenerate': 'Modifiez les réglages ou les fichiers pour relancer',
 
-        'time.justNow': 'à l\'instant',
+        'time.justNow': "à l'instant",
         'time.minAgo': 'il y a {n} min',
         'time.hoursAgo': 'il y a {n} h',
         'time.dayAgo': 'il y a 1 jour',
@@ -319,14 +333,14 @@ const dict = {
 
         'upload.choose': 'Choisir des fichiers',
         'upload.drop': 'ou déposez vos fichiers ici',
-        'upload.limit': 'Jusqu\'à 20 fichiers, 5 Mo max chacun',
+        'upload.limit': "Jusqu'à 20 fichiers, 5 Mo max chacun",
 
         'parts.label': 'Pièce : ',
         'parts.count': '{n} pièces : ',
 
         'results.title': 'Résultats',
         'results.all': 'Tous les résultats',
-        'results.empty': 'Vos résultats d\'imbrication apparaîtront ici',
+        'results.empty': "Vos résultats d'imbrication apparaîtront ici",
         'results.download': 'Télécharger',
         'results.downloadAll': 'Tout télécharger',
 
@@ -337,7 +351,7 @@ const dict = {
         'result.allPlaced': 'Toutes les pièces sont placées',
         'result.neededToPlace': '{n} pièces à placer',
         'result.placed': '{n} pièces placées',
-        'result.noSolution': 'Aucune solution trouvée — essayez d\'agrandir la plaque ou de réduire le nombre de pièces',
+        'result.noSolution': "Aucune solution trouvée — essayez d'agrandir la plaque ou de réduire le nombre de pièces",
         'result.tryAgain': 'Réessayer',
 
         'progress.stage.preparing': 'Préparation de la géométrie',
@@ -348,20 +362,24 @@ const dict = {
         'results.nesting': 'Imbrication en cours',
 
         'vault.title': 'Coffre-fort zero-knowledge',
-        'vault.desc': 'Vos fichiers sont chiffrés avec un fichier-clé que vous seul détenez. Nous ne le stockons jamais : si vous perdez le fichier-clé, vos données sont perdues définitivement — même nous ne pouvons les récupérer.',
+        'vault.desc':
+            'Vos fichiers sont chiffrés avec un fichier-clé que vous seul détenez. Nous ne le stockons jamais : si vous perdez le fichier-clé, vos données sont perdues définitivement — même nous ne pouvons les récupérer.',
         'vault.unlockTitle': 'Déverrouiller votre coffre',
-        'vault.unlockText': 'Vos fichiers sont chiffrés avec votre fichier-clé personnel (aplasma-vault-….key.json). Déposez-le ici pour déverrouiller cette session de travail.',
+        'vault.unlockText':
+            'Vos fichiers sont chiffrés avec votre fichier-clé personnel (aplasma-vault-….key.json). Déposez-le ici pour déverrouiller cette session de travail.',
         'vault.drop': 'Déposez votre fichier-clé ici, ou cliquez pour le sélectionner',
         'vault.remember': 'Mémoriser la clé dans ce navigateur',
         'vault.rememberHint': 'Quiconque utilise ce navigateur pourra déverrouiller le coffre.',
         'vault.unlockBtn': 'Déverrouiller',
-        'vault.wrongKey': 'Cette clé ne correspond pas à votre coffre. Vérifiez que vous avez sélectionné le bon fichier-clé.',
+        'vault.wrongKey':
+            'Cette clé ne correspond pas à votre coffre. Vérifiez que vous avez sélectionné le bon fichier-clé.',
         'vault.unlockFailed': 'Échec du déverrouillage. Veuillez réessayer.',
         'vault.generate': 'Générer mon fichier-clé',
         'vault.activate': 'Activer le coffre',
-        'vault.confirmSave': 'J\'ai enregistré mon fichier-clé et je comprends qu\'en le perdant, mes données deviennent irrécupérables.',
+        'vault.confirmSave':
+            "J'ai enregistré mon fichier-clé et je comprends qu'en le perdant, mes données deviennent irrécupérables.",
         'vault.downloadAgain': 'Télécharger à nouveau',
-        'vault.locked': 'Coffre verrouillé — les fichiers sont illisibles jusqu\'au déverrouillage.',
+        'vault.locked': "Coffre verrouillé — les fichiers sont illisibles jusqu'au déverrouillage.",
         'vault.unlocked': 'Coffre déverrouillé — les nouveaux fichiers seront chiffrés.',
         'vault.keyId': 'Identifiant de clé',
         'vault.unlockNow': 'Déverrouiller',
@@ -369,18 +387,22 @@ const dict = {
         'vault.forgetBrowser': 'Oublier ce navigateur',
         'vault.forgetNotice': 'Ce navigateur ne déverrouillera plus le coffre automatiquement.',
         'vault.dangerZone': 'Zone de danger',
-        'vault.disableDesc': 'Si vous pouvez déverrouiller votre coffre, vous pouvez le désactiver en conservant vos fichiers (déchiffrés) ou en les détruisant.',
+        'vault.disableDesc':
+            'Si vous pouvez déverrouiller votre coffre, vous pouvez le désactiver en conservant vos fichiers (déchiffrés) ou en les détruisant.',
         'vault.decryptDisable': 'Déchiffrer mes fichiers & désactiver',
         'vault.destroyDisable': 'Détruire les fichiers & désactiver',
         'vault.destroyFull': 'Détruire complètement le coffre',
-        'vault.destroyFullDesc': 'À utiliser uniquement si vous avez perdu votre fichier-clé ou ne pouvez pas déverrouiller le coffre. Tous vos fichiers, projets et résultats seront définitivement supprimés — c\'est irréversible. Le coffre sera alors désactivé et vous pourrez repartir de zéro.',
+        'vault.destroyFullDesc':
+            "À utiliser uniquement si vous avez perdu votre fichier-clé ou ne pouvez pas déverrouiller le coffre. Tous vos fichiers, projets et résultats seront définitivement supprimés — c'est irréversible. Le coffre sera alors désactivé et vous pourrez repartir de zéro.",
         'vault.confirmChallenge': 'Pour confirmer, saisissez votre identifiant de clé {keyId} ci-dessous :',
         'vault.destroyBtn': 'Tout détruire',
-        'vault.destroyConfirm': 'DERNIER AVERTISSEMENT : cela supprime DÉFINITIVEMENT tous vos fichiers, projets et résultats, et détruit le coffre. C\'est irréversible. Continuer ?',
-        'vault.notEligible': 'Le coffre-fort zero-knowledge est disponible avec l\'offre Pro.',
+        'vault.destroyConfirm':
+            "DERNIER AVERTISSEMENT : cela supprime DÉFINITIVEMENT tous vos fichiers, projets et résultats, et détruit le coffre. C'est irréversible. Continuer ?",
+        'vault.notEligible': "Le coffre-fort zero-knowledge est disponible avec l'offre Pro.",
         'vault.seePlans': 'Voir les offres',
         'vault.activated': 'Coffre activé. Vos prochains imports seront chiffrés.',
-        'vault.rotated': 'Clé renouvelée. Vos fichiers ont été rechiffrés avec la nouvelle clé — l\'ancien fichier-clé est désormais inutile.',
+        'vault.rotated':
+            "Clé renouvelée. Vos fichiers ont été rechiffrés avec la nouvelle clé — l'ancien fichier-clé est désormais inutile.",
         'vault.disabledDestroy': 'Coffre désactivé — tous les fichiers ont été détruits.',
         'vault.disabledDecrypt': 'Coffre désactivé — vos fichiers ont été déchiffrés.',
         'vault.destroyed': 'Coffre détruit. Toutes vos données ont été définitivement supprimées.',
@@ -407,7 +429,7 @@ const dict = {
         'auth.passwordPlaceholder': 'Mot de passe',
         'auth.passwordMinPlaceholder': 'Mot de passe (min. 8 caractères)',
         'auth.toggleToLogin': 'Déjà un compte ? Connexion',
-        'auth.toggleToRegister': "Pas de compte ? Inscrivez-vous",
+        'auth.toggleToRegister': 'Pas de compte ? Inscrivez-vous',
         'auth.errorGeneric': 'Une erreur est survenue. Veuillez réessayer.',
     },
 }

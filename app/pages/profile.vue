@@ -1,65 +1,68 @@
 <template>
-    <div v-if="user.name" class="profile">
-        <MainTitle :label="user.name" class="profile__title" />
+    <div
+        v-if="user.name"
+        class="profile"
+    >
+        <MainTitle
+            :label="user.name"
+            class="profile__title"
+        />
         <div class="profile__content">
             <Avatar />
-            <MainButton :theme="themeType.primary" trackingTag="logout" @click="logoutHandler" label="Logout" class="profile__btn" />
+            <MainButton
+                :theme="themeType.primary"
+                trackingTag="logout"
+                @click="logoutHandler"
+                label="Logout"
+                class="profile__btn"
+            />
         </div>
         <UserStats class="profile__stats" />
-        <Subscription v-if="isStripFeatureEnable" />
-        <template v-else>
-            <UserBalance class="profile__balance" />
-            <BuyCredits />
-        </template>
+        <Subscription />
         <VaultSettings v-if="isStripFeatureEnable" />
     </div>
 </template>
 <script setup>
-import { themeType } from '~~/constants/theme.constants';
+    import { themeType } from '~~/constants/theme.constants'
 
-const router = useRouter();
+    const router = useRouter()
 
-definePageMeta({
-    layout: "profile",
-    middleware: "auth",
-});
+    definePageMeta({
+        layout: 'profile',
+        middleware: 'auth',
+    })
 
-const { getters, actions } = authStore;
-const { logout } = actions;
-const user = computed(() => getters.user);
+    const { getters, actions } = authStore
+    const { logout } = actions
+    const user = computed(() => getters.user)
 
-const isStripFeatureEnable = computed(() => {
-    return Boolean(unref(getters.user)?.isStripFeatureEnable);
-});
+    const isStripFeatureEnable = computed(() => {
+        return Boolean(unref(getters.user)?.isStripFeatureEnable)
+    })
 
-const logoutHandler = async () => {
-    await logout();
-    router.push({ path: '/' })
-};
+    const logoutHandler = async () => {
+        await logout()
+        router.push({ path: '/' })
+    }
 </script>
 <style lang="scss" scoped>
-.profile {
-    &__title {
-        margin-bottom: 16px;
-    }
+    .profile {
+        &__title {
+            margin-bottom: 16px;
+        }
 
-    &__content {
-        display: flex;
-        align-items: center;
-    }
+        &__content {
+            display: flex;
+            align-items: center;
+        }
 
-    &__btn {
-        margin-left: 24px;
-    }
+        &__btn {
+            margin-left: 24px;
+        }
 
-    &__balance {
-        margin-top: 24px;
-        margin-bottom: 24px;
+        &__stats {
+            margin-top: 24px;
+            margin-bottom: 24px;
+        }
     }
-
-    &__stats {
-        margin-top: 24px;
-        margin-bottom: 24px;
-    }
-}
 </style>

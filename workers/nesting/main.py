@@ -57,12 +57,9 @@ nesting_jobs = db["nesting_jobs"]
 def refund_charge(doc):
     """Refund the unit consumed at enqueue time when a job definitively fails.
 
-    New-style jobs carry a `charge` object written by the API:
-      - {"type": "free"}               -> give back one free nesting slot
-      - {"type": "credits", "amount": N} -> give back N paid credits
-      - {"type": "admin"|"subscription"} -> nothing was consumed
-    Jobs without a `charge` field are legacy balance-based jobs: the worker
-    only decrements balance on success, so there is nothing to refund.
+    Jobs carry a `charge` object written by the API:
+      - {"type": "free"}                 -> give back one free nesting slot
+      - {"type": "grant"|"subscription"} -> nothing was consumed
     """
     charge = doc.get("charge")
     if not charge or charge.get("refunded"):
@@ -75,12 +72,6 @@ def refund_charge(doc):
                 {"$inc": {"freeNestingUsed": -1}},
             )
             logger.info(f"Refunded free nesting slot to user {doc['ownerId']}")
-        elif charge_type == "credits":
-            db["users"].update_one(
-                {"id": doc["ownerId"]},
-                {"$inc": {"balance": charge.get("amount", 10)}},
-            )
-            logger.info(f"Refunded {charge.get('amount', 10)} credits to user {doc['ownerId']}")
         nesting_jobs.update_one(
             {"_id": doc["_id"]},
             {"$set": {"charge.refunded": True}},
@@ -157,12 +148,6 @@ while not shutdown_requested:
         )
         
         user_update = {"$inc": {"nesting_count": 1}}
-        if "charge" not in doc:
-            # Legacy balance-based job (no charge recorded at enqueue): keep
-            # the historical success-time decrement. New-style jobs were
-            # already charged at enqueue, so decrementing here would bill
-            # them twice.
-            user_update["$inc"]["balance"] = -10
         db["users"].update_one({"id": doc["ownerId"]}, user_update)
     except Exception as e:
         logger.error("Error in project processing", extra={"error": str(e), "traceback": traceback.format_exc()})

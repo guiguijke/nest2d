@@ -16,7 +16,9 @@ export default defineEventHandler(async (event) => {
     }
 
     const body = await readBody(event)
-    const email = String(body?.email || '').trim().toLowerCase()
+    const email = String(body?.email || '')
+        .trim()
+        .toLowerCase()
     const name = String(body?.name || '').trim()
     const password = String(body?.password || '')
 
@@ -52,12 +54,11 @@ export default defineEventHandler(async (event) => {
         passwordHash,
         sessions: [session],
         createdAt: new Date(),
-        balance: 30,
         isStripFeatureEnable: true,
         freeNestingUsed: 0,
         // Geo + provenance, captured at signup for the admin panel. Country
         // comes from Cloudflare's cf-ipcountry header (null without it).
-        signupCountry: (event.node.req.headers[COUNTRY_HEADER_NAME] || null),
+        signupCountry: event.node.req.headers[COUNTRY_HEADER_NAME] || null,
         signupIp:
             event.node.req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
             event.node.req.socket?.remoteAddress ||

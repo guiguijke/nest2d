@@ -6,19 +6,12 @@ import { COUNTRY_HEADER_NAME } from '~~/server/tracking/const'
 import { downloadAndStoreAvatar } from './avatar'
 import logger from './logger'
 
-export async function createOrUpdateUser({
-    event,
-    sessionId,
-    providerId,
-    email,
-    name,
-    avatarUrl,
-}) {
+export async function createOrUpdateUser({ event, sessionId, providerId, email, name, avatarUrl }) {
     if (!providerId || !email || !name) {
         logger.error('Missing required user data', {
             providerId,
             email,
-            name
+            name,
         })
         throw new Error('Missing required user data')
     }
@@ -31,11 +24,11 @@ export async function createOrUpdateUser({
     // Geo + provenance captured at signup (admin panel). Only meaningful on
     // first insert; we pass them via $setOnInsert so they never overwrite a
     // real signup country on subsequent logins.
-    const signupCountry = event ? (event.node.req.headers[COUNTRY_HEADER_NAME] || null) : null
+    const signupCountry = event ? event.node.req.headers[COUNTRY_HEADER_NAME] || null : null
     const signupIp = event
-        ? (event.node.req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
-            event.node.req.socket?.remoteAddress ||
-            null)
+        ? event.node.req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
+          event.node.req.socket?.remoteAddress ||
+          null
         : null
 
     const updateData = {
@@ -47,15 +40,14 @@ export async function createOrUpdateUser({
         },
         $setOnInsert: {
             createdAt: new Date(),
-            balance: 30,
             isStripFeatureEnable: true,
             freeNestingUsed: 0,
             signupCountry,
             signupIp,
         },
         $push: {
-            sessions: session
-        }
+            sessions: session,
+        },
     }
 
     const userId = `google:${providerId}`
@@ -66,11 +58,7 @@ export async function createOrUpdateUser({
         throw new Error('This account has been suspended')
     }
 
-    await db.collection('users').updateOne(
-        { id: userId },
-        updateData,
-        { upsert: true }
-    )
+    await db.collection('users').updateOne({ id: userId }, updateData, { upsert: true })
 
     if (!isUserExists) {
         try {
@@ -86,10 +74,9 @@ export async function createOrUpdateUser({
         }
     }
 
-    await db.collection('tracking').updateMany(
-        { sessionKey: sessionId, userId: { $exists: false } },
-        { $set: { userId: userId } }
-    )
+    await db
+        .collection('tracking')
+        .updateMany({ sessionKey: sessionId, userId: { $exists: false } }, { $set: { userId: userId } })
 
     return session
 }
@@ -107,4 +94,4 @@ export function setSessionCookie(event, session) {
         secure: process.env.NODE_ENV === 'production',
         path: '/',
     })
-} 
+}
