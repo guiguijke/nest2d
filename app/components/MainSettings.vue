@@ -20,8 +20,8 @@
                         </button>
                     </div>
                     <div class="size__line">
-                        <InputField prefix="W" suffix="mm" :modelValue="sheet.width" @update:modelValue="value => updateSheet(index, { width: value })" class="size__input" />
-                        <InputField prefix="H" suffix="mm" :modelValue="sheet.height" @update:modelValue="value => updateSheet(index, { height: value })" class="size__input" />
+                        <InputField :prefix="t('settings.width')" :suffix="t('settings.mm')" :modelValue="sheet.width" @update:modelValue="value => updateSheet(index, { width: value })" class="size__input" />
+                        <InputField :prefix="t('settings.height')" :suffix="t('settings.mm')" :modelValue="sheet.height" @update:modelValue="value => updateSheet(index, { height: value })" class="size__input" />
                     </div>
                     <InputField :prefix="t('settings.count')" :suffix="t('settings.units')" :modelValue="sheet.count" @update:modelValue="value => updateSheet(index, { count: value })" class="size__input" />
                 </div>

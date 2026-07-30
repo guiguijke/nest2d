@@ -1,6 +1,6 @@
 <template>
     <div class="content">
-        <MainTitle :label="`Files: ${filesCount}`" class="content__title" />
+        <MainTitle :label="t('project.files', { n: filesCount })" class="content__title" />
         <ProjectFiles :projectFiles="projectFiles" @addFiles="addFiles" class="content__files" />
         <MainSettings />
         <MainButton :theme="themeType.primary" :label="btnLabel" :isDisable="btnIsDisable" trackingTag="project_nest_start"
@@ -10,11 +10,10 @@
             {{ nestRequestError }}
         </div>
         <div v-if="!sizesIsAvailable && !nestRequestError" class="content__error">
-            The biggest part needs a sheet of at least {{ biggestPartSizes.width }} x {{ biggestPartSizes.height }} mm.
-            No declared sheet type is large enough.
+            {{ t('project.minSheet', { w: biggestPartSizes.width, h: biggestPartSizes.height }) }}
         </div>
         <div v-if="!isNewParams" class="content__text">
-            Change settings or files to generate again
+            {{ t('project.changeToRegenerate') }}
         </div>
     </div>
 </template>
@@ -27,6 +26,7 @@ definePageMeta({
     middleware: "auth",
 });
 
+const { t } = useLocale()
 const $apiFetch = useApiFetch();
 
 const { getters } = globalStore;
@@ -87,7 +87,7 @@ onMounted(() => {
     });
 })
 const btnLabel = computed(() => {
-    return `Nest ${unref(filesCount)} files`
+    return t('settings.nestFiles', { n: unref(filesCount) })
 })
 const btnIsDisable = computed(() => {
     return Boolean(unref(nestRequestError)) || !unref(isNewParams) || !unref(resultsList) || !unref(sizesIsAvailable)

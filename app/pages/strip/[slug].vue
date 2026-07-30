@@ -1,6 +1,6 @@
 <template>
     <div class="content">
-        <MainTitle :label="`Files: ${filesCount}`" class="content__title" />
+        <MainTitle :label="t('project.files', { n: filesCount })" class="content__title" />
         <div class="content__files files">
             <DxfUpload @files="addFiles" />
             <StripFile
@@ -35,6 +35,7 @@ definePageMeta({
 });
 
 const $apiFetch = useApiFetch();
+const { t } = useLocale()
 
 const { getters, actions } = stripStore;
 const { setProjectFiles, setProjectName, setModalFileData, nest } = actions;
@@ -60,7 +61,7 @@ const nestRequestError = computed(() => getters.nestRequestError)
 const isNewParams = computed(() => getters.isNewParams)
 const isNesting = computed(() => getters.isNesting)
 
-const btnLabel = computed(() => `Nest ${unref(filesCount)} files`)
+const btnLabel = computed(() => t('settings.nestFiles', { n: unref(filesCount) }))
 const btnIsDisable = computed(() =>
     Boolean(unref(nestRequestError)) || !unref(isNewParams) || unref(isNesting)
 )

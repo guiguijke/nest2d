@@ -19,7 +19,7 @@
             <div class="controls">
                 <MainButton
                     :href="resultModalData.dxfUrl"
-                    label="Download"
+                    :label="t('results.download')" 
                     tag="a"
                     download
                     :size="sizeType.s"
@@ -35,6 +35,7 @@
 import { sizeType } from '~~/constants/size.constants';
 import { themeType } from '~~/constants/theme.constants';
 
+const { t } = useLocale()
 const { getters } = stripStore;
 const resultModalData = computed(() => getters.resultModalData);
 
