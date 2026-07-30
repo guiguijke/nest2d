@@ -95,7 +95,10 @@ export default defineNuxtConfig({
                 {
                     hid: 'robots',
                     name: 'robots',
-                    content: 'index, follow'
+                    // The app subdomain is a product surface, not a marketing
+                    // one — nestorcut.com owns SEO, so keep app.* out of the
+                    // index while still letting crawlers follow links.
+                    content: 'noindex, follow'
                 },
                 {
                     hid: 'author',
