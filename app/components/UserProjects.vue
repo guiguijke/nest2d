@@ -1,11 +1,11 @@
 <template>
-    <MainAside 
-        label="Bin Projects"
+    <MainAside
+        :label="t('project.projects')"
         @closeAside="$emit('closeAside')"
         :btnLabel="btnLabelValue"
         @btnClick="createNewProject"
     >
-        <div  
+        <div
             v-if="projectsList.length"
             class="projects"
         >
@@ -18,14 +18,15 @@
             />
         </div>
         <p v-else class="projects__text">
-            Your projects will be here
-        </p> 
+            {{ t('project.empty') }}
+        </p>
     </MainAside>
 </template>
 
 <script setup>
 const route = useRoute();
 const router = useRouter();
+const { t } = useLocale()
 
 const { getters, actions} = globalStore;
 const { setProjects } = actions;
@@ -44,8 +45,8 @@ onMounted(() => {
 })
 
 const btnLabelValue = computed(() => {
-    return route.name === 'home' ? '' : 'New project'
-}) 
+    return route.name === 'home' ? '' : t('project.new')
+})
 
 const emit = defineEmits(["closeAside"]);
 

@@ -1,10 +1,10 @@
 <template>
-    <MainAside @closeAside="$emit('closeAside')" :label="isHomePage ? 'All results' : 'Results'">
-        <div 
-            v-if="getters.resultsList.length"    
+    <MainAside @closeAside="$emit('closeAside')" :label="isHomePage ? t('results.all') : t('results.title')">
+        <div
+            v-if="getters.resultsList.length"
             class="results"
         >
-            <UserResultItem 
+            <UserResultItem
                 v-for="result in getters.resultsList"
                 :key="result.id"
                 :result="result"
@@ -13,7 +13,7 @@
             />
         </div>
         <p v-else class="results__text">
-            Your nested results will be here
+            {{ t('results.empty') }}
         </p>
         <ResultModal v-model:isModalOpen="resultDialog" />
     </MainAside>
@@ -22,6 +22,7 @@
 <script setup>
 const route = useRoute();
 const resultDialog = useResultDialog();
+const { t } = useLocale()
 const { getters, actions } = globalStore;
 const { setResults, setModalResultData, updateNotification } = actions;
 const eventSource = ref(null)

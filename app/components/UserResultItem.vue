@@ -7,9 +7,6 @@
                 class="result__display"
             />
             <template v-if="progress">
-                <p class="result__text result__text--stage">
-                    {{ stageLabel }}
-                </p>
                 <div class="result__progress progress">
                     <div
                         class="progress__bar"
@@ -17,7 +14,7 @@
                     />
                 </div>
                 <p class="result__text result__text--count">
-                    {{ progressPercent }}%<template v-if="showDoneTotal"> · {{ progress.done }}/{{ progress.total }}</template><template v-if="progress.elapsed_sec != null"> · {{ formatElapsed(progress.elapsed_sec) }}</template>
+                    {{ progressPercent }}%<template v-if="progress.elapsed_sec != null"> · {{ formatElapsed(progress.elapsed_sec) }}</template>
                 </p>
             </template>
             <p v-else class="result__text">
@@ -94,7 +91,7 @@ const downloadUrl = computed(() => {
 });
 
 const downloadButtonText = computed(() => {
-    return isMultiSheet.value ? 'Download All' : 'Download';
+    return isMultiSheet.value ? t('results.downloadAll') : t('results.download');
 });
 
 const hasMultipleSvgs = computed(() => {

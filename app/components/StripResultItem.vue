@@ -29,7 +29,7 @@
             <MainButton
                 v-if="canPreview"
                 :href="result.dxfUrl"
-                label="Download"
+                :label="t('results.download')" 
                 tag="a"
                 download
                 :size="sizeType.s"
@@ -46,6 +46,8 @@ import { sizeType } from '~~/constants/size.constants';
 import { themeType } from '~~/constants/theme.constants';
 import { statusType } from '~~/constants/status.constants';
 import { trackEvent } from '~/utils/track';
+
+const { t } = useLocale()
 
 const props = defineProps({
     result: {

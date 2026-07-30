@@ -19,17 +19,17 @@
                 class="upload__input"
             />
             <MainButton
-                label="Choose files"
+                :label="t('upload.choose')"
                 tag="div"
                 :theme="themeType.primary"
                 trackingTag="choose_files"
                 class="upload__btn"
             />
             <span class="upload__text">
-                or drop your files here
+                {{ t('upload.drop') }}
             </span>
             <span class="upload__text upload__text--gray">
-                Up to 20 files, max 5 MB each
+                {{ t('upload.limit') }}
             </span>
         </label>
     </div>
@@ -37,6 +37,8 @@
 
 <script setup>
 import { themeType } from '~~/constants/theme.constants';
+
+const { t } = useLocale()
 
 const props = defineProps({
     extensions: {
