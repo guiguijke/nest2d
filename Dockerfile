@@ -1,6 +1,6 @@
 ARG NODE_VERSION=24.11.0
 
-FROM node:${NODE_VERSION}-slim as base
+FROM node:${NODE_VERSION}-slim AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
@@ -10,7 +10,7 @@ ARG GIT_COMMIT_SHA
 
 WORKDIR /src
 
-FROM base as build
+FROM base AS build
 
 COPY --link package.json package-lock.json .
 RUN npm install

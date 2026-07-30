@@ -75,7 +75,7 @@ export default defineNuxtConfig({
 
     app: {
         head: {
-            title: 'APlasma Nesting - Smart Nesting for Laser Cutting and CNC machining',
+            title: 'NestorCut — State-of-the-art nesting for laser, plasma & CNC cutting',
             meta: [
                 { charset: 'utf-8' },
                 {
@@ -85,12 +85,12 @@ export default defineNuxtConfig({
                 {
                     hid: 'description',
                     name: 'description',
-                    content: 'The service for nesting DXF files. APlasma Nesting optimizes your material usage. Inspired by Nest2D, fully open-source and built for efficiency.'
+                    content: 'True-shape 2D nesting with a research-grade engine. Upload your DXF files, set your sheet, and get a cut-ready optimized layout in seconds. 10 free nestings every month.'
                 },
                 {
                     hid: 'keywords',
                     name: 'keywords',
-                    content: 'Nest DXF online, DXF files, material dimensions, APlasma Nesting, maximize material usage, open-source, efficiency, smart nesting, laser cutting'
+                    content: 'nesting software, nest DXF online, true-shape nesting, laser cutting nesting, plasma cutting, CNC nesting, sheet metal optimization, reduce material waste, NestorCut'
                 },
                 {
                     hid: 'robots',
@@ -100,7 +100,7 @@ export default defineNuxtConfig({
                 {
                     hid: 'author',
                     name: 'author',
-                    content: 'APlasma Nesting'
+                    content: 'NestorCut'
                 }
             ],
             link: [

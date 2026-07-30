@@ -23,7 +23,7 @@ export async function notifyAdminNewUser(event, { id, email, name, provider }) {
 
   const subject = `Nouvelle inscription — ${name} (${email})`
   const html = `
-    <h2 style="margin:0 0 8px">Nouvel utilisateur sur APlasma Nesting</h2>
+    <h2 style="margin:0 0 8px">Nouvel utilisateur sur NestorCut</h2>
     <table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;color:#222">
       <tr><td style="padding:2px 12px 2px 0;color:#666">Nom</td><td>${escapeHtml(name || '—')}</td></tr>
       <tr><td style="padding:2px 12px 2px 0;color:#666">Email</td><td>${escapeHtml(email || '—')}</td></tr>

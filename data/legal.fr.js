@@ -1,5 +1,5 @@
 /**
- * Contenu légal (français) pour APlasma Nesting.
+ * Contenu légal (français) pour NestorCut.
  *
  * Utilisé par pages/terms-and-conditions.vue, pages/privacy.vue, pages/refund.vue
  * lorsque la locale active est le français. Contrepartie de data/legal.en.js.
@@ -21,13 +21,13 @@ export function useTerms() {
     const { supportEmail, githubRepo } = useSiteConfig()
     return {
         title: 'Conditions Générales d\'Utilisation',
-        subtitle: 'Les règles qui encadrent votre utilisation d\'APlasma Nesting.',
+        subtitle: 'Les règles qui encadrent votre utilisation d\'NestorCut.',
         effectiveDate: TODAY,
         sections: [
             {
                 heading: '1. Acceptation des conditions',
                 paragraphs: [
-                    'Les présentes Conditions Générales d\'Utilisation (« CGU ») régissent votre accès et votre utilisation du site APlasma Nesting et de son service de nesting (« le Service »), exploités par le responsable du projet (« nous », « notre » ou « nos »).',
+                    'Les présentes Conditions Générales d\'Utilisation (« CGU ») régissent votre accès et votre utilisation du site NestorCut et de son service de nesting (« le Service »), exploités par le responsable du projet (« nous », « notre » ou « nos »).',
                     'En créant un compte ou en utilisant le Service de quelque manière que ce soit, vous reconnaissez avoir lu, compris et accepté les présentes CGU. Si vous n\'acceptez pas tout ou partie de ces conditions, vous ne devez pas utiliser le Service.',
                     'Vous devez être âgé(e) d\'au moins 16 ans, ou de l\'âge du consentement numérique dans votre pays, pour créer un compte. En utilisant le Service, vous déclarez remplir cette condition.',
                 ],
@@ -35,7 +35,7 @@ export function useTerms() {
             {
                 heading: '2. Description du Service',
                 paragraphs: [
-                    'APlasma Nesting est un outil en ligne qui dispose des pièces à découper (fichiers DXF) sur des plaques de matière afin d\'en minimiser les chutes. Il s\'adresse aux professionnels et particuliers pratiquant la découpe laser, plasma, traceur et CNC.',
+                    'NestorCut est un outil en ligne qui dispose des pièces à découper (fichiers DXF) sur des plaques de matière afin d\'en minimiser les chutes. Il s\'adresse aux professionnels et particuliers pratiquant la découpe laser, plasma, traceur et CNC.',
                     'Le Service met en œuvre des heuristiques d\'optimisation. Les dispositions produites sont efficaces mais, comme tout solveur de nesting, ne sont pas mathématiquement garanties comme optimales. Vous restez seul responsable de la vérification de toute disposition avant la découpe de la matière.',
                 ],
             },
@@ -78,7 +78,7 @@ export function useTerms() {
             {
                 heading: '7. Licence open-source du code source',
                 paragraphs: [
-                    'Le code source d\'APlasma Nesting est distribué sous licence MIT. Les présentes CGU régissent l\'utilisation du Service hébergé ; l\'utilisation, la modification et la redistribution du code source restent régies par la licence MIT, disponible sur le dépôt du projet.',
+                    'Le code source d\'NestorCut est distribué sous licence MIT. Les présentes CGU régissent l\'utilisation du Service hébergé ; l\'utilisation, la modification et la redistribution du code source restent régies par la licence MIT, disponible sur le dépôt du projet.',
                 ],
             },
             {
@@ -122,13 +122,13 @@ export function usePrivacy() {
     const { supportEmail } = useSiteConfig()
     return {
         title: 'Politique de confidentialité',
-        subtitle: 'La manière dont APlasma Nesting collecte, utilise et protège vos données.',
+        subtitle: 'La manière dont NestorCut collecte, utilise et protège vos données.',
         effectiveDate: TODAY,
         sections: [
             {
                 heading: '1. Responsable du traitement',
                 paragraphs: [
-                    `Le responsable du traitement de vos données à caractère personnel est l'exploitant d'APlasma Nesting. Vous pouvez nous contacter à l'adresse ${supportEmail}.`,
+                    `Le responsable du traitement de vos données à caractère personnel est l'exploitant d'NestorCut. Vous pouvez nous contacter à l'adresse ${supportEmail}.`,
                 ],
             },
             {

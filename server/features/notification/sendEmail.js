@@ -63,13 +63,13 @@ export async function sendNewSupportMessageEmail(userId) {
 
   try {
     const recipient = user.email;
-    const emailSubject = `New support message from APlasma Nesting`;
+    const emailSubject = `New support message from NestorCut`;
     const emailBody = `
       <p>Hello,</p>
-      <p>You have received a new message from the APlasma Nesting support team.</p>
+      <p>You have received a new message from the NestorCut support team.</p>
       <p>Please log in to your account to view the message.</p>
       <p><a href="${useRuntimeConfig().public.baseUrl}">View Message</a></p>
-      <p>Best regards, <br> APlasma Nesting</p>
+      <p>Best regards, <br> NestorCut</p>
       <p>For unsubscribe, just reply to this email with word "unsubscribe", or notify us through our support chat.</p>
     `;
 
@@ -81,13 +81,13 @@ export async function sendNewSupportMessageEmail(userId) {
 }
 
 export async function sendPasswordResetEmail(email, resetUrl) {
-  const emailSubject = 'Reset your APlasma Nesting password';
+  const emailSubject = 'Reset your NestorCut password';
   const emailBody = `
     <p>Hello,</p>
-    <p>We received a request to reset the password of your APlasma Nesting account.</p>
+    <p>We received a request to reset the password of your NestorCut account.</p>
     <p><a href="${resetUrl}">Click here to choose a new password</a></p>
     <p>This link is valid for 1 hour. If you did not request a password reset, you can safely ignore this email.</p>
-    <p>Best regards, <br> APlasma Nesting</p>
+    <p>Best regards, <br> NestorCut</p>
   `;
 
   await sendEmail(email, emailSubject, emailBody);

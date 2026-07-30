@@ -1,5 +1,5 @@
 /**
- * Legal content (English) for APlasma Nesting.
+ * Legal content (English) for NestorCut.
  *
  * Used by pages/terms-and-conditions.vue, pages/privacy.vue, pages/refund.vue.
  * The French counterpart lives in data/legal.fr.js — switching the active
@@ -22,13 +22,13 @@ export function useTerms() {
     const { supportEmail, githubRepo } = useSiteConfig()
     return {
         title: 'Terms and Conditions',
-        subtitle: 'The rules that govern your use of APlasma Nesting.',
+        subtitle: 'The rules that govern your use of NestorCut.',
         effectiveDate: TODAY,
         sections: [
             {
                 heading: '1. Acceptance of the terms',
                 paragraphs: [
-                    'These Terms and Conditions ("Terms") govern your access to and use of the APlasma Nesting website and its nesting service (the "Service"), operated by the project maintainer ("we", "us", or "our").',
+                    'These Terms and Conditions ("Terms") govern your access to and use of the NestorCut website and its nesting service (the "Service"), operated by the project maintainer ("we", "us", or "our").',
                     'By creating an account or using the Service in any way, you confirm that you have read, understood and accepted these Terms. If you do not agree with any part of them, you must not use the Service.',
                     'You must be at least 16 years old, or the age of digital consent in your country, to create an account. By using the Service you represent that you meet this requirement.',
                 ],
@@ -36,7 +36,7 @@ export function useTerms() {
             {
                 heading: '2. Description of the Service',
                 paragraphs: [
-                    'APlasma Nesting is an online tool that arranges 2D cutting parts (DXF files) onto material sheets in order to minimise offcuts. It is intended for laser, plasma, plotter and CNC cutting professionals and hobbyists.',
+                    'NestorCut is an online tool that arranges 2D cutting parts (DXF files) onto material sheets in order to minimise offcuts. It is intended for laser, plasma, plotter and CNC cutting professionals and hobbyists.',
                     'The Service runs optimisation heuristics. The layouts it produces are efficient but, like any nesting solver, are not mathematically guaranteed to be optimal. You remain solely responsible for verifying any layout before cutting material.',
                 ],
             },
@@ -79,7 +79,7 @@ export function useTerms() {
             {
                 heading: '7. Open-source licence of the source code',
                 paragraphs: [
-                    'The source code of APlasma Nesting is distributed under the MIT Licence. These Terms govern the use of the hosted Service; the use, modification and redistribution of the source code remain governed by the MIT Licence, which is available on the project repository.',
+                    'The source code of NestorCut is distributed under the MIT Licence. These Terms govern the use of the hosted Service; the use, modification and redistribution of the source code remain governed by the MIT Licence, which is available on the project repository.',
                 ],
             },
             {
@@ -123,13 +123,13 @@ export function usePrivacy() {
     const { supportEmail } = useSiteConfig()
     return {
         title: 'Privacy Policy',
-        subtitle: 'How APlasma Nesting collects, uses and protects your data.',
+        subtitle: 'How NestorCut collects, uses and protects your data.',
         effectiveDate: TODAY,
         sections: [
             {
                 heading: '1. Controller',
                 paragraphs: [
-                    `The controller of your personal data is the operator of APlasma Nesting. You can contact us at ${supportEmail}.`,
+                    `The controller of your personal data is the operator of NestorCut. You can contact us at ${supportEmail}.`,
                 ],
             },
             {

@@ -2,9 +2,9 @@ import { useSiteConfig } from '~~/data/siteConfig'
 import { FREE_NESTING_LIMIT, TRIAL_DAYS, SUBSCRIPTION_PRICE_LABEL, PRO_PRICE_LABEL } from '~~/shared/constants/payment.constants'
 
 export const hero = {
-    badge: 'Open source · Inspiré de Nest2D',
+    badge: 'Moteur de nesting de pointe · Inspiré de Nest2D',
     title: 'Logez plus de pièces sur chaque plaque.',
-    text: 'Importez vos fichiers DXF, définissez vos dimensions de plaque, et laissez APlasma Nesting organiser vos pièces avec un minimum de chute — conçu pour la découpe laser, plasma, traceur et CN.',
+    text: 'Importez vos fichiers DXF, définissez votre plaque, et laissez notre moteur issu de la recherche tasser vos pièces au plus dense — en quelques secondes. Conçu pour la découpe laser, plasma, jet d\'eau, traceur et CNC.',
     primaryCta: 'Commencer gratuitement',
     secondaryCta: 'Voir comment ça marche',
 }
@@ -150,7 +150,7 @@ export function useFaq() {
                 firstPart: `Oui — deux fois. Chaque compte dispose de ${FREE_NESTING_LIMIT} imbrications gratuites par mois, sans carte bancaire. Ensuite, l'abonnement Illimité commence par un essai gratuit de ${TRIAL_DAYS} jours : vous n'êtes pas facturé avant la fin de l'essai, et vous pouvez annuler à tout moment d'ici là.`
             },
             {
-                title: 'Combien coûte APlasma Nesting ?',
+                title: 'Combien coûte NestorCut ?',
                 firstPart: `L'offre Illimité est à ${SUBSCRIPTION_PRICE_LABEL}/mois et inclut des imbrications illimitées tant qu'elle est active. L'offre Pro (${PRO_PRICE_LABEL}/mois) ajoute le chiffrement zero-knowledge, le budget de calcul maximal pour des agencements plus denses, et un traitement prioritaire de vos travaux.`
             },
             {
@@ -167,15 +167,15 @@ export function useFaq() {
             },
             {
                 title: 'Mes fichiers sont-ils en sécurité ?',
-                firstPart: `Vos fichiers importés et résultats d'imbrication sont stockés en toute sécurité et ne sont visibles que par votre compte. Pour une confidentialité maximale, l'offre Pro (${PRO_PRICE_LABEL}/mois) ajoute le chiffrement zero-knowledge — vos fichiers sont chiffrés avec une clé que vous seul détenez, pour que même nous ne puissions pas les lire. Et comme APlasma Nesting est entièrement open source, vous n'avez pas à nous croire sur parole — vous pouvez lire le code.`
+                firstPart: `Vos fichiers importés et résultats d'imbrication sont stockés en toute sécurité et ne sont visibles que par votre compte. Pour une confidentialité maximale, l'offre Pro (${PRO_PRICE_LABEL}/mois) ajoute le chiffrement zero-knowledge — vos fichiers sont chiffrés avec une clé que vous seul détenez, pour que même nous ne puissions pas les lire. Et comme NestorCut est entièrement open source, vous n'avez pas à nous croire sur parole — vous pouvez lire le code.`
             },
             {
                 title: 'Que se passe-t-il si je perds mon fichier-clé ?',
                 firstPart: 'Avec le chiffrement zero-knowledge (offre Pro), votre fichier-clé est le SEUL moyen de lire vos fichiers. Nous n\'en stockons jamais de copie — ni dans notre base, ni dans nos sauvegardes. Si vous le perdez, vos fichiers chiffrés sont définitivement illisibles, et personne ne peut les récupérer, nous y compris. Conservez plusieurs copies de votre fichier-clé en des lieux sûrs.'
             },
             {
-                title: 'APlasma Nesting donne-t-il les meilleurs résultats possibles ?',
-                firstPart: 'Bien que l\'imbrication parfaite soit un défi computationnel complexe sans solution optimale garantie, APlasma Nesting produit des agencements de matériau très efficaces grâce à des algorithmes avancés. Notre système privilégie à la fois la vitesse et la qualité d\'optimisation pour fournir des résultats pratiques et gain de temps pour vos projets de découpe.'
+                title: 'NestorCut donne-t-il les meilleurs résultats possibles ?',
+                firstPart: 'Bien que l\'imbrication parfaite soit un défi computationnel complexe sans solution optimale garantie, NestorCut produit des agencements de matériau très efficaces grâce à des algorithmes avancés. Notre système privilégie à la fois la vitesse et la qualité d\'optimisation pour fournir des résultats pratiques et gain de temps pour vos projets de découpe.'
             },
             {
                 title: 'La plateforme est-elle sécurisée ? Est-elle auditée ?',

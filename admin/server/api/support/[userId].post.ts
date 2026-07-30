@@ -38,10 +38,10 @@ export default defineEventHandler(async (event) => {
         body: {
           from: config.resendFrom || 'onboarding@resend.dev',
           to: user.email,
-          subject: 'Nouveau message du support APlasma Nesting',
+          subject: 'Nouveau message du support NestorCut',
           html: `
             <p>Bonjour,</p>
-            <p>Vous avez reçu un nouveau message de l'équipe support d'APlasma Nesting.</p>
+            <p>Vous avez reçu un nouveau message de l'équipe support d'NestorCut.</p>
             <blockquote style="border-left:3px solid #c87a1c;padding-left:12px;color:#333">${escapeHtml(message)}</blockquote>
             <p>Connectez-vous à votre compte pour répondre.</p>
           `,
