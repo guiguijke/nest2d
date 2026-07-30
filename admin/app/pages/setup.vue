@@ -49,9 +49,9 @@ async function onSubmit() {
   <div class="space-y-6">
     <!-- Brand header -->
     <div class="flex items-center gap-3">
-      <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-rust text-lg font-bold text-white shadow-lg shadow-rust/20">A</div>
+      <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue text-lg font-bold text-white shadow-lg shadow-blue/20">N</div>
       <div>
-        <h1 class="text-base font-semibold text-white">APlasma</h1>
+        <h1 class="text-base font-semibold text-white">NestorCut</h1>
         <p class="text-[11px] text-ink-400">Configuration initiale</p>
       </div>
     </div>
@@ -81,7 +81,7 @@ async function onSubmit() {
         </p>
       </div>
 
-      <div class="border-t border-ink-700 pt-4">
+      <div class="border-t border-marine-700 pt-4">
         <p class="mb-3 text-[11px] uppercase tracking-wide text-ink-400">Compte administrateur</p>
       </div>
 

@@ -31,7 +31,7 @@ function statusCls(s: string) {
     case 'pending': return 'bg-warn/15 text-warn'
     case 'error':
     case 'failed': return 'bg-err/15 text-err'
-    default: return 'bg-ink-700 text-ink-300'
+    default: return 'bg-marine-700 text-ink-300'
   }
 }
 function chargeLabel(c: any): string {
@@ -61,13 +61,13 @@ function density(j: any): string {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(j, i) in jobs" :key="i" class="border-t border-ink-800">
+        <tr v-for="(j, i) in jobs" :key="i" class="border-t border-marine-800">
           <td class="px-2 py-1.5 whitespace-nowrap text-ink-300">
             {{ fmtDate(j.finishedAt || j.createdAt) }}
             <span class="text-ink-400">{{ fmtTime(j.finishedAt || j.createdAt) }}</span>
           </td>
           <td v-if="!compact" class="px-2 py-1.5">
-            <span class="badge bg-ink-700 text-ink-300">{{ j.system }}</span>
+            <span class="badge bg-marine-700 text-ink-300">{{ j.system }}</span>
           </td>
           <td class="px-2 py-1.5"><span class="badge" :class="statusCls(j.status)">{{ j.status }}</span></td>
           <td class="px-2 py-1.5 text-right font-mono text-ink-200">{{ duration(j) }}</td>
@@ -77,7 +77,7 @@ function density(j: any): string {
           </td>
           <td v-if="!compact" class="px-2 py-1.5 text-right font-mono text-ink-400">{{ j.params?.computeLevel || '—' }}</td>
           <td v-if="!compact" class="px-2 py-1.5">
-            <span class="badge bg-ink-700 text-ink-300">{{ chargeLabel(j.charge) }}</span>
+            <span class="badge bg-marine-700 text-ink-300">{{ chargeLabel(j.charge) }}</span>
           </td>
         </tr>
         <tr v-if="!jobs.length">

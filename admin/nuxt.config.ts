@@ -1,4 +1,4 @@
-// Nuxt config for the APlasma administration panel.
+// Nuxt config for the NestorCut administration panel.
 //
 // This is a SEPARATE Nuxt app living in ./admin, sharing the same MongoDB as
 // the main app but with its own auth (collection `admins`), its own server

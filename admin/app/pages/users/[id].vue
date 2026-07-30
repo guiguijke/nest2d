@@ -148,7 +148,7 @@ const u = computed(() => data.value?.user)
         </div>
 
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
-          <StatCard label="Temps consommé" :value="fmtDurationMin(activity.totals.totalTimeMin)" accent="rust" />
+          <StatCard label="Temps consommé" :value="fmtDurationMin(activity.totals.totalTimeMin)" accent="blue" />
           <StatCard label="Densité moyenne" :value="activity.totals.avgDensity ? Math.round(activity.totals.avgDensity * 100) + '%' : '—'" />
           <StatCard label="Pièces imbriquées" :value="activity.totals.placed" />
           <StatCard label="Feuilles utilisées" :value="activity.totals.sheets" />
@@ -226,7 +226,7 @@ const u = computed(() => data.value?.user)
               <tr><th class="py-1 pr-3 font-medium">Date</th><th class="py-1 pr-3 font-medium">Pays</th><th class="py-1 font-medium">Action</th></tr>
             </thead>
             <tbody>
-              <tr v-for="(e, i) in data.recentEvents" :key="i" class="border-t border-ink-800">
+              <tr v-for="(e, i) in data.recentEvents" :key="i" class="border-t border-marine-800">
                 <td class="py-1 pr-3 text-ink-300">{{ fmtDate(e.timestamp) }}</td>
                 <td class="py-1 pr-3 font-mono text-ink-300">{{ e.country || '—' }}</td>
                 <td class="py-1 font-mono">{{ e.action }}</td>

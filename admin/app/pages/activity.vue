@@ -60,7 +60,7 @@ const windowLabel = computed(() => (windowDays.value === 1 ? "aujourd'hui" : `${
           <h2 class="text-sm font-semibold">Jobs terminés</h2>
           <div class="grid grid-cols-2 gap-3">
             <StatCard label="Total" :value="data.jobsToday.count" accent="ok" />
-            <StatCard label="Temps calcul" :value="fmtDurationMin(data.jobsToday.totalTimeMin)" accent="rust" />
+            <StatCard label="Temps calcul" :value="fmtDurationMin(data.jobsToday.totalTimeMin)" accent="blue" />
             <StatCard label="Nesting" :value="data.jobsToday.nestingCount" />
             <StatCard label="Strip" :value="data.jobsToday.stripCount" />
           </div>
@@ -75,7 +75,7 @@ const windowLabel = computed(() => (windowDays.value === 1 ? "aujourd'hui" : `${
               v-for="p in data.pulse"
               :key="p.hour"
               :title="`${p.hour} — ${p.events} événements`"
-              class="flex-1 rounded-sm bg-rust/60 hover:bg-rust"
+              class="flex-1 rounded-sm bg-blue/60 hover:bg-blue"
               :style="{ height: Math.max(2, (p.events / Math.max(...data.pulse.map((x: any) => x.events))) * 56) + 'px' }"
             />
           </div>
@@ -85,7 +85,7 @@ const windowLabel = computed(() => (windowDays.value === 1 ? "aujourd'hui" : `${
 
       <!-- Recent signups -->
       <div class="card space-y-3 p-0">
-        <div class="border-b border-ink-700 px-4 pt-3 pb-2">
+        <div class="border-b border-marine-700 px-4 pt-3 pb-2">
           <h2 class="text-sm font-semibold">Nouvelles inscriptions</h2>
         </div>
         <div class="overflow-x-auto">
@@ -100,13 +100,13 @@ const windowLabel = computed(() => (windowDays.value === 1 ? "aujourd'hui" : `${
               </tr>
             </thead>
             <tbody>
-              <tr v-for="su in data.signups" :key="su.id" class="border-t border-ink-800">
+              <tr v-for="su in data.signups" :key="su.id" class="border-t border-marine-800">
                 <td class="px-3 py-1.5 text-ink-300">{{ fmtDate(su.createdAt) }}</td>
                 <td class="px-3 py-1.5">
-                  <NuxtLink :to="`/users/${encodeURIComponent(su.id)}`" class="text-ink-200 hover:text-rust hover:underline">{{ su.name || '—' }}</NuxtLink>
+                  <NuxtLink :to="`/users/${encodeURIComponent(su.id)}`" class="text-ink-200 hover:text-blue hover:underline">{{ su.name || '—' }}</NuxtLink>
                 </td>
                 <td class="px-3 py-1.5 text-ink-400">{{ su.email }}</td>
-                <td class="px-3 py-1.5"><span class="badge bg-ink-700 text-ink-300">{{ su.provider }}</span></td>
+                <td class="px-3 py-1.5"><span class="badge bg-marine-700 text-ink-300">{{ su.provider }}</span></td>
                 <td class="px-3 py-1.5 font-mono text-ink-300">{{ su.signupCountry || '—' }}</td>
               </tr>
               <tr v-if="!data.signups.length"><td colspan="5" class="px-3 py-6 text-center text-ink-400">Aucune inscription sur la période.</td></tr>

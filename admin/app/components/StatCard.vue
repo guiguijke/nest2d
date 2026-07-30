@@ -3,7 +3,7 @@ defineProps<{
   label: string
   value: string | number
   hint?: string
-  accent?: 'default' | 'rust' | 'ok' | 'warn' | 'err'
+  accent?: 'default' | 'blue' | 'ok' | 'warn' | 'err'
   live?: boolean
 }>()
 </script>
@@ -17,7 +17,7 @@ defineProps<{
     <span
       class="font-mono text-2xl font-semibold text-white"
       :class="{
-        'text-rust': accent === 'rust',
+        'text-blue': accent === 'blue',
         'text-ok': accent === 'ok',
         'text-warn': accent === 'warn',
         'text-err': accent === 'err',
