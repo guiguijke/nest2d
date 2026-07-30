@@ -1,76 +1,146 @@
 <template>
-    <div v-if="show" class="free-nest" :class="{ 'free-nest--empty': isEmpty }">
+    <div
+        v-if="show"
+        class="free-nest"
+        :class="{ 'free-nest--empty': isEmpty }"
+    >
         <template v-if="isEmpty">
-            <span class="free-nest__text">You've used all your free nestings for this month.</span>
-            <button type="button" class="free-nest__link" @click="openPaywall">
-                Start free trial
+            <span class="free-nest__text">{{ t('banner.empty') }}</span>
+            <button
+                type="button"
+                class="free-nest__link"
+                @click="openPaywall"
+            >
+                {{ t('banner.cta') }}
             </button>
         </template>
         <template v-else>
-            <span class="free-nest__text">
-                <template v-if="freeRemaining > 0">
-                    {{ freeRemaining }} free nesting operation{{ freeRemaining === 1 ? '' : 's' }} left this month
-                </template>
-                <template v-if="freeRemaining > 0 && creditsRemaining > 0"> · </template>
-                <template v-if="creditsRemaining > 0">
-                    {{ creditsRemaining }} credit{{ creditsRemaining === 1 ? '' : 's' }}
-                </template>
-            </span>
+            <div class="free-nest__body">
+                <span class="free-nest__text">
+                    {{ t('banner.remaining', { n: freeRemaining, total: FREE_LIMIT }) }}
+                </span>
+                <div
+                    class="free-nest__bar"
+                    role="progressbar"
+                    :aria-valuemin="0"
+                    :aria-valuemax="FREE_LIMIT"
+                    :aria-valuenow="freeRemaining"
+                >
+                    <div
+                        class="free-nest__bar-fill"
+                        :style="barStyle"
+                        :class="barLevel"
+                    />
+                </div>
+            </div>
         </template>
     </div>
 </template>
 
 <script setup>
-const { getters } = authStore;
+    import { FREE_NESTING_LIMIT } from '~~/shared/constants/payment.constants'
 
-const user = computed(() => unref(getters.user) || {});
+    const { getters } = authStore
+    const { t } = useLocale()
 
-const isSubscribed = computed(() => {
-    const status = user.value.subscriptionStatus;
-    return status === 'active' || status === 'trialing';
-});
+    const FREE_LIMIT = FREE_NESTING_LIMIT
 
-const freeRemaining = computed(() => Number(user.value.freeRemaining || 0));
-const creditsRemaining = computed(() => Number(user.value.creditsRemaining || 0));
+    const user = computed(() => unref(getters.user) || {})
 
-// Only relevant for feature-flagged users who are not yet subscribed.
-const show = computed(() =>
-    Boolean(user.value.isStripFeatureEnable) && !isSubscribed.value
-);
+    const isSubscribed = computed(() => {
+        const status = user.value.subscriptionStatus
+        return status === 'active' || status === 'trialing'
+    })
 
-const isEmpty = computed(() =>
-    freeRemaining.value <= 0 && creditsRemaining.value <= 0
-);
+    const freeRemaining = computed(() => Number(user.value.freeRemaining || 0))
 
-const buyCreditsDialog = useBuyCreditsDialog();
-const openPaywall = () => {
-    buyCreditsDialog.value = true;
-};
+    // Only relevant for users who are not yet subscribed.
+    const show = computed(() => !isSubscribed.value)
+
+    const isEmpty = computed(() => freeRemaining.value <= 0)
+
+    // Width of the progress bar reflects how much of the monthly quota remains.
+    const barStyle = computed(() => ({
+        width: `${(freeRemaining.value / FREE_LIMIT) * 100}%`,
+    }))
+
+    // Color shifts from green to amber to red as the allowance runs low, so the
+    // user notices before hitting the paywall.
+    const barLevel = computed(() => {
+        const ratio = freeRemaining.value / FREE_LIMIT
+        if (ratio > 0.5) return 'free-nest__bar-fill--high'
+        if (ratio > 0.2) return 'free-nest__bar-fill--mid'
+        return 'free-nest__bar-fill--low'
+    })
+
+    const buyCreditsDialog = useBuyCreditsDialog()
+    const openPaywall = () => {
+        buyCreditsDialog.value = true
+    }
 </script>
 
 <style lang="scss" scoped>
-.free-nest {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 12px;
-    font-size: 13px;
-    color: var(--label-secondary);
-
-    &--empty {
-        color: var(--accent-primary);
-    }
-
-    &__link {
-        font-weight: 700;
-        color: var(--accent-primary);
-        text-decoration: underline;
-        cursor: pointer;
-        background: none;
-        border: none;
-        padding: 0;
+    .free-nest {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 12px;
         font-size: 13px;
+        color: var(--label-secondary);
+
+        &--empty {
+            color: var(--accent-primary);
+        }
+
+        &__body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            width: 100%;
+            max-width: 280px;
+        }
+
+        &__text {
+            text-align: center;
+        }
+
+        &__link {
+            font-weight: 700;
+            color: var(--accent-primary);
+            text-decoration: underline;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+            font-size: 13px;
+        }
+
+        &__bar {
+            width: 100%;
+            height: 4px;
+            border-radius: 999px;
+            background: var(--fill-secondary, rgba(0, 0, 0, 0.08));
+            overflow: hidden;
+        }
+
+        &__bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            transition: width 0.3s ease;
+
+            &--high {
+                background: #2ecc71;
+            }
+
+            &--mid {
+                background: #f39c12;
+            }
+
+            &--low {
+                background: #e74c3c;
+            }
+        }
     }
-}
 </style>

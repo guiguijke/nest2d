@@ -26,8 +26,7 @@ def refund_charge(doc):
 
     Jobs carry a `charge` object written by the API:
       - {"type": "free"}                 -> give back one free nesting slot
-      - {"type": "credits", "amount": N} -> give back N paid credits
-      - {"type": "admin"|"subscription"} -> nothing was consumed
+      - {"type": "grant"|"subscription"} -> nothing was consumed
     """
     charge = doc.get("charge")
     if not charge or charge.get("refunded"):
@@ -40,12 +39,6 @@ def refund_charge(doc):
                 {"$inc": {"freeNestingUsed": -1}},
             )
             logger.info(f"Refunded free nesting slot to user {doc['ownerId']}")
-        elif charge_type == "credits":
-            db["users"].update_one(
-                {"id": doc["ownerId"]},
-                {"$inc": {"balance": charge.get("amount", 10)}},
-            )
-            logger.info(f"Refunded {charge.get('amount', 10)} credits to user {doc['ownerId']}")
         strip_nesting_jobs.update_one(
             {"_id": doc["_id"]},
             {"$set": {"charge.refunded": True}},
