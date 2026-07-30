@@ -12,7 +12,6 @@
             <MainButton :size="sizeType.s" :icon="iconType.plus" :isLabelShow="false" :isDisable="file.count >= 999"
                 trackingTag="file_increment" @click="increment(fileIndex, $event)" label="increment" class="counter__btn" />
         </div>
-        <SelectorField v-model="rotation" :options="rotationOptions" class="file__rotation" />
         <div @click="openModal()" class="file__area" />
     </div>
 </template>
@@ -36,21 +35,10 @@ const count = computed({
     set: value => updateCount(value, props.fileIndex),
 });
 
-const rotation = computed({
-    get: () => props.file.rotation || '[0, 90, 180, 270]',
-    set: value => updateRotation(value, props.fileIndex),
-});
-
-const rotationOptions = computed(() => [
-    { value: '[0, 90, 180, 270]', label: '90°' },
-    { value: '[0, 180]', label: '180°' },
-    { value: '[0]', label: 'No rotation' },
-])
-
 const emit = defineEmits(['openModal'])
 
 const { actions } = filesStore
-const { increment, decrement, updateCount, updateRotation } = actions
+const { increment, decrement, updateCount } = actions
 
 const openModal = () => {
     emit('openModal')
@@ -69,16 +57,16 @@ const openModal = () => {
     transition: border-color 0.3s;
 
     &__parts {
-        width: calc(100% - 72px);
+        width: calc(100% - 100px);
         margin-left: 16px;
-        height: 56px;
+        height: 84px;
         position: relative;
         z-index: 1;
     }
 
     &__display {
-        width: 56px;
-        height: 56px;
+        width: 84px;
+        height: 84px;
     }
 
     &__name {
@@ -112,13 +100,6 @@ const openModal = () => {
     &__counter {
         position: relative;
         z-index: 1;
-    }
-
-    &__rotation {
-        position: relative;
-        z-index: 1;
-        margin-top: 12px;
-        width: 100%;
     }
 
     @media (hover: hover) {

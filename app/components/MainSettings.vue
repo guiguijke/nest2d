@@ -131,8 +131,7 @@ const rotationHint = computed(() => {
     }
 
     &__content {
-        width: 360px;
-        max-width: 100%;
+        width: min(520px, 100%);
         margin-left: auto;
         margin-right: auto;
     }
@@ -145,7 +144,7 @@ const rotationHint = computed(() => {
 
     &__size {
         width: 100%;
-        max-width: 320px;
+        max-width: 520px;
     }
 }
 

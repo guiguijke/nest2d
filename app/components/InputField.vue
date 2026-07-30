@@ -92,13 +92,13 @@ const inputClasses = computed(() => ({
 <style lang="scss" scoped>
 .input {
     $self: &;
-    border-radius: 12px;
-    background-color: var(--fill-tertiary);
+    border-radius: 6px;
+    background-color: var(--background-primary);
     padding: 11px 12px;
     display: flex;
     align-items: center;
     font-weight: 500;
-    border: 1.5px solid transparent;
+    border: 1.5px solid var(--separator-primary);
     transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
     &__prefix,
     &__suffix {
@@ -119,6 +119,10 @@ const inputClasses = computed(() => ({
         color: var(--label-primary);
         flex-grow: 1;
         background-color: transparent;
+        // Reset the browser's native input border — the container alone draws
+        // the textbox frame (no double border / sunken look).
+        border: none;
+        appearance: none;
         outline: none;
         min-width: 26px;
         resize: none;
@@ -148,7 +152,7 @@ const inputClasses = computed(() => ({
 
     @media (hover:hover) {
         &:hover {
-            background-color: var(--fill-secondary);
+            border-color: var(--separator-primary);
         }
     }
 
