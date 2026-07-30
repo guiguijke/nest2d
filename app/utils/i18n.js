@@ -6,8 +6,7 @@
  *   t('nav.workspace')   // -> "Workspace" or "Espace"
  *
  * Keys are organized by surface. Only SHORT UI chrome lives here — long-form
- * marketing copy and legal text live in data/index.{en,fr}.js and
- * data/legal.{en,fr}.js respectively (they are structured objects, not flat
+ * legal text lives in data/legal.{en,fr}.js (structured objects, not flat
  * strings, so they stay in their own files).
  */
 export const LOCALES = ['en', 'fr']
