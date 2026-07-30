@@ -60,12 +60,15 @@ const dispayClasses = computed(() => ({
         padding: 4px;
         border-radius: 6px;
     }
-    background-color: var(--fill-tertiary);
+    background-color: color-mix(in srgb, var(--accent-primary) 7%, var(--background-primary));
     &__img {
         display: block;
         max-height: 100%;
         max-width: 100%;
         width: 100%;
+        // Server SVG previews ship a low-contrast pinkish stroke — force it to
+        // solid black (light theme) / white (dark theme) for readability.
+        filter: var(--primary-svg-filter);
     }
 }
 </style>
