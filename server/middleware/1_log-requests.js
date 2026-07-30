@@ -27,7 +27,11 @@ export default defineEventHandler(async (event) => {
     const isSSE = headers.accept === 'text/event-stream'
 
     let requestBody = undefined
-    if (['POST', 'PUT', 'PATCH'].includes(method)) {
+    // The Stripe webhook must read the raw request body itself to verify the
+    // HMAC signature. Calling readBody() here would consume the stream first
+    // and break signature verification, so we skip body logging for it.
+    const isStripeWebhook = method === 'POST' && url.startsWith('/api/stripe/webhook')
+    if (['POST', 'PUT', 'PATCH'].includes(method) && !isStripeWebhook) {
         try {
             requestBody = await readBody(event)
             requestBody = filterSensitive(requestBody)
