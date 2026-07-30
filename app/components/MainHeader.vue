@@ -7,9 +7,6 @@
             </span>
         </component>
         <nav v-if="isPrimaryTheme" class="header__tabs tabs">
-            <NuxtLink to="/" class="tabs__link" active-class="tabs__link--active">
-                NestorCut
-            </NuxtLink>
             <NuxtLink to="/home" class="tabs__link" active-class="tabs__link--active">
                 {{ t('nav.workspace') }}
             </NuxtLink>
@@ -88,11 +85,11 @@ const menuIsOpen = ref(false);
 const nav = computed(() => [
     {
         label: t('nav.features'),
-        href: '/#features',
+        href: 'https://nestorcut.com/#features',
     },
     {
         label: t('nav.howItWorks'),
-        href: '/#how-it-works',
+        href: 'https://nestorcut.com/#how-it-works',
     },
     {
         label: t('nav.pricing'),
@@ -100,7 +97,7 @@ const nav = computed(() => [
     },
     {
         label: t('nav.faq'),
-        href: '/#faq',
+        href: 'https://nestorcut.com/#faq',
     },
     {
         label: t('nav.changelog'),
