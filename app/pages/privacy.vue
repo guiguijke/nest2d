@@ -14,12 +14,12 @@ const { locale } = useLocale()
 const privacy = computed(() => (locale.value === 'fr' ? usePrivacyFr() : usePrivacyEn()))
 
 useHead({
-    title: 'Privacy Policy — APlasma Nesting',
+    title: 'Privacy Policy — NestorCut',
     meta: [
         {
             name: 'description',
             content:
-                'How APlasma Nesting collects, uses and protects your personal data.',
+                'How NestorCut collects, uses and protects your personal data.',
         },
     ],
 })

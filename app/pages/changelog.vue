@@ -3,7 +3,7 @@
         <header class="changelog__header">
             <h1 class="changelog__title">Changelog</h1>
             <p class="changelog__subtitle">
-                What changed in APlasma Nesting, newest first.
+                What changed in NestorCut, newest first.
             </p>
         </header>
 

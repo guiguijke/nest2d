@@ -1,43 +1,27 @@
-// APlasma brand typefaces.
-// - Helios Stencil: display font (titles, logo) — brand asset, see license note
-//   in README (Fontspring demo; production use requires a webfont license).
-// - Montserrat: body text (Google Fonts, OFL).
+// NestorCut brand typefaces.
+// - Poppins: display font (titles, logo) — Google Fonts, OFL.
+// - Inter: body text (variable font) — Google Fonts, OFL.
 // - SFMono: legacy mono (numbers, code, DXF data).
 
 @font-face {
-    font-family: 'HeliosStencil';
-    src: url('/fonts/HeliosStencil/HeliosStencil-Bold.woff2') format('woff2'),
-        url('/fonts/HeliosStencil/HeliosStencil-Bold.woff') format('woff');
-    font-weight: 700;
-    font-style: normal;
-    font-display: swap;
-}
-
-@font-face {
-    font-family: 'Montserrat';
-    src: url('/fonts/Montserrat/Montserrat-Light.ttf') format('truetype');
-    font-weight: 300;
-    font-style: normal;
-    font-display: swap;
-}
-@font-face {
-    font-family: 'Montserrat';
-    src: url('/fonts/Montserrat/Montserrat-Regular.ttf') format('truetype');
-    font-weight: 400;
-    font-style: normal;
-    font-display: swap;
-}
-@font-face {
-    font-family: 'Montserrat';
-    src: url('/fonts/Montserrat/Montserrat-SemiBold.ttf') format('truetype');
+    font-family: 'Poppins';
+    src: url('/fonts/Poppins/poppins-latin-600-normal.woff2') format('woff2');
     font-weight: 600;
     font-style: normal;
     font-display: swap;
 }
 @font-face {
-    font-family: 'Montserrat';
-    src: url('/fonts/Montserrat/Montserrat-Bold.ttf') format('truetype');
+    font-family: 'Poppins';
+    src: url('/fonts/Poppins/poppins-latin-700-normal.woff2') format('woff2');
     font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter/inter-latin-wght-normal.woff2') format('woff2');
+    font-weight: 100 900;
     font-style: normal;
     font-display: swap;
 }
