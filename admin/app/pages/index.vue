@@ -40,7 +40,7 @@ const live = computed(() => snapshot.value)
         <h2 class="text-sm uppercase tracking-wide text-ink-400">Utilisateurs</h2>
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
           <StatCard label="Total inscrits" :value="fmt(overview.users.total)" />
-          <StatCard label="Inscriptions 24h" :value="fmt(live?.signups24h ?? overview.users.signups24h)" accent="rust" :live="!!live" />
+          <StatCard label="Inscriptions 24h" :value="fmt(live?.signups24h ?? overview.users.signups24h)" accent="blue" :live="!!live" />
           <StatCard label="Inscriptions 7j" :value="fmt(overview.users.signups7d)" />
           <StatCard label="Abonnés actifs" :value="fmt(overview.users.activeSubscribers)" accent="ok" />
           <StatCard label="Actifs (5 min)" :value="fmt(live?.active5m ?? overview.users.active5m)" :live="!!live" />
@@ -77,7 +77,7 @@ const live = computed(() => snapshot.value)
           </div>
           <div class="flex items-center justify-between text-xs">
             <span class="text-ink-400">Fils support non lus</span>
-            <NuxtLink to="/support" class="font-mono text-rust hover:underline">
+            <NuxtLink to="/support" class="font-mono text-blue hover:underline">
               {{ fmt(overview.support.unreadThreads) }}
             </NuxtLink>
           </div>

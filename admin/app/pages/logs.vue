@@ -51,7 +51,7 @@ function fmt(ts: any) {
 function statusCls(code: number) {
   if (code >= 500) return 'bg-err/15 text-err'
   if (code >= 400) return 'bg-warn/15 text-warn'
-  if (code >= 300) return 'bg-ink-700 text-ink-300'
+  if (code >= 300) return 'bg-marine-700 text-ink-300'
   return 'bg-ok/15 text-ok'
 }
 </script>
@@ -60,21 +60,21 @@ function statusCls(code: number) {
   <div class="space-y-4">
     <div>
       <h1 class="text-xl">Logs avancés</h1>
-      <p class="text-xs text-ink-400">Débogage technique — requêtes HTTP et événements de tracking bruts. Pour une vue lisible, voir l'onglet <NuxtLink to="/activity" class="text-rust hover:underline">Activité</NuxtLink>.</p>
+      <p class="text-xs text-ink-400">Débogage technique — requêtes HTTP et événements de tracking bruts. Pour une vue lisible, voir l'onglet <NuxtLink to="/activity" class="text-blue hover:underline">Activité</NuxtLink>.</p>
     </div>
 
     <!-- Tabs -->
-    <div class="flex gap-1 border-b border-ink-700">
+    <div class="flex gap-1 border-b border-marine-700">
       <button
         class="px-3 py-2 text-xs font-medium transition-colors"
-        :class="tab === 'http' ? 'border-b-2 border-rust text-white' : 'text-ink-400 hover:text-ink-200'"
+        :class="tab === 'http' ? 'border-b-2 border-blue text-white' : 'text-ink-400 hover:text-ink-200'"
         @click="tab = 'http'"
       >
         Requêtes HTTP
       </button>
       <button
         class="px-3 py-2 text-xs font-medium transition-colors"
-        :class="tab === 'tracking' ? 'border-b-2 border-rust text-white' : 'text-ink-400 hover:text-ink-200'"
+        :class="tab === 'tracking' ? 'border-b-2 border-blue text-white' : 'text-ink-400 hover:text-ink-200'"
         @click="tab = 'tracking'"
       >
         Événements tracking
@@ -110,7 +110,7 @@ function statusCls(code: number) {
       <div v-if="httpPending && !httpData" class="text-sm text-ink-400">Chargement…</div>
       <div v-else-if="httpData" class="card overflow-x-auto p-0">
         <table class="w-full text-xs">
-          <thead class="border-b border-ink-700 text-left text-ink-400">
+          <thead class="border-b border-marine-700 text-left text-ink-400">
             <tr>
               <th class="px-3 py-2 font-medium">Heure</th>
               <th class="px-3 py-2 font-medium">Méthode</th>
@@ -121,7 +121,7 @@ function statusCls(code: number) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(l, i) in httpData.items" :key="i" class="border-b border-ink-800 last:border-0">
+            <tr v-for="(l, i) in httpData.items" :key="i" class="border-b border-marine-800 last:border-0">
               <td class="px-3 py-1.5 text-ink-300">{{ fmt(l.timestamp) }}</td>
               <td class="px-3 py-1.5 font-mono">{{ l.method }}</td>
               <td class="px-3 py-1.5"><span class="badge" :class="statusCls(l.statusCode)">{{ l.statusCode }}</span></td>
@@ -163,7 +163,7 @@ function statusCls(code: number) {
       <div v-if="trPending && !trData" class="text-sm text-ink-400">Chargement…</div>
       <div v-else-if="trData" class="card overflow-x-auto p-0">
         <table class="w-full text-xs">
-          <thead class="border-b border-ink-700 text-left text-ink-400">
+          <thead class="border-b border-marine-700 text-left text-ink-400">
             <tr>
               <th class="px-3 py-2 font-medium">Heure</th>
               <th class="px-3 py-2 font-medium">Action</th>
@@ -173,7 +173,7 @@ function statusCls(code: number) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(l, i) in trData.items" :key="i" class="border-b border-ink-800 last:border-0 align-top">
+            <tr v-for="(l, i) in trData.items" :key="i" class="border-b border-marine-800 last:border-0 align-top">
               <td class="px-3 py-1.5 text-ink-300">{{ fmt(l.timestamp) }}</td>
               <td class="px-3 py-1.5 font-mono text-ink-200">{{ l.action }}</td>
               <td class="px-3 py-1.5 font-mono text-ink-400">{{ l.country || '—' }}</td>

@@ -15,7 +15,7 @@ function fmtEur(n: number | null): string {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n)
 }
 function tierBadge(tier: string) {
-  return tier === 'privacy' ? 'bg-rust/15 text-rust' : 'bg-ink-700 text-ink-300'
+  return tier === 'privacy' ? 'bg-blue/15 text-blue' : 'bg-marine-700 text-ink-300'
 }
 </script>
 
@@ -32,20 +32,20 @@ function tierBadge(tier: string) {
       <!-- Financial KPIs -->
       <section class="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="MRR estimé" :value="fmtEur(data.kpis.mrrEur)" accent="ok" hint="abonnements payants actifs" />
-        <StatCard label="Revenu crédits" :value="fmtEur(data.kpis.creditRevenueEur)" accent="rust" hint="achats one-shot cumulés" />
+        <StatCard label="Revenu crédits" :value="fmtEur(data.kpis.creditRevenueEur)" accent="blue" hint="achats one-shot cumulés" />
         <StatCard label="Abonnés actifs" :value="data.kpis.activeSubscribers" :hint="`dont ${data.kpis.trialing} en essai`" />
         <StatCard label="Dont privacy" :value="data.kpis.privacyTier" />
       </section>
 
       <!-- Subscriptions -->
       <section class="card space-y-3 p-0">
-        <div class="border-b border-ink-700 px-4 pt-3 pb-2">
+        <div class="border-b border-marine-700 px-4 pt-3 pb-2">
           <h2 class="text-sm font-semibold">Abonnements actifs</h2>
           <p class="text-[11px] text-ink-400">Utilisateurs avec un abonnement Stripe en cours</p>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
-            <thead class="border-b border-ink-700 text-left text-ink-400">
+            <thead class="border-b border-marine-700 text-left text-ink-400">
               <tr>
                 <th class="px-3 py-2 font-medium">Utilisateur</th>
                 <th class="px-3 py-2 font-medium">Statut</th>
@@ -55,9 +55,9 @@ function tierBadge(tier: string) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="s in data.subscriptions" :key="s.userId" class="border-b border-ink-800 last:border-0">
+              <tr v-for="s in data.subscriptions" :key="s.userId" class="border-b border-marine-800 last:border-0">
                 <td class="px-3 py-1.5">
-                  <NuxtLink :to="`/users/${encodeURIComponent(s.userId)}`" class="text-ink-200 hover:text-rust hover:underline">
+                  <NuxtLink :to="`/users/${encodeURIComponent(s.userId)}`" class="text-ink-200 hover:text-blue hover:underline">
                     {{ s.name || s.email || s.userId.slice(0, 20) }}
                   </NuxtLink>
                 </td>
@@ -77,13 +77,13 @@ function tierBadge(tier: string) {
 
       <!-- Credit purchases -->
       <section class="card space-y-3 p-0">
-        <div class="border-b border-ink-700 px-4 pt-3 pb-2">
+        <div class="border-b border-marine-700 px-4 pt-3 pb-2">
           <h2 class="text-sm font-semibold">Achats de crédits</h2>
           <p class="text-[11px] text-ink-400">Montant en € (devise par défaut du produit ; la devise réellement payée n'est pas stockée localement)</p>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
-            <thead class="border-b border-ink-700 text-left text-ink-400">
+            <thead class="border-b border-marine-700 text-left text-ink-400">
               <tr>
                 <th class="px-3 py-2 font-medium">Date</th>
                 <th class="px-3 py-2 font-medium">Utilisateur</th>
@@ -92,10 +92,10 @@ function tierBadge(tier: string) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="t in data.creditTransactions" :key="t._id || t.checkoutId" class="border-b border-ink-800 last:border-0">
+              <tr v-for="t in data.creditTransactions" :key="t._id || t.checkoutId" class="border-b border-marine-800 last:border-0">
                 <td class="px-3 py-1.5 text-ink-300">{{ fmtDate(t.createdAt) }}</td>
                 <td class="px-3 py-1.5">
-                  <NuxtLink v-if="t.userId" :to="`/users/${encodeURIComponent(t.userId)}`" class="text-ink-200 hover:text-rust hover:underline">
+                  <NuxtLink v-if="t.userId" :to="`/users/${encodeURIComponent(t.userId)}`" class="text-ink-200 hover:text-blue hover:underline">
                     {{ t.product?.title || t.userId.slice(0, 20) }}
                   </NuxtLink>
                 </td>

@@ -55,9 +55,9 @@ function fmt(d: any) {
   return d ? new Date(d).toLocaleString('fr-FR') : '—'
 }
 function senderCls(s: string) {
-  if (s === 'support') return 'self-end bg-rust/20 text-ink-100'
-  if (s === 'welcome') return 'bg-ink-700 text-ink-300'
-  return 'bg-ink-800 text-ink-100'
+  if (s === 'support') return 'self-end bg-blue/20 text-ink-100'
+  if (s === 'welcome') return 'bg-marine-700 text-ink-300'
+  return 'bg-marine-800 text-ink-100'
 }
 </script>
 
@@ -75,13 +75,13 @@ function senderCls(s: string) {
         <button
           v-for="c in conversations?.items"
           :key="c.userId"
-          class="block w-full border-b border-ink-800 px-3 py-2 text-left transition-colors last:border-0 hover:bg-ink-850"
-          :class="selectedUserId === c.userId ? 'bg-ink-850' : ''"
+          class="block w-full border-b border-marine-800 px-3 py-2 text-left transition-colors last:border-0 hover:bg-marine-850"
+          :class="selectedUserId === c.userId ? 'bg-marine-850' : ''"
           @click="selectedUserId = c.userId"
         >
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-white">{{ c.userName || c.userId.slice(0, 20) }}</span>
-            <span v-if="c.lastSender === 'user'" class="badge bg-rust/15 text-rust">nouveau</span>
+            <span v-if="c.lastSender === 'user'" class="badge bg-blue/15 text-blue">nouveau</span>
           </div>
           <p class="mt-0.5 truncate text-[11px] text-ink-400">{{ c.lastMessage }}</p>
           <p class="mt-0.5 text-[10px] text-ink-400">{{ fmt(c.timestamp) }}</p>
@@ -92,12 +92,12 @@ function senderCls(s: string) {
       <div class="card flex min-h-[70vh] flex-col">
         <div v-if="!selectedUserId" class="m-auto text-xs text-ink-400">Sélectionnez une conversation.</div>
         <template v-else>
-          <div class="flex items-center justify-between border-b border-ink-800 pb-2">
+          <div class="flex items-center justify-between border-b border-marine-800 pb-2">
             <div>
               <NuxtLink
                 v-if="thread?.user"
                 :to="`/users/${encodeURIComponent(thread.user.id)}`"
-                class="text-sm font-semibold text-white hover:text-rust hover:underline"
+                class="text-sm font-semibold text-white hover:text-blue hover:underline"
               >
                 {{ thread.user.name || '—' }}
               </NuxtLink>
@@ -119,7 +119,7 @@ function senderCls(s: string) {
             </div>
           </div>
 
-          <form class="flex items-end gap-2 border-t border-ink-800 pt-3" @submit.prevent="send">
+          <form class="flex items-end gap-2 border-t border-marine-800 pt-3" @submit.prevent="send">
             <textarea
               v-model="replyText"
               rows="2"
