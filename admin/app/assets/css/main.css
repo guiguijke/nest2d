@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,61 +6,67 @@
 
 @layer base {
   html {
-    @apply bg-ink-950 text-ink-100 antialiased;
+    @apply bg-marine-950 text-ink-200 antialiased;
   }
   body {
     @apply text-[13px] leading-relaxed;
+    font-family: 'Inter', system-ui, sans-serif;
   }
   h1,
   h2,
   h3 {
+    font-family: 'Poppins', 'Inter', system-ui, sans-serif;
     @apply font-semibold tracking-tight text-white;
+    letter-spacing: -0.01em;
+  }
+  a {
+    @apply text-blue;
   }
 }
 
 @layer components {
   .card {
-    @apply rounded-lg border border-ink-700 bg-ink-900 p-4 shadow-sm;
+    @apply rounded-[4px] border border-marine-700 bg-marine-850 p-4;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-[4px] px-3 py-1.5 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-rust text-white hover:bg-rust-light;
+    @apply btn bg-blue text-white hover:bg-gradient-to-br hover:from-blue hover:to-cyan;
   }
   .btn-secondary {
-    @apply btn border border-ink-600 bg-ink-800 text-ink-100 hover:bg-ink-700;
+    @apply btn border border-marine-600 bg-marine-800 text-ink-200 hover:bg-marine-700;
   }
   .btn-danger {
     @apply btn bg-err text-white hover:opacity-90;
   }
   .btn-ghost {
-    @apply btn text-ink-300 hover:bg-ink-800;
+    @apply btn text-ink-300 hover:bg-marine-800;
   }
   .input {
-    @apply w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-1.5 text-ink-100 placeholder-ink-400 outline-none focus:border-rust;
+    @apply w-full rounded-[4px] border border-marine-600 bg-marine-900 px-3 py-1.5 text-ink-100 placeholder-marine-500 outline-none focus:border-blue;
   }
   .label {
     @apply mb-1 block text-[11px] font-medium uppercase tracking-wide text-ink-400;
   }
   .badge {
-    @apply inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide;
+    @apply inline-flex items-center rounded-[4px] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide;
   }
   .table-row-clickable {
-    @apply cursor-pointer transition-colors hover:bg-ink-850;
+    @apply cursor-pointer transition-colors hover:bg-marine-800;
   }
 }
 
 /* Thin scrollbars for dense admin tables */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #323c41 transparent;
+  scrollbar-color: #2a3658 transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #323c41;
+  background: #2a3658;
   border-radius: 4px;
 }

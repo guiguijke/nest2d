@@ -23,10 +23,10 @@ function fmt(d: any) {
 function statusCls(s: string) {
   switch (s) {
     case 'queued': return 'bg-warn/15 text-warn'
-    case 'processing': return 'bg-rust/15 text-rust'
+    case 'processing': return 'bg-blue/15 text-blue'
     case 'done': return 'bg-ok/15 text-ok'
     case 'failed': return 'bg-err/15 text-err'
-    default: return 'bg-ink-700 text-ink-300'
+    default: return 'bg-marine-700 text-ink-300'
   }
 }
 </script>
@@ -58,7 +58,7 @@ function statusCls(s: string) {
     <div v-if="pending && !data" class="text-sm text-ink-400">Chargement…</div>
     <div v-else-if="data" class="card overflow-x-auto p-0">
       <table class="w-full text-xs">
-        <thead class="border-b border-ink-700 text-left text-ink-400">
+        <thead class="border-b border-marine-700 text-left text-ink-400">
           <tr>
             <th class="px-3 py-2 font-medium">Système</th>
             <th class="px-3 py-2 font-medium">Statut</th>
@@ -69,8 +69,8 @@ function statusCls(s: string) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(j, i) in data.items" :key="i" class="border-b border-ink-800 last:border-0">
-            <td class="px-3 py-1.5"><span class="badge bg-ink-700 text-ink-300">{{ j.system }}</span></td>
+          <tr v-for="(j, i) in data.items" :key="i" class="border-b border-marine-800 last:border-0">
+            <td class="px-3 py-1.5"><span class="badge bg-marine-700 text-ink-300">{{ j.system }}</span></td>
             <td class="px-3 py-1.5"><span class="badge" :class="statusCls(j.status)">{{ j.status }}</span></td>
             <td class="px-3 py-1.5 font-mono text-ink-200">{{ j.slug || '—' }}</td>
             <td class="px-3 py-1.5 font-mono text-ink-400">{{ j.ownerId ? j.ownerId.slice(0, 24) : '—' }}</td>

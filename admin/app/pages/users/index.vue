@@ -49,8 +49,8 @@ function isActive(last: any) {
 function statusBadge(u: any) {
   if (u.banned) return { text: 'Banni', cls: 'bg-err/15 text-err' }
   if (u.subscription?.status === 'active' || u.subscription?.status === 'trialing') return { text: 'Abonné', cls: 'bg-ok/15 text-ok' }
-  if (u.grantedUntil && new Date(u.grantedUntil) > new Date()) return { text: 'Offert', cls: 'bg-rust/15 text-rust' }
-  return { text: 'Gratuit', cls: 'bg-ink-700 text-ink-300' }
+  if (u.grantedUntil && new Date(u.grantedUntil) > new Date()) return { text: 'Offert', cls: 'bg-blue/15 text-blue' }
+  return { text: 'Gratuit', cls: 'bg-marine-700 text-ink-300' }
 }
 </script>
 
@@ -93,7 +93,7 @@ function statusBadge(u: any) {
     <template v-else-if="data">
       <div class="card overflow-x-auto p-0">
         <table class="w-full text-xs">
-          <thead class="border-b border-ink-700 text-left text-ink-400">
+          <thead class="border-b border-marine-700 text-left text-ink-400">
             <tr>
               <th class="px-3 py-2 font-medium">Utilisateur</th>
               <th class="px-3 py-2 font-medium">Provider</th>
@@ -108,7 +108,7 @@ function statusBadge(u: any) {
             <tr
               v-for="u in data.items"
               :key="u.id"
-              class="table-row-clickable border-b border-ink-800 last:border-0"
+              class="table-row-clickable border-b border-marine-800 last:border-0"
               @click="router.push(`/users/${encodeURIComponent(u.id)}`)"
             >
               <td class="px-3 py-2">
