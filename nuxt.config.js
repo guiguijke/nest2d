@@ -17,6 +17,10 @@ export default defineNuxtConfig({
     runtimeConfig: {
         mongoUri: '',
         stripeSecretKey: '',
+        // Signing secret for the Stripe webhook endpoint (whsec_...). Set via
+        // NUXT_STRIPE_WEBHOOK_SECRET. Empty string disables signature checks
+        // (webhook then returns 503 — we refuse to run unauthenticated).
+        stripeWebhookSecret: '',
         resendToken: '',
         resendFrom: 'onboarding@resend.dev',
         encryptionMasterKey: '',
