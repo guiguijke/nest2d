@@ -8,6 +8,17 @@ const id = decodeURIComponent(route.params.id as string)
 const { data, pending, error, refresh } = await useFetch('/api/users/' + encodeURIComponent(id), {
   credentials: 'include',
 })
+const { data: activity } = await useFetch('/api/users/' + encodeURIComponent(id) + '/activity', {
+  credentials: 'include',
+})
+
+function fmtDurationMin(min: number): string {
+  if (!min) return '0 min'
+  if (min < 60) return min + ' min'
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return h + 'h' + (m ? ' ' + m + 'min' : '')
+}
 
 const acting = ref(false)
 const creditAmount = ref(0)
@@ -129,6 +140,41 @@ const u = computed(() => data.value?.user)
         </section>
       </div>
 
+      <!-- Usage & recent jobs -->
+      <section v-if="activity" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold">Activité &amp; temps de calcul</h2>
+          <span class="text-[11px] text-ink-400">{{ activity.totals.totalJobs }} job(s) au total</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
+          <StatCard label="Temps consommé" :value="fmtDurationMin(activity.totals.totalTimeMin)" accent="blue" />
+          <StatCard label="Densité moyenne" :value="activity.totals.avgDensity ? Math.round(activity.totals.avgDensity * 100) + '%' : '—'" />
+          <StatCard label="Pièces imbriquées" :value="activity.totals.placed" />
+          <StatCard label="Feuilles utilisées" :value="activity.totals.sheets" />
+          <StatCard label="Jobs échoués" :value="activity.totals.failed" accent="err" />
+        </div>
+
+        <div class="card space-y-3">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-400">30 derniers jobs</h3>
+          <JobTable :jobs="activity.jobs" />
+        </div>
+
+        <div v-if="activity.balanceSeries.length" class="card space-y-2">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-400">Évolution du solde (30 jours)</h3>
+          <div class="flex items-end gap-[2px]" style="height: 48px">
+            <div
+              v-for="b in activity.balanceSeries"
+              :key="b.date"
+              :title="`${b.date}: ${b.balance} crédits`"
+              class="flex-1 rounded-sm bg-ink-600"
+              :style="{ height: Math.max(2, (b.balance / Math.max(...activity.balanceSeries.map((x: any) => x.balance))) * 48) + 'px' }"
+            />
+          </div>
+          <p class="text-[11px] text-ink-400">Dernier solde connu : {{ activity.balanceSeries[activity.balanceSeries.length - 1].balance }} crédits</p>
+        </div>
+      </section>
+
       <!-- Actions -->
       <section class="grid gap-4 md:grid-cols-2">
         <div class="card space-y-3">
@@ -180,7 +226,7 @@ const u = computed(() => data.value?.user)
               <tr><th class="py-1 pr-3 font-medium">Date</th><th class="py-1 pr-3 font-medium">Pays</th><th class="py-1 font-medium">Action</th></tr>
             </thead>
             <tbody>
-              <tr v-for="(e, i) in data.recentEvents" :key="i" class="border-t border-ink-800">
+              <tr v-for="(e, i) in data.recentEvents" :key="i" class="border-t border-marine-800">
                 <td class="py-1 pr-3 text-ink-300">{{ fmtDate(e.timestamp) }}</td>
                 <td class="py-1 pr-3 font-mono text-ink-300">{{ e.country || '—' }}</td>
                 <td class="py-1 font-mono">{{ e.action }}</td>

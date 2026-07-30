@@ -30,7 +30,7 @@ const maxUsers = computed(() => Math.max(1, ...(data.value?.countries || []).map
     <template v-else-if="data">
       <!-- Totals -->
       <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Pays distincts" :value="fmt(data.countries.length)" accent="rust" />
+        <StatCard label="Pays distincts" :value="fmt(data.countries.length)" accent="blue" />
         <StatCard label="Utilisateurs géolocalisés" :value="fmt(data.totals.users)" />
         <StatCard label="Événements géolocalisés" :value="fmt(data.totals.events)" />
         <StatCard label="Pays inconnu" :value="fmt(data.totals.unknownUsers)" hint="sans Cloudflare / cf-ipcountry" />
@@ -45,8 +45,8 @@ const maxUsers = computed(() => Math.max(1, ...(data.value?.countries || []).map
           <div v-for="c in topCountries" :key="c.country" class="flex items-center gap-3">
             <span class="w-8 text-center text-lg">{{ flag(c.country) }}</span>
             <span class="w-12 font-mono text-xs text-ink-300">{{ c.country }}</span>
-            <div class="relative h-6 flex-1 overflow-hidden rounded bg-ink-800">
-              <div class="absolute inset-y-0 left-0 bg-rust/60" :style="{ width: (c.users / maxUsers) * 100 + '%' }" />
+            <div class="relative h-6 flex-1 overflow-hidden rounded bg-marine-800">
+              <div class="absolute inset-y-0 left-0 bg-blue/60" :style="{ width: (c.users / maxUsers) * 100 + '%' }" />
               <span class="absolute inset-y-0 left-2 flex items-center text-xs text-white">{{ fmt(c.users) }} utilisateurs</span>
             </div>
             <span class="w-24 text-right text-[11px] text-ink-400">{{ c.signups30d }} nouv. / 30j</span>
@@ -59,7 +59,7 @@ const maxUsers = computed(() => Math.max(1, ...(data.value?.countries || []).map
       <!-- Full table -->
       <div class="card overflow-x-auto p-0">
         <table class="w-full text-xs">
-          <thead class="border-b border-ink-700 text-left text-ink-400">
+          <thead class="border-b border-marine-700 text-left text-ink-400">
             <tr>
               <th class="px-3 py-2 font-medium">Pays</th>
               <th class="px-3 py-2 font-medium">Code</th>
@@ -70,7 +70,7 @@ const maxUsers = computed(() => Math.max(1, ...(data.value?.countries || []).map
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in data.countries" :key="c.country" class="border-b border-ink-800 last:border-0">
+            <tr v-for="c in data.countries" :key="c.country" class="border-b border-marine-800 last:border-0">
               <td class="px-3 py-2">{{ flag(c.country) }}</td>
               <td class="px-3 py-2 font-mono">{{ c.country }}</td>
               <td class="px-3 py-2 font-mono">{{ fmt(c.users) }}</td>
