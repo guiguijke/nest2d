@@ -1,6 +1,6 @@
 <template>
     <MainAside
-        label="Strip projects"
+        :label="t('nav.strip')"
         @closeAside="$emit('closeAside')"
         :btnLabel="btnLabelValue"
         @btnClick="createNewProject"
@@ -18,7 +18,7 @@
             />
         </div>
         <p v-else class="projects__text">
-            Your projects will be here
+            {{ t('project.empty') }}
         </p>
     </MainAside>
 </template>
@@ -26,6 +26,7 @@
 <script setup>
 const route = useRoute();
 const router = useRouter();
+const { t } = useLocale()
 
 const { getters, actions } = stripStore;
 const { setStripProjects } = actions;
@@ -44,7 +45,7 @@ onMounted(() => {
 })
 
 const btnLabelValue = computed(() => {
-    return route.name === 'strip' ? '' : 'New project'
+    return route.name === 'strip' ? '' : t('project.new')
 })
 
 const emit = defineEmits(["closeAside"]);

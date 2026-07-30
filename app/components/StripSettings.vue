@@ -1,9 +1,9 @@
 <template>
     <div class="settings">
-        <MainTitle label="Nesting settings" class="settings__title" />
+        <MainTitle :label="t('settings.nesting')" class="settings__title" />
         <div class="settings__content content">
             <div class="content__size size">
-                <InputField prefix="H" suffix="mm" v-model="localHeight" :isError="isHeightTooSmall"
+                <InputField :prefix="t('settings.height')" :suffix="t('settings.mm')" v-model="localHeight" :isError="isHeightTooSmall"
                     class="size__input" />
             </div>
         </div>
@@ -12,12 +12,13 @@
             :class="{ 'settings__hint--error': isHeightTooSmall }"
             class="settings__hint"
         >
-            Required height: at least {{ requiredHeight }}mm (5% above the tallest selected part).
+            {{ t('settings.requiredHeight', { h: requiredHeight }) }}
         </p>
     </div>
 </template>
 
 <script setup>
+const { t } = useLocale()
 const { getters, actions } = stripStore;
 const { updateParams } = actions;
 const params = computed(() => getters.params);

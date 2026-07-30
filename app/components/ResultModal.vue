@@ -14,7 +14,7 @@
                     @click="selectAlt(alt.altId)"
                 >
                     <span v-if="alt.strategy" class="alts__strategy">{{ alt.strategy }}</span>
-                    Option {{ alt.altId + 1 }} · {{ formatScore(alt) }}
+                    {{ t('result.option', { n: alt.altId + 1 }) }} · {{ formatScore(alt) }}
                 </button>
             </div>
             <div
@@ -33,7 +33,7 @@
                     class="controls__prev"
                 />
                 <MainButton
-                    :label="`Part ${activePart + 1} / ${currentDxfs.length}`"
+                    :label="t('result.sheet', { n: activePart + 1, total: currentDxfs.length })"
                     :size="sizeType.s"
                     :theme="themeType.primary"
                     isNotClickable
@@ -71,7 +71,7 @@
                         class="modal__part-download"
                         v-if="resultModalData.isMultiSheet"
                         :href="currentDxfs[activePart]"
-                        :label="`Download part ${activePart + 1}`"
+                        :label="t('result.downloadSheet', { n: activePart + 1 })"
                         tag="a"
                         :isDisable="isHaveError"
                         :size="sizeType.s"
@@ -102,15 +102,13 @@
             <div class="modal__name modal__info info">
                 <template v-if="isHaveError">
                     <span class="info__label">
-                        No solution found try to increase plate size or reduce
-                        requested object count
+                        {{ t('result.noSolution') }}
                     </span>
                     <span class="info__label">
-                        {{ resultModalData.requested }} parts needed to be
-                        placed
+                        {{ t('result.neededToPlace', { n: resultModalData.requested }) }}
                     </span>
                     <span class="info__label">
-                        {{ resultModalData.placed }} parts placed
+                        {{ t('result.placed', { n: resultModalData.placed }) }}
                     </span>
                 </template>
                 <template v-else> 
@@ -125,23 +123,22 @@
                     v-if="resultModalData.requested === resultModalData.placed"
                     class="info__label"
                 >
-                    All details are placed
+                    {{ t('result.allPlaced') }}
                 </span>
                 <template v-else>
                     <span class="info__label">
-                        {{ resultModalData.requested }} parts needed to be
-                        placed
+                        {{ t('result.neededToPlace', { n: resultModalData.requested }) }}
                     </span>
                     <span class="info__label">
-                        {{ resultModalData.placed }} parts placed
+                        {{ t('result.placed', { n: resultModalData.placed }) }}
                     </span>
                 </template>
             </div>
             <div class="controls">
-                <MainButton 
-                    v-if="resultModalData.isMultiSheet" 
+                <MainButton
+                    v-if="resultModalData.isMultiSheet"
                     :href="resultModalData.zipDownloadUrl"
-                    label="Download All"
+                    :label="t('results.downloadAll')"
                     tag="a"
                     :isDisable="isHaveError"
                     :size="sizeType.s"
@@ -151,7 +148,7 @@
                 <MainButton
                     v-if="!resultModalData.isMultiSheet"
                     :href="currentDxfs[0]"
-                    label="Download"
+                    :label="t('results.download')"
                     tag="a"
                     download
                     :size="sizeType.s"
@@ -159,7 +156,7 @@
                     trackingTag="result_download"
                 />
                 <MainButton
-                    label="Try again"
+                    :label="t('result.tryAgain')"
                     :size="sizeType.s"
                     :theme="themeType.secondary"
                     trackingTag="result_try_again"
@@ -180,6 +177,7 @@ import { onMounted } from 'vue'
 
 const { getters } = globalStore
 const resultModalData = computed(() => getters.resultModalData)
+const { t } = useLocale()
 
 const resultDialog = useResultDialog()
 
@@ -227,7 +225,7 @@ const formatDensity = (density) => {
 // rest is a clean reusable offcut). Falls back to solver density on jobs
 // run before the metric existed.
 const formatScore = (alt) => {
-    if (alt.usedSheetShare != null) return `${(alt.usedSheetShare * 100).toFixed(1)}% used`
+    if (alt.usedSheetShare != null) return `${(alt.usedSheetShare * 100).toFixed(1)}% ${t('result.used')}`
     return formatDensity(alt.density)
 }
 // Tooltip: what this option is good for, incl. its clean offcut size.
@@ -265,6 +263,7 @@ const updatePartPage = (partIndex) => {
     @media (min-width: 567px) {
         max-width: initial;
         min-width: 368px;
+        width: min(720px, 92vw);
     }
 
     &__wrapper {
@@ -293,6 +292,11 @@ const updatePartPage = (partIndex) => {
 
         width: 320px;
         height: 320px;
+
+        @media (min-width: 567px) {
+            width: min(620px, 78vw);
+            height: min(460px, 58vh);
+        }
 
         &--is-fullscreen {
             @media (min-width: 567px) {
@@ -327,7 +331,7 @@ const updatePartPage = (partIndex) => {
         word-break: break-all;
 
         @media (min-width: 567px) {
-            max-width: 320px;
+            max-width: 620px;
         }
     }
 
@@ -344,11 +348,7 @@ const updatePartPage = (partIndex) => {
     }
 
     &__list-sheets {
-        margin: -42px auto 5px;
-
-        @media (min-width: 567px) {
-            max-width: 300px;
-        }
+        margin: 10px auto 8px;
     }
 
     &__part-download {
@@ -374,11 +374,7 @@ const updatePartPage = (partIndex) => {
     flex-wrap: wrap;
     justify-content: center;
     gap: 8px;
-    margin: -36px auto 12px;
-
-    @media (min-width: 567px) {
-        max-width: 420px;
-    }
+    margin: 0 auto 14px;
 
     &__strategy {
         padding: 2px 7px;

@@ -18,6 +18,8 @@
 </template>
 <script setup>
 
+const { t } = useLocale()
+
 const props = defineProps({
     parts: {
         type: Array,
@@ -25,7 +27,7 @@ const props = defineProps({
     },
 })
 const partsTitle = computed(() => {
-    return props.parts.length === 1 ? 'Part: ' : `${props.parts.length} parts: `
+    return props.parts.length === 1 ? t('parts.label') : t('parts.count', { n: props.parts.length })
 })
 </script>
 <style lang="scss" scoped>

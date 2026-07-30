@@ -48,6 +48,7 @@ const { project } = defineProps({
 }) 
 const route = useRoute()
 const now = ref(new Date())
+const { t } = useLocale()
 
 const { actions } = filesStore;
 const { getProject } = actions;
@@ -63,21 +64,19 @@ const timeAgo = computed(() => {
     const diffDays = Math.floor(diffMinutes / 1440);
 
     if (diffMinutes < 1) {
-        return "just now";
+        return t('time.justNow');
     }
-    if (diffHours >= 1  && diffHours < 24) {
-        const hoursWord = diffHours === 1 ? "hours" : "hours";
-        return `${diffHours} ${hoursWord} ago`;
+    if (diffHours >= 1 && diffHours < 24) {
+        return t('time.hoursAgo', { n: diffHours });
     }
     if (diffDays >= 1) {
-        const dayWord = diffDays === 1 ? "day" : "days";
-        return `${diffDays} ${dayWord} ago`;
+        return diffDays === 1 ? t('time.dayAgo') : t('time.daysAgo', { n: diffDays });
     }
 
-    return `${diffMinutes} min ago`;
+    return t('time.minAgo', { n: diffMinutes });
 })
 const resultsLabel = computed(() => {
-    const resultWord = unref(project).results === 1 ? "result" : "results";
+    const resultWord = unref(project).results === 1 ? t('project.result') : t('project.results');
     return `${unref(project).results} ${resultWord}`;
 })
 

@@ -1,5 +1,5 @@
 <template>
-    <MainAside @closeAside="$emit('closeAside')" label="Results">
+    <MainAside @closeAside="$emit('closeAside')" :label="t('results.title')">
         <div v-if="hasSlug && resultsList.length" class="results">
             <StripResultItem
                 v-for="result in resultsList"
@@ -10,7 +10,7 @@
             />
         </div>
         <p v-else class="results__text">
-            Your nested results will be here
+            {{ t('results.empty') }}
         </p>
         <StripResultModal v-model:isModalOpen="resultDialog" />
     </MainAside>
@@ -22,6 +22,7 @@ import { statusType } from '~~/constants/status.constants';
 defineEmits(["closeAside"]);
 
 const route = useRoute();
+const { t } = useLocale()
 const { getters, actions } = stripStore;
 const { getStripResults, setStripResults, setModalResultData } = actions;
 
