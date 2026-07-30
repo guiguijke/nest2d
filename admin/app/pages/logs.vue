@@ -59,8 +59,8 @@ function statusCls(code: number) {
 <template>
   <div class="space-y-4">
     <div>
-      <h1 class="text-xl">Logs &amp; activité</h1>
-      <p class="text-xs text-ink-400">Requêtes HTTP et événements de tracking enregistrés par l'application</p>
+      <h1 class="text-xl">Logs avancés</h1>
+      <p class="text-xs text-ink-400">Débogage technique — requêtes HTTP et événements de tracking bruts. Pour une vue lisible, voir l'onglet <NuxtLink to="/activity" class="text-rust hover:underline">Activité</NuxtLink>.</p>
     </div>
 
     <!-- Tabs -->
