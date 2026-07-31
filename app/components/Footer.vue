@@ -14,6 +14,14 @@
                 </li>
                 <li class="list__item">
                     <NuxtLink
+                        to="/legal-notice"
+                        class="list__link"
+                    >
+                        Legal Notice
+                    </NuxtLink>
+                </li>
+                <li class="list__item">
+                    <NuxtLink
                         to="/terms-and-conditions"
                         class="list__link"
                     >

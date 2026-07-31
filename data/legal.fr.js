@@ -17,8 +17,62 @@ const TODAY = new Date().toLocaleDateString('fr-FR', {
     day: 'numeric',
 })
 
+export function useLegalNotice() {
+    const { supportEmail, legal } = useSiteConfig()
+    return {
+        title: 'Mentions Légales',
+        subtitle: 'Informations exigées par la loi française (article 6 de la LCEN).',
+        effectiveDate: TODAY,
+        sections: [
+            {
+                heading: '1. Éditeur du Service',
+                paragraphs: [
+                    `Le site et l'application NestorCut (« NestorCut by ${legal.tradeName} ») sont édités par :`,
+                ],
+                list: [
+                    `${legal.entityName} — nom commercial : ${legal.tradeName}`,
+                    `SIREN : ${legal.siren}`,
+                    legal.vatNote,
+                    `Contact : ${supportEmail}`,
+                ],
+            },
+            {
+                heading: '2. Directeur de la publication',
+                paragraphs: [
+                    `Le directeur de la publication est le représentant légal de ${legal.entityName}.`,
+                ],
+            },
+            {
+                heading: '3. Hébergement',
+                paragraphs: [
+                    'Le site vitrine (nestorcut.com) est hébergé par Cloudflare, Inc., 101 Townsend St, San Francisco, CA 94107, États-Unis.',
+                    `L'application (app.nestorcut.com), sa base de données et les fichiers que vous importez sont hébergés sur une infrastructure exploitée par ${legal.entityName} (${legal.tradeName}), située en France.`,
+                ],
+            },
+            {
+                heading: '4. Propriété intellectuelle',
+                paragraphs: [
+                    `Le nom, le logo et l'identité visuelle NestorCut sont la propriété de ${legal.entityName} (${legal.tradeName}). La structure et le contenu de ce site ne peuvent être reproduits sans autorisation écrite préalable.`,
+                    'Le code source de l\'application est distribué sous Licence MIT et reste régi par celle-ci.',
+                ],
+            },
+            {
+                heading: '5. Responsabilité',
+                paragraphs: [
+                    'L\'éditeur s\'efforce de fournir des informations exactes et à jour, mais ne saurait être tenu responsable des erreurs, omissions ou interruptions de service, ni du contenu des sites tiers vers lesquels des liens sont proposés.',
+                ],
+            },
+        ],
+        contact: {
+            intro: 'Une question d\'ordre juridique ? Écrivez à',
+            email: supportEmail,
+            outro: '.',
+        },
+    }
+}
+
 export function useTerms() {
-    const { supportEmail, githubRepo } = useSiteConfig()
+    const { supportEmail, githubRepo, legal } = useSiteConfig()
     return {
         title: 'Conditions Générales d\'Utilisation',
         subtitle: 'Les règles qui encadrent votre utilisation d\'NestorCut.',
@@ -27,7 +81,7 @@ export function useTerms() {
             {
                 heading: '1. Acceptation des conditions',
                 paragraphs: [
-                    'Les présentes Conditions Générales d\'Utilisation (« CGU ») régissent votre accès et votre utilisation du site NestorCut et de son service de nesting (« le Service »), exploités par le responsable du projet (« nous », « notre » ou « nos »).',
+                    `Les présentes Conditions Générales d'Utilisation (« CGU ») régissent votre accès et votre utilisation du site NestorCut et de son service de nesting (« le Service »), édités par ${legal.entityName} — nom commercial « ${legal.tradeName} », SIREN ${legal.siren} (« nous », « notre » ou « nos »).`,
                     'En créant un compte ou en utilisant le Service de quelque manière que ce soit, vous reconnaissez avoir lu, compris et accepté les présentes CGU. Si vous n\'acceptez pas tout ou partie de ces conditions, vous ne devez pas utiliser le Service.',
                     'Vous devez être âgé(e) d\'au moins 16 ans, ou de l\'âge du consentement numérique dans votre pays, pour créer un compte. En utilisant le Service, vous déclarez remplir cette condition.',
                 ],
@@ -53,6 +107,7 @@ export function useTerms() {
                     'Les paiements sont traités par notre prestataire de paiement, Stripe. Nous ne recevons ni ne stockons jamais vos données bancaires complètes. Les abonnements débutent par une période d\'essai gratuite durant laquelle vous n\'êtes pas facturé ; à l\'issue de l\'essai, la facturation est récurrente jusqu\'à résiliation.',
                     'Les packs de crédits, lorsqu\'ils sont proposés, sont consommés à chaque opération de nesting. Sauf obligation légale, les crédits et abonnements ne sont pas remboursables, sauf dans les conditions prévues par notre Politique de remboursement.',
                     'Vous pouvez résilier un abonnement à tout moment depuis votre compte. La résiliation prend effet à la fin de la période de facturation en cours.',
+                    `Les prix sont affichés en euros. ${legal.vatNote}.`,
                 ],
             },
             {
@@ -104,9 +159,10 @@ export function useTerms() {
                 ],
             },
             {
-                heading: '11. Droit applicable',
+                heading: '11. Droit applicable et juridiction',
                 paragraphs: [
-                    'Les présentes CGU sont régies par le droit du pays dans lequel l\'exploitant du Service est établi, à l\'exclusion des règles de conflit de lois. Tout litige qui ne pourrait être résolu à l\'amiable sera soumis aux tribunaux compétents de cette juridiction.',
+                    'Les présentes CGU sont régies par le droit français. Tout litige qui ne pourrait être résolu à l\'amiable sera soumis aux tribunaux français compétents du ressort du siège de l\'éditeur.',
+                    'Si vous êtes un consommateur résidant dans l\'Union européenne, aucune disposition des présentes ne vous prive des protections impératives accordées par le droit de votre pays de résidence.',
                 ],
             },
         ],
@@ -119,7 +175,7 @@ export function useTerms() {
 }
 
 export function usePrivacy() {
-    const { supportEmail } = useSiteConfig()
+    const { supportEmail, legal } = useSiteConfig()
     return {
         title: 'Politique de confidentialité',
         subtitle: 'La manière dont NestorCut collecte, utilise et protège vos données.',
@@ -128,7 +184,8 @@ export function usePrivacy() {
             {
                 heading: '1. Responsable du traitement',
                 paragraphs: [
-                    `Le responsable du traitement de vos données à caractère personnel est l'exploitant d'NestorCut. Vous pouvez nous contacter à l'adresse ${supportEmail}.`,
+                    `Le responsable du traitement de vos données à caractère personnel est ${legal.entityName} — nom commercial « ${legal.tradeName} », SIREN ${legal.siren}, éditeur de NestorCut (« NestorCut by ${legal.tradeName} »). Vous pouvez nous contacter à l'adresse ${supportEmail}.`,
+                    'Vos données sont hébergées et traitées en France.',
                 ],
             },
             {
@@ -177,20 +234,23 @@ export function usePrivacy() {
                 ],
                 list: [
                     'Stripe — traitement des paiements (certifié PCI-DSS) ;',
-                    'Google — connexion optionnelle via le compte Google ;',
+                    'Google — connexion optionnelle via le compte Google, et mesure d\'audience sur le site vitrine (Google Analytics 4, IP anonymisée, fonctions publicitaires désactivées) ;',
                     'Resend — délivrabilité des emails transactionnels ;',
-                    'Notre prestataire d\'hébergement et de base de données.',
+                    'Cloudflare — hébergement et diffusion du site vitrine (nestorcut.com).',
                 ],
             },
             {
-                heading: '7. Cookies',
+                heading: '7. Cookies et traceurs',
                 paragraphs: [
-                    'Le Service utilise uniquement des cookies et du stockage local essentiels :',
+                    'NestorCut n\'utilise que des cookies strictement nécessaires au Service, ainsi qu\'un outil de mesure d\'audience exempté. Aucun cookie publicitaire ni de suivi inter-sites n\'est utilisé — c\'est pourquoi aucun bandeau de consentement n\'est affiché :',
                 ],
                 list: [
-                    'Un cookie de session, nécessaire à l\'authentification ;',
-                    'Un cookie de suivi anonyme, à des fins statistiques ;',
-                    'Un cookie de préférence, pour mémoriser votre thème.',
+                    'sessionId — session d\'authentification (strictement nécessaire, app) ;',
+                    'oauth_code_verifier — sécurité de la connexion Google, expire après 10 minutes (strictement nécessaire, app) ;',
+                    'theme et locale — préférences d\'interface (fonctionnels, exemptés de consentement, app) ;',
+                    'nest2d_session_id — statistiques d\'usage anonymes propriétaires (mesure d\'audience exemptée, app) ;',
+                    '_ga — Google Analytics 4 sur nestorcut.com uniquement, configuré selon l\'exemption CNIL : IP anonymisée, aucun signal publicitaire, aucun suivi inter-sites, conservation de 2 mois (site vitrine).',
+                    'Vous pouvez supprimer ou bloquer ces cookies à tout moment dans les réglages de votre navigateur. Le blocage des cookies strictement nécessaires empêchera la connexion.',
                 ],
             },
             {
@@ -217,7 +277,8 @@ export function usePrivacy() {
             {
                 heading: '10. Exercice de vos droits',
                 paragraphs: [
-                    `Pour exercer ces droits, contactez-nous à ${supportEmail}. Nous répondrons dans le délai légal. Vous disposez également du droit d'introduire une réclamation auprès de votre autorité de protection des données.`,
+                    `Pour exercer ces droits, contactez-nous à ${supportEmail}. Nous répondrons dans le délai légal (un mois en application du RGPD).`,
+                    'Si vous résidez en France, vous disposez également du droit d\'introduire une réclamation auprès de la CNIL (Commission Nationale de l\'Informatique et des Libertés — www.cnil.fr).',
                 ],
             },
         ],
@@ -240,6 +301,7 @@ export function useRefund() {
                 heading: '1. Garantie satisfait ou remboursé 30 jours',
                 paragraphs: [
                     'La satisfaction de nos clients est notre priorité. Si vous n\'êtes pas satisfait d\'un abonnement payant, vous pouvez demander un remboursement intégral dans les 30 jours suivant le débit, sans justification.',
+                    'Si vous êtes un consommateur résidant dans l\'Union européenne, vous bénéficiez en outre du droit de rétractation légal de 14 jours à compter de l\'achat, conformément au Code de la consommation. En commençant à utiliser le Service immédiatement, vous reconnaissez que ce droit peut être limité pour les contenus numériques fournis avec votre accord exprès.',
                     'Cette garantie s\'applique à la première période de facturation d\'un abonnement. Les renouvellements ne sont remboursables que dans des circonstances exceptionnelles (par exemple, une interruption de service de notre fait).',
                 ],
             },

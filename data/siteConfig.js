@@ -17,5 +17,14 @@ export function useSiteConfig() {
         githubRepo: config.githubRepo || 'https://github.com/guiguijke/nest2d',
         githubIssues: (config.githubRepo || 'https://github.com/guiguijke/nest2d') + '/issues/new',
         copyrightYear: config.copyrightYear || String(new Date().getFullYear()),
+        // Legal entity (France) — used by the legal pages (mentions légales, CGU, privacy).
+        legal: {
+            entityName: 'Guillaume Jerke EI',
+            tradeName: 'APlasma',
+            siren: '942 877 028',
+            vatNote: 'TVA non applicable, art. 293 B du CGI',
+            // Product branding: "NestorCut by APlasma"
+            brandLine: 'NestorCut by APlasma',
+        },
     }
 }

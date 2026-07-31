@@ -18,8 +18,62 @@ const TODAY = new Date().toLocaleDateString('en-US', {
     day: 'numeric',
 })
 
+export function useLegalNotice() {
+    const { supportEmail, legal } = useSiteConfig()
+    return {
+        title: 'Legal Notice',
+        subtitle: 'Information required under French law (article 6 of the LCEN).',
+        effectiveDate: TODAY,
+        sections: [
+            {
+                heading: '1. Publisher of the Service',
+                paragraphs: [
+                    `The NestorCut website and application ("NestorCut by ${legal.tradeName}") are published by:`,
+                ],
+                list: [
+                    `${legal.entityName} — trade name: ${legal.tradeName}`,
+                    `SIREN: ${legal.siren}`,
+                    legal.vatNote,
+                    `Contact: ${supportEmail}`,
+                ],
+            },
+            {
+                heading: '2. Publication director',
+                paragraphs: [
+                    `The publication director is the legal representative of ${legal.entityName}.`,
+                ],
+            },
+            {
+                heading: '3. Hosting',
+                paragraphs: [
+                    'The marketing website (nestorcut.com) is hosted by Cloudflare, Inc., 101 Townsend St, San Francisco, CA 94107, USA.',
+                    `The application (app.nestorcut.com), its database and the files you upload are hosted on infrastructure operated by ${legal.entityName} (${legal.tradeName}), located in France.`,
+                ],
+            },
+            {
+                heading: '4. Intellectual property',
+                paragraphs: [
+                    `The NestorCut name, logo and visual identity are the property of ${legal.entityName} (${legal.tradeName}). The structure and content of this website may not be reproduced without prior written authorisation.`,
+                    'The source code of the application is distributed under the MIT Licence and remains governed by it.',
+                ],
+            },
+            {
+                heading: '5. Liability',
+                paragraphs: [
+                    'The publisher strives to provide accurate and up-to-date information but cannot be held liable for errors, omissions or service interruptions, nor for the content of third-party websites linked from this one.',
+                ],
+            },
+        ],
+        contact: {
+            intro: 'Any legal question? Write to',
+            email: supportEmail,
+            outro: '.',
+        },
+    }
+}
+
 export function useTerms() {
-    const { supportEmail, githubRepo } = useSiteConfig()
+    const { supportEmail, githubRepo, legal } = useSiteConfig()
     return {
         title: 'Terms and Conditions',
         subtitle: 'The rules that govern your use of NestorCut.',
@@ -28,7 +82,7 @@ export function useTerms() {
             {
                 heading: '1. Acceptance of the terms',
                 paragraphs: [
-                    'These Terms and Conditions ("Terms") govern your access to and use of the NestorCut website and its nesting service (the "Service"), operated by the project maintainer ("we", "us", or "our").',
+                    `These Terms and Conditions ("Terms") govern your access to and use of the NestorCut website and its nesting service (the "Service"), published by ${legal.entityName} — trade name "${legal.tradeName}", SIREN ${legal.siren} ("we", "us", or "our").`,
                     'By creating an account or using the Service in any way, you confirm that you have read, understood and accepted these Terms. If you do not agree with any part of them, you must not use the Service.',
                     'You must be at least 16 years old, or the age of digital consent in your country, to create an account. By using the Service you represent that you meet this requirement.',
                 ],
@@ -52,6 +106,7 @@ export function useTerms() {
                 paragraphs: [
                     'The Service offers a free tier, a monthly subscription ("Unlimited") and a higher tier ("Pro"). Prices and included quotas are described on the pricing page and may be updated; changes take effect for future billing periods only.',
                     'Payments are processed by our payment provider, Stripe. We never receive or store your full card details. Subscriptions start with a free trial period during which you are not charged; after the trial, billing is recurring until cancellation.',
+                    `Prices are displayed in euros. ${legal.vatNote}.`,
                     'Credit packs, where offered, are consumed by each nesting operation. Unless required by law, credits and subscriptions are non-refundable except under the conditions set out in our Refund Policy.',
                     'You can cancel a subscription at any time from your account. Cancellation takes effect at the end of the current billing period.',
                 ],
@@ -105,9 +160,10 @@ export function useTerms() {
                 ],
             },
             {
-                heading: '11. Applicable law',
+                heading: '11. Applicable law and jurisdiction',
                 paragraphs: [
-                    'These Terms are governed by the law of the country in which the Service operator is established, to the exclusion of conflict-of-law rules. Any dispute that cannot be resolved amicably will be submitted to the competent courts of that jurisdiction.',
+                    'These Terms are governed by French law. Any dispute that cannot be resolved amicably will be submitted to the competent French courts of the jurisdiction where the publisher is established.',
+                    'If you are a consumer residing in the European Union, nothing in these Terms deprives you of the mandatory protections granted by the law of your country of residence.',
                 ],
             },
         ],
@@ -120,7 +176,7 @@ export function useTerms() {
 }
 
 export function usePrivacy() {
-    const { supportEmail } = useSiteConfig()
+    const { supportEmail, legal } = useSiteConfig()
     return {
         title: 'Privacy Policy',
         subtitle: 'How NestorCut collects, uses and protects your data.',
@@ -129,7 +185,8 @@ export function usePrivacy() {
             {
                 heading: '1. Controller',
                 paragraphs: [
-                    `The controller of your personal data is the operator of NestorCut. You can contact us at ${supportEmail}.`,
+                    `The controller of your personal data is ${legal.entityName} — trade name "${legal.tradeName}", SIREN ${legal.siren}, publisher of NestorCut ("NestorCut by ${legal.tradeName}"). You can contact us at ${supportEmail}.`,
+                    'Your data is hosted and processed in France.',
                 ],
             },
             {
@@ -178,20 +235,23 @@ export function usePrivacy() {
                 ],
                 list: [
                     'Stripe — payment processing (PCI-DSS certified);',
-                    'Google — optional sign-in via Google account;',
+                    'Google — optional sign-in via Google account, and audience measurement on the marketing website (Google Analytics 4, IP anonymised, advertising features disabled);',
                     'Resend — transactional email delivery;',
-                    'Our hosting and database provider.',
+                    'Cloudflare — hosting and content delivery of the marketing website (nestorcut.com).',
                 ],
             },
             {
-                heading: '7. Cookies',
+                heading: '7. Cookies and trackers',
                 paragraphs: [
-                    'The Service uses only essential cookies and local storage:',
+                    'NestorCut only uses cookies that are strictly necessary for the Service, plus an exempted audience-measurement tool. No advertising or cross-site tracking cookies are used, which is why no consent banner is displayed:',
                 ],
                 list: [
-                    'A session cookie, required for authentication;',
-                    'An anonymous tracking cookie, for usage statistics;',
-                    'A preference cookie, to remember your theme.',
+                    'sessionId — authentication session (strictly necessary, app);',
+                    'oauth_code_verifier — Google sign-in security, expires after 10 minutes (strictly necessary, app);',
+                    'theme and locale — interface preferences (functional, exempt from consent, app);',
+                    'nest2d_session_id — anonymous first-party usage statistics (exempt audience measurement, app);',
+                    '_ga — Google Analytics 4 on nestorcut.com only, configured per the French CNIL exemption: IP anonymised, no advertising signals, no cross-site tracking, 2-month data retention (website).',
+                    'You can delete or block these cookies at any time in your browser settings. Blocking strictly necessary cookies will prevent sign-in.',
                 ],
             },
             {
@@ -218,7 +278,8 @@ export function usePrivacy() {
             {
                 heading: '10. Exercising your rights',
                 paragraphs: [
-                    `To exercise any of these rights, contact us at ${supportEmail}. We will respond within the legal timeframe. You also have the right to lodge a complaint with your data protection authority.`,
+                    `To exercise any of these rights, contact us at ${supportEmail}. We will respond within the legal timeframe (one month under the GDPR).`,
+                    'If you reside in France, you also have the right to lodge a complaint with the CNIL (Commission Nationale de l\'Informatique et des Libertés — www.cnil.fr).',
                 ],
             },
         ],
@@ -242,6 +303,7 @@ export function useRefund() {
                 paragraphs: [
                     'Customer satisfaction is our priority. If you are not satisfied with a paid subscription, you can request a full refund within 30 days of the charge, no questions asked.',
                     'This guarantee applies to the first billing period of a subscription. Renewals are refundable only in exceptional circumstances (for example, a service interruption on our side).',
+                    'If you are a consumer residing in the European Union, you also benefit from the statutory 14-day right of withdrawal from the date of purchase, in accordance with French consumer law. By starting to use the Service immediately, you acknowledge that this right may be limited for digital content supplied with your express agreement.',
                 ],
             },
             {
