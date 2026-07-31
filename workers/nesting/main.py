@@ -7,7 +7,7 @@ from datetime import datetime
 from utils.logger import setup_logger
 from utils.mongo import db
 from pymongo import ReturnDocument
-from core.main import nesting_process
+from core.main import nesting_process, JobCancelled
 
 logger = setup_logger("main_nesting")
 logger.info("Starting new nesting worker")
@@ -149,6 +149,11 @@ while not shutdown_requested:
         
         user_update = {"$inc": {"nesting_count": 1}}
         db["users"].update_one({"id": doc["ownerId"]}, user_update)
+    except JobCancelled:
+        # The job doc is already finalized (status=cancelled) by
+        # nesting_process; just refund the consumed unit like any failure.
+        logger.info("Job cancelled by user", extra={"slug": doc.get("slug")})
+        refund_charge(doc)
     except Exception as e:
         logger.error("Error in project processing", extra={"error": str(e), "traceback": traceback.format_exc()})
         refund_charge(doc)

@@ -151,6 +151,8 @@ const dict = {
         'progress.stage.bpp-search': 'Optimizing sheets',
         'progress.stage.building': 'Building result files',
         'results.nesting': 'Nesting',
+        'results.cancel': 'Cancel',
+        'results.cancelling': 'Cancelling…',
 
         'vault.title': 'Zero-knowledge vault',
         'vault.desc':
@@ -360,6 +362,8 @@ const dict = {
         'progress.stage.bpp-search': 'Optimisation des plaques',
         'progress.stage.building': 'Génération des fichiers résultat',
         'results.nesting': 'Imbrication en cours',
+        'results.cancel': 'Annuler',
+        'results.cancelling': 'Annulation…',
 
         'vault.title': 'Coffre-fort zero-knowledge',
         'vault.desc':

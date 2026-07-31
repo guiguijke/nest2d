@@ -29,6 +29,11 @@ class EngineError(Exception):
     pass
 
 
+class EngineCancelled(Exception):
+    """Raised when the owning job was cancelled by the user mid-run."""
+    pass
+
+
 def _normalize_solution(problem_type, solution):
     """Normalizes an engine solution to the shape the rest of the pipeline
     consumes: {"layouts": [...], "density": ..., "cost": ...}.
@@ -55,12 +60,14 @@ def _normalize_solution(problem_type, solution):
     }
 
 
-def run_engine(instance, config, problem_type, on_event=None):
+def run_engine(instance, config, problem_type, on_event=None, should_cancel=None):
     """Runs the engine and returns a list of normalized alternatives:
     [{"rank", "seed", "solution": {...normalized...}, "metrics": {...}}],
     best first. Raises EngineError when nothing feasible was produced.
 
     on_event(event_dict) is invoked for every engine event line (may be None).
+    should_cancel() is polled about every second while the engine runs; when
+    it returns True the engine process is killed and EngineCancelled raised.
     """
     time_budget = int(config.get("time_budget_sec", 60))
     timeout = time_budget + TIMEOUT_GRACE_SECONDS
@@ -119,14 +126,29 @@ def run_engine(instance, config, problem_type, on_event=None):
         stdout_thread = threading.Thread(target=_read_stdout, daemon=True)
         stdout_thread.start()
 
-        try:
-            returncode = proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            raise EngineError(f"engine timed out after {timeout}s")
+        # Poll in small slices so user cancellation is responsive (~1s).
+        import time as _time
+        deadline = _time.monotonic() + timeout
+        cancelled = False
+        while True:
+            if should_cancel is not None and should_cancel():
+                cancelled = True
+                proc.kill()
+                break
+            try:
+                returncode = proc.wait(timeout=1.0)
+                break
+            except subprocess.TimeoutExpired:
+                if _time.monotonic() > deadline:
+                    proc.kill()
+                    proc.wait()
+                    raise EngineError(f"engine timed out after {timeout}s")
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
+
+        if cancelled:
+            proc.wait()
+            raise EngineCancelled("job cancelled by user")
 
         if returncode != 0:
             logger.error(
