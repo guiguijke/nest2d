@@ -22,7 +22,7 @@
             </p>
         </template>
         <template v-else>
-            <div v-if="isResultFailed" class="result__placeholder">
+            <div v-if="isResultFailed" class="result__placeholder" :title="result.information || undefined">
                 Err
             </div>
             <template v-else>

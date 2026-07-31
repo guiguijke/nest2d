@@ -104,6 +104,9 @@
                     <span class="info__label">
                         {{ t('result.noSolution') }}
                     </span>
+                    <span v-if="resultModalData.information" class="info__label info__label--detail">
+                        {{ resultModalData.information }}
+                    </span>
                     <span class="info__label">
                         {{ t('result.neededToPlace', { n: resultModalData.requested }) }}
                     </span>
