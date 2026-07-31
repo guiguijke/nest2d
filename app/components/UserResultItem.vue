@@ -20,6 +20,14 @@
             <p v-else class="result__text">
                 {{ t('results.nesting') }}
             </p>
+            <button
+                class="result__cancel"
+                :disabled="cancelling"
+                :title="t('results.cancel')"
+                @click.stop="cancelNesting"
+            >
+                {{ cancelling ? t('results.cancelling') : t('results.cancel') }}
+            </button>
         </template>
         <template v-else>
             <div v-if="isResultFailed" class="result__placeholder" :title="result.information || undefined">
@@ -69,7 +77,7 @@ import { sizeType } from '~~/constants/size.constants';
 import { themeType } from '~~/constants/theme.constants';
 import { statusType } from "~~/constants/status.constants";
 import { trackEvent } from '~/utils/track';
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 const props = defineProps({
     result: {
@@ -81,6 +89,21 @@ const props = defineProps({
 const emit = defineEmits(["openModal"]);
 
 const { t } = useLocale();
+
+// Cancel a running nesting: asks the API to flag the job; the worker kills
+// the engine within ~2s and the SSE stream updates the card to failed with
+// the cancellation note.
+const cancelling = ref(false);
+const cancelNesting = async () => {
+    if (cancelling.value) return;
+    cancelling.value = true;
+    try {
+        await $fetch(`/api/results/${props.result.slug}/cancel`, { method: 'POST' });
+    } catch (e) {
+        console.warn('cancel failed', e);
+        cancelling.value = false;
+    }
+};
 
 const isMultiSheet = computed(() => {
     return props.result?.isMultiSheet ?? false;
@@ -171,6 +194,28 @@ const onDownload = () => {
     border: 1px solid var(--separator-secondary);
     border-radius: 8px;
     transition: border-color 0.3s;
+
+    &__cancel {
+        margin-top: 8px;
+        padding: 3px 10px;
+        font-size: 11px;
+        border: 1px solid var(--separator-secondary);
+        border-radius: 6px;
+        color: var(--label-secondary);
+        background: transparent;
+        cursor: pointer;
+        transition: color 0.2s, border-color 0.2s;
+
+        &:hover:not(:disabled) {
+            color: var(--system-red, #d32f2f);
+            border-color: var(--system-red, #d32f2f);
+        }
+
+        &:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+    }
 
     &__svg-row {
         max-width: 128px;

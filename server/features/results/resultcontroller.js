@@ -15,7 +15,7 @@ export async function getResults(userId, projectSlug) {
 
     const respnoseItems = queueList.map((queueItem) => {
         let status = queueItem.status
-        if (queueItem.error || queueItem.status == 'error') {
+        if (queueItem.error || queueItem.status == 'error' || queueItem.status == 'cancelled') {
             status = 'failed'
         }
         let isMultiSheet = queueItem.layoutCount > 1

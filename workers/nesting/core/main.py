@@ -13,7 +13,7 @@ from core.nesting_input_builder import (
     build_spp_instance,
     deterministic_seed,
 )
-from core.engine import run_engine
+from core.engine import EngineCancelled, run_engine
 from core.holed_polygons import channel_width_for_space, open_holes_with_channels
 from core.placement import ResultContainer, Transform, parse_result_containers
 from core.metrics import compute_used_sheet_share, largest_empty_rectangle
@@ -33,6 +33,12 @@ from utils.logger import setup_logger
 from utils.crypto import get_dek, read_gridfs, resolve_polygon_parts, write_gridfs
 
 logger = setup_logger("core_nesting")
+
+
+class JobCancelled(Exception):
+    """The user cancelled the job while it was being processed. The job doc
+    is already finalized (status=cancelled) when this is raised — the daemon
+    only needs to refund the charge and move on."""
 
 # Simplification tolerance (mm) applied to part geometry before it is sent
 # to the engine. Ornate DXFs come in as 1000-3000-vertex polylines (splines
@@ -581,10 +587,44 @@ def nesting_process(doc):
             pct = min(99, round(elapsed / max(1, time_budget_sec) * 100))
             report_progress(stage, elapsed, time_budget_sec, pct)
 
+    # Cancellation: the API sets cancelRequested on the job doc when the user
+    # aborts. The engine driver polls this (~1s); reads are cached 2s.
+    _cancel_state = {"flag": False, "checked": 0.0}
+
+    def should_cancel():
+        now = _time.time()
+        if now - _cancel_state["checked"] < 2.0:
+            return _cancel_state["flag"]
+        _cancel_state["checked"] = now
+        try:
+            current = db["nesting_jobs"].find_one(
+                {"_id": doc.get("_id")}, {"cancelRequested": 1}
+            )
+            _cancel_state["flag"] = bool(current and current.get("cancelRequested"))
+        except Exception:
+            pass
+        return _cancel_state["flag"]
+
     try:
         engine_alternatives = run_engine(
-            instance, engine_config, problem_type, on_event=_on_engine_event
+            instance, engine_config, problem_type, on_event=_on_engine_event,
+            should_cancel=should_cancel,
         )
+    except EngineCancelled:
+        _heartbeat_stop.set()
+        db["nesting_jobs"].update_one(
+            { "slug": slug },
+            {
+                "$set": {
+                    "status": "cancelled",
+                    "information": "Nesting cancelled by user.",
+                    "finishedAt": datetime.now(),
+                    "update_ts": datetime.now(),
+                },
+                "$unset": {"progress": ""}
+            },
+        )
+        raise JobCancelled(slug)
     except Exception as e:
         _heartbeat_stop.set()
         db["nesting_jobs"].update_one(
