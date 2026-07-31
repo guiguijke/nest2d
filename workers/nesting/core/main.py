@@ -627,6 +627,16 @@ def nesting_process(doc):
         raise JobCancelled(slug)
     except Exception as e:
         _heartbeat_stop.set()
+        # Surface the real failure reason when we have one (geometry rejected
+        # at import, engine crash, timeout…) — the generic message tells the
+        # user nothing actionable.
+        detail = str(e)
+        if "no feasible solution" in detail:
+            information = ("Not all items could be placed in the nesting job — "
+                           "the engine could not fit every part. Try a larger sheet, "
+                           "more sheets, or a bigger compute budget.")
+        else:
+            information = f"Nesting failed: {detail[:400]}"
         db["nesting_jobs"].update_one(
             { "slug": slug },
             {
@@ -635,12 +645,12 @@ def nesting_process(doc):
                     "status": "error",
                     "finishedAt": datetime.now(),
                     "update_ts": datetime.now(),
-                    "information": "Not all items could be placed in the nesting job"
+                    "information": information
                 },
                 "$unset": {"progress": ""}
             },
         )
-        raise Exception("Not all items could be placed in the nesting job") from e
+        raise Exception(information) from e
 
     # Strategy-labelled alternatives — the engine already returns its best
     # distinct layouts, ranked. SPP layouts are inherently max-offcut (used
