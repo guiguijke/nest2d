@@ -35,6 +35,9 @@ export async function getResults(userId, projectSlug) {
             createdAt: queueItem.createdAt,
             placed: queueItem.placed || 0,
             requested: queueItem.requested || 0,
+            // Specific failure reason written by the worker (e.g. which part
+            // does not fit the sheet); null for legacy jobs.
+            information: queueItem.information ?? null,
             downloadUrl: downloadUrl,
             zipDownloadUrl: zipDownloadUrl,
             isInProgress: queueItem.status === 'processing' || queueItem.status === 'pending',

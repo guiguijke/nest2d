@@ -82,3 +82,30 @@ class TestBandOffcut:
         )
         rect = largest_empty_rectangle([container], [item])
         assert rect["area"] >= 5000.0 - 1e-6
+
+
+class TestVertexThreshold:
+    def test_ornate_few_parts_uses_band_path(self):
+        # Few parts but ornate geometry (many vertices) must take the O(n)
+        # band path: the exact scan is quadratic in free-space vertices.
+        import math
+        import time
+
+        # Dense ornate-like ring: many vertices, valid geometry.
+        ornate = [
+            [50.0 + 40.0 * math.cos(i * math.tau / 400),
+             50.0 + 40.0 * math.sin(i * math.tau / 400)]
+            for i in range(400)
+        ]
+        ornate.append(ornate[0])
+        items = [{"id": 0, "coords": ornate}]
+        # 8 parts x 400 vertices = 3200 > EXACT_OFFCUT_MAX_VERTICES.
+        transforms = [
+            Transform("f", ["h"], float((i % 3) * 90), float((i // 3) * 110), 0.0, item_id=0)
+            for i in range(8)
+        ]
+        container = ResultContainer(1, transforms, bin_width=400.0, bin_height=560.0)
+        t0 = time.time()
+        rect = largest_empty_rectangle([container], items)
+        assert time.time() - t0 < 5.0, "band path must be fast on ornate geometry"
+        assert rect is not None

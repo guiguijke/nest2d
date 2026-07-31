@@ -34,14 +34,43 @@ from utils.crypto import get_dek, read_gridfs, resolve_polygon_parts, write_grid
 
 logger = setup_logger("core_nesting")
 
+# Simplification tolerance (mm) applied to part geometry before it is sent
+# to the engine. Ornate DXFs come in as 1000-3000-vertex polylines (splines
+# flattened at ~0.2mm): every collision check scales with vertex count and
+# jagua's own area-ratio simplification is quadratic on top of it. A 0.05mm
+# Douglas-Peucker pass cuts the vertex count by ~5x in milliseconds, with a
+# deviation far below any real kerf/spacing (result DXFs are rebuilt from
+# the ORIGINAL entities, so cutting fidelity is untouched).
+SIMPLIFY_MM = float(os.environ.get("NEST_SIMPLIFY_MM", "0.05"))
+
+
+def _simplify_part(coords, holes):
+    """Lightens a part's rings (Douglas-Peucker). Returns (coords, holes)."""
+    if SIMPLIFY_MM <= 0:
+        return coords, holes
+    from shapely.geometry import Polygon
+    poly = Polygon(coords, holes)
+    simplified = poly.simplify(SIMPLIFY_MM, preserve_topology=True)
+    if simplified.is_empty or simplified.geom_type != "Polygon":
+        return coords, holes
+    new_coords = [[x, y] for x, y in simplified.exterior.coords]
+    new_holes = [[[x, y] for x, y in ring.coords] for ring in simplified.interiors]
+    if len(new_coords) < len(coords):
+        logger.info(
+            "Part simplified",
+            extra={"before": len(coords), "after": len(new_coords)},
+        )
+    return new_coords, new_holes
+
+
 def convert_files_to_input_items(files, dek=None):
     """Builds the nesting input items from the project's files.
 
-    The raw contours are passed to the engine untouched: the requested gap
-    (`space`) is enforced natively by jagua-rs via `min_item_separation`
-    (exact distance, geometry unmodified). Holes (interior rings extracted at
-    file processing time) are carried along and opened with a hairline channel
-    so the engine nests parts inside cutouts natively.
+    The requested gap (`space`) is enforced natively by jagua-rs via
+    `min_item_separation` (exact distance, geometry unmodified). Holes
+    (interior rings extracted at file processing time) are carried along and
+    opened with a hairline channel so the engine nests parts inside cutouts
+    natively. Geometry is lightly simplified first (see SIMPLIFY_MM).
     """
     input_items = []
     id = 0
@@ -55,10 +84,10 @@ def convert_files_to_input_items(files, dek=None):
         # was enabled; passes legacy plaintext through untouched.
         plogonParts = resolve_polygon_parts(db, user_dxf_file, dek)
         for part in plogonParts:
-            coords = part.get("coordinates")
+            coords, holes = _simplify_part(
+                part.get("coordinates"), part.get("holes") or []
+            )
             handles = part.get("handles")
-            # New-style parts may carry interior rings; legacy parts don't.
-            holes = part.get("holes") or []
 
             item = {
                 'id': id,
@@ -317,6 +346,70 @@ def nesting_process(doc):
     default_allowed_orientations = [0.0, 90.0, 180.0, 270.0] if allow_rotation else [0.0]
 
     input_items = convert_files_to_input_items(files, dek)
+
+    # ------------------------------------------------------------------
+    # Instant feasibility pre-check: an item whose bbox (+ the requested
+    # spacing, which the engine enforces on every side) does not fit in ANY
+    # sheet in ANY allowed orientation can never be placed. Failing here
+    # saves a full (pointless) optimization run and, more importantly, tells
+    # the user EXACTLY which part is the problem.
+    # ------------------------------------------------------------------
+    from shapely.geometry import Polygon as _Polygon
+    from shapely.affinity import rotate as _sh_rotate
+
+    unplaceable = []
+    for item in input_items:
+        poly = _Polygon(item.get("coords"), item.get("holes") or [])
+        rotations = item.get("rotations", default_allowed_orientations) or [0.0]
+        fits_anywhere = False
+        for angle in rotations:
+            rotated = _sh_rotate(poly, float(angle), origin=(0, 0)) if angle else poly
+            bx = rotated.bounds
+            w, h = bx[2] - bx[0], bx[3] - bx[1]
+            for sheet in sheets:
+                sw, sh = float(sheet.get("width")), float(sheet.get("height"))
+                if w + space <= sw + 1e-6 and h + space <= sh + 1e-6:
+                    fits_anywhere = True
+                    break
+            if fits_anywhere:
+                break
+        if not fits_anywhere:
+            bx = poly.bounds
+            unplaceable.append({
+                "name": item.get("file_slug"),
+                "width": bx[2] - bx[0],
+                "height": bx[3] - bx[1],
+                "count": item.get("count"),
+            })
+
+    if unplaceable:
+        details = ", ".join(
+            f"'{p['name']}' ({p['width']:.0f}x{p['height']:.0f}mm, x{p['count']})"
+            for p in unplaceable[:5]
+        )
+        sheet_desc = " / ".join(
+            f"{float(s.get('width')):.0f}x{float(s.get('height')):.0f}mm" for s in sheets
+        )
+        message = (
+            f"Part(s) too large for the sheet: {details} — sheet(s): {sheet_desc}, "
+            f"spacing: {space}mm. Use a larger sheet, allow more rotations, or reduce spacing."
+        )
+        logger.warning("Unplaceable parts detected", extra={"unplaceable": unplaceable})
+        db["nesting_jobs"].update_one(
+            { "slug": slug },
+            {
+                "$set": {
+                    "placed": 0,
+                    "status": "error",
+                    "finishedAt": datetime.now(),
+                    "update_ts": datetime.now(),
+                    "information": message,
+                },
+                "$unset": {"progress": ""}
+            },
+        )
+        raise Exception(message)
+
     jaguar_items = []
 
     # Holed parts are opened to the exterior with a hairline channel so the
@@ -339,7 +432,6 @@ def nesting_process(doc):
             )
         jaguar_item = build_item(item.get("id"), count, shape_coords, allowed_orientations)
         total_requested_count += count
-        from shapely.geometry import Polygon as _Polygon
         total_part_area += _Polygon(item.get("coords"), item.get("holes") or []).area * count
         jaguar_items.append(jaguar_item)
 

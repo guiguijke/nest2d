@@ -10,7 +10,7 @@ const state = reactive({
     projectName: '',
     lastParams: '',
     params: {
-        sheets: [{ width: '400', height: '560', count: '100' }],
+        sheets: [{ width: '1000', height: '2000', count: '100' }],
         space: '0.1',
         addOutShape: false,
         rotationCount: 4
@@ -161,7 +161,7 @@ function updateSheet(index, patch) {
 }
 function addSheet() {
     const sheets = normalizedSheets(state.params)
-    const last = sheets[sheets.length - 1] || { width: '400', height: '560', count: '1' }
+    const last = sheets[sheets.length - 1] || { width: '1000', height: '2000', count: '1' }
     state.params = { ...state.params, sheets: [...sheets, { ...last, count: '1' }] }
 }
 function removeSheet(index) {
