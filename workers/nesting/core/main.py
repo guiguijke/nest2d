@@ -302,6 +302,7 @@ STAGE_LABELS = {
     "explore": "Exploring layouts",
     "compress": "Compressing layout",
     "bpp-search": "Optimizing sheets",
+    "reveal": "Revealing final layouts",
     "building": "Building result files",
 }
 
@@ -711,6 +712,63 @@ def nesting_process(doc):
     # distinct layouts, ranked. SPP layouts are inherently max-offcut (used
     # length minimized); BPP layouts are inherently min-sheets.
     alternatives = []
+
+    # ------------------------------------------------------------------
+    # Final reveal: replay the exported alternatives on the live feed, one
+    # at a time, so the visualizer ends exactly on the final results (the
+    # search frames are mid-optimization working states — without this the
+    # last live frame could lag behind the exported layout).
+    # ------------------------------------------------------------------
+    REVEAL_STEP_SEC = float(os.environ.get("NEST_REVEAL_STEP_SEC", "1.2"))
+
+    def _alt_to_live(engine_alt, rank):
+        solution = engine_alt["solution"]
+        if is_spp:
+            items = [
+                [pi.get("item_id"), pi.get("transformation", {}).get("rotation", 0),
+                 pi.get("transformation", {}).get("translation", [0, 0])[0],
+                 pi.get("transformation", {}).get("translation", [0, 0])[1]]
+                for layout in solution.get("layouts", [])
+                for pi in layout.get("placed_items", [])
+            ]
+        else:
+            items = [
+                [pi.get("item_id"), li, pi.get("transformation", {}).get("rotation", 0),
+                 pi.get("transformation", {}).get("translation", [0, 0])[0],
+                 pi.get("transformation", {}).get("translation", [0, 0])[1]]
+                for li, layout in enumerate(solution.get("layouts", []))
+                for pi in layout.get("placed_items", [])
+            ]
+        return {
+            "stage": "reveal",
+            "worker": rank,
+            "feasible": True,
+            "strip_width": engine_alt.get("metrics", {}).get("strip_width"),
+            "density": engine_alt.get("metrics", {}).get("density"),
+            "bins": engine_alt.get("metrics", {}).get("cost"),
+            "elapsed_ms": int((_time.monotonic() - _job_started) * 1000),
+            "sheets": [[float(s.get("width")), float(s.get("height"))] for s in sheets],
+            "isSpp": is_spp,
+            "items": items,
+        }
+
+    if REVEAL_STEP_SEC > 0 and engine_alternatives:
+        report_progress("reveal", 0, len(engine_alternatives), 0)
+        for rank, engine_alt in enumerate(engine_alternatives):
+            try:
+                db["nesting_jobs"].update_one(
+                    {"_id": doc.get("_id")},
+                    {"$set": {
+                        "liveLayout": _alt_to_live(engine_alt, rank),
+                        "update_ts": datetime.now(),
+                    }},
+                )
+            except Exception as e:
+                logger.warning("Failed to write reveal layout", extra={"error": str(e)})
+            report_progress("reveal", rank + 1, len(engine_alternatives),
+                            min(99, round((rank + 1) / len(engine_alternatives) * 100)))
+            if rank < len(engine_alternatives) - 1:
+                _time.sleep(REVEAL_STEP_SEC)
 
     def _finalize_alternative(engine_alt, strategy, rank):
         result_containers, placed_count, density, cost = parse_result_containers(
