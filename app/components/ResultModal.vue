@@ -52,8 +52,13 @@
                 />
             </div>
             <div class="modal__wrapper">
+                <LiveNestingView
+                    v-if="isInProgress && resultModalData.liveLayout"
+                    :result="resultModalData"
+                    class="modal__live"
+                />
                 <div
-                    v-if="isHaveError"
+                    v-else-if="isHaveError"
                     :class="placeholderClasses"
                     class="modal__placeholder"
                 >
@@ -186,6 +191,10 @@ const resultDialog = useResultDialog()
 
 const isHaveError = computed(() => {
     return unref(resultModalData).status === statusType.failed
+})
+const isInProgress = computed(() => {
+    const status = unref(resultModalData).status
+    return status === statusType.unfinished || status === statusType.pending
 })
 const isFullScreen = useFullScreen()
 const updateFullScreen = () => {

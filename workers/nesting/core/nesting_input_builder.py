@@ -15,6 +15,12 @@ machine load — standard for anytime solvers).
 """
 import hashlib
 import json
+import os
+
+# Stream full layout snapshots from the engine (live visualizer). The payload
+# is small (per placed item: id, rotation, translation) and the worker
+# throttles Mongo writes — the value of watching the algorithm think is high.
+LIVE_EVENTS = os.environ.get("NEST_LIVE_EVENTS", "1") == "1"
 
 
 def deterministic_seed(payload):
@@ -54,6 +60,7 @@ def build_engine_config(
         "min_item_separation": float(min_separation) if min_separation else None,
         # Explicit null disables concavity closing for holed instances.
         "narrow_concavity_cutoff": None if has_holes else [0.01, 0.01],
+        "live_events": LIVE_EVENTS,
     }
     if max_strip_width is not None:
         config["max_strip_width"] = float(max_strip_width)

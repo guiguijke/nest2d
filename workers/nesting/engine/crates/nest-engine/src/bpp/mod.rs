@@ -93,6 +93,7 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
 
     // Parallel multi-start: one SA walk per worker, each with a derived seed.
     // Deterministic per worker; ranking below is deterministic too.
+    let live = config.live_events();
     let mut runs: Vec<WorkerRun> = (0..n_workers)
         .into_par_iter()
         .map(|w| {
@@ -103,7 +104,7 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                 N_SAMPLES_PER_ITEM,
                 deadline,
                 &mut rng,
-                |cost| {
+                |cost, solution| {
                     println!(
                         "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"elapsed_sec\":{}}}",
                         w,
@@ -112,6 +113,42 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                         cost.unplaced,
                         started.elapsed().as_secs()
                     );
+                    if live {
+                        // Full layout snapshot of the new incumbent for the
+                        // visualizer: [[item_id, bin, rotation_deg, x, y]].
+                        let mut items = String::new();
+                        items.push('[');
+                        let mut first = true;
+                        for (bin, ls) in solution.layout_snapshots.values().enumerate() {
+                            for pi in ls.placed_items.values() {
+                                if !first {
+                                    items.push(',');
+                                }
+                                first = false;
+                                let dt = pi.d_transf;
+                                let t = dt.translation();
+                                items.push_str(&format!(
+                                    "[{},{},{:.2},{:.3},{:.3}]",
+                                    pi.item_id,
+                                    bin,
+                                    dt.rotation().to_degrees(),
+                                    t.0,
+                                    t.1
+                                ));
+                            }
+                        }
+                        items.push(']');
+                        println!(
+                            "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"remnant\":{:.4},\"elapsed_ms\":{},\"items\":{}}}",
+                            w,
+                            cost.unplaced == 0,
+                            cost.bin_cost,
+                            cost.unplaced,
+                            cost.remnant,
+                            started.elapsed().as_millis(),
+                            items
+                        );
+                    }
                     let _ = std::io::stdout().flush();
                 },
                 |iterations, cost| {
