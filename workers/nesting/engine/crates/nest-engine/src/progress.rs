@@ -54,6 +54,15 @@ impl ProgressListener {
         self
     }
 
+    /// Emits a layout snapshot outside the listener flow — used for the
+    /// post-gravity final state, so the last streamed frame matches the
+    /// exported solution exactly.
+    pub fn report_final(&mut self, solution: &SPSolution, instance: &SPInstance) {
+        if self.live {
+            self.emit_layout("final", true, solution, instance);
+        }
+    }
+
     fn emit(&mut self, stage: &'static str, feasible: bool, strip_width: f32) {
         println!(
             "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"elapsed_sec\":{}}}",

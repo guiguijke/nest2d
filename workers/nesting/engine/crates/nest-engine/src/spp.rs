@@ -112,7 +112,11 @@ fn optimize_multi(
                     jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
                 prob.restore(&solution);
                 crate::gravity::gravity_compact(&mut prob);
-                prob.save()
+                let solution = prob.save();
+                // Stream the post-gravity final state so the visualizer's
+                // last frame matches the exported solution exactly.
+                listener.report_final(&solution, instance);
+                solution
             } else {
                 solution
             };
