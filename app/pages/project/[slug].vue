@@ -2,6 +2,10 @@
     <div class="content">
         <MainTitle :label="t('project.files', { n: filesCount })" class="content__title" />
         <ProjectFiles :projectFiles="projectFiles" @addFiles="addFiles" class="content__files" />
+        <section v-if="liveResult" class="content__live live-panel">
+            <h3 class="live-panel__title">{{ t('live.title') }}</h3>
+            <LiveNestingView :result="liveResult" />
+        </section>
         <MainSettings />
         <MainButton :theme="themeType.primary" :label="btnLabel" :isDisable="btnIsDisable" trackingTag="project_nest_start"
             @click="startsNest" class="content__btn" />
@@ -31,6 +35,12 @@ const $apiFetch = useApiFetch();
 
 const { getters } = globalStore;
 const resultsList = computed(() => getters.resultsList);
+// The currently-running job's live layout stream (engine snapshots pushed
+// over SSE): drives the big real-time preview above the settings.
+const liveResult = computed(() => {
+    const list = unref(resultsList) || [];
+    return list.find((r) => r.liveLayout) || null;
+});
 const { getters: filesGetters, actions } = filesStore;
 const params = computed(() => filesGetters.params);
 const { setProjectFiles, setProjectName, nest } = actions;
@@ -134,10 +144,34 @@ const startsNest = () => {
         margin-top: 16px;
     }
 
+    &__live {
+        margin-bottom: 40px;
+    }
+
     &__btn {
         margin-top: 40px;
         margin-right: auto;
         margin-left: auto;
+    }
+}
+
+.live-panel {
+    padding: 20px;
+    border: 1px solid var(--separator-secondary);
+    border-radius: 12px;
+    background: var(--background-secondary, rgba(127, 127, 127, 0.04));
+
+    &__title {
+        margin: 0 0 12px;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--label-primary);
+        text-align: left;
+    }
+
+    :deep(.live__sheet) {
+        min-height: 380px;
+        max-height: 60vh;
     }
 }
 </style>

@@ -161,11 +161,15 @@ function clampLevel(requested, max) {
  */
 export async function getMaxComputeLevel(userId, charge) {
     const db = await connectDB()
-    const user = await db.collection('users').findOne({ id: userId }, { projection: { subscription: 1 } })
+    const user = await db.collection('users').findOne({ id: userId }, { projection: { subscription: 1, grantedUntil: 1 } })
 
     const tier = await getSubscriptionTier(user)
     if (tier === 'privacy') return 'advanced'
-    if (charge?.type === 'subscription') return 'normal'
+    // Subscribers AND admin-granted users (free month from the admin panel)
+    // get the paid tier — checked both from the job's charge (enqueue path)
+    // and directly from the user doc (UI path, charge is null there).
+    const granted = user?.grantedUntil && new Date(user.grantedUntil) > new Date()
+    if (granted || charge?.type === 'subscription' || charge?.type === 'grant') return 'normal'
     return 'simple'
 }
 
@@ -189,7 +193,8 @@ export async function getComputeProfile(userId, charge, requestedLevel) {
     if (tier === 'privacy') {
         maxLevel = 'advanced'
         priority = 10
-    } else if (charge?.type === 'subscription') {
+    } else if (charge?.type === 'subscription' || charge?.type === 'grant') {
+        // Subscribers AND admin-granted users (free month) get the paid tier.
         maxLevel = 'normal'
         priority = 20
     }

@@ -157,6 +157,7 @@ const dict = {
         'live.feasible': 'Feasible',
         'live.searching': 'Searching…',
         'live.best': 'Best',
+        'live.title': 'Live nesting',
         'results.cancelling': 'Cancelling…',
 
         'vault.title': 'Zero-knowledge vault',
@@ -373,6 +374,7 @@ const dict = {
         'live.feasible': 'Faisable',
         'live.searching': 'Recherche…',
         'live.best': 'Meilleur',
+        'live.title': 'Imbrication en direct',
         'results.cancelling': 'Annulation…',
 
         'vault.title': 'Coffre-fort zero-knowledge',
