@@ -1,0 +1,209 @@
+{
+  "shirts": {
+    "results": [
+      {
+        "budget": 5,
+        "ok": true,
+        "wall": 5.378232955932617,
+        "quality": 0.8453613,
+        "strip_width": 63.878017
+      },
+      {
+        "budget": 10,
+        "ok": true,
+        "wall": 12.260217189788818,
+        "quality": 0.8564381,
+        "strip_width": 63.05184
+      },
+      {
+        "budget": 15,
+        "ok": true,
+        "wall": 16.719698905944824,
+        "quality": 0.86688083,
+        "strip_width": 62.292297
+      },
+      {
+        "budget": 30,
+        "ok": true,
+        "wall": 31.981069803237915,
+        "quality": 0.8705916,
+        "strip_width": 62.02679
+      },
+      {
+        "budget": 45,
+        "ok": true,
+        "wall": 48.0365846157074,
+        "quality": 0.87854177,
+        "strip_width": 61.46549
+      },
+      {
+        "budget": 60,
+        "ok": true,
+        "wall": 65.7274284362793,
+        "quality": 0.8750891,
+        "strip_width": 61.708
+      },
+      {
+        "budget": 90,
+        "ok": true,
+        "wall": 92.72866654396057,
+        "quality": 0.88575286,
+        "strip_width": 60.965088
+      },
+      {
+        "budget": 120,
+        "ok": true,
+        "wall": 121.83032965660095,
+        "quality": 0.89063954,
+        "strip_width": 60.63059
+      },
+      {
+        "budget": 180,
+        "ok": true,
+        "wall": 182.7073745727539,
+        "quality": 0.8915207,
+        "strip_width": 60.570667
+      }
+    ],
+    "best": 0.8915207,
+    "knee_sec": 45
+  },
+  "swim": {
+    "results": [
+      {
+        "budget": 5,
+        "ok": true,
+        "wall": 5.686298847198486,
+        "quality": 0.6874025,
+        "strip_width": 6435.364
+      },
+      {
+        "budget": 10,
+        "ok": true,
+        "wall": 11.545988082885742,
+        "quality": 0.724064,
+        "strip_width": 6109.522
+      },
+      {
+        "budget": 15,
+        "ok": true,
+        "wall": 17.779268503189087,
+        "quality": 0.7285201,
+        "strip_width": 6072.1523
+      },
+      {
+        "budget": 30,
+        "ok": true,
+        "wall": 32.51153516769409,
+        "quality": 0.74761164,
+        "strip_width": 5917.09
+      },
+      {
+        "budget": 45,
+        "ok": true,
+        "wall": 47.80284285545349,
+        "quality": 0.7446715,
+        "strip_width": 5940.451
+      },
+      {
+        "budget": 60,
+        "ok": true,
+        "wall": 67.29136967658997,
+        "quality": 0.74802196,
+        "strip_width": 5913.8433
+      },
+      {
+        "budget": 90,
+        "ok": true,
+        "wall": 94.73447227478027,
+        "quality": 0.76072085,
+        "strip_width": 5815.1226
+      },
+      {
+        "budget": 120,
+        "ok": true,
+        "wall": 124.55123925209045,
+        "quality": 0.7578306,
+        "strip_width": 5837.3003
+      },
+      {
+        "budget": 180,
+        "ok": true,
+        "wall": 182.61463356018066,
+        "quality": 0.7664199,
+        "strip_width": 5771.882
+      }
+    ],
+    "best": 0.7664199,
+    "knee_sec": 90
+  },
+  "albano": {
+    "results": [
+      {
+        "budget": 5,
+        "ok": true,
+        "wall": 6.643344402313232,
+        "quality": 0.8747688,
+        "strip_width": 9951.735
+      },
+      {
+        "budget": 10,
+        "ok": true,
+        "wall": 11.270487546920776,
+        "quality": 0.87445,
+        "strip_width": 9955.363
+      },
+      {
+        "budget": 15,
+        "ok": true,
+        "wall": 16.92951726913452,
+        "quality": 0.8737553,
+        "strip_width": 9963.279
+      },
+      {
+        "budget": 30,
+        "ok": true,
+        "wall": 32.052695989608765,
+        "quality": 0.8792548,
+        "strip_width": 9900.961
+      },
+      {
+        "budget": 45,
+        "ok": true,
+        "wall": 46.348663091659546,
+        "quality": 0.87506276,
+        "strip_width": 9948.393
+      },
+      {
+        "budget": 60,
+        "ok": true,
+        "wall": 61.30303931236267,
+        "quality": 0.8779431,
+        "strip_width": 9915.754
+      },
+      {
+        "budget": 90,
+        "ok": true,
+        "wall": 92.0931670665741,
+        "quality": 0.88566387,
+        "strip_width": 9829.313
+      },
+      {
+        "budget": 120,
+        "ok": true,
+        "wall": 121.58137202262878,
+        "quality": 0.8809562,
+        "strip_width": 9881.84
+      },
+      {
+        "budget": 180,
+        "ok": true,
+        "wall": 181.04426288604736,
+        "quality": 0.88440275,
+        "strip_width": 9843.33
+      }
+    ],
+    "best": 0.88566387,
+    "knee_sec": 5
+  }
+}
