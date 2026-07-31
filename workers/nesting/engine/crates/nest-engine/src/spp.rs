@@ -80,6 +80,8 @@ fn optimize_multi(
     n_workers: usize,
     started: Instant,
     gravity_enabled: bool,
+    live: bool,
+    map_back_height: Option<f32>,
 ) -> Vec<WorkerRun> {
     let mut cfg = *sparrow_cfg;
     cfg.expl_cfg.time_limit = budget.mul_f32(explore_ratio);
@@ -90,7 +92,9 @@ fn optimize_multi(
         .map(|w| {
             let seed = derive_seed(master_seed, seed_offset + w);
             let rng = Xoshiro256PlusPlus::seed_from_u64(seed);
-            let mut listener = ProgressListener::new(w, started);
+            let mut listener = ProgressListener::new(w, started)
+                .with_live(live)
+                .with_map_back(map_back_height);
             let mut terminator = BasicTerminator::new();
             let solution = optimize(
                 instance.clone(),
@@ -209,6 +213,8 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         n_workers,
         started,
         config.gravity(),
+        config.live_events(),
+        None,
     );
     let feasible1: Vec<&WorkerRun> = runs1
         .iter()
@@ -269,6 +275,8 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                     n_workers,
                     started,
                     config.gravity(),
+                    config.live_events(),
+                    Some(corridor),
                 );
                 let max_length = ext_instance.strip_height;
                 for run in runs2 {

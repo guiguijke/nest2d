@@ -152,6 +152,11 @@ const dict = {
         'progress.stage.building': 'Building result files',
         'results.nesting': 'Nesting',
         'results.cancel': 'Cancel',
+        'live.width': 'Used width',
+        'live.sheets': 'Sheets',
+        'live.feasible': 'Feasible',
+        'live.searching': 'Searching…',
+        'live.best': 'Best',
         'results.cancelling': 'Cancelling…',
 
         'vault.title': 'Zero-knowledge vault',
@@ -363,6 +368,11 @@ const dict = {
         'progress.stage.building': 'Génération des fichiers résultat',
         'results.nesting': 'Imbrication en cours',
         'results.cancel': 'Annuler',
+        'live.width': 'Largeur utilisée',
+        'live.sheets': 'Plaques',
+        'live.feasible': 'Faisable',
+        'live.searching': 'Recherche…',
+        'live.best': 'Meilleur',
         'results.cancelling': 'Annulation…',
 
         'vault.title': 'Coffre-fort zero-knowledge',

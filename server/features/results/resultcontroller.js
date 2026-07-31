@@ -44,6 +44,11 @@ export async function getResults(userId, projectSlug) {
             // Live progress written by the worker ({stage, label, done, total}),
             // null once the job finishes (field is unset on completion).
             progress: queueItem.progress ?? null,
+            // Live layout snapshot streamed by the engine (visualizer):
+            // {stage, worker, feasible, sheets, isSpp, items, ...}, unset on completion.
+            liveLayout: queueItem.liveLayout ?? null,
+            // Engine item id -> {slug, part} map for the visualizer.
+            itemMap: queueItem.itemMap ?? null,
             svgs: (queueItem.svg_files || []).map((file) => "/api/files/result/svg/" + file),
             dxfs: (queueItem.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),
             // Alternative layouts (best first); empty for jobs run before

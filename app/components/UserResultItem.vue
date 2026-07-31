@@ -1,9 +1,11 @@
 <template>
     <div class="result">
         <template v-if="isResultNexting">
-            <MainLoader 
-                :size="sizeType.s" 
-                :theme="themeType.secondary" 
+            <LiveNestingView v-if="result.liveLayout" :result="result" compact />
+            <MainLoader
+                v-else
+                :size="sizeType.s"
+                :theme="themeType.secondary"
                 class="result__display"
             />
             <template v-if="progress">

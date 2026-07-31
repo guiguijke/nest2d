@@ -289,7 +289,7 @@ mod tests {
             200,
             Duration::from_secs(2),
             &mut rng,
-            |_| {},
+            |_, _| {},
             |_, _| {},
         );
         assert_eq!(report.best_cost.unplaced, 0);

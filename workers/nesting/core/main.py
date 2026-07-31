@@ -411,7 +411,7 @@ def nesting_process(doc):
                     "update_ts": datetime.now(),
                     "information": message,
                 },
-                "$unset": {"progress": ""}
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
             },
         )
         raise Exception(message)
@@ -441,11 +441,28 @@ def nesting_process(doc):
         total_part_area += _Polygon(item.get("coords"), item.get("holes") or []).area * count
         jaguar_items.append(jaguar_item)
 
+    # Map engine item ids back to (file, part) for the live visualizer:
+    # input_items are built sequentially, so the part index is its position
+    # within its file's polygonParts.
+    part_index_by_id = {}
+    per_file_counter = {}
+    for item in input_items:
+        item_file_slug = item.get("file_slug")
+        part_index_by_id[item["id"]] = {
+            "slug": item_file_slug,
+            "part": per_file_counter.get(item_file_slug, 0),
+        }
+        per_file_counter[item_file_slug] = per_file_counter.get(item_file_slug, 0) + 1
+
     db["nesting_jobs"].update_one(
         {"_id": doc.get("_id")},
         {
             "$set": {
                 "requested": total_requested_count,
+                "itemMap": [
+                    {"id": item_id, "slug": m["slug"], "part": m["part"]}
+                    for item_id, m in part_index_by_id.items()
+                ],
                 "update_ts": datetime.now()
             },
         }
@@ -577,9 +594,47 @@ def nesting_process(doc):
         max_strip_width=max_strip_width,
     )
 
+    # Live layout snapshots for the visualizer: the engine streams placed
+    # item positions ~2Hz per worker; we persist the latest one (throttled)
+    # on the job doc, the SSE stream pushes it to the browser.
+    _last_live_write = [0.0]
+
+    def report_live_layout(event):
+        now = _time.time()
+        stage = event.get("stage", "")
+        # Stage changes always pass (they mark phase transitions), otherwise
+        # one write per 2s max.
+        if stage == _current_progress.get("stage") and now - _last_live_write[0] < 2.0:
+            return
+        _last_live_write[0] = now
+        try:
+            live = {
+                "stage": stage,
+                "worker": event.get("worker"),
+                "feasible": event.get("feasible"),
+                "strip_width": event.get("strip_width"),
+                "density": event.get("density"),
+                "bins": event.get("bins"),
+                "unplaced": event.get("unplaced"),
+                "remnant": event.get("remnant"),
+                "elapsed_ms": event.get("elapsed_ms"),
+                # Sheet frame(s) so the browser can draw the sheet(s).
+                "sheets": [[float(s.get("width")), float(s.get("height"))] for s in sheets],
+                "isSpp": is_spp,
+                "items": event.get("items", []),
+            }
+            db["nesting_jobs"].update_one(
+                {"_id": doc.get("_id")},
+                {"$set": {"liveLayout": live, "update_ts": datetime.now()}},
+            )
+        except Exception as e:
+            logger.warning("Failed to write live layout", extra={"error": str(e)})
+
     def _on_engine_event(event):
         etype = event.get("type")
-        if etype in ("progress", "heartbeat"):
+        if etype == "layout":
+            report_live_layout(event)
+        elif etype in ("progress", "heartbeat"):
             stage = event.get("stage", "explore")
             # Real percentage: the engine reports its elapsed seconds and we
             # know the time budget it was given (it stops by itself at 100%).
@@ -621,7 +676,7 @@ def nesting_process(doc):
                     "finishedAt": datetime.now(),
                     "update_ts": datetime.now(),
                 },
-                "$unset": {"progress": ""}
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
             },
         )
         raise JobCancelled(slug)
@@ -647,7 +702,7 @@ def nesting_process(doc):
                     "update_ts": datetime.now(),
                     "information": information
                 },
-                "$unset": {"progress": ""}
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
             },
         )
         raise Exception(information) from e
@@ -713,7 +768,7 @@ def nesting_process(doc):
                     "update_ts": datetime.now(),
                     "information": "Not all items could be placed in the nesting job"
                 },
-                "$unset": {"progress": ""}
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
             },
         )
         raise Exception("Not all items could be placed in the nesting job")
@@ -741,6 +796,6 @@ def nesting_process(doc):
                 "usedSheetShare": best["usedSheetShare"],
                 "update_ts": datetime.now()
             },
-            "$unset": {"progress": ""}
+            "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
         }
     )

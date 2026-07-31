@@ -43,6 +43,9 @@ pub struct EngineConfig {
     /// Apply the gravity post-pass (default true). Mainly a debug/ablation
     /// knob for benchmark comparisons.
     pub gravity: Option<bool>,
+    /// Emit full layout snapshots as JSON events on stdout (live_lab
+    /// visualizer). Default false — heavy payload, dev/private use only.
+    pub live_events: Option<bool>,
 }
 
 fn default_n_alternatives() -> usize {
@@ -70,6 +73,9 @@ impl EngineConfig {
     }
     pub fn gravity(&self) -> bool {
         self.gravity.unwrap_or(true)
+    }
+    pub fn live_events(&self) -> bool {
+        self.live_events.unwrap_or(false)
     }
     pub fn n_workers(&self) -> usize {
         self.n_workers.unwrap_or_else(|| {

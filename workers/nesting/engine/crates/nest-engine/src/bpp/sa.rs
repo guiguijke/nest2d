@@ -154,7 +154,7 @@ pub fn anneal(
     n_samples: usize,
     deadline: Duration,
     rng: &mut impl Rng,
-    mut on_improvement: impl FnMut(&Cost),
+    mut on_improvement: impl FnMut(&Cost, &BPSolution),
     mut on_heartbeat: impl FnMut(usize, &Cost),
 ) -> SaReport {
     let started = Instant::now();
@@ -170,7 +170,7 @@ pub fn anneal(
     // constructive placement is stochastic, re-running it could regress).
     let mut best_solution = initial.solution.clone();
     let mut best_cost = current_cost;
-    on_improvement(&best_cost);
+    on_improvement(&best_cost, &best_solution);
 
     // Temperature schedule: geometric from T0 to T_END over the time budget.
     // Δcost is in "bin-equivalents" (10 per bin), so T0 ~ a few bins.
@@ -224,7 +224,7 @@ pub fn anneal(
             if candidate_cost.cmp_key() < best_cost.cmp_key() {
                 best_cost = candidate_cost;
                 best_solution = candidate.solution.clone();
-                on_improvement(&best_cost);
+                on_improvement(&best_cost, &best_solution);
             }
         } else {
             mov.revert(&mut seq);
