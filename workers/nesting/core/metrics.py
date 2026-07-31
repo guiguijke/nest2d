@@ -92,22 +92,32 @@ def _band_offcut(containers, items_by_id):
 
 
 # Above this many placed parts, the exact scan is quadratic in the number of
-# free-space vertices and can take minutes — switch to the band offcut.
+# free-space vertices — a few dozen simple parts are fine, but many parts OR
+# ornate geometry (hundreds of vertices each) makes it take minutes. Above
+# these budgets, switch to the band offcut.
 EXACT_OFFCUT_MAX_PARTS = 60
+EXACT_OFFCUT_MAX_VERTICES = 3000
 
 
 def largest_empty_rectangle(containers, input_items):
     """Largest axis-aligned rectangle of free space across all sheets.
 
-    Small layouts (<= EXACT_OFFCUT_MAX_PARTS parts): computed exactly on the
-    free-space polygon — candidate rectangle edges are the sheet edges and
-    every free-space vertex coordinate (a maximal rectangle always has its
-    sides on those lines). Large layouts: band offcut around the used bbox
+    Small/simple layouts: computed exactly on the free-space polygon —
+    candidate rectangle edges are the sheet edges and every free-space
+    vertex coordinate (a maximal rectangle always has its sides on those
+    lines). Large or ornate layouts: band offcut around the used bbox
     (see _band_offcut). Returns {width, height, area} or None.
     """
     items_by_id = {item["id"]: item for item in input_items}
-    total_parts = sum(len(c.transforms) for c in containers)
-    if total_parts > EXACT_OFFCUT_MAX_PARTS:
+    total_parts = 0
+    total_vertices = 0
+    for c in containers:
+        total_parts += len(c.transforms)
+        for t in c.transforms:
+            item = items_by_id.get(getattr(t, "item_id", None))
+            if item is not None:
+                total_vertices += len(item["coords"])
+    if total_parts > EXACT_OFFCUT_MAX_PARTS or total_vertices > EXACT_OFFCUT_MAX_VERTICES:
         return _band_offcut(containers, items_by_id)
 
     best = None
