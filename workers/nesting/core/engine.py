@@ -151,12 +151,13 @@ def run_engine(instance, config, problem_type, on_event=None, should_cancel=None
             raise EngineCancelled("job cancelled by user")
 
         if returncode != 0:
+            stderr_tail = "".join(stderr_lines).strip()[-400:]
             logger.error(
                 "engine failed",
-                extra={"returncode": returncode, "stderr": "".join(stderr_lines)[-2000:]},
+                extra={"returncode": returncode, "stderr": stderr_tail},
             )
             reason = error_event.get("reason", "unknown")
-            raise EngineError(f"engine failed (rc={returncode}, reason={reason})")
+            raise EngineError(f"engine failed (rc={returncode}, reason={reason}): {stderr_tail}")
 
         alternatives_path = os.path.join(out_dir, "alternatives.json")
         if not os.path.exists(alternatives_path):

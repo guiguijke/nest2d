@@ -28,7 +28,9 @@ otherwise the channel would be sealed shut again.
 """
 
 from shapely import set_precision, unary_union
-from shapely.geometry import Polygon, box
+from shapely.geometry import LineString, Polygon, box
+from shapely.ops import nearest_points
+import math
 
 from utils.logger import setup_logger
 
@@ -44,26 +46,38 @@ CHANNEL_WIDTH = 0.01
 # `space` would still be sealed; the margin keeps it open.
 CHANNEL_SEPARATION_MARGIN = 0.1
 
+# Hard cap on the channel width. The channel is SUBTRACTED from the
+# collision polygon: parts may legitimately be placed over it, intruding
+# into real material by up to half its width. Wide channels also mutilate
+# ornate parts (severed arms) and can create degenerate self-intersecting
+# rings that jagua's importer rejects. When the requested spacing exceeds
+# (cap - margin), the channel simply gets sealed by the separation
+# inflation — holes go unused, which is a safe degradation, never a
+# correctness risk.
+CHANNEL_MAX_WIDTH = 2.5
+
 
 def channel_width_for_space(space):
     """Channel width surviving jagua's min_item_separation inflation.
 
     Items are inflated by space/2 on both sides of the slit, so the channel
-    closes by `space` in total: it must be strictly wider than `space`.
+    closes by `space` in total: it must be strictly wider than `space` to
+    stay usable — but never wider than CHANNEL_MAX_WIDTH (see above).
     """
     space = float(space or 0)
-    return max(CHANNEL_WIDTH, space + CHANNEL_SEPARATION_MARGIN)
+    return min(max(CHANNEL_WIDTH, space + CHANNEL_SEPARATION_MARGIN), CHANNEL_MAX_WIDTH)
 
 
 def open_holes_with_channels(outer_ring, hole_rings, channel_width=None):
     """Returns the exterior ring of `outer_ring` with every hole connected to
-    the outside by a hairline channel (a simple polygon, as a point list).
+    the outside by a narrow channel (a simple polygon, as a point list).
 
-    Each channel is a thin rectangle subtracted from the material, running
-    horizontally from the hole's rightmost point to beyond the part's
-    bounding box. Holes are processed right-to-left so a channel never has to
-    cross a not-yet-opened hole (a channel crossing an already-opened hole
-    just shares its exit, which is fine).
+    Each channel is a thin rectangle subtracted from the material along the
+    SHORTEST path from the hole to the part's exterior (nearest boundary
+    points). A straight horizontal cut (the previous implementation) crosses
+    ornate contours several times, and the resulting ring self-intersects in
+    ways jagua's importer strictly rejects — the shortest path crosses the
+    material exactly once, which is both less destructive and robust.
 
     channel_width: defaults to CHANNEL_WIDTH; pass channel_width_for_space(s)
     when the job enforces a separation s (see module docstring).
@@ -78,35 +92,49 @@ def open_holes_with_channels(outer_ring, hole_rings, channel_width=None):
         logger.warning("Holed polygon is empty, falling back to outer ring")
         return [list(p) for p in outer_ring]
 
-    half = width / 2.0
-    beyond_x = poly.bounds[2] + width * 10.0
-
-    # Rightmost hole first: its channel then cannot cross another hole.
-    ordered_holes = sorted(
-        hole_rings, key=lambda ring: max(p[0] for p in ring), reverse=True
-    )
     channels = []
-    for idx, ring in enumerate(ordered_holes):
-        hx, hy = max(ring, key=lambda p: p[0])
-        # Start the channel slightly INSIDE the hole: the rightmost point lies
-        # on the boundary, and a channel starting exactly at hx only touches
-        # the hole without opening it. 2× the channel width clears any
-        # tessellation bulge while staying negligible for real holes. The tiny
-        # per-hole y-jitter keeps collinear channels (aligned hole centres)
-        # from degenerating the boolean cut.
-        jitter = idx * width * 0.37
-        channels.append(box(
-            hx - width * 2.0, hy + jitter - half,
-            beyond_x, hy + jitter + half,
-        ))
+    for ring in hole_rings:
+        hole_poly = Polygon(ring)
+        p_in, p_out = nearest_points(hole_poly.exterior, poly.exterior)
+        dx, dy = p_out.x - p_in.x, p_out.y - p_in.y
+        length = math.hypot(dx, dy)
+        if length < 1e-9:
+            continue
+        ux, uy = dx / length, dy / length
+        # Extend the cut beyond both ends so it genuinely connects the hole
+        # to the outside (boundary touches alone do not open the ring).
+        ext = width * 2.0
+        seg = LineString([
+            (p_in.x - ux * ext, p_in.y - uy * ext),
+            (p_out.x + ux * ext, p_out.y + uy * ext),
+        ])
+        channels.append(seg.buffer(width / 2.0, cap_style="flat"))
 
-    # A single difference: sequential cuts through the hairline slivers hit
+    if not channels:
+        return [list(p) for p in outer_ring]
+
+    # A single difference: sequential cuts through narrow slivers hit
     # GEOS precision limits ("free hole" TopologyException).
     try:
         poly = poly.difference(unary_union(channels))
     except Exception:
         # Robustness retry on a snapped grid (grid << channel width).
         poly = set_precision(poly, 1e-6).difference(set_precision(unary_union(channels), 1e-6))
+
+    # jagua's importer is stricter than shapely: a channel through ornate
+    # geometry can leave a degenerate (self-touching/self-intersecting)
+    # ring that shapely still calls valid. Repair those, or the whole job
+    # dies at engine import with an opaque geometry error.
+    if not poly.is_valid or poly.geom_type != "Polygon":
+        from shapely.validation import make_valid
+        repaired = make_valid(poly)
+        pieces = [
+            geom for geom in getattr(repaired, "geoms", [repaired])
+            if geom.geom_type == "Polygon" and not geom.is_empty
+        ]
+        if pieces:
+            poly = max(pieces, key=lambda geom: geom.area)
+            logger.warning("Channel conversion required geometry repair")
 
     if poly.geom_type != "Polygon":
         # A pathological channel split the part (e.g. zero-width bridge in the
