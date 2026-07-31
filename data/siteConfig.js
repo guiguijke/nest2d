@@ -22,6 +22,8 @@ export function useSiteConfig() {
             entityName: 'Guillaume Jerke EI',
             tradeName: 'APlasma',
             siren: '942 877 028',
+            address: 'Saint Martin Lalande, 11400, France',
+            phone: '+33 6 31 75 23 39',
             vatNote: 'TVA non applicable, art. 293 B du CGI',
             // Product branding: "NestorCut by APlasma"
             brandLine: 'NestorCut by APlasma',

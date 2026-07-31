@@ -32,6 +32,8 @@ export function useLegalNotice() {
                 list: [
                     `${legal.entityName} — nom commercial : ${legal.tradeName}`,
                     `SIREN : ${legal.siren}`,
+                    `Adresse : ${legal.address}`,
+                    `Téléphone : ${legal.phone}`,
                     legal.vatNote,
                     `Contact : ${supportEmail}`,
                 ],
