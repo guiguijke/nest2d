@@ -1,6 +1,6 @@
 use crate::bpp::constructive::DirBias;
 use crate::config::EngineConfig;
-use crate::progress::ProgressListener;
+use crate::progress::{PlateauTerminator, ProgressListener};
 use anyhow::{Context, Result, bail};
 use jagua_rs::io::import::Importer;
 use jagua_rs::probs::spp::entities::{SPInstance, SPSolution};
@@ -10,7 +10,6 @@ use rand::rngs::Xoshiro256PlusPlus;
 use rayon::prelude::*;
 use sparrow::optimizer::optimize;
 use sparrow::util::io::{ExtSPOutput, read_spp_input, write_json};
-use sparrow::util::terminator::BasicTerminator;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
@@ -77,6 +76,8 @@ fn used_height(solution: &SPSolution) -> f32 {
 
 /// Single explore+compress run (one seed), with the gravity post-pass.
 /// Extracted from optimize_multi; also used per-class in directions mode.
+/// `plateau_patience`: stop the run early when it stops improving (the
+/// listener's report stream feeds the plateau clock).
 #[allow(clippy::too_many_arguments)]
 fn optimize_one(
     instance: &SPInstance,
@@ -89,6 +90,7 @@ fn optimize_one(
     gravity_enabled: bool,
     live: bool,
     map_back_height: Option<f32>,
+    plateau_patience: Option<Duration>,
 ) -> SPSolution {
     let mut cfg = *sparrow_cfg;
     cfg.expl_cfg.time_limit = budget.mul_f32(explore_ratio);
@@ -97,7 +99,7 @@ fn optimize_one(
     let mut listener = ProgressListener::new(worker, started)
         .with_live(live)
         .with_map_back(map_back_height);
-    let mut terminator = BasicTerminator::new();
+    let mut terminator = PlateauTerminator::new(listener.improvement_clock(), plateau_patience);
     let solution = optimize(
         instance.clone(),
         rng,
@@ -138,6 +140,7 @@ fn optimize_multi(
     gravity_enabled: bool,
     live: bool,
     map_back_height: Option<f32>,
+    plateau_patience: Option<Duration>,
 ) -> Vec<WorkerRun> {
     (0..n_workers)
         .into_par_iter()
@@ -154,6 +157,7 @@ fn optimize_multi(
                 gravity_enabled,
                 live,
                 map_back_height,
+                plateau_patience,
             );
             WorkerRun { seed, solution }
         })
@@ -252,6 +256,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         let gravity_on = config.gravity();
         let live = config.live_events();
         let slack = config.phase2_slack_mm();
+        let plateau = config.plateau_patience();
 
         let gravity_after = |instance: &SPInstance, mut mapped: SPSolution| {
             if gravity_on {
@@ -276,7 +281,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                         let s1 = optimize_one(
                             &instance, &sparrow_config,
                             if two_phase { b1 } else { budget },
-                            explore, seed, w, started, gravity_on, live, None,
+                            explore, seed, w, started, gravity_on, live, None, plateau,
                         );
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1 });
@@ -296,7 +301,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                         let s2 = optimize_one(
                             &t_instance, &sparrow_config, b2, explore,
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
-                            Some(corridor),
+                            Some(corridor), plateau,
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
                             // Phase 2 overshot the sheet height: fall back to
@@ -319,7 +324,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             // No sheet bound: directions are meaningless here.
                             let s = optimize_one(
                                 &instance, &sparrow_config, budget, explore,
-                                seed, w, started, gravity_on, live, None,
+                                seed, w, started, gravity_on, live, None, plateau,
                             );
                             return Some(ClassRun { seed, bias, solution: s });
                         };
@@ -328,7 +333,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
                         let s = optimize_one(
                             &t_instance, &sparrow_config, budget, explore,
-                            seed, w, started, gravity_on, live, Some(mw),
+                            seed, w, started, gravity_on, live, Some(mw), plateau,
                         );
                         if s.strip_width() > ext_instance.strip_height + 1e-4 {
                             return None; // taller than the sheet: unusable
@@ -341,7 +346,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                     DirBias::Balanced => {
                         let s = optimize_one(
                             &instance, &sparrow_config, budget, explore,
-                            seed, w, started, gravity_on, live, None,
+                            seed, w, started, gravity_on, live, None, plateau,
                         );
                         if max_width.is_some_and(|mw| s.strip_width() > mw + 1e-4) {
                             return None;
@@ -444,6 +449,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         config.gravity(),
         config.live_events(),
         None,
+        config.plateau_patience(),
     );
     let feasible1: Vec<&WorkerRun> = runs1
         .iter()
@@ -506,6 +512,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                     config.gravity(),
                     config.live_events(),
                     Some(corridor),
+                    config.plateau_patience(),
                 );
                 let max_length = ext_instance.strip_height;
                 for run in runs2 {

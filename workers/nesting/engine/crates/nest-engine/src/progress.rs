@@ -1,7 +1,56 @@
 use jagua_rs::probs::spp::entities::{SPInstance, SPSolution};
 use sparrow::util::listener::{ReportType, SolutionListener};
+use sparrow::util::terminator::Terminator;
 use std::io::Write;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// Wall-clock timeout + plateau patience for sparrow runs: kills the run
+/// when the incumbent has not improved for `patience`. The improvement clock
+/// is shared with the ProgressListener, which bumps it on GENUINE global
+/// improvements only: a new best width (ExplFeas) or a successful
+/// compression (CmprFeas). Working states (ExplImproving / ExplInfeas while
+/// separating at an over-shrunk width) deliberately do NOT reset the clock —
+/// that grinding is exactly what the plateau stop is meant to cut.
+pub struct PlateauTerminator {
+    timeout: Option<Instant>,
+    last_improvement: Arc<Mutex<Instant>>,
+    patience: Option<Duration>,
+}
+
+impl PlateauTerminator {
+    pub fn new(last_improvement: Arc<Mutex<Instant>>, patience: Option<Duration>) -> Self {
+        Self {
+            timeout: None,
+            last_improvement,
+            patience,
+        }
+    }
+}
+
+impl Terminator for PlateauTerminator {
+    fn kill(&self) -> bool {
+        if self.timeout.is_some_and(|t| Instant::now() > t) {
+            return true;
+        }
+        if let Some(patience) = self.patience {
+            return self
+                .last_improvement
+                .lock()
+                .map(|t| t.elapsed() >= patience)
+                .unwrap_or(false);
+        }
+        false
+    }
+
+    fn new_timeout(&mut self, timeout: Duration) {
+        self.timeout = Some(Instant::now() + timeout);
+    }
+
+    fn timeout_at(&self) -> Option<Instant> {
+        self.timeout
+    }
+}
 
 /// SolutionListener emitting throttled JSON progress lines on stdout.
 /// The Python worker parses these to update the job's live progress in Mongo;
@@ -21,6 +70,9 @@ pub struct ProgressListener {
     /// height), layout events are mapped back to the original frame so the
     /// visualizer always shows the real sheet.
     map_back_height: Option<f32>,
+    /// Improvement clock shared with the PlateauTerminator: bumped on every
+    /// progress report (the run is demonstrably not converged).
+    last_improvement: Arc<Mutex<Instant>>,
 }
 
 fn stage_of(report: &ReportType) -> &'static str {
@@ -41,7 +93,13 @@ impl ProgressListener {
             live: false,
             last_layout_emit: Instant::now() - std::time::Duration::from_secs(2),
             map_back_height: None,
+            last_improvement: Arc::new(Mutex::new(Instant::now())),
         }
+    }
+
+    /// The improvement clock to hand to the PlateauTerminator of this run.
+    pub fn improvement_clock(&self) -> Arc<Mutex<Instant>> {
+        Arc::clone(&self.last_improvement)
     }
 
     pub fn with_live(mut self, live: bool) -> Self {
@@ -122,6 +180,16 @@ impl SolutionListener for ProgressListener {
     fn report(&mut self, report: ReportType, solution: &SPSolution, instance: &SPInstance) {
         let stage = stage_of(&report);
         let feasible = matches!(report, ReportType::ExplFeas | ReportType::CmprFeas | ReportType::Final);
+
+        // Genuine global improvements only: new best width (ExplFeas) or
+        // successful compression (CmprFeas). Working states (ExplImproving /
+        // ExplInfeas) do NOT reset the plateau clock — grinding at an
+        // over-shrunk width is what the plateau stop is meant to cut.
+        if matches!(report, ReportType::ExplFeas | ReportType::CmprFeas) {
+            if let Ok(mut t) = self.last_improvement.lock() {
+                *t = Instant::now();
+            }
+        }
 
         // Throttle scalar progress to 1 Hz per worker: report types
         // flip-flop between rounds of a phase. Final always passes.
