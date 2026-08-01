@@ -467,6 +467,38 @@ mod scale_tests {
     use jagua_rs::probs::bpp::io::import_instance;
     use rand::SeedableRng;
     use rand::rngs::Xoshiro256PlusPlus;
+    use std::time::Duration;
+
+    /// Sectors nested in holes: centroid within the r=35 hole of a square
+    /// (hole centre = square translation, geometry is centred).
+    /// Returns (nested, total_sectors).
+    fn nested_sectors(solution: &BPSolution) -> (usize, usize) {
+        let mut nested = 0usize;
+        let mut total_sectors = 0usize;
+        for ls in solution.layout_snapshots.values() {
+            let mut square_centres = Vec::new();
+            for pi in ls.placed_items.values() {
+                if pi.item_id == 0 {
+                    square_centres.push(pi.d_transf.translation());
+                }
+            }
+            for pi in ls.placed_items.values() {
+                if pi.item_id != 1 {
+                    continue;
+                }
+                total_sectors += 1;
+                let c = pi.shape.poi.center;
+                if square_centres.iter().any(|&(sx, sy)| {
+                    let dx = c.0 - sx;
+                    let dy = c.1 - sy;
+                    dx * dx + dy * dy < 35.0 * 35.0
+                }) {
+                    nested += 1;
+                }
+            }
+        }
+        (nested, total_sectors)
+    }
 
     /// 30 channel-opened holed squares + 130 sectors, 400x560 sheets, 1.5mm
     /// separation — the 160-piece production case. Geometry mirrors the real
@@ -537,32 +569,8 @@ mod scale_tests {
             "expected 2 sheets for the 160-piece case"
         );
 
-        // Count sectors nested in holes: centroid within the r=35 hole of a
-        // square (hole centre = square translation, geometry is centred).
-        let mut nested = 0usize;
-        let mut total_sectors = 0usize;
-        for ls in result.solution.layout_snapshots.values() {
-            let mut square_centres = Vec::new();
-            for pi in ls.placed_items.values() {
-                if pi.item_id == 0 {
-                    square_centres.push(pi.d_transf.translation());
-                }
-            }
-            for pi in ls.placed_items.values() {
-                if pi.item_id != 1 {
-                    continue;
-                }
-                total_sectors += 1;
-                let c = pi.shape.poi.center;
-                if square_centres.iter().any(|&(sx, sy)| {
-                    let dx = c.0 - sx;
-                    let dy = c.1 - sy;
-                    dx * dx + dy * dy < 35.0 * 35.0
-                }) {
-                    nested += 1;
-                }
-            }
-        }
+        // Count sectors nested in holes (4 slots per square).
+        let (nested, total_sectors) = nested_sectors(&result.solution);
         eprintln!("sectors nested in holes: {nested}/{total_sectors}");
         assert!(
             nested * 2 >= total_sectors,
@@ -628,6 +636,67 @@ mod scale_tests {
         for (i, (ba, sig_a)) in layouts_sig.iter().enumerate() {
             for (bb, sig_b) in layouts_sig.iter().skip(i + 1) {
                 assert_ne!(sig_a, sig_b, "{ba:?} and {bb:?} produced identical layouts");
+            }
+        }
+    }
+
+    /// A/B measurement for the hole-aware warm-start (see
+    /// doc/plan-warmstart-agregats-directions.md, keep criterion: >= +10%
+    /// nested sectors or better lexicographic cost at equal nesting).
+    /// Same seed, same bias, same wall-clock budget — with and without the
+    /// interleaved sequence Python builds ([host, filler x4] x 30 + tail).
+    /// Sweeps bias x budget because the effect may depend on how much time
+    /// the SA has to move away from the initial sequence.
+    ///
+    /// VERDICT (2026-08, seed 21): NEGATIVE on every configuration — the
+    /// interleaved warm-start loses a sheet (3 vs 2) and fills fewer holes
+    /// (78-82 vs 91-93 nested). Fillers placed right after their host that
+    /// miss the hole land against it and break the hosts' tight packing;
+    /// the default hosts-first order protects that packing. Kept as an
+    /// on-demand harness (run: `cargo test --release warm_start_160_ab --
+    /// --ignored --nocapture`) in case a future warm-start variant
+    /// (e.g. hole-reliable fillers only) wants the same measurement.
+    #[test]
+    #[ignore = "A/B measurement harness, ~100s; negative verdict documented above"]
+    fn warm_start_160_ab() {
+        let instance = instance_160();
+        // Mirrors core.nesting_input_builder.build_initial_sequence output
+        // for this instance: every host followed by its 4 hole fillers.
+        let mut warm = Vec::with_capacity(160);
+        for _ in 0..30 {
+            warm.push(0);
+            warm.extend([1, 1, 1, 1]);
+        }
+        warm.extend([1; 10]);
+        assert_eq!(warm.len(), instance.total_item_qty());
+
+        for bias in [DirBias::LeftFirst, DirBias::Balanced] {
+            for budget_s in [6u64, 20] {
+                let run = |initial: Option<Vec<usize>>, seed: u64| {
+                    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+                    sa::anneal(
+                        &instance,
+                        300,
+                        Duration::from_secs(budget_s),
+                        bias,
+                        initial,
+                        &mut rng,
+                        |_, _| {},
+                        |_, _| {},
+                    )
+                };
+                let baseline = run(None, 21);
+                let warmed = run(Some(warm.clone()), 21);
+                let (nested_base, total) = nested_sectors(&baseline.best_solution);
+                let (nested_warm, _) = nested_sectors(&warmed.best_solution);
+                eprintln!(
+                    "A/B 160 {bias:?} {budget_s}s: baseline bins={} nested={}/{} remnant={:.3} \
+                     | warmstart bins={} nested={}/{} remnant={:.3}",
+                    baseline.best_cost.bin_cost, nested_base, total, baseline.best_cost.remnant,
+                    warmed.best_cost.bin_cost, nested_warm, total, warmed.best_cost.remnant,
+                );
+                assert_eq!(baseline.best_cost.unplaced, 0, "baseline infeasible ({bias:?} {budget_s}s)");
+                assert_eq!(warmed.best_cost.unplaced, 0, "warm-start infeasible ({bias:?} {budget_s}s)");
             }
         }
     }
