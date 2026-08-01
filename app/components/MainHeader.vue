@@ -176,8 +176,11 @@
     ])
 
     const { getters: authGetters } = authStore
+    // The strip tab requires BOTH the global kill-switch
+    // (NUXT_PUBLIC_STRIP_ENABLED) and the per-user feature flag.
     const isStripFeatureEnabled = computed(() => {
-        return Boolean(unref(authGetters.user)?.isStripFeatureEnable)
+        const stripGloballyEnabled = useRuntimeConfig().public.stripEnabled === true
+        return stripGloballyEnabled && Boolean(unref(authGetters.user)?.isStripFeatureEnable)
     })
     const userIsLoggedIn = computed(() => Boolean(unref(authGetters.userIsSet)))
 

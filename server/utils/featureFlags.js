@@ -6,6 +6,11 @@ import { connectDB } from "~~/server/db/mongo";
  * @returns {Promise<boolean>}
  */
 export async function isStripFeatureEnabled(userId) {
+  // Global kill-switch (NUXT_PUBLIC_STRIP_ENABLED): off, the feature is
+  // closed for everyone regardless of the per-user flag.
+  if (useRuntimeConfig().public.stripEnabled !== true) {
+    return false;
+  }
   const db = await connectDB();
   const user = await db
     .collection("users")
