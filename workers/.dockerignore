@@ -1,0 +1,9 @@
+# Shared .dockerignore for all 4 worker images — the build context is ./workers.
+**/__pycache__
+**/*.pyc
+**/logs.log
+# Rust build artifacts must never leak into the Python images (the nesting
+# Dockerfile rebuilds the engine in its own Rust builder stage).
+nesting/engine/target
+# Test fixtures / debug helpers are not needed at runtime but are small and
+# harmless; keep them so images stay debuggable.

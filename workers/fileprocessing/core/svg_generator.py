@@ -1,6 +1,6 @@
 from shapely.geometry import Point
-from utils.logger import setup_logger
-from core.geometry.dxf_parser import flatten_entity
+from worker_common.logger import setup_logger
+from worker_common.geometry.dxf_parser import flatten_entity
 
 logger = setup_logger("svg_generator")
 

@@ -32,7 +32,7 @@ from shapely.geometry import LineString, Polygon, box
 from shapely.ops import nearest_points
 import math
 
-from utils.logger import setup_logger
+from worker_common.logger import setup_logger
 
 logger = setup_logger("holed_polygons")
 

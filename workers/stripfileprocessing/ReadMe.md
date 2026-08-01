@@ -32,6 +32,7 @@ MONGO_URI=mongodb://192.168.64.2:27017/nest2d
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -e ../common   # shared worker_common package (workers/common)
 pip install -r requirements.txt
 python main.py
 ```
@@ -43,8 +44,12 @@ The worker runs in a loop, picking up pending strip files. Stop it with `Ctrl+C`
 
 Build the image:
 
+The build context is `./workers` (not this folder) so the shared
+`worker_common` package (`workers/common`) can be installed into the image.
+From the repo root:
+
 ```sh
-docker build -t nest2d-worker-stripfileprocessing:local .
+docker build -f workers/stripfileprocessing/Dockerfile -t nest2d-worker-stripfileprocessing:local workers/
 ```
 
 > If the build fails with `Temporary failure in name resolution` during
@@ -52,7 +57,7 @@ docker build -t nest2d-worker-stripfileprocessing:local .
 > network instead:
 >
 > ```sh
-> docker build --network=host -t nest2d-worker-stripfileprocessing:local .
+> docker build --network=host -f workers/stripfileprocessing/Dockerfile -t nest2d-worker-stripfileprocessing:local workers/
 > ```
 >
 > Alternatively, configure the Docker daemon's DNS once in
@@ -98,6 +103,6 @@ pip install matplotlib
 
 ## Production
 
-The worker is built and published by CI as
-`ghcr.io/vovastelmashchuk/strip-file-processing-worker` and deployed via
-`docker-stack.yml` (service `strip-file-processing-worker`).
+The worker is built and published by CI (`.github/workflows/build-images.yml`)
+as `ghcr.io/guiguijke/nest2d-strip-file-processing-worker` and deployed via
+`docker-compose.yml` (service `strip-file-processing-worker`).

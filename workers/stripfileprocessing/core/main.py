@@ -1,9 +1,11 @@
 import io
 import time
 
-from utils.logger import setup_logger
-from utils.mongo import db, strip_user_dxf_bucket
-from utils.crypto import encrypt_polygon_parts, get_dek, read_gridfs
+from worker_common.logger import setup_logger
+from worker_common.mongo import db, get_bucket
+from worker_common.crypto import encrypt_polygon_parts, get_dek, read_gridfs
+
+strip_user_dxf_bucket = get_bucket("stripUserDxf")
 from dxf_utils import read_dxf
 from core.geometry.build_geometry import build_geometry
 

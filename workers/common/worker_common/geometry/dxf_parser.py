@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from shapely.geometry import Point, LineString, Polygon
 from shapely.geometry.base import BaseGeometry
 
-from utils.logger import setup_logger
+from ..logger import setup_logger
 
 logger = setup_logger("dxf_parser")
 

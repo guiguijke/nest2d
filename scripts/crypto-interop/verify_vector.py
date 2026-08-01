@@ -12,9 +12,9 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "workers", "fileprocessing"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "workers", "common"))
 
-from utils.crypto import (  # noqa: E402
+from worker_common.crypto import (  # noqa: E402
     PLAINTEXT_BLOCK,
     decrypt_bytes,
     encrypt_bytes,

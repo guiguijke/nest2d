@@ -1,3 +1,5 @@
+# Build context is ./workers (repo CI sets it) so the shared worker_common
+# package can be installed into the image.
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -5,9 +7,13 @@ WORKDIR /app
 # spyrrow ships manylinux x86_64 wheels (it wraps the sparrow Rust solver), so
 # there is no Rust toolchain / cargo build step here — a plain pip install is
 # enough, unlike the jagua-rs based bin nesting worker.
-COPY requirements.txt .
+# Shared worker plumbing (mongo connection, crypto, logging, worker loop).
+COPY common /opt/common
+RUN pip install --no-cache-dir /opt/common
+
+COPY stripnesting/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY stripnesting/ .
 
 CMD ["python", "main.py"]

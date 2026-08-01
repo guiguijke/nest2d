@@ -1,9 +1,8 @@
 import io
 import os
-from utils.logger import setup_logger
-from utils.mongo import user_dxf_bucket, valid_dxf_bucket, user_dxf_files_svg_bucket
+from worker_common.logger import setup_logger
+from worker_common.mongo import db, get_bucket
 from dxf_utils import read_dxf
-from utils.mongo import db
 from ezdxf.document import Drawing
 from core.svg_generator import create_svg_from_doc
 
@@ -13,13 +12,17 @@ from shapely.geometry import Point
 import time
 
 from core.geometry.build_geometry import build_geometry
-from utils.crypto import (
+from worker_common.crypto import (
     encrypt_polygon_parts,
     get_dek,
     read_gridfs,
     resolve_polygon_parts,
     write_gridfs,
 )
+
+user_dxf_bucket = get_bucket("userDxf")
+valid_dxf_bucket = get_bucket("validDxf")
+user_dxf_files_svg_bucket = get_bucket("userDxfFilesSvg")
 
 _drawing_cache = {}
 
