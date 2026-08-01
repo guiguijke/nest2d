@@ -1,3 +1,4 @@
+use crate::bpp::constructive::DirBias;
 use jagua_rs::collision_detection::CDEConfig;
 use serde::Deserialize;
 use sparrow::config::{CompressionConfig, ExplorationConfig, SparrowConfig, DEFAULT_SPARROW_CONFIG};
@@ -46,7 +47,7 @@ pub struct EngineConfig {
     /// Emit full layout snapshots as JSON events on stdout (live_lab
     /// visualizer). Default false — heavy payload, dev/private use only.
     pub live_events: Option<bool>,
-    /// BPP only: warm-start sequence for the annealing, as POSITIONAL item
+    /// BPP warm-start sequence for the annealing, as POSITIONAL item
     /// indices (into the instance's `items` array) expanded by demand —
     /// e.g. the hole-aware interleaved sequence computed by the Python
     /// worker ([host, filler×k, host, filler×k, ...]). Non-constraining:
@@ -55,6 +56,20 @@ pub struct EngineConfig {
     /// total item quantity.
     #[serde(default)]
     pub initial_sequence: Option<Vec<usize>>,
+    /// BPP only: directional bias classes to explore, as strings among
+    /// "left" / "bottom" / "balanced". Default (null/missing): all three.
+    /// Workers are assigned round-robin over the active classes and only
+    /// those classes are exported as alternatives. Ignored in SPP (sparrow
+    /// has no directional evaluator).
+    #[serde(default)]
+    pub biases: Option<Vec<String>>,
+    /// BPP only: stop a walk when its incumbent has not improved for this
+    /// many seconds (wall time of the walk), after a minimum of iterations.
+    /// The walk then returns early — "compute until convergence" instead of
+    /// burning the full budget on easy instances. Null/missing: disabled,
+    /// always run to deadline.
+    #[serde(default)]
+    pub plateau_patience_sec: Option<f32>,
 }
 
 fn default_n_alternatives() -> usize {
@@ -95,6 +110,34 @@ impl EngineConfig {
         })
     }
 
+    /// Active directional bias classes (BPP), in canonical order. Unknown
+    /// strings are ignored; empty/missing means all three classes.
+    pub fn dir_biases(&self) -> Vec<DirBias> {
+        let active: Vec<DirBias> = self
+            .biases
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|s| DirBias::from_str(s))
+            .collect();
+        if active.is_empty() {
+            DirBias::ALL.to_vec()
+        } else {
+            // Canonical export order regardless of the input order.
+            DirBias::ALL
+                .into_iter()
+                .filter(|b| active.contains(b))
+                .collect()
+        }
+    }
+
+    /// Plateau patience as a Duration (None = run to deadline).
+    pub fn plateau_patience(&self) -> Option<Duration> {
+        self.plateau_patience_sec
+            .filter(|p| *p > 0.0)
+            .map(Duration::from_secs_f32)
+    }
+
     /// Builds the sparrow config for one worker run.
     pub fn sparrow_config(&self) -> SparrowConfig {
         let explore = Duration::from_secs_f32(self.time_budget_sec as f32 * self.explore_ratio);
@@ -117,5 +160,60 @@ impl EngineConfig {
                 ..DEFAULT_SPARROW_CONFIG.cmpr_cfg
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(biases: Option<Vec<String>>) -> EngineConfig {
+        let json = serde_json::json!({
+            "time_budget_sec": 10,
+            "prng_seed": 1,
+            "biases": biases,
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn dir_biases_defaults_to_all() {
+        assert_eq!(cfg(None).dir_biases(), DirBias::ALL.to_vec());
+        assert_eq!(cfg(Some(vec![])).dir_biases(), DirBias::ALL.to_vec());
+    }
+
+    #[test]
+    fn dir_biases_filters_and_orders_canonically() {
+        assert_eq!(
+            cfg(Some(vec!["balanced".into(), "left".into()])).dir_biases(),
+            vec![DirBias::LeftFirst, DirBias::Balanced]
+        );
+        assert_eq!(
+            cfg(Some(vec!["bottom".into()])).dir_biases(),
+            vec![DirBias::BottomFirst]
+        );
+        // Unknown strings are ignored; all-unknown falls back to all.
+        assert_eq!(
+            cfg(Some(vec!["nope".into()])).dir_biases(),
+            DirBias::ALL.to_vec()
+        );
+    }
+
+    #[test]
+    fn plateau_patience_validation() {
+        let c: EngineConfig = serde_json::from_value(serde_json::json!({
+            "time_budget_sec": 10,
+            "prng_seed": 1,
+            "plateau_patience_sec": 12.5,
+        }))
+        .unwrap();
+        assert_eq!(c.plateau_patience(), Some(Duration::from_secs_f32(12.5)));
+        let c0: EngineConfig = serde_json::from_value(serde_json::json!({
+            "time_budget_sec": 10,
+            "prng_seed": 1,
+            "plateau_patience_sec": 0.0,
+        }))
+        .unwrap();
+        assert_eq!(c0.plateau_patience(), None);
     }
 }
