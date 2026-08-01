@@ -34,6 +34,25 @@ class TestBuildEngineConfig:
         assert build_engine_config(10, 1, 1, max_strip_width=560.0)["max_strip_width"] == 560.0
         assert "max_strip_width" not in build_engine_config(10, 1, 1)
 
+    def test_tier_fields_only_when_given(self):
+        bare = build_engine_config(10, 1, 1)
+        assert "n_workers" not in bare
+        assert "biases" not in bare
+        assert "plateau_patience_sec" not in bare
+
+        config = build_engine_config(
+            10, 1, 2,
+            n_workers=4,
+            biases=["left", "bottom"],
+            plateau_patience_sec=20.0,
+        )
+        assert config["n_workers"] == 4
+        assert config["biases"] == ["left", "bottom"]
+        assert config["plateau_patience_sec"] == 20.0
+
+    def test_empty_biases_omitted(self):
+        assert "biases" not in build_engine_config(10, 1, 1, biases=[])
+
 
 class TestDeterministicSeed:
     def test_same_payload_same_seed(self):

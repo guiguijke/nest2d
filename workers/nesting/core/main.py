@@ -340,12 +340,19 @@ def nesting_process(doc):
         bin_dims[bin_id] = (sheet_width, sheet_height)
         bins.append(build_bin(bin_id, sheet_stock, sheet_width, sheet_height))
 
-    # Time budget and number of alternatives are set server-side at enqueue
-    # time based on the owner's tier (params.timeBudgetSec /
-    # params.alternativesCount). Defaults cover jobs enqueued before the
-    # tiered-compute feature existed.
+    # Time budget (wall-clock cap) and number of alternatives are set
+    # server-side at enqueue time based on the owner's tier
+    # (params.timeBudgetSec / params.alternativesCount). Defaults cover jobs
+    # enqueued before the tiered-compute feature existed.
     time_budget_sec = int(params.get("timeBudgetSec") or DEFAULT_TIME_BUDGET_SEC)
     n_alternatives = max(1, int(params.get("alternativesCount") or N_ALTERNATIVES_DEFAULT))
+
+    # Tier compute: vcores caps the engine's parallelism (server-side value,
+    # never the client's), directions picks the layout biases to explore.
+    # Defaults: legacy jobs without tier fields get the previous behaviour
+    # (engine auto-sizes threads, all directions).
+    vcores = max(1, int(params.get("vcores") or 0))
+    directions = params.get("directions") or None
 
     # Unwrapped DEK when the owner's vault is unlocked, None on the legacy
     # plaintext path. Raises VaultLockedError when files are encrypted but
@@ -415,7 +422,7 @@ def nesting_process(doc):
                     "update_ts": datetime.now(),
                     "information": message,
                 },
-                "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
             },
         )
         raise Exception(message)
@@ -589,6 +596,21 @@ def nesting_process(doc):
         "space": space,
         "budget": time_budget_sec,
     })
+
+    # Tier vcores -> engine threads. BPP walks are single-threaded (1 walk
+    # per vcore, floor 3: strict quality parity — the free tier runs the
+    # same multi-start diversity, just oversubscribed and therefore slower).
+    # SPP runs use a 3-thread separator each (floor 2 runs).
+    # vcores == 0: legacy job, let the engine auto-size from the host CPUs.
+    if vcores:
+        n_workers = max(3, vcores) if not is_spp else max(2, vcores // 3)
+    else:
+        n_workers = None
+    # Plateau stop: end walks once converged instead of burning the whole
+    # wall cap. Generous floor — hard instances (swim-like) have long flat
+    # regions before a late improvement.
+    plateau_patience_sec = max(15.0, time_budget_sec / 4.0)
+
     engine_config = build_engine_config(
         time_budget_sec,
         seed,
@@ -596,7 +618,27 @@ def nesting_process(doc):
         min_separation=space,
         has_holes=has_holes,
         max_strip_width=max_strip_width,
+        n_workers=n_workers,
+        biases=directions,
+        plateau_patience_sec=plateau_patience_sec,
     )
+
+    # Surface the effective compute profile on the job doc: the frontend
+    # animates the vcores at work during the solve.
+    try:
+        db["nesting_jobs"].update_one(
+            {"_id": doc.get("_id")},
+            {"$set": {
+                "compute": {
+                    "vcores": vcores or None,
+                    "workers": n_workers,
+                    "directions": directions,
+                },
+                "update_ts": datetime.now(),
+            }},
+        )
+    except Exception as e:
+        logger.warning("Failed to write compute profile", extra={"error": str(e)})
 
     # Live layout snapshots for the visualizer: the engine streams placed
     # item positions ~2Hz per worker; we persist the latest one (throttled)
@@ -680,7 +722,7 @@ def nesting_process(doc):
                     "finishedAt": datetime.now(),
                     "update_ts": datetime.now(),
                 },
-                "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
             },
         )
         raise JobCancelled(slug)
@@ -706,7 +748,7 @@ def nesting_process(doc):
                     "update_ts": datetime.now(),
                     "information": information
                 },
-                "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
             },
         )
         raise Exception(information) from e
@@ -829,7 +871,7 @@ def nesting_process(doc):
                     "update_ts": datetime.now(),
                     "information": "Not all items could be placed in the nesting job"
                 },
-                "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
             },
         )
         raise Exception("Not all items could be placed in the nesting job")
@@ -857,6 +899,6 @@ def nesting_process(doc):
                 "usedSheetShare": best["usedSheetShare"],
                 "update_ts": datetime.now()
             },
-            "$unset": {"progress": "", "liveLayout": "", "itemMap": ""}
+            "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
         }
     )
