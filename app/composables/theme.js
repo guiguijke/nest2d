@@ -1,4 +1,4 @@
-import { reactive, readonly } from "vue";
+import { computed, reactive, readonly } from "vue";
 import { defaultThemeType, themeType } from "~~/constants/theme.constants";
 
 // useCookie requires a Nuxt instance — resolved lazily so this module can be

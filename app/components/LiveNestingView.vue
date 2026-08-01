@@ -168,13 +168,16 @@ const displayItems = computed(() => {
 });
 
 // ---- sparkline (quality over time) ---------------------------------------
+const MAX_HISTORY_POINTS = 240;
 const history = ref([]); // [elapsed_ms, quality]
 function recordHistory(live) {
     const q = live.strip_width ?? live.bins ?? null;
     if (q == null || live.elapsed_ms == null) return;
     const last = history.value[history.value.length - 1];
     if (last && Math.abs(last[0] - live.elapsed_ms) < 800 && last[1] === q) return;
-    history.value = [...history.value, [live.elapsed_ms, q]];
+    const next = [...history.value, [live.elapsed_ms, q]];
+    // Cap the history so a long nesting job can't grow this array unbounded.
+    history.value = next.length > MAX_HISTORY_POINTS ? next.slice(-MAX_HISTORY_POINTS) : next;
 }
 
 const sparkPoints = computed(() => {
