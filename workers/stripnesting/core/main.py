@@ -64,11 +64,12 @@ def _load_origin_doc(file_slug, owner_id=None, dek=None):
         return _origin_doc_cache[file_slug]
 
     dxf_bytes = read_gridfs(strip_user_dxf_bucket, file_slug, owner_id, dek)
-    with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as tmp:
-        tmp.write(dxf_bytes)
-        tmp_path = tmp.name
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = os.path.join(tmpdir, "origin.dxf")
+        with open(tmp_path, "wb") as tmp:
+            tmp.write(dxf_bytes)
+        doc, _auditor = recover.readfile(tmp_path)
 
-    doc, _auditor = recover.readfile(tmp_path)
     _origin_doc_cache[file_slug] = doc
     return doc
 
