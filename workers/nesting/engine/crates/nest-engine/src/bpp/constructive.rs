@@ -423,6 +423,22 @@ mod tests {
     }
 
     #[test]
+    fn warm_start_used_only_when_complete() {
+        let instance = tiny_instance();
+        let default = sa::initial_sequence(&instance);
+        // Complete warm-start: used as-is (here: reversed default).
+        let mut warm = default.clone();
+        warm.reverse();
+        assert_eq!(sa::pick_initial_sequence(&instance, Some(warm.clone())), warm);
+        // Wrong length: silent fallback to the default.
+        assert_eq!(
+            sa::pick_initial_sequence(&instance, Some(vec![0, 0])),
+            default
+        );
+        assert_eq!(sa::pick_initial_sequence(&instance, None), default);
+    }
+
+    #[test]
     fn anneal_keeps_incumbent_feasible() {
         let instance = tiny_instance();
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(2);
@@ -431,6 +447,7 @@ mod tests {
             200,
             Duration::from_secs(2),
             DirBias::LeftFirst,
+            None,
             &mut rng,
             |_, _| {},
             |_, _| {},
