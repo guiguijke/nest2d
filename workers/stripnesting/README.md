@@ -68,6 +68,7 @@ MONGO_URI=mongodb://192.168.64.2:27017/nest2d
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -e ../common   # shared worker_common package (workers/common)
 pip install -r requirements.txt
 python main.py
 ```
@@ -78,8 +79,12 @@ Rust solver), so no Rust toolchain is required. Stop the worker with `Ctrl+C`
 
 ### Option B — Docker
 
+The build context is `./workers` (not this folder) so the shared
+`worker_common` package (`workers/common`) can be installed into the image.
+From the repo root:
+
 ```sh
-docker build -t nest2d-worker-stripnesting:local .
+docker build -f workers/stripnesting/Dockerfile -t nest2d-worker-stripnesting:local workers/
 ```
 
 > If the build fails with `Temporary failure in name resolution` during
@@ -87,7 +92,7 @@ docker build -t nest2d-worker-stripnesting:local .
 > network instead:
 >
 > ```sh
-> docker build --network=host -t nest2d-worker-stripnesting:local .
+> docker build --network=host -f workers/stripnesting/Dockerfile -t nest2d-worker-stripnesting:local workers/
 > ```
 
 Run it for local development (host networking so it can reach a local MongoDB):
@@ -116,5 +121,5 @@ db.strip_nesting_job_queue.updateOne(
 ## Production
 
 The worker is built and published by CI as
-`ghcr.io/vovastelmashchuk/strip-nesting-worker` and deployed via
-`docker-stack.yml` (service `strip-nesting-worker`).
+`ghcr.io/guiguijke/nest2d-strip-nesting-worker` and deployed via
+`docker-compose.yml` (service `strip-nesting-worker`).

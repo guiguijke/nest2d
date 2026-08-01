@@ -43,7 +43,7 @@ class JsonFormatter(logging.Formatter):
         # Convert to JSON string
         return json.dumps(log_record, default=str, indent=None) # indent=None for single line
 
-def setup_logger(name="common_fileprocessing"):
+def setup_logger(name="worker_common"):
     """
     Sets up a logger with a console handler and a file handler,
     both configured to output JSON logs.

@@ -1,7 +1,55 @@
 # Plan : warm-start agrégats + alternatives directionnelles (BPP)
 
-Statut : validé faisable, prêt à implémenter. Purement moteur (`workers/nesting`),
-aucun changement frontend/backend sauf exposition optionnelle de la config.
+> **Statut (2026-08-01) :**
+> - **B. Alternatives directionnelles : IMPLÉMENTÉ** (commit `f100183`) —
+>   biais `DirBias` par worker, export groupé left/bottom/balanced, champ
+>   `"bias"` dans alternatives.json. Voir §Résultats ci-dessous.
+> - **A2. Plomberie warm-start Rust : IMPLÉMENTÉ** (commit `cc701c0`) —
+>   `EngineConfig.initial_sequence` + `sa::pick_initial_sequence` (fallback
+>   silencieux). Conservée : gratuite et réutilisable.
+> - **A1. Séquence intercalée Python : REVERTÉ après mesure A/B négative.**
+>   Voir §Résultats pour le verdict et le mécanisme.
+>
+> ## Résultats
+>
+> ### B — validé
+> - 3 alternatives structurellement distinctes, ordre fixe garanti
+>   (rank 0 = gauche = comportement historique, rank 1 = bas, rank 2 = mixte),
+>   même coût en tôles, champ `"bias"` par alternative (e2e vérifié).
+> - Steering multiplicatif du coût de croissance (`DIR_ALPHA=1.5`) :
+>   in-bbox (trous inclus) jamais pénalisé (croissance nulle), plafond
+>   empirique — à 2.0 le biais LeftFirst perd une tôle sur le cas 160.
+> - Effet visible sur les layouts denses : LeftFirst 305-359 de large vs
+>   BottomFirst 309-361 (cas 160) ; fort sur les layouts épars (180x500 vs
+>   380x240 sur le cas tiny).
+>
+> ### A — mesure A/B (test `warm_start_160_ab`, harnais `#[ignore]`)
+> Cas 160, même seed, sweep biais × budget :
+>
+> | Config | Baseline (défaut) | Warm-start intercalé |
+> |---|---|---|
+> | LeftFirst 6s | **2 tôles**, 92/130 nichés | 3 tôles, 78/130 |
+> | LeftFirst 20s | **2 tôles**, 92/130 | 3 tôles, 82/130 |
+> | Balanced 6s | **2 tôles**, 91/130 | 3 tôles, 82/130 |
+> | Balanced 20s | **2 tôles**, 93/130 | 3 tôles, 82/130 |
+>
+> **Verdict : rejet.** Mécanisme (confirmé par le détail des layouts) :
+> un filler placé juste après son hôte qui rate le trou (échantillonnage)
+> se place contre le hôte et casse le packing serré des hôtes — effet
+> boule de neige (une colonne de 5 carrés déborde sur une 3ᵉ tôle).
+> L'ordre par défaut (tous les hôtes d'abord, diamètre décroissant)
+> *protège* le packing des hôtes : il est déjà quasi optimal pour ce cas.
+> Enseignement secondaire : à ~45-90 itérations SA par run, la séquence
+> initiale domine toute la trajectoire — un mauvais warm-start n'est
+> jamais rattrapé, même à budget doublé.
+>
+> ### Suite possible (option C, non implémentée)
+> Booster `SAMPLE_CFG.n_focussed_samples` (100 → 200-300,
+> `bpp/constructive.rs:24-28`) pour fiabiliser le placement des fillers
+> dans les trous ; contrepartie : constructif plus lent, moins
+> d'itérations SA. À mesurer avec le même harnais A/B.
+
+---
 
 Deux chantiers indépendants mais qui partagent la même plomberie per-worker :
 

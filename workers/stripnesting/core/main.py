@@ -9,9 +9,12 @@ from ezdxf import recover, xref
 from ezdxf.math import Matrix44
 import spyrrow
 
-from utils.mongo import db, strip_nest_dxf_bucket, strip_user_dxf_bucket
-from utils.logger import setup_logger
-from utils.crypto import get_dek, read_gridfs, write_gridfs
+from worker_common.mongo import db, get_bucket
+from worker_common.logger import setup_logger
+from worker_common.crypto import get_dek, read_gridfs, write_gridfs
+
+strip_nest_dxf_bucket = get_bucket("stripNestDxf")
+strip_user_dxf_bucket = get_bucket("stripUserDxf")
 from core.input_builder import build_input_items
 
 logger = setup_logger("core_stripnesting")

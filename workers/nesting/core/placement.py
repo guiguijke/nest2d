@@ -34,7 +34,7 @@ class ResultContainer:
 
 import math
 
-from utils.logger import setup_logger
+from worker_common.logger import setup_logger
 
 logger = setup_logger("placement")
 

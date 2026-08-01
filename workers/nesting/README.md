@@ -16,9 +16,10 @@ workers/nesting/
 
 To build and run the nesting worker in a Docker container, follow these steps:
 
-1. **Build the Docker image:**
+1. **Build the Docker image** (build context is `./workers` so the shared
+`worker_common` package can be installed; run from the repo root):
 ```sh
-docker build -t nesting-worker:local .
+docker build -f workers/nesting/Dockerfile -t nesting-worker:local workers/
 ```
 
 This will:

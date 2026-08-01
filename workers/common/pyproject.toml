@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nest2d-worker-common"
+version = "0.1.0"
+description = "Shared plumbing for the Nest2D Python workers (mongo, crypto, logging, worker loop)"
+requires-python = ">=3.11"
+# Deliberately minimal: shapely is NOT listed here because only the workers
+# that import worker_common.geometry need it, and they already pin it in
+# their own requirements.txt (keeps the stripnesting image free of shapely).
+dependencies = [
+    "pymongo>=4.11",
+    "python-dotenv>=1.0",
+    "cryptography",
+]
+
+[tool.setuptools.packages.find]
+include = ["worker_common*"]

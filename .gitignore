@@ -56,3 +56,4 @@ __pycache__
 # Rust build artifacts
 workers/nesting/engine/target
 workers/nesting/benchmarks/tmp
+*.egg-info/

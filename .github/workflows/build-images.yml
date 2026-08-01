@@ -61,13 +61,13 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        # fileprocessing pins a different pymongo than nesting — both are
-        # compatible with the tests, so keep nesting's pin and install the
-        # rest of fileprocessing's deps without it.
+        # worker_common (workers/common) holds the shared plumbing imported by
+        # all workers; both requirement sets pin the same pymongo, so they can
+        # be installed together without the old grep workaround.
         run: |
+          pip install -e ../common
           pip install -r requirements.txt pytest
-          grep -v pymongo ../fileprocessing/requirements.txt > /tmp/fp_requirements.txt
-          pip install -r /tmp/fp_requirements.txt
+          pip install -r ../fileprocessing/requirements.txt
 
       - name: Worker tests (unit + integration with the real engine)
         env:
@@ -84,20 +84,28 @@ jobs:
 
     strategy:
       fail-fast: false
+      # Worker images build with ./workers as context so they can COPY the
+      # shared common/ package (worker_common) into the image.
       matrix:
         include:
           - image: nest2d-app
             context: .
+            file: ./Dockerfile
           - image: nest2d-admin
             context: ./admin
+            file: ./admin/Dockerfile
           - image: nest2d-user-file-processing-worker
-            context: ./workers/fileprocessing
+            context: ./workers
+            file: ./workers/fileprocessing/Dockerfile
           - image: nest2d-nesting-worker
-            context: ./workers/nesting
+            context: ./workers
+            file: ./workers/nesting/Dockerfile
           - image: nest2d-strip-file-processing-worker
-            context: ./workers/stripfileprocessing
+            context: ./workers
+            file: ./workers/stripfileprocessing/Dockerfile
           - image: nest2d-strip-nesting-worker
-            context: ./workers/stripnesting
+            context: ./workers
+            file: ./workers/stripnesting/Dockerfile
 
     steps:
       - name: Checkout repository
@@ -123,6 +131,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           push: true
           # spyrrow ships linux/amd64 wheels only — force amd64 for the whole matrix.
           platforms: linux/amd64

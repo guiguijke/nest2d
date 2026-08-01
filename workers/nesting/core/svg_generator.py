@@ -1,56 +1,7 @@
-from shapely.geometry import Point
-from utils.logger import setup_logger
+from worker_common.logger import setup_logger
+from worker_common.geometry.dxf_parser import flatten_entity
 
 logger = setup_logger("svg_generator")
-
-def _vec2(v):
-    return Point(float(v[0]), float(v[1]))
-
-def flatten_entity(entity, tol: float):
-    """
-    Return list of Point vertices approximating *e*
-    and its DXF handle.  All curve entities are tessellated with the
-    user–supplied *tol* so the maximum sagitta ≤ tol.
-    """
-    h = entity.dxf.handle
-    kind = entity.dxftype()
-
-    if kind == "LINE":
-        pts = [_vec2(entity.dxf.start), _vec2(entity.dxf.end)]
-
-    elif kind == "LWPOLYLINE":
-        pts = [_vec2(p) for p in entity.get_points(format="xy")]
-        if entity.closed:
-            pts.append(pts[0])
-
-    elif kind == "POLYLINE":
-        pts = [_vec2(p) for p in entity.points()]
-        if getattr(entity, "is_closed", False):
-            pts.append(pts[0])
-
-    elif kind == "ARC":
-        radius = entity.dxf.radius
-        if radius < tol:
-            pts = []
-        else:
-            pts = [_vec2(p) for p in entity.flattening(sagitta=tol)]
-
-    elif kind == "CIRCLE":
-        pts = [_vec2(p) for p in entity.flattening(sagitta=tol)]
-
-    elif kind == "ELLIPSE":
-        pts = [_vec2(p) for p in entity.flattening(distance=tol)]
-
-    elif kind == "SPLINE":
-        pts = [_vec2(p) for p in entity.flattening(distance=tol)]
-
-    elif kind == "POINT":
-        pts = [_vec2(entity.dxf.location)]
-
-    else:
-        raise Exception(f"Unsupported entity type: {kind} (handle: {h})")
-
-    return pts, h
 
 def build_svg_string(drawing, bin_width=None, bin_height=None):
     entities = drawing.modelspace()
