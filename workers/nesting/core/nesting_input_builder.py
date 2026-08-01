@@ -37,6 +37,9 @@ def build_engine_config(
     min_separation=None,
     has_holes=False,
     max_strip_width=None,
+    n_workers=None,
+    biases=None,
+    plateau_patience_sec=None,
 ):
     """Engine configuration (consumed by nest-engine's `-c config.json`).
 
@@ -51,6 +54,11 @@ def build_engine_config(
     closing heuristic would seal that channel shut, silently re-filling the
     holes. Without holed items, the heuristic stays on (faster collision
     checks on noisy contours).
+
+    n_workers caps the engine's parallelism (BPP: SA walks; SPP: multi-start
+    runs at 3 threads each) — derived from the owner's tier vcores. biases
+    lists the directional alternatives to explore (BPP only). plateau_patience_sec
+    lets walks stop once converged instead of burning the full wall budget.
     """
     config = {
         "time_budget_sec": int(time_budget_sec),
@@ -64,6 +72,12 @@ def build_engine_config(
     }
     if max_strip_width is not None:
         config["max_strip_width"] = float(max_strip_width)
+    if n_workers is not None:
+        config["n_workers"] = int(n_workers)
+    if biases:
+        config["biases"] = list(biases)
+    if plateau_patience_sec is not None:
+        config["plateau_patience_sec"] = float(plateau_patience_sec)
     return config
 
 
