@@ -103,7 +103,6 @@ onMounted(() => {
     eventSource.value = new EventSource('/api/support/messages')
 
     unref(eventSource).onmessage = async (event) => {
-        console.log('Received SSE message:', event.data)
         try {
             const parsed = JSON.parse(event.data)
             if (parsed.type === 'initial') {

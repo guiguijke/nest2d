@@ -21,24 +21,11 @@
                 {{ resultsLabel }}
             </p>
         </div>
-        <!-- <div class="project__btn">
-            <MainButton 
-                :label="`delete ${project.name}`"
-                :size="sizeType.s"
-                :theme="themeType.secondary"
-                :icon="iconType.trash"
-                :isLabelShow=false
-                @click="console.log(`delete ${project.name}`)"
-            />
-        </div> -->
     </div>
 </template>
 
 <script setup>
 import { computed, onBeforeMount, onBeforeUnmount, toRefs, unref } from 'vue';
-import { iconType } from '~~/constants/icon.constants';
-import { sizeType } from '~~/constants/size.constants';
-import { themeType } from '~~/constants/theme.constants';
 
 const { project } = defineProps({
     project: {
@@ -80,15 +67,12 @@ const resultsLabel = computed(() => {
     return `${unref(project).results} ${resultWord}`;
 })
 
+// Refresh "time ago" labels once a minute so they stay current.
 let timer;
-const updateTime = () => {
-    clearInterval(timer)
-    timer = setInterval(updateTime, 60000)
-    now.value = new Date()
-}
-
 onBeforeMount(() => {
-    updateTime();
+    timer = setInterval(() => {
+        now.value = new Date()
+    }, 60000)
 })
 onBeforeUnmount(() => {
     clearInterval(timer)

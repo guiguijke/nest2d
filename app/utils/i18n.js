@@ -261,7 +261,7 @@ const dict = {
 
         'home.uploadTitle': 'Importez vos fichiers .DXF',
         'home.uploadHint': 'Tous les fichiers seront sauvegardés en toute sécurité et accessibles uniquement par vous',
-        'home.newNesting': 'Nouvel imbrication',
+        'home.newNesting': 'Nouvelle imbrication',
         'home.recentProjects': 'Projets récents',
         'home.noProjects': 'Aucun projet — importez un DXF ci-dessus pour commencer.',
         'home.manageAccount': 'Gérer mon compte →',
