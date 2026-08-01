@@ -133,74 +133,92 @@ export async function hasPrivacyTier(userId) {
 }
 
 /**
- * Selectable compute levels. Users can trade quality for speed within what
- * their tier allows (see getMaxComputeLevel); the level is validated
- * SERVER-SIDE at enqueue time — the client can never inflate its budget.
+ * Compute profiles by plan tier. EVERY tier gets a fully optimized result
+ * (the engine computes until convergence, see plateau stop in nest-engine);
+ * the plan only caps the compute THROUGHPUT (vcores = parallel SA walks /
+ * threads) and therefore the delivery time, plus the number of layout
+ * directions explorable per nesting (free: 1 — the other directions cost
+ * one nesting credit each; paid: all 3, unselectable for a faster result).
  *
- * Budgets are wall-clock seconds consumed by the nest-engine (separation/
- * compaction optimizer): quality scales with time and the engine always
- * returns its incumbent, so more time can never produce a worse layout.
+ * wallCapSec is a worst-case wall-clock cap (plateau stop usually ends the
+ * job much earlier). priority: lower = dequeued first.
+ *
+ * Computed SERVER-SIDE at enqueue time and persisted on the job — the
+ * client can never inflate its own budget.
+ *
+ * TODO(calibration): vcores/wallCapSec are initial estimates — tune with
+ * the perf_curve harness on the production machine (EPYC 7002, 16T budget).
  */
-export const COMPUTE_LEVELS = {
-    simple: { timeBudgetSec: 15, nAlternatives: 1 },
-    normal: { timeBudgetSec: 45, nAlternatives: 3 },
-    advanced: { timeBudgetSec: 180, nAlternatives: 3 },
+export const COMPUTE_TIERS = {
+    free: { vcores: 1, wallCapSec: 600, maxDirections: 1, priority: 30 },
+    standard: { vcores: 4, wallCapSec: 300, maxDirections: 3, priority: 20 },
+    privacy: { vcores: 8, wallCapSec: 180, maxDirections: 3, priority: 10 },
 }
 
-const LEVEL_ORDER = ['simple', 'normal', 'advanced']
-
-function clampLevel(requested, max) {
-    const reqIdx = LEVEL_ORDER.indexOf(requested)
-    const maxIdx = LEVEL_ORDER.indexOf(max)
-    if (reqIdx === -1) return max
-    return LEVEL_ORDER[Math.min(reqIdx, maxIdx)]
-}
+/** Layout directions the engine can optimize towards (BPP alternatives). */
+export const NEST_DIRECTIONS = ['left', 'bottom', 'balanced']
 
 /**
- * Highest compute level a user may select, given their tier.
+ * The user's compute tier: 'privacy' (Confidentialité+) > 'standard'
+ * (subscription or admin grant) > 'free'.
+ * @param {string} userId
+ * @param {{type: string}|null} charge the charge returned by assertCanNest (null on UI paths)
+ * @returns {Promise<'free'|'standard'|'privacy'>}
  */
-export async function getMaxComputeLevel(userId, charge) {
+export async function getComputeTier(userId, charge) {
     const db = await connectDB()
     const user = await db.collection('users').findOne({ id: userId }, { projection: { subscription: 1, grantedUntil: 1 } })
 
     const tier = await getSubscriptionTier(user)
-    if (tier === 'privacy') return 'advanced'
+    if (tier === 'privacy') return 'privacy'
     // Subscribers AND admin-granted users (free month from the admin panel)
-    // get the paid tier — checked both from the job's charge (enqueue path)
-    // and directly from the user doc (UI path, charge is null there).
+    // get the paid tier — checked from the subscription (UI path, charge is
+    // null), the grant, and the job's charge (enqueue path).
     const granted = user?.grantedUntil && new Date(user.grantedUntil) > new Date()
-    if (granted || charge?.type === 'subscription' || charge?.type === 'grant') return 'normal'
-    return 'simple'
+    if (tier === 'standard' || granted || charge?.type === 'subscription' || charge?.type === 'grant') {
+        return 'standard'
+    }
+    return 'free'
 }
 
 /**
- * Compute budget granted to a nesting job, by tier. Computed SERVER-SIDE at
- * enqueue time and persisted on the job — the client can never inflate its
- * own budget. priority: lower = dequeued first.
+ * Compute profile granted to a nesting job, by tier.
  *
  * @param {string} userId
  * @param {{type: string}|null} charge the charge returned by assertCanNest
- * @param {string} [requestedLevel] optional compute level selected in the UI
- * @returns {Promise<{timeBudgetSec: number, nAlternatives: number, priority: number, level: string}>}
+ * @returns {Promise<{vcores: number, wallCapSec: number, maxDirections: number, priority: number, level: string}>}
  */
-export async function getComputeProfile(userId, charge, requestedLevel) {
-    const db = await connectDB()
-    const user = await db.collection('users').findOne({ id: userId }, { projection: { subscription: 1 } })
+export async function getComputeProfile(userId, charge) {
+    const tier = await getComputeTier(userId, charge)
+    return { ...COMPUTE_TIERS[tier], level: tier }
+}
 
-    let maxLevel = 'simple'
-    let priority = 30
-    const tier = await getSubscriptionTier(user)
-    if (tier === 'privacy') {
-        maxLevel = 'advanced'
-        priority = 10
-    } else if (charge?.type === 'subscription' || charge?.type === 'grant') {
-        // Subscribers AND admin-granted users (free month) get the paid tier.
-        maxLevel = 'normal'
-        priority = 20
+/**
+ * Validates a client-requested direction list against the tier's allowance.
+ * Returns the sanitized list (deduped, canonical order). Throws 400/403 on
+ * invalid input — the client may request FEWER directions (faster result)
+ * but never more than maxDirections.
+ *
+ * @param {any} requested params.directions from the client (may be absent)
+ * @param {number} maxDirections tier allowance
+ * @returns {string[]}
+ */
+export function validateDirections(requested, maxDirections) {
+    let list = Array.isArray(requested)
+        ? requested.filter((d) => NEST_DIRECTIONS.includes(d))
+        : []
+    list = [...new Set(list)]
+    if (list.length === 0) {
+        // Default: everything the tier allows, in canonical order.
+        list = NEST_DIRECTIONS.slice(0, Math.max(1, maxDirections))
     }
-
-    const level = clampLevel(requestedLevel, maxLevel)
-    return { ...COMPUTE_LEVELS[level], priority, level }
+    if (list.length > maxDirections) {
+        throw createError({
+            statusCode: 403,
+            statusMessage: `Your plan allows ${maxDirections} layout direction(s) per nesting`,
+        })
+    }
+    return NEST_DIRECTIONS.filter((d) => list.includes(d))
 }
 
 /**

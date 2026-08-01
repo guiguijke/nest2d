@@ -1,5 +1,5 @@
 import { connectDB } from '~~/server/db/mongo'
-import { getEntitlement, getMaxComputeLevel } from '~~/server/utils/entitlement'
+import { getComputeProfile, getEntitlement } from '~~/server/utils/entitlement'
 import { getVaultStatus } from '~~/server/utils/vault'
 
 export default defineEventHandler(async (event) => {
@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
     const entitlement = await getEntitlement(userId)
 
     const vault = await getVaultStatus(userId)
-    const maxComputeLevel = await getMaxComputeLevel(userId, null)
+    const compute = await getComputeProfile(userId, null)
 
     return {
         id: user.id,
@@ -27,7 +27,11 @@ export default defineEventHandler(async (event) => {
         freeRemaining: entitlement.freeRemaining,
         subscriptionStatus: entitlement.subscriptionStatus,
         requiresPaywall: entitlement.requiresPaywall,
-        maxComputeLevel: maxComputeLevel,
+        compute: {
+            level: compute.level,
+            vcores: compute.vcores,
+            maxDirections: compute.maxDirections,
+        },
         encryption: {
             enabled: vault.enabled,
             locked: vault.locked,
