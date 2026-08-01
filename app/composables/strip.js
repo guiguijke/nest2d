@@ -205,8 +205,13 @@ async function nest(slug) {
     } catch (error) {
         // Paywall: free quota exhausted and no active subscription.
         if (error?.response?.status === 402) {
-            const buyCreditsDialog = useBuyCreditsDialog();
-            buyCreditsDialog.value = true;
+            // Skip the paywall dialog when paid plans are temporarily
+            // disabled — it would only offer a "Coming soon" CTA.
+            const paidDisabled = useRuntimeConfig().public.paidPlansDisabled === true
+            if (!paidDisabled) {
+                const buyCreditsDialog = useBuyCreditsDialog();
+                buyCreditsDialog.value = true;
+            }
             return
         }
         if (error?.data?.statusMessage === 'vault_locked') {

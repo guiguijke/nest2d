@@ -7,12 +7,16 @@
         <template v-if="isEmpty">
             <span class="free-nest__text">{{ t('banner.empty') }}</span>
             <button
+                v-if="!paidDisabled"
                 type="button"
                 class="free-nest__link"
                 @click="openPaywall"
             >
                 {{ t('banner.cta') }}
             </button>
+            <span v-else class="free-nest__link free-nest__link--disabled">
+                {{ t('banner.comingSoon') }}
+            </span>
         </template>
         <template v-else>
             <div class="free-nest__body">
@@ -42,6 +46,10 @@
 
     const { getters } = authStore
     const { t } = useLocale()
+
+    // Temporarily disable the "Start free trial" CTA until paid plans are
+    // re-enabled (NUXT_PUBLIC_PAID_PLANS_DISABLED).
+    const paidDisabled = computed(() => useRuntimeConfig().public.paidPlansDisabled === true)
 
     const FREE_LIMIT = FREE_NESTING_LIMIT
 
@@ -115,6 +123,12 @@
             border: none;
             padding: 0;
             font-size: 13px;
+
+            &--disabled {
+                color: var(--label-tertiary);
+                text-decoration: none;
+                cursor: default;
+            }
         }
 
         &__bar {

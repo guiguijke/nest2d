@@ -78,8 +78,10 @@ const dict = {
         'banner.remaining': '{n} / {total} nestings left this month',
         'banner.empty': "You've used all your free nestings for this month.",
         'banner.cta': 'Start free trial',
+        'banner.comingSoon': 'Coming soon',
         'sub.unavailable': 'The subscription plan is currently unavailable. Please try again later.',
         'sub.monthlyPlan': 'Monthly plan',
+        'sub.comingSoon': 'Coming soon',
 
         'settings.nesting': 'Nesting settings',
         'settings.sheet': 'Sheet {n}',
@@ -296,8 +298,10 @@ const dict = {
         'banner.remaining': '{n} / {total} imbrications restantes ce mois-ci',
         'banner.empty': 'Vous avez utilisé toutes vos imbrications gratuites ce mois-ci.',
         'banner.cta': "Démarrer l'essai gratuit",
+        'banner.comingSoon': 'Bientôt disponible',
         'sub.unavailable': "L'offre d'abonnement est actuellement indisponible. Veuillez réessayer plus tard.",
         'sub.monthlyPlan': 'Offre mensuelle',
+        'sub.comingSoon': 'Bientôt disponible',
 
         'settings.nesting': "Réglages d'imbrication",
         'settings.sheet': 'Plaque {n}',

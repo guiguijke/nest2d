@@ -39,6 +39,9 @@ export default defineNuxtConfig({
             supportEmail: "",
             githubRepo: "",
             copyrightYear: "",
+            // Temporarily hides the paid-plan CTAs (Unlimited trial + Pro
+            // upgrade). Set NUXT_PUBLIC_PAID_PLANS_DISABLED=false to restore.
+            paidPlansDisabled: false,
         },
     },
 

@@ -84,6 +84,10 @@ const loginDialog = useLoginDialog()
 const { getters: authGetters } = authStore
 const userIsSet = computed(() => Boolean(unref(authGetters.userIsSet)))
 
+// Temporarily disable paid-plan CTAs (Unlimited trial + Pro upgrade) until
+// Strip ships to production. Toggle via NUXT_PUBLIC_PAID_PLANS_DISABLED.
+const paidDisabled = computed(() => useRuntimeConfig().public.paidPlansDisabled === true)
+
 // Shared with the landing via the 'payment-plans' cache key (deduplicated +
 // cached for a few minutes). See composables/usePlans.js.
 const { data: plans } = usePlans()
@@ -129,7 +133,10 @@ const tiers = computed(() => {
                 'Multi-sheet jobs',
                 'Email notifications',
             ],
-            cta: `Start ${TRIAL_DAYS}-day free trial`,
+            // When paid plans are disabled, the card stays visible (price +
+            // features) but the CTA shows "Coming soon" and does nothing.
+            cta: paidDisabled.value ? 'Coming soon' : `Start ${TRIAL_DAYS}-day free trial`,
+            comingSoon: paidDisabled.value,
             trackingTag: 'plans_unlimited',
         },
         {
@@ -145,8 +152,8 @@ const tiers = computed(() => {
                 'Maximum compute budget',
                 'Priority queue',
             ],
-            cta: proAvailable ? 'Get Pro' : 'Coming soon',
-            comingSoon: !proAvailable,
+            cta: proAvailable && !paidDisabled.value ? 'Get Pro' : 'Coming soon',
+            comingSoon: !proAvailable || paidDisabled.value,
             trackingTag: 'plans_pro',
         },
     ]
