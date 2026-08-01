@@ -96,6 +96,7 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
     // Parallel multi-start: one SA walk per worker, each with a derived seed.
     // Deterministic per worker; ranking below is deterministic too.
     let live = config.live_events();
+    let warm_start = config.initial_sequence.clone();
     let mut runs: Vec<WorkerRun> = (0..n_workers)
         .into_par_iter()
         .map(|w| {
@@ -107,6 +108,7 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                 N_SAMPLES_PER_ITEM,
                 deadline,
                 bias,
+                warm_start.clone(),
                 &mut rng,
                 |cost, solution| {
                     println!(

@@ -141,6 +141,16 @@ pub fn initial_sequence(instance: &BPInstance) -> Vec<usize> {
     seq
 }
 
+/// Picks the SA starting sequence: the warm-start if it is complete (one
+/// entry per demanded item), otherwise the decreasing-diameter default.
+pub(crate) fn pick_initial_sequence(
+    instance: &BPInstance,
+    warm: Option<Vec<usize>>,
+) -> Vec<usize> {
+    warm.filter(|s| s.len() == instance.total_item_qty())
+        .unwrap_or_else(|| initial_sequence(instance))
+}
+
 pub struct SaReport {
     pub best_solution: BPSolution,
     pub best_cost: Cost,
@@ -151,11 +161,15 @@ pub struct SaReport {
 /// the incumbent improves (for live progress); `on_heartbeat` at ~1 Hz.
 /// `bias` steers the constructive's directional tie-break (per-worker, so
 /// exported alternatives are structurally distinct).
+/// `initial_seq` is an optional warm-start sequence (positional item ids,
+/// expanded by demand); used only if its length matches the total item
+/// quantity, otherwise the decreasing-diameter default kicks in.
 pub fn anneal(
     instance: &BPInstance,
     n_samples: usize,
     deadline: Duration,
     bias: DirBias,
+    initial_seq: Option<Vec<usize>>,
     rng: &mut impl Rng,
     mut on_improvement: impl FnMut(&Cost, &BPSolution),
     mut on_heartbeat: impl FnMut(usize, &Cost),
@@ -163,7 +177,7 @@ pub fn anneal(
     let started = Instant::now();
     let end = started + deadline;
 
-    let mut seq = initial_sequence(instance);
+    let mut seq = pick_initial_sequence(instance, initial_seq);
 
     // Evaluate the initial sequence.
     let initial = construct(instance, &seq, n_samples, bias, rng);

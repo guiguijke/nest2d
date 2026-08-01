@@ -46,6 +46,15 @@ pub struct EngineConfig {
     /// Emit full layout snapshots as JSON events on stdout (live_lab
     /// visualizer). Default false — heavy payload, dev/private use only.
     pub live_events: Option<bool>,
+    /// BPP only: warm-start sequence for the annealing, as POSITIONAL item
+    /// indices (into the instance's `items` array) expanded by demand —
+    /// e.g. the hole-aware interleaved sequence computed by the Python
+    /// worker ([host, filler×k, host, filler×k, ...]). Non-constraining:
+    /// the SA can permute away from it. Silently ignored (falling back to
+    /// the decreasing-diameter default) if its length does not match the
+    /// total item quantity.
+    #[serde(default)]
+    pub initial_sequence: Option<Vec<usize>>,
 }
 
 fn default_n_alternatives() -> usize {
