@@ -1,3 +1,4 @@
+use crate::bpp::constructive::DirBias;
 use crate::config::EngineConfig;
 use crate::progress::ProgressListener;
 use anyhow::{Context, Result, bail};
@@ -18,6 +19,13 @@ use std::time::{Duration, Instant};
 /// One finished multi-start worker run.
 struct WorkerRun {
     seed: u64,
+    solution: SPSolution,
+}
+
+/// One finished run in directions mode, tagged with its directional class.
+struct ClassRun {
+    seed: u64,
+    bias: crate::bpp::constructive::DirBias,
     solution: SPSolution,
 }
 
@@ -67,6 +75,54 @@ fn used_height(solution: &SPSolution) -> f32 {
         .fold(0.0f32, f32::max)
 }
 
+/// Single explore+compress run (one seed), with the gravity post-pass.
+/// Extracted from optimize_multi; also used per-class in directions mode.
+#[allow(clippy::too_many_arguments)]
+fn optimize_one(
+    instance: &SPInstance,
+    sparrow_cfg: &sparrow::config::SparrowConfig,
+    budget: Duration,
+    explore_ratio: f32,
+    seed: u64,
+    worker: usize,
+    started: Instant,
+    gravity_enabled: bool,
+    live: bool,
+    map_back_height: Option<f32>,
+) -> SPSolution {
+    let mut cfg = *sparrow_cfg;
+    cfg.expl_cfg.time_limit = budget.mul_f32(explore_ratio);
+    cfg.cmpr_cfg.time_limit = budget.mul_f32(1.0 - explore_ratio);
+    let rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+    let mut listener = ProgressListener::new(worker, started)
+        .with_live(live)
+        .with_map_back(map_back_height);
+    let mut terminator = BasicTerminator::new();
+    let solution = optimize(
+        instance.clone(),
+        rng,
+        &mut listener,
+        &mut terminator,
+        &cfg.expl_cfg,
+        &cfg.cmpr_cfg,
+        None,
+    );
+    // Gravity post-pass: the search minimizes strip width only, so
+    // under-constrained layouts can come out vertically scattered.
+    if gravity_enabled {
+        let mut prob = jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
+        prob.restore(&solution);
+        crate::gravity::gravity_compact(&mut prob);
+        let solution = prob.save();
+        // Stream the post-gravity final state so the visualizer's
+        // last frame matches the exported solution exactly.
+        listener.report_final(&solution, instance);
+        solution
+    } else {
+        solution
+    }
+}
+
 /// Runs the explore+compress pipeline on `n_workers` parallel multi-starts,
 /// each with its own derived seed and the full phase budget, then applies the
 /// gravity post-pass to every run. Deterministic regardless of scheduling.
@@ -83,43 +139,22 @@ fn optimize_multi(
     live: bool,
     map_back_height: Option<f32>,
 ) -> Vec<WorkerRun> {
-    let mut cfg = *sparrow_cfg;
-    cfg.expl_cfg.time_limit = budget.mul_f32(explore_ratio);
-    cfg.cmpr_cfg.time_limit = budget.mul_f32(1.0 - explore_ratio);
-
     (0..n_workers)
         .into_par_iter()
         .map(|w| {
             let seed = derive_seed(master_seed, seed_offset + w);
-            let rng = Xoshiro256PlusPlus::seed_from_u64(seed);
-            let mut listener = ProgressListener::new(w, started)
-                .with_live(live)
-                .with_map_back(map_back_height);
-            let mut terminator = BasicTerminator::new();
-            let solution = optimize(
-                instance.clone(),
-                rng,
-                &mut listener,
-                &mut terminator,
-                &cfg.expl_cfg,
-                &cfg.cmpr_cfg,
-                None,
+            let solution = optimize_one(
+                instance,
+                sparrow_cfg,
+                budget,
+                explore_ratio,
+                seed,
+                w,
+                started,
+                gravity_enabled,
+                live,
+                map_back_height,
             );
-            // Gravity post-pass: the search minimizes strip width only, so
-            // under-constrained layouts can come out vertically scattered.
-            let solution = if gravity_enabled {
-                let mut prob =
-                    jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
-                prob.restore(&solution);
-                crate::gravity::gravity_compact(&mut prob);
-                let solution = prob.save();
-                // Stream the post-gravity final state so the visualizer's
-                // last frame matches the exported solution exactly.
-                listener.report_final(&solution, instance);
-                solution
-            } else {
-                solution
-            };
             WorkerRun { seed, solution }
         })
         .collect()
@@ -205,6 +240,187 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
     } else {
         (budget, Duration::ZERO)
     };
+
+    // ================= Directions mode (tiered compute) =================
+    // The client picked layout directions: each worker is assigned a class
+    // round-robin and every class champions a genuinely different offcut
+    // shape. Legacy jobs (no `biases` in config) keep the historical
+    // two-phase flow below.
+    if config.biases.is_some() {
+        let biases = config.dir_biases();
+        let explore = config.explore_ratio;
+        let gravity_on = config.gravity();
+        let live = config.live_events();
+        let slack = config.phase2_slack_mm();
+
+        let gravity_after = |instance: &SPInstance, mut mapped: SPSolution| {
+            if gravity_on {
+                let mut prob =
+                    jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
+                prob.restore(&mapped);
+                crate::gravity::gravity_compact(&mut prob);
+                mapped = prob.save();
+            }
+            mapped
+        };
+
+        let runs: Vec<ClassRun> = (0..n_workers)
+            .into_par_iter()
+            .filter_map(|w| {
+                let bias = biases[w % biases.len()];
+                let seed = derive_seed(config.prng_seed, w);
+                match bias {
+                    // Historical behaviour: width-min, then transposed height
+                    // compaction when a sheet bound exists.
+                    DirBias::LeftFirst => {
+                        let s1 = optimize_one(
+                            &instance, &sparrow_config,
+                            if two_phase { b1 } else { budget },
+                            explore, seed, w, started, gravity_on, live, None,
+                        );
+                        if !two_phase {
+                            return Some(ClassRun { seed, bias, solution: s1 });
+                        }
+                        if max_width.is_some_and(|mw| s1.strip_width() > mw + 1e-4) {
+                            return None;
+                        }
+                        let corridor = match max_width {
+                            Some(mw) => (s1.strip_width() + slack).min(mw),
+                            None => s1.strip_width() + slack,
+                        };
+                        let t_ext = transpose_instance(&ext_instance, corridor);
+                        let t_instance =
+                            jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
+                        let s2 = optimize_one(
+                            &t_instance, &sparrow_config, b2, explore,
+                            seed ^ 0x5EED_5EED, w, started, gravity_on, live,
+                            Some(corridor),
+                        );
+                        if s2.strip_width() > ext_instance.strip_height + 1e-4 {
+                            return None;
+                        }
+                        let mapped = map_back_solution(&t_instance, &s2, corridor, &instance);
+                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped) })
+                    }
+                    // Minimize USED HEIGHT: full solve on the 90°-transposed
+                    // strip (transposed width == original height usage) —
+                    // the offcut becomes a clean top band.
+                    DirBias::BottomFirst => {
+                        let Some(mw) = max_width else {
+                            // No sheet bound: directions are meaningless here.
+                            let s = optimize_one(
+                                &instance, &sparrow_config, budget, explore,
+                                seed, w, started, gravity_on, live, None,
+                            );
+                            return Some(ClassRun { seed, bias, solution: s });
+                        };
+                        let t_ext = transpose_instance(&ext_instance, mw);
+                        let t_instance =
+                            jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
+                        let s = optimize_one(
+                            &t_instance, &sparrow_config, budget, explore,
+                            seed, w, started, gravity_on, live, Some(mw),
+                        );
+                        if s.strip_width() > ext_instance.strip_height + 1e-4 {
+                            return None; // taller than the sheet: unusable
+                        }
+                        let mapped = map_back_solution(&t_instance, &s, mw, &instance);
+                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped) })
+                    }
+                    // Width-min + gravity only: a natural corner blob with no
+                    // forced compaction.
+                    DirBias::Balanced => {
+                        let s = optimize_one(
+                            &instance, &sparrow_config, budget, explore,
+                            seed, w, started, gravity_on, live, None,
+                        );
+                        if max_width.is_some_and(|mw| s.strip_width() > mw + 1e-4) {
+                            return None;
+                        }
+                        Some(ClassRun { seed, bias, solution: s })
+                    }
+                }
+            })
+            .collect();
+
+        if runs.is_empty() {
+            println!(
+                "{{\"type\":\"error\",\"reason\":\"infeasible\",\"elapsed_sec\":{}}}",
+                started.elapsed().as_secs()
+            );
+            bail!("no feasible solution in directions mode");
+        }
+
+        // Alternatives grouped by class (canonical left/bottom/balanced
+        // order), then remaining runs by quality as fallback.
+        let quality = |r: &ClassRun| {
+            (
+                ordered_float(strip(r)),
+                ordered_float(used_height(&r.solution)),
+                r.seed,
+            )
+        };
+        fn strip(r: &ClassRun) -> f32 {
+            r.solution.strip_width()
+        }
+        fn ordered_float(v: f32) -> u64 {
+            (v * 1e4).round() as u64
+        }
+        let mut ordered: Vec<&ClassRun> = DirBias::ALL
+            .into_iter()
+            .filter(|b| biases.contains(b))
+            .filter_map(|b| runs.iter().filter(|r| r.bias == b).min_by_key(|r| quality(r)))
+            .collect();
+        let mut rest: Vec<&ClassRun> = runs.iter().collect();
+        rest.sort_by_key(|r| quality(r));
+        ordered.extend(rest);
+
+        let epoch = *sparrow::EPOCH;
+        let mut seen = std::collections::HashSet::new();
+        let mut alternatives = Vec::new();
+        let mut best_json: Option<ExtSPOutput> = None;
+        for run in ordered {
+            let ext_sol = jagua_rs::probs::spp::io::export(&instance, &run.solution, epoch);
+            let fp = solution_fingerprint(&ext_sol);
+            if !seen.insert(fp) {
+                continue;
+            }
+            let output = ExtSPOutput {
+                instance: ext_instance.clone(),
+                solution: ext_sol,
+            };
+            if best_json.is_none() {
+                best_json = Some(output.clone());
+            }
+            alternatives.push(serde_json::json!({
+                "rank": alternatives.len(),
+                "seed": run.seed,
+                "bias": run.bias.as_str(),
+                "strip_width": output.solution.strip_width,
+                "density": output.solution.density,
+                "solution": output.solution,
+            }));
+            if alternatives.len() >= config.n_alternatives {
+                break;
+            }
+        }
+
+        let best = best_json.expect("feasible solutions exist but none exported");
+        let best_width = best.solution.strip_width;
+        let best_density = best.solution.density;
+        let n_exported = alternatives.len();
+        write_json(&best, &out_dir.join("sol_instance.json"))?;
+        write_json(&serde_json::Value::Array(alternatives), &out_dir.join("alternatives.json"))?;
+        println!(
+            "{{\"type\":\"done\",\"best_strip_width\":{:.3},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
+            best_width,
+            best_density,
+            n_exported,
+            started.elapsed().as_secs()
+        );
+        return Ok(());
+    }
+
 
     // ---------------- Phase 1: minimize used width ----------------
     let runs1 = optimize_multi(

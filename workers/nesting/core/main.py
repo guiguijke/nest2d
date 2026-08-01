@@ -600,10 +600,11 @@ def nesting_process(doc):
     # Tier vcores -> engine threads. BPP walks are single-threaded (1 walk
     # per vcore, floor 3: strict quality parity — the free tier runs the
     # same multi-start diversity, just oversubscribed and therefore slower).
-    # SPP runs use a 3-thread separator each (floor 2 runs).
+    # SPP runs use a 3-thread separator each; floor 3 so every directional
+    # class (left/bottom/balanced) gets at least one worker.
     # vcores == 0: legacy job, let the engine auto-size from the host CPUs.
     if vcores:
-        n_workers = max(3, vcores) if not is_spp else max(2, vcores // 3)
+        n_workers = max(3, vcores) if not is_spp else max(3, vcores // 3)
     else:
         n_workers = None
     # Plateau stop: end walks once converged instead of burning the whole
