@@ -13,7 +13,7 @@
                     :title="altTitle(alt)"
                     @click="selectAlt(alt.altId)"
                 >
-                    <span v-if="alt.strategy" class="alts__strategy">{{ alt.strategy }}</span>
+                    <span v-if="alt.strategy" class="alts__strategy">{{ strategyLabel(alt.strategy) }}</span>
                     {{ t('result.option', { n: alt.altId + 1 }) }} · {{ formatScore(alt) }}
                 </button>
             </div>
@@ -241,9 +241,17 @@ const formatScore = (alt) => {
     return formatDensity(alt.density)
 }
 // Tooltip: what this option is good for, incl. its clean offcut size.
+const strategyLabel = (strategy) => {
+    // Directional alternatives are tagged by the engine (left/bottom/
+    // balanced); legacy names (max offcut, compact) pass through translated
+    // when known, raw otherwise.
+    const key = `alts.strategy.${strategy}`
+    const translated = t(key)
+    return translated === key ? strategy : translated
+}
 const altTitle = (alt) => {
     const parts = []
-    if (alt.strategy) parts.push(`Strategy: ${alt.strategy}`)
+    if (alt.strategy) parts.push(strategyLabel(alt.strategy))
     if (alt.offcut && alt.offcut.area > 1) {
         parts.push(`Clean offcut: ${alt.offcut.width.toFixed(0)} × ${alt.offcut.height.toFixed(0)} mm`)
     }

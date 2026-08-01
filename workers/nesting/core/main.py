@@ -851,13 +851,20 @@ def nesting_process(doc):
             "svg_files": svg_files,
         })
 
-    def _strategy_for(rank):
+    def _strategy_for(engine_alt, rank):
+        # The engine tags each BPP alternative with its directional bias
+        # (left / bottom / balanced) — that IS the alternative's identity.
+        # Fallbacks: SPP (rank 0 maximizes the offcut) and engines without
+        # bias tagging (legacy binaries).
+        bias = engine_alt.get("bias")
+        if bias:
+            return bias
         if rank == 0:
             return "max offcut" if is_spp else "compact"
         return "balanced"
 
     for rank, engine_alt in enumerate(engine_alternatives):
-        _finalize_alternative(engine_alt, _strategy_for(rank), rank)
+        _finalize_alternative(engine_alt, _strategy_for(engine_alt, rank), rank)
 
     if not alternatives:
         _heartbeat_stop.set()
