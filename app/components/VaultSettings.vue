@@ -38,9 +38,7 @@
             </template>
             <template v-else>
                 <p class="vault__warning">
-                    {{ locale === 'fr'
-                        ? `⚠️ Votre fichier-clé ${pendingKeyFile.name} a été téléchargé. Conservez-le en lieu sûr — c'est l'unique copie.`
-                        : `⚠️ Your key file ${pendingKeyFile.name} has been downloaded. Store it somewhere safe — it is the only copy.` }}
+                    {{ t('vault.keyDownloadedWarning', { name: pendingKeyFile.name }) }}
                 </p>
                 <label class="vault__confirm">
                     <input type="checkbox" v-model="confirmed" />
@@ -172,7 +170,7 @@ import {
 } from '~/utils/vault'
 import { trackEvent } from '~/utils/track'
 
-const { t, locale } = useLocale()
+const { t } = useLocale()
 
 const status = ref(null)
 const loading = ref(false)
@@ -234,7 +232,7 @@ async function enable() {
         await refresh()
         await authStore.actions.setUser()
     } catch (err) {
-        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec de l\'activation. Veuillez réessayer.' : 'Activation failed. Please try again.')
+        error.value = err?.data?.statusMessage || t('vault.error.activate')
     } finally {
         loading.value = false
     }
@@ -261,7 +259,7 @@ async function rotate() {
         trackEvent('vault_rotated')
         await refresh()
     } catch (err) {
-        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec du renouvellement. Vos fichiers sont toujours chiffrés avec l\'ancienne clé.' : 'Rotation failed. Your files are still encrypted with the old key.')
+        error.value = err?.data?.statusMessage || t('vault.error.rotate')
     } finally {
         loading.value = false
     }
@@ -274,13 +272,9 @@ async function forgetBrowser() {
 }
 
 async function disable(mode) {
-    const message = locale.value === 'fr'
-        ? (mode === 'destroy'
-            ? 'Cela supprime DÉFINITIVEMENT tous vos fichiers et désactive le coffre. C\'est irréversible. Continuer ?'
-            : 'Vos fichiers seront déchiffrés et le coffre désactivé. Continuer ?')
-        : (mode === 'destroy'
-            ? 'This permanently deletes ALL your files and disables the vault. There is no way back. Continue?'
-            : 'Your files will be decrypted and the vault disabled. Continue?')
+    const message = mode === 'destroy'
+        ? t('vault.confirmDisableDestroy')
+        : t('vault.confirmDisableDecrypt')
     if (!window.confirm(message)) return
     loading.value = true
     error.value = ''
@@ -295,7 +289,7 @@ async function disable(mode) {
         await refresh()
         await authStore.actions.setUser()
     } catch (err) {
-        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec de la désactivation. Veuillez réessayer.' : 'Disable failed. Please try again.')
+        error.value = err?.data?.statusMessage || t('vault.error.disable')
     } finally {
         loading.value = false
     }
@@ -318,7 +312,7 @@ async function destroyVault() {
         await refresh()
         await authStore.actions.setUser()
     } catch (err) {
-        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec de la destruction. Veuillez réessayer.' : 'Destruction failed. Please try again.')
+        error.value = err?.data?.statusMessage || t('vault.error.destroy')
     } finally {
         loading.value = false
     }

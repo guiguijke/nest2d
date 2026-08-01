@@ -14,7 +14,7 @@
                 {{ file.name }}
             </p>
             <MainButton :size="sizeType.s" :theme="themeType.secondary"
-                href="https://github.com/guiguijke/nest2d/issues/new" target="_blank" label="Report a problem"
+                href="https://github.com/guiguijke/nest2d/issues/new" target="_blank" :label="t('nav.reportProblem')"
                 tag="a" trackingTag="report_problem" class="file__problem" />
         </template>
         <template v-else>
@@ -63,6 +63,7 @@ const emit = defineEmits(['openModal'])
 
 const { actions } = stripStore
 const { increment, decrement, updateCount, updateRotation } = actions
+const { t } = useLocale()
 
 const isInProgress = computed(() => props.file.processingStatus === processingType.inProgress)
 const isError = computed(() => props.file.processingStatus === processingType.error)
