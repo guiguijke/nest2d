@@ -8,6 +8,7 @@ pub mod sa;
 use crate::config::EngineConfig;
 use crate::spp::derive_seed;
 use anyhow::{Context, Result, bail};
+use constructive::DirBias;
 use jagua_rs::io::import::Importer;
 use jagua_rs::probs::bpp::io::ext_repr::{ExtBPInstance, ExtBPSolution};
 use rand::SeedableRng;
@@ -34,6 +35,7 @@ pub struct ExtBPOutput {
 
 struct WorkerRun {
     seed: u64,
+    bias: DirBias,
     cost: sa::Cost,
     solution: jagua_rs::probs::bpp::entities::BPSolution,
     iterations: usize,
@@ -98,11 +100,13 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         .into_par_iter()
         .map(|w| {
             let seed = derive_seed(config.prng_seed, w);
+            let bias = DirBias::from_worker(w);
             let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
             let report = sa::anneal(
                 instance,
                 N_SAMPLES_PER_ITEM,
                 deadline,
+                bias,
                 &mut rng,
                 |cost, solution| {
                     println!(
@@ -165,6 +169,7 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
             );
             WorkerRun {
                 seed,
+                bias,
                 cost: report.best_cost,
                 solution: report.best_solution,
                 iterations: report.iterations,
@@ -186,13 +191,36 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         bail!("no feasible solution: {best_unplaced} items could not be placed");
     }
 
+    // Alternatives are grouped by directional bias class so the exported
+    // options are structurally distinct: best run of each class, classes in
+    // fixed order (left / bottom / balanced — the contract asked by users:
+    // option 1 is the historical left-packed layout, option 2 packs to the
+    // bottom, option 3 mixes both), then the remaining runs by cost as
+    // fallback when a class has no feasible run or more alternatives are
+    // requested than there are classes.
+    let mut ordered: Vec<&WorkerRun> = [
+        DirBias::LeftFirst,
+        DirBias::BottomFirst,
+        DirBias::Balanced,
+    ]
+    .into_iter()
+    .filter_map(|b| {
+        feasible
+            .iter()
+            .copied()
+            .filter(|r| r.bias == b)
+            .min_by(|a, b| a.cost.cmp_key().cmp(&b.cost.cmp_key()).then(a.seed.cmp(&b.seed)))
+    })
+    .collect();
+    ordered.extend(feasible.iter().copied());
+
     // Export incumbent + distinct alternatives.
     let epoch = *sparrow::EPOCH;
     let mut seen = std::collections::HashSet::new();
     let mut alternatives = Vec::new();
     let mut best_json: Option<ExtBPOutput> = None;
 
-    for run in feasible.iter() {
+    for run in ordered {
         let ext_sol = jagua_rs::probs::bpp::io::export(instance, &run.solution, epoch);
         let fp = solution_fingerprint(&ext_sol);
         if !seen.insert(fp) {
@@ -208,6 +236,7 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         alternatives.push(serde_json::json!({
             "rank": alternatives.len(),
             "seed": run.seed,
+            "bias": run.bias.as_str(),
             "cost": output.solution.cost,
             "density": output.solution.density,
             "layout_count": output.solution.layouts.len(),

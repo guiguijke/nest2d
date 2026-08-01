@@ -52,6 +52,64 @@ const BL_X: f32 = 10.0;
 /// or pocket grows the used bbox by 0 and always beats an edge placement.
 /// This is what fills cutouts instead of sprinkling parts along the edges.
 const GROWTH_WEIGHT: f32 = 10.0;
+/// Strength of the directional steering: the growth cost is inflated by up
+/// to (1 + DIR_ALPHA) when the placement extends the used bbox to the far
+/// side of the sheet in the discouraged direction. Dimensionless, so it
+/// scales with any sheet size; multiplicative on growth, so in-bbox
+/// placements (growth = 0, holes included) are never penalized.
+/// Empirical ceiling: at 2.0 the LeftFirst constructive loses a sheet on the
+/// dense 160-piece case (columns too narrow to pack efficiently); 1.5 keeps
+/// every bias feasible there while still visibly steering sparse layouts.
+const DIR_ALPHA: f32 = 1.5;
+
+/// Directional bias assigned per SA worker so the exported alternatives are
+/// structurally distinct layouts rather than near-identical converged copies
+/// of the same corner-packed solution. Steers by inflating the growth cost
+/// proportionally to how far the placement pushes the used bbox in the
+/// discouraged direction — a placement inside the current bbox (holes and
+/// pockets included) has zero growth and always beats any bbox-extending
+/// placement, so hole filling is never traded for bias.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DirBias {
+    /// Historical behaviour: discourage x extent — packs along the left edge.
+    LeftFirst,
+    /// Discourage y extent — packs along the bottom edge.
+    BottomFirst,
+    /// Discourage both equally — compact corner blob (mix of both).
+    Balanced,
+}
+
+impl DirBias {
+    /// Deterministic per-worker assignment: covers all three classes as soon
+    /// as n_workers >= 3 (always the case: n_workers >= n_alternatives).
+    pub fn from_worker(w: usize) -> Self {
+        match w % 3 {
+            0 => DirBias::LeftFirst,
+            1 => DirBias::BottomFirst,
+            _ => DirBias::Balanced,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DirBias::LeftFirst => "left",
+            DirBias::BottomFirst => "bottom",
+            DirBias::Balanced => "balanced",
+        }
+    }
+
+    /// Discouraged-extent ratio of the merged used-bbox, in [0, 1].
+    fn extent_ratio(&self, merged: &Rect, bin_w: f32, bin_h: f32) -> f32 {
+        let xr = if bin_w > 0.0 { merged.x_max / bin_w } else { 0.0 };
+        let yr = if bin_h > 0.0 { merged.y_max / bin_h } else { 0.0 };
+        match self {
+            DirBias::LeftFirst => xr,
+            DirBias::BottomFirst => yr,
+            DirBias::Balanced => (xr + yr) * 0.5,
+        }
+        .clamp(0.0, 1.0)
+    }
+}
 
 /// Placement evaluator that primarily minimizes the MARGINAL GROWTH of the
 /// layout's used bbox (hole/pocket filling), with bottom-left as tie-break.
@@ -63,11 +121,14 @@ pub struct HoleFillEvaluator<'a> {
     shape_buff: SPolygon,
     used_bbox: Rect,
     used_area: f32,
+    bias: DirBias,
+    bin_w: f32,
+    bin_h: f32,
     n_evals: usize,
 }
 
 impl<'a> HoleFillEvaluator<'a> {
-    pub fn new(layout: &'a Layout, item: &'a jagua_rs::entities::Item) -> Self {
+    pub fn new(layout: &'a Layout, item: &'a jagua_rs::entities::Item, bias: DirBias) -> Self {
         let used_bbox = layout
             .placed_items
             .values()
@@ -82,12 +143,16 @@ impl<'a> HoleFillEvaluator<'a> {
                 y_max: 0.0,
             });
         let used_area = rect_area(&used_bbox);
+        let bin_bbox = layout.container.outer_cd.bbox;
         Self {
             layout,
             item,
             shape_buff: item.shape_cd.as_ref().clone(),
             used_bbox,
             used_area,
+            bias,
+            bin_w: bin_bbox.width(),
+            bin_h: bin_bbox.height(),
             n_evals: 0,
         }
     }
@@ -111,8 +176,9 @@ impl<'a> SampleEvaluator for HoleFillEvaluator<'a> {
         let corner = b.corners()[0];
         let poi = self.shape_buff.poi.center;
         let bottom_left = BL_X * (poi.0 + corner.0) + (poi.1 + corner.1);
+        let steer = 1.0 + DIR_ALPHA * self.bias.extent_ratio(&merged, self.bin_w, self.bin_h);
         SampleEval::Clear {
-            loss: growth * GROWTH_WEIGHT + bottom_left,
+            loss: growth * GROWTH_WEIGHT * steer + bottom_left,
         }
     }
 
@@ -143,9 +209,10 @@ fn pick_host<'a>(
 fn search_layout(
     layout: &Layout,
     item: &jagua_rs::entities::Item,
+    bias: DirBias,
     rng: &mut impl Rng,
 ) -> Option<(DTransformation, f32)> {
-    let evaluator = HoleFillEvaluator::new(layout, item);
+    let evaluator = HoleFillEvaluator::new(layout, item, bias);
     let host = pick_host(layout, item);
     let (best, _) = search_placement(layout, item, host, evaluator, SAMPLE_CFG, rng);
     best.and_then(|(dt, eval)| match eval {
@@ -167,6 +234,7 @@ pub fn construct(
     instance: &BPInstance,
     sequence: &[usize],
     n_samples: usize,
+    bias: DirBias,
     rng: &mut impl Rng,
 ) -> ConstructiveResult {
     let _ = n_samples; // superseded by SAMPLE_CFG, kept for API compatibility
@@ -188,7 +256,7 @@ pub fn construct(
                 unreachable!()
             };
             let layout = &problem.layouts[lkey];
-            if let Some((d_transf, loss)) = search_layout(layout, item, rng) {
+            if let Some((d_transf, loss)) = search_layout(layout, item, bias, rng) {
                 if best.as_ref().is_none_or(|(best_loss, _)| loss < *best_loss) {
                     best = Some((loss, BPPlacement {
                         layout_id,
@@ -206,7 +274,7 @@ pub fn construct(
                     continue;
                 }
                 let layout = Layout::new(problem.instance.container(bin_id).clone());
-                if let Some((d_transf, loss)) = search_layout(&layout, item, rng) {
+                if let Some((d_transf, loss)) = search_layout(&layout, item, bias, rng) {
                     best = Some((loss, BPPlacement {
                         layout_id: BPLayoutType::Closed { bin_id },
                         item_id,
@@ -275,9 +343,83 @@ mod tests {
         let instance = tiny_instance();
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(1);
         let seq = sa::initial_sequence(&instance);
-        let result = construct(&instance, &seq, 200, &mut rng);
+        let result = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut rng);
         assert_eq!(result.unplaced, 0, "all 10 rectangles must fit");
         assert_eq!(result.solution.layout_snapshots.len(), 1, "one sheet suffices");
+    }
+
+    #[test]
+    fn diag_bias_bboxes() {
+        let instance = tiny_instance();
+        let seq = sa::initial_sequence(&instance);
+        for bias in [DirBias::LeftFirst, DirBias::BottomFirst, DirBias::Balanced] {
+            for seed in [11u64, 12, 13] {
+                let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+                let result = construct(&instance, &seq, 200, bias, &mut rng);
+                let ls = result.solution.layout_snapshots.values().next().unwrap();
+                let mut r: Option<Rect> = None;
+                for pi in ls.placed_items.values() {
+                    r = Some(match r {
+                        None => pi.shape.bbox,
+                        Some(acc) => merge_rect(&acc, &pi.shape.bbox),
+                    });
+                }
+                let r = r.unwrap();
+                eprintln!(
+                    "{bias:?} seed {seed}: bbox {:.1}x{:.1} (w x h)",
+                    r.x_max - r.x_min,
+                    r.y_max - r.y_min
+                );
+            }
+        }
+    }
+
+    /// The directional extent penalty steers the packing shape: 10 rectangles
+    /// 100x80 in a 400x560 sheet pack strictly no wider and no flatter under
+    /// LeftFirst than under BottomFirst, on every seed — and at least one
+    /// seed shows the fully steered tall-columns shape. (Steering is relative,
+    /// not absolute: on geometries where rows are area-optimal the growth
+    /// term keeps both classes compact, LeftFirst is just relatively
+    /// narrower/taller.)
+    #[test]
+    fn bias_steers_packing_direction() {
+        let instance = tiny_instance();
+        let seq = sa::initial_sequence(&instance);
+
+        let used_bbox = |bias: DirBias, seed: u64| {
+            let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+            let result = construct(&instance, &seq, 200, bias, &mut rng);
+            assert_eq!(result.unplaced, 0);
+            let ls = result.solution.layout_snapshots.values().next().unwrap();
+            let mut r: Option<Rect> = None;
+            for pi in ls.placed_items.values() {
+                r = Some(match r {
+                    None => pi.shape.bbox,
+                    Some(acc) => merge_rect(&acc, &pi.shape.bbox),
+                });
+            }
+            r.unwrap()
+        };
+
+        let mut strongly_steered = false;
+        for seed in [11, 12, 13] {
+            let left = used_bbox(DirBias::LeftFirst, seed);
+            let bottom = used_bbox(DirBias::BottomFirst, seed);
+            let left_w = left.x_max - left.x_min;
+            let left_h = left.y_max - left.y_min;
+            let bottom_w = bottom.x_max - bottom.x_min;
+            let bottom_h = bottom.y_max - bottom.y_min;
+            assert!(
+                left_w <= bottom_w + 1.0 && left_h >= bottom_h - 1.0,
+                "LeftFirst ({left_w:.0}x{left_h:.0}) should be narrower/taller \
+                 than BottomFirst ({bottom_w:.0}x{bottom_h:.0}) (seed {seed})"
+            );
+            strongly_steered |= left_h > left_w;
+        }
+        assert!(
+            strongly_steered,
+            "at least one seed should show the fully steered left-column shape"
+        );
     }
 
     #[test]
@@ -288,6 +430,7 @@ mod tests {
             &instance,
             200,
             Duration::from_secs(2),
+            DirBias::LeftFirst,
             &mut rng,
             |_, _| {},
             |_, _| {},
@@ -358,7 +501,7 @@ mod scale_tests {
         let instance = instance_160();
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(3);
         let seq = sa::initial_sequence(&instance);
-        let result = construct(&instance, &seq, 300, &mut rng);
+        let result = construct(&instance, &seq, 300, DirBias::LeftFirst, &mut rng);
         eprintln!("unplaced: {}", result.unplaced);
         for (k, ls) in result.solution.layout_snapshots.iter() {
             let n_squares = ls.placed_items.values().filter(|pi| pi.item_id == 0).count();
@@ -408,6 +551,68 @@ mod scale_tests {
             nested * 2 >= total_sectors,
             "holes underfilled: {nested}/{total_sectors} sectors nested"
         );
+    }
+
+    /// The three directional biases must all stay feasible on the 160-piece
+    /// case (hole filling is never traded for bias) and produce genuinely
+    /// different layouts — this is what makes the exported alternatives
+    /// structurally distinct.
+    #[test]
+    fn biases_all_feasible_and_distinct_160() {
+        let instance = instance_160();
+        let seq = sa::initial_sequence(&instance);
+
+        let mut layouts_sig = Vec::new();
+        for bias in [DirBias::LeftFirst, DirBias::BottomFirst, DirBias::Balanced] {
+            let mut rng = Xoshiro256PlusPlus::seed_from_u64(7);
+            let result = construct(&instance, &seq, 300, bias, &mut rng);
+            assert_eq!(result.unplaced, 0, "{bias:?} must place all 160 items");
+            assert_eq!(
+                result.solution.layout_snapshots.len(),
+                2,
+                "{bias:?} must stay on 2 sheets"
+            );
+            // Signature: sorted (item, rounded x, rounded y) of every placement.
+            let mut sig: Vec<(usize, i64, i64)> = result
+                .solution
+                .layout_snapshots
+                .values()
+                .flat_map(|ls| {
+                    ls.placed_items.values().map(|pi| {
+                        let t = pi.d_transf.translation();
+                        (
+                            pi.item_id,
+                            (t.0 * 10.0).round() as i64,
+                            (t.1 * 10.0).round() as i64,
+                        )
+                    })
+                })
+                .collect();
+            sig.sort_unstable();
+            layouts_sig.push((bias, sig));
+            for (k, ls) in result.solution.layout_snapshots.iter() {
+                let mut r: Option<Rect> = None;
+                for pi in ls.placed_items.values() {
+                    r = Some(match r {
+                        None => pi.shape.bbox,
+                        Some(acc) => merge_rect(&acc, &pi.shape.bbox),
+                    });
+                }
+                let r = r.unwrap();
+                eprintln!(
+                    "{bias:?} layout {:?}: used {:.0}x{:.0}",
+                    k,
+                    r.x_max - r.x_min,
+                    r.y_max - r.y_min
+                );
+            }
+        }
+
+        for (i, (ba, sig_a)) in layouts_sig.iter().enumerate() {
+            for (bb, sig_b) in layouts_sig.iter().skip(i + 1) {
+                assert_ne!(sig_a, sig_b, "{ba:?} and {bb:?} produced identical layouts");
+            }
+        }
     }
 }
 

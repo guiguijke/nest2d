@@ -4,7 +4,7 @@
 //! lexicographic: (1) every item placed, (2) fewest bin cost, (3) biggest
 //! reusable remnant per sheet, (4) most uneven fill (Falkenauer).
 
-use super::constructive::construct;
+use super::constructive::{DirBias, construct};
 use jagua_rs::entities::Instance;
 use jagua_rs::entities::LayoutSnapshot;
 use jagua_rs::probs::bpp::entities::{BPInstance, BPSolution};
@@ -149,10 +149,13 @@ pub struct SaReport {
 
 /// Runs the annealing until `deadline`. `on_improvement` is called every time
 /// the incumbent improves (for live progress); `on_heartbeat` at ~1 Hz.
+/// `bias` steers the constructive's directional tie-break (per-worker, so
+/// exported alternatives are structurally distinct).
 pub fn anneal(
     instance: &BPInstance,
     n_samples: usize,
     deadline: Duration,
+    bias: DirBias,
     rng: &mut impl Rng,
     mut on_improvement: impl FnMut(&Cost, &BPSolution),
     mut on_heartbeat: impl FnMut(usize, &Cost),
@@ -163,7 +166,7 @@ pub fn anneal(
     let mut seq = initial_sequence(instance);
 
     // Evaluate the initial sequence.
-    let initial = construct(instance, &seq, n_samples, rng);
+    let initial = construct(instance, &seq, n_samples, bias, rng);
     let mut current_cost = cost_of(&initial.solution, instance, initial.unplaced);
 
     // Incumbent: the actual best solution ever seen (stored, never rebuilt —
@@ -211,7 +214,7 @@ pub fn anneal(
             }
         };
 
-        let candidate = construct(instance, &seq, n_samples, rng);
+        let candidate = construct(instance, &seq, n_samples, bias, rng);
         let candidate_cost = cost_of(&candidate.solution, instance, candidate.unplaced);
 
         let elapsed_frac = (started.elapsed().as_secs_f64() / deadline.as_secs_f64()).min(1.0);
