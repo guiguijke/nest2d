@@ -1,7 +1,8 @@
 import { defineEventHandler, createError } from "h3";
 
-import { connectDB } from "~~/server/db/mongo";
-import { saveFilesToProject } from "~~/server/core/project/dxf";
+import { DOMAINS } from "~~/server/core/domains";
+import { saveFiles } from "~~/server/core/project/dxf";
+import { assertProjectAccess } from "~~/server/core/project/service";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;
@@ -10,19 +11,9 @@ export default defineEventHandler(async (event) => {
   }
   const projectSlug = getRouterParam(event, "slug");
 
-  const db = await connectDB();
+  await assertProjectAccess(DOMAINS.bin, userId, projectSlug);
 
-  const project = await db.collection("projects").findOne({
-    slug: projectSlug,
-  });
-
-  const projectOwnerId = project.ownerId;
-
-  if (projectOwnerId !== userId) {
-    throw createError({ statusCode: 403, message: "Forbidden" });
-  }
-
-  await saveFilesToProject(event, projectSlug, userId);
+  await saveFiles(DOMAINS.bin, event, projectSlug, userId);
 
   return {
     slug: projectSlug,

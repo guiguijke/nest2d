@@ -10,6 +10,25 @@ let client;
 export let db;
 
 /**
+ * Lazily created GridFS buckets, keyed by bucket name. Bucket names per
+ * domain live in server/core/domains.js — new buckets no longer need a
+ * dedicated getter here.
+ */
+const buckets = {};
+
+/**
+ * @param {string} bucketName
+ * @returns {Promise<GridFSBucket>}
+ */
+export async function getBucket(bucketName) {
+  await connectDB();
+  if (!buckets[bucketName]) {
+    buckets[bucketName] = new GridFSBucket(db, { bucketName });
+  }
+  return buckets[bucketName];
+}
+
+/**
  * @type {GridFSBucket}
  */
 let avatarBucket;
@@ -27,103 +46,34 @@ export async function getAvatarBucket() {
   return avatarBucket;
 }
 
-let svgResultBucket;
-
-/**
- * @returns {Promise<GridFSBucket>}
- */
+/** @returns {Promise<GridFSBucket>} */
 export async function getSvgResultBucket() {
-  await connectDB();
-  if (!svgResultBucket) {
-    svgResultBucket = new GridFSBucket(db, {
-      bucketName: "nestSvg",
-    });
-  }
-  return svgResultBucket;
+  return getBucket("nestSvg");
 }
 
-let userDxfFilesSvg;
-
-/**
- * @returns {Promise<GridFSBucket>}
- */
+/** @returns {Promise<GridFSBucket>} */
 export async function getUserDxfFilesSvgBucket() {
-  await connectDB();
-  if (!userDxfFilesSvg) {
-    userDxfFilesSvg = new GridFSBucket(db, {
-      bucketName: "userDxfFilesSvg",
-    });
-  }
-  return userDxfFilesSvg;
+  return getBucket("userDxfFilesSvg");
 }
 
-let dxfResultBucket;
-
-/**
- * @returns {Promise<GridFSBucket>}
- */
+/** @returns {Promise<GridFSBucket>} */
 export async function getDxfResultBucket() {
-  await connectDB();
-  if (!dxfResultBucket) {
-    dxfResultBucket = new GridFSBucket(db, {
-      bucketName: "nestDxf",
-    });
-  }
-  return dxfResultBucket;
+  return getBucket("nestDxf");
 }
 
-/**
- * @type {GridFSBucket}
- */
-let userDxfBucket;
-
-/**
- * @returns {Promise<GridFSBucket>}
- */
+/** @returns {Promise<GridFSBucket>} */
 export async function getUserDxfBucket() {
-  await connectDB();
-  if (!userDxfBucket) {
-    userDxfBucket = new GridFSBucket(db, {
-      bucketName: "userDxf",
-    });
-  }
-  return userDxfBucket;
+  return getBucket("userDxf");
 }
 
-/**
- * @type {GridFSBucket}
- */
-let stripUserDxfBucket;
-
-/**
- * @returns {Promise<GridFSBucket>}
- */
+/** @returns {Promise<GridFSBucket>} */
 export async function getStripUserDxfBucket() {
-  await connectDB();
-  if (!stripUserDxfBucket) {
-    stripUserDxfBucket = new GridFSBucket(db, {
-      bucketName: "stripUserDxf",
-    });
-  }
-  return stripUserDxfBucket;
+  return getBucket("stripUserDxf");
 }
 
-/**
- * @type {GridFSBucket}
- */
-let stripNestDxfBucket;
-
-/**
- * @returns {Promise<GridFSBucket>}
- */
+/** @returns {Promise<GridFSBucket>} */
 export async function getStripNestDxfBucket() {
-  await connectDB();
-  if (!stripNestDxfBucket) {
-    stripNestDxfBucket = new GridFSBucket(db, {
-      bucketName: "stripNestDxf",
-    });
-  }
-  return stripNestDxfBucket;
+  return getBucket("stripNestDxf");
 }
 
 /**
@@ -144,22 +94,9 @@ export async function getUserSvgBucket() {
   return userSvgBucket;
 }
 
-/**
- * @type {GridFSBucket}
- */
-let validUserDxfBucket;
-
-/**
- * @returns {Promise<GridFSBucket>}
- */
+/** @returns {Promise<GridFSBucket>} */
 export async function getValidUserDxfBucket() {
-  await connectDB();
-  if (!validUserDxfBucket) {
-    validUserDxfBucket = new GridFSBucket(db, {
-      bucketName: "validDxf",
-    });
-  }
-  return validUserDxfBucket;
+  return getBucket("validDxf");
 }
 
 export async function connectDB() {
