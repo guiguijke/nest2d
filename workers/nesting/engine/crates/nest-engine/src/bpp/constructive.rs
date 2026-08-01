@@ -80,13 +80,19 @@ pub enum DirBias {
 }
 
 impl DirBias {
-    /// Deterministic per-worker assignment: covers all three classes as soon
-    /// as n_workers >= 3 (always the case: n_workers >= n_alternatives).
-    pub fn from_worker(w: usize) -> Self {
-        match w % 3 {
-            0 => DirBias::LeftFirst,
-            1 => DirBias::BottomFirst,
-            _ => DirBias::Balanced,
+    /// All classes, in the canonical export order (left, bottom, balanced).
+    pub const ALL: [DirBias; 3] = [
+        DirBias::LeftFirst,
+        DirBias::BottomFirst,
+        DirBias::Balanced,
+    ];
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "left" => Some(DirBias::LeftFirst),
+            "bottom" => Some(DirBias::BottomFirst),
+            "balanced" => Some(DirBias::Balanced),
+            _ => None,
         }
     }
 
@@ -448,6 +454,7 @@ mod tests {
             Duration::from_secs(2),
             DirBias::LeftFirst,
             None,
+            None,
             &mut rng,
             |_, _| {},
             |_, _| {},
@@ -455,6 +462,34 @@ mod tests {
         assert_eq!(report.best_cost.unplaced, 0);
         assert_eq!(report.best_cost.bin_cost, 1);
         assert!(report.iterations > 0);
+    }
+
+    /// With a plateau patience, a converged walk stops long before its
+    /// deadline: the tiny instance reaches its optimum (1 bin) almost
+    /// immediately, so a 0.5s patience must cut a 30s budget short.
+    #[test]
+    fn plateau_stops_converged_walk_early() {
+        let instance = tiny_instance();
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(4);
+        let started = std::time::Instant::now();
+        let report = sa::anneal(
+            &instance,
+            200,
+            Duration::from_secs(30),
+            DirBias::LeftFirst,
+            None,
+            Some(Duration::from_millis(500)),
+            &mut rng,
+            |_, _| {},
+            |_, _| {},
+        );
+        let elapsed = started.elapsed();
+        assert_eq!(report.best_cost.unplaced, 0);
+        assert_eq!(report.best_cost.bin_cost, 1);
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "plateau should stop the walk well before the 30s deadline ({elapsed:?})"
+        );
     }
 }
 
@@ -680,6 +715,7 @@ mod scale_tests {
                         Duration::from_secs(budget_s),
                         bias,
                         initial,
+                        None,
                         &mut rng,
                         |_, _| {},
                         |_, _| {},

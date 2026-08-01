@@ -164,12 +164,16 @@ pub struct SaReport {
 /// `initial_seq` is an optional warm-start sequence (positional item ids,
 /// expanded by demand); used only if its length matches the total item
 /// quantity, otherwise the decreasing-diameter default kicks in.
+/// `plateau_patience`: stop early when the incumbent has not improved for
+/// this long (after MIN_ITERS_BEFORE_PLATEAU iterations) — "compute until
+/// convergence" instead of burning the full budget on easy instances.
 pub fn anneal(
     instance: &BPInstance,
     n_samples: usize,
     deadline: Duration,
     bias: DirBias,
     initial_seq: Option<Vec<usize>>,
+    plateau_patience: Option<Duration>,
     rng: &mut impl Rng,
     mut on_improvement: impl FnMut(&Cost, &BPSolution),
     mut on_heartbeat: impl FnMut(usize, &Cost),
@@ -188,11 +192,16 @@ pub fn anneal(
     let mut best_solution = initial.solution.clone();
     let mut best_cost = current_cost;
     on_improvement(&best_cost, &best_solution);
+    let mut last_improvement = Instant::now();
 
     // Temperature schedule: geometric from T0 to T_END over the time budget.
     // Δcost is in "bin-equivalents" (10 per bin), so T0 ~ a few bins.
     const T0: f64 = 5.0;
     const T_END: f64 = 0.01;
+    // Never plateau-stop before this many iterations: on big instances each
+    // iteration is a full constructive pass (~100ms+), so early iterations
+    // are too sparse to judge convergence.
+    const MIN_ITERS_BEFORE_PLATEAU: usize = 200;
 
     let n = seq.len();
     let mut iterations = 0usize;
@@ -200,6 +209,15 @@ pub fn anneal(
 
     while Instant::now() < end {
         iterations += 1;
+
+        // Plateau stop: no incumbent improvement for `patience`.
+        if let Some(patience) = plateau_patience {
+            if iterations >= MIN_ITERS_BEFORE_PLATEAU
+                && last_improvement.elapsed() >= patience
+            {
+                break;
+            }
+        }
 
         // Pick and apply a move.
         let mov = match rng.random_range(0..4) {
@@ -241,6 +259,7 @@ pub fn anneal(
             if candidate_cost.cmp_key() < best_cost.cmp_key() {
                 best_cost = candidate_cost;
                 best_solution = candidate.solution.clone();
+                last_improvement = Instant::now();
                 on_improvement(&best_cost, &best_solution);
             }
         } else {

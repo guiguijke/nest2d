@@ -97,11 +97,13 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
     // Deterministic per worker; ranking below is deterministic too.
     let live = config.live_events();
     let warm_start = config.initial_sequence.clone();
+    let biases = config.dir_biases();
+    let plateau_patience = config.plateau_patience();
     let mut runs: Vec<WorkerRun> = (0..n_workers)
         .into_par_iter()
         .map(|w| {
             let seed = derive_seed(config.prng_seed, w);
-            let bias = DirBias::from_worker(w);
+            let bias = biases[w % biases.len()];
             let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
             let report = sa::anneal(
                 instance,
@@ -109,6 +111,7 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                 deadline,
                 bias,
                 warm_start.clone(),
+                plateau_patience,
                 &mut rng,
                 |cost, solution| {
                     println!(
@@ -194,26 +197,22 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
     }
 
     // Alternatives are grouped by directional bias class so the exported
-    // options are structurally distinct: best run of each class, classes in
-    // fixed order (left / bottom / balanced — the contract asked by users:
-    // option 1 is the historical left-packed layout, option 2 packs to the
-    // bottom, option 3 mixes both), then the remaining runs by cost as
-    // fallback when a class has no feasible run or more alternatives are
-    // requested than there are classes.
-    let mut ordered: Vec<&WorkerRun> = [
-        DirBias::LeftFirst,
-        DirBias::BottomFirst,
-        DirBias::Balanced,
-    ]
-    .into_iter()
-    .filter_map(|b| {
-        feasible
-            .iter()
-            .copied()
-            .filter(|r| r.bias == b)
-            .min_by(|a, b| a.cost.cmp_key().cmp(&b.cost.cmp_key()).then(a.seed.cmp(&b.seed)))
-    })
-    .collect();
+    // options are structurally distinct: best run of each ACTIVE class,
+    // classes in fixed order (left / bottom / balanced — the contract asked
+    // by users), then the remaining runs by cost as fallback when a class
+    // has no feasible run or more alternatives are requested than there are
+    // active classes.
+    let mut ordered: Vec<&WorkerRun> = DirBias::ALL
+        .into_iter()
+        .filter(|b| biases.contains(b))
+        .filter_map(|b| {
+            feasible
+                .iter()
+                .copied()
+                .filter(|r| r.bias == b)
+                .min_by(|a, b| a.cost.cmp_key().cmp(&b.cost.cmp_key()).then(a.seed.cmp(&b.seed)))
+        })
+        .collect();
     ordered.extend(feasible.iter().copied());
 
     // Export incumbent + distinct alternatives.
