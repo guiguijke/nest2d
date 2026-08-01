@@ -1,12 +1,15 @@
+import { randomBytes } from "node:crypto";
+
+/**
+ * Cryptographically secure random string.
+ *
+ * Used for session ids and Stripe checkout internal ids — both are
+ * security-sensitive, so Math.random() (a non-cryptographic PRNG) is unsafe.
+ * Matches the pattern used by the admin panel (randomBytes + hex).
+ */
 export function generateRandomString(count) {
-  let result = "";
-  const characters =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const charactersLength = characters.length;
-  for (let i = 0; i < count; i++) {
-    result += characters.charAt(Math.floor(Math.random() * charactersLength));
-  }
-  return result;
+  const bytes = randomBytes(Math.ceil(count / 2));
+  return bytes.toString("hex").slice(0, count);
 }
 
 export function generateEntityName() {

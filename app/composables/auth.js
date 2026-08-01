@@ -43,6 +43,10 @@ async function logout() {
         })
         state.user = {}
         state.userIsSet = false
+        // Invalidate the cached user payload so the next setUser() actually
+        // refetches instead of returning the pre-logout data (which would
+        // keep the user "logged in" on the client).
+        clearNuxtData('user')
     } catch (err) {
         console.error('Logout failed:', err)
     }

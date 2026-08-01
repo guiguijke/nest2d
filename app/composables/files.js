@@ -7,6 +7,7 @@ const { getProjects, setModalNestData } = actions
 
 const state = reactive({
     projectFiles: null,
+    projectSlug: null,
     projectName: '',
     lastParams: '',
     params: {
@@ -78,6 +79,24 @@ const state = reactive({
 
 let updateTimer
 
+// Keep polling the project while any uploaded file is still being processed
+// by the file processing worker, so the UI flips from a loader to the
+// selectable file as soon as processing completes. Mirrors strip.js.
+function scheduleFilesRefresh(path) {
+    if (updateTimer) {
+        clearTimeout(updateTimer)
+        updateTimer = null
+    }
+    const hasProcessing = (state.projectFiles || []).some(
+        (file) => file.processingStatus === processingType.inProgress
+    )
+    // Only re-poll if we are still on the same project — otherwise the timer
+    // would keep fetching the previous project after navigating away.
+    if (hasProcessing && path && path === state.projectSlug) {
+        updateTimer = setTimeout(() => getProject(path), 5000)
+    }
+}
+
 async function getProject(path) {
     try {
         const data = await $fetch(path)
@@ -97,23 +116,34 @@ function setProjectName(name) {
     state.projectName = name
 }
 function setProjectFiles(files, path) {
-    state.projectFiles = [
-        ...files.map((file, fileIndex) => ({
-            ...file,
-            count: state.currentFilesSlug.has(file.slug)
-                ? state.projectFiles[fileIndex].count
-                : 1,
-            rotation: state.currentFilesSlug.has(file.slug)
-                ? state.projectFiles[fileIndex].rotation
-                : null
-        }))
-    ]
-    if (updateTimer) {
-        clearTimeout(updateTimer)
+    // Only carry over the user-selected counts/rotations when we are reloading
+    // the same project (e.g. after uploading more files). When switching to a
+    // different project we must start fresh so stale values don't leak across.
+    // Indexed by slug (not by array position) so a reordered/trimmed file list
+    // can't read the wrong file's count and crash.
+    const sameProject = path != null && path === state.projectSlug
+    const countBySlug = new Map(
+        sameProject
+            ? (state.projectFiles || []).map((file) => [file.slug, file.count])
+            : []
+    )
+    const rotationBySlug = new Map(
+        sameProject
+            ? (state.projectFiles || []).map((file) => [file.slug, file.rotation])
+            : []
+    )
+    state.projectFiles = files.map((file) => ({
+        ...file,
+        count: countBySlug.has(file.slug) ? countBySlug.get(file.slug) : 1,
+        rotation: rotationBySlug.has(file.slug) ? rotationBySlug.get(file.slug) : null
+    }))
+    state.projectSlug = path ?? null
+    if (!sameProject) {
+        // Reset the "already nested" marker so the Nest button reflects the
+        // newly loaded project rather than the previous one.
+        state.lastParams = ''
     }
-    if (!state.isSvgLoaded) {
-        updateTimer = setTimeout(() => getProject(path), 5000)
-    }
+    scheduleFilesRefresh(path)
 }
 async function addFiles(files, slug) {
     const formData = new FormData()
