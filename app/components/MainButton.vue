@@ -67,7 +67,7 @@ const { label, icon, target, href, size, theme, isDisable, isLabelShow, isNotCli
 const attr = computed(() => {
     const hrefValue = Boolean(unref(href)) ? { href: unref(href) } : {} 
     const targetValue = Boolean(unref(target)) ? { target: unref(target) } : {}
-    const titleValue = !unref(isLabelShow)  ? { tilte: unref(label), 'aria-label': unref(label) } : {}
+    const titleValue = !unref(isLabelShow)  ? { title: unref(label), 'aria-label': unref(label) } : {}
     return {
         ...hrefValue,
         ...targetValue,
