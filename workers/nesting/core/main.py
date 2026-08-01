@@ -313,7 +313,7 @@ def nesting_process(doc):
     slug = doc.get("slug")
     files = doc.get("files")
     params = doc.get("params")
-    space = params.get("space")
+    space = params.get("space") or 0
     allow_rotation = params.get("allowRotation", True)
     add_out_shape = params.get("addOutShape", False)
     owner_id = doc.get("ownerId")

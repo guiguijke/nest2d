@@ -1,3 +1,4 @@
+import os
 import tempfile
 import uuid
 import ezdxf
@@ -23,11 +24,11 @@ def read_dxf(dxf_stream: GridOut) -> Drawing:
     Returns:
         Modelspace: The modelspace of the DXF document.
     """
-    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-        temp_file.write(dxf_stream.read())
-        temp_file_path = temp_file.name
-
-    return read_dxf_file(temp_file_path)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_file_path = os.path.join(tmpdir, "input.dxf")
+        with open(temp_file_path, "wb") as temp_file:
+            temp_file.write(dxf_stream.read())
+        return read_dxf_file(temp_file_path)
 
 def read_dxf_file(dxf_path: str) -> Drawing | None:
     """

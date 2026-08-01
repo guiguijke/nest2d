@@ -39,14 +39,16 @@ It's implement in purpuse to make the developer life easier.
 ### Run the workers
 
 ```sh
-docker stack deploy -c docker-stack-external.yml nest2d
+docker compose up
 ```
 
-The command runs the two workers user file processing and the nesting one. Each workes will have the replication equals to **one**. 
+This brings up the full stack from `docker-compose.yml`: the app, the admin
+panel, MongoDB and all four workers (file processing, nesting, and their
+"strip" variants). Each worker runs with replication equal to **one**.
 
-
-### Rfor windows
+To run only the workers (e.g. while developing the app locally), target the
+worker services explicitly:
 
 ```sh
-docker compose -f docker-stack-external.yml up
+docker compose up user-file-processing-worker nesting-worker strip-file-processing-worker strip-nesting-worker
 ```

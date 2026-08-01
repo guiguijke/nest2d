@@ -35,7 +35,7 @@ A **Nuxt 3 fullstack** application (frontend + API in the same process) built on
 - **Payments**: Stripe (subscription + credits) — optional.
 - **Email**: Resend (nesting-finished notifications, support messages) — optional.
 
-The 6 containers (app + mongo + 4 workers) run on an internal Docker network; only the app is exposed (on localhost) behind your reverse proxy.
+The 7 containers (app + admin + mongo + 4 workers) run on an internal Docker network; only the app is exposed (on localhost) behind your reverse proxy.
 
 ```
                     ┌─────────────────────────────────┐
@@ -107,7 +107,7 @@ docker compose up -d
 
 ## Administration panel
 
-Administration is handled by a **separate application** living in [`./admin`](./admin/README.md): a Nuxt app with its own authentication (collection `admins`), exposed only on the local network. It shares the same MongoDB and provides user management, moderation (ban), credit adjustments, free-month grants (Stripe coupon or local grant), geo analytics, logs, support chat and payments overview.
+Administration is handled by a **separate application** living in [`./admin`](./admin/README.md): a Nuxt app with its own authentication (collection `admins`), exposed only on the local network. It shares the same MongoDB and provides user management, moderation (ban), free-month grants (Stripe coupon or local grant), geo analytics, logs, support chat and payments overview.
 
 Create the first admin account after starting the stack:
 
@@ -199,7 +199,7 @@ export NUXT_MONGO_URI=mongodb://localhost:27017/nest2d
 npm run dev
 ```
 
-The workers (file processing + nesting) are required to process files. In dev, you can run them via `docker-stack-external.yml` (once images are built) or directly in Python (see `workers/*/README.md`).
+The workers (file processing + nesting) are required to process files. In dev, you can run them via `docker-compose.yml` (the homelab stack, which includes the app, admin, MongoDB and all four workers) or directly in Python (see `workers/*/README.md`).
 
 Production build:
 
@@ -212,20 +212,17 @@ node .output/server/index.mjs
 
 ## Stripe payments
 
-The code handles two models (selected by a feature flag `isStripFeatureEnable` on the user):
-
-- **Subscription** (Strip nesting) — `subscription_plan` collection + Stripe Checkout subscription
-- **Credits** (pay-as-you-go) — `products` collection + Stripe Checkout one-shot
+Billing is **subscription-only** (the earlier pay-as-you-go credit system has been removed). Two monthly plans are exposed through Stripe Checkout subscriptions: a standard Unlimited plan and a Pro plan (zero-knowledge vault + higher compute budget). The "strip" nesting variant is enabled for every account (`isStripFeatureEnable` is set to `true` at registration).
 
 ### To wire your own Stripe account
 
-1. Set `NUXT_STRIPE_SECRET_KEY` in `.env`.
-2. Create your products/prices in Stripe, then **insert them into MongoDB**:
-   - `products` collection: `{ stripePriceId, balance, title, description, prices: { usd: <cents> } }`
-   - `subscription_plan` collection: `{ id: "subscription", priceId, prices: {...} }`
+1. Set `NUXT_STRIPE_SECRET_KEY` and `NUXT_STRIPE_WEBHOOK_SECRET` in `.env`.
+2. Create your subscription products/prices in Stripe, then **insert them into MongoDB**:
+   - `subscription_plan` collection: `{ id: "subscription", priceId, prices: {...} }` (Unlimited)
+   - `subscription_plan` collection: `{ id: "subscription:privacy", priceId, prices: {...} }` (Pro)
 3. Update `server/features/payment/const.js` (`SUBSCRIPTION_PRODUCT_ID`) with your subscription product ID, or remove that constant if you have no subscription.
 
-> ⚠️ **Stripe webhook**: the current code does **not** receive Stripe webhooks — it synchronizes payments via **polling** (plugins `4_stripesync`, `5_stripe_price_sync`, etc.). This works but is less reactive. If your payments were not updating, this is very likely the cause.
+> **Stripe webhook**: subscription lifecycle events (`checkout.session.completed`, `customer.subscription.updated/deleted`, invoice events) are received by `server/api/stripe/webhook.post.js`, which verifies the HMAC signature and anti-replay window before updating the user's subscription status. Point your Stripe webhook endpoint at `/api/stripe/webhook`.
 
 ---
 
