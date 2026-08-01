@@ -1,6 +1,6 @@
-from utils.mongo import db
-from utils.logger import setup_logger
-from utils.crypto import resolve_polygon_parts
+from worker_common.mongo import db
+from worker_common.logger import setup_logger
+from worker_common.crypto import resolve_polygon_parts
 
 logger = setup_logger("strip_input_builder")
 

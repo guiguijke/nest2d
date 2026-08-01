@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import threading
 
-from utils.logger import setup_logger
+from worker_common.logger import setup_logger
 
 logger = setup_logger("nesting_engine")
 

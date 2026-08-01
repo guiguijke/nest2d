@@ -5,8 +5,11 @@ The worker rebuild the dxf file, and create a valid JSON presentation for the dx
 
 ## Build docker image
 
+The build context is `./workers` (not this folder) so the shared `worker_common`
+package (`workers/common`) can be installed into the image. From the repo root:
+
 ```sh
-docker build -t nest2d-worker-fileprocessing:local .
+docker build -f workers/fileprocessing/Dockerfile -t nest2d-worker-fileprocessing:local workers/
 ````
 
 Run as service
@@ -19,6 +22,16 @@ docker service create \
 ```
 
 ## Local development run 
+
+Install the shared package and the worker dependencies first:
+
+```sh
+pip install -e ../common
+pip install -r requirements.txt
+python main.py
+```
+
+Or with Docker:
 
 ```sh
 docker run --network host -it -v "$(pwd):/app" -w /app nest2d-worker-fileprocessing:local bash
