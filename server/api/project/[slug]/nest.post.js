@@ -1,11 +1,9 @@
 import { defineEventHandler, readBody } from 'h3'
 import { connectDB } from '~~/server/db/mongo'
-import { generateRandomString } from '~~/server/utils/strings'
-import standardSlugify from 'standard-slugify'
-import logger from '~~/server/utils/logger'
+import { DOMAINS } from '~~/server/core/domains'
+import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
 import { assertCanNest, getComputeProfile } from '~~/server/utils/entitlement'
-import { requireFileAccess } from '~~/server/utils/vault'
 
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId
@@ -80,13 +78,6 @@ export default defineEventHandler(async (event) => {
         }
     })
 
-    const nestingSlug = `nested-${fileMetadata
-        .map((file) => {
-            const fileNameSlug = standardSlugify(file.simpleName, { keepCase: false })
-            return fileNameSlug + '_' + file.count
-        })
-        .join('-')}-${generateRandomString(6)}`
-
     // Multi-sheet: the client sends params.sheets (list of sheet types with
     // their own dimensions and stock). Legacy clients send a single
     // width/height/sheetCount — normalized to the same shape.
@@ -141,24 +132,14 @@ export default defineEventHandler(async (event) => {
     dbParams.alternativesCount = compute.nAlternatives
     dbParams.computeLevel = compute.level
 
-    // Encrypted vaults must be unlocked before a job can be enqueued — the
-    // workers need an active session to read the source files. Also refreshes
-    // the sliding TTL so the session outlives the job.
-    await requireFileAccess(userId)
-
-    await db.collection('nesting_jobs').insertOne({
-        slug: nestingSlug,
-        projectSlug: projectSlug,
-        files: fileMetadata,
+    // Vault gate + job insertion (the already-consumed charge is passed so
+    // the quota is not consumed twice).
+    return await enqueueNestingJob(DOMAINS.bin, {
+        userId,
+        projectSlug,
+        fileMetadata,
         params: dbParams,
-        status: 'pending',
-        priority: compute.priority,
-        createdAt: new Date(),
-        ownerId: userId,
+        extraFields: { priority: compute.priority },
         charge,
     })
-
-    return {
-        slug: nestingSlug,
-    }
 })

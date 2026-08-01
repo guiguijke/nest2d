@@ -1,4 +1,6 @@
 import { connectDB } from "~~/server/db/mongo";
+import { DOMAINS } from "~~/server/core/domains";
+import { listJobs } from "~~/server/core/project/service";
 import { assertStripFeatureEnabled } from "~~/server/utils/featureFlags";
 
 export default defineEventHandler(async (event) => {
@@ -19,11 +21,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, message: "Strip project not found" });
   }
 
-  const jobs = await db
-    .collection("strip_nesting_job_queue")
-    .find({ stripSlug: slug, ownerId: userId })
-    .sort({ createdAt: -1 })
-    .toArray();
+  const jobs = await listJobs(DOMAINS.strip, userId, slug);
 
   return {
     items: jobs.map((job) => mapJobToUi(job)),

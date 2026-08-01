@@ -1,11 +1,9 @@
 import { defineEventHandler, readBody } from "h3";
 import { connectDB } from "~~/server/db/mongo";
-import { generateRandomString } from "~~/server/utils/strings";
-import standardSlugify from "standard-slugify";
+import { DOMAINS } from "~~/server/core/domains";
+import { enqueueNestingJob } from "~~/server/core/project/service";
 import { trackEvent } from "~~/server/tracking/add";
 import { assertStripFeatureEnabled } from "~~/server/utils/featureFlags";
-import { assertCanNest } from "~~/server/utils/entitlement";
-import { requireFileAccess } from "~~/server/utils/vault";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;
@@ -83,39 +81,15 @@ export default defineEventHandler(async (event) => {
     };
   });
 
-  const jobSlug = `strip-nested-${fileMetadata
-    .map((file) => {
-      const fileNameSlug = standardSlugify(file.simpleName, { keepCase: false });
-      return fileNameSlug + "_" + file.count;
-    })
-    .join("-")}-${generateRandomString(6)}`;
-
-  // Subscription / free-quota / credits gate. Consumes a unit only once the
-  // request is fully validated and about to be enqueued. The charge is stored
-  // on the job so the worker can refund it if the nesting fails.
-  const charge = await assertCanNest(userId);
-
-  // Encrypted vaults must be unlocked before a job can be enqueued — the
-  // workers need an active session to read the source files. Also refreshes
-  // the sliding TTL so the session outlives the job.
-  await requireFileAccess(userId);
-
-  await db.collection("strip_nesting_job_queue").insertOne({
-    slug: jobSlug,
-    stripSlug: stripSlug,
-    files: fileMetadata,
+  // Subscription / free-quota gate + vault gate + job insertion.
+  return await enqueueNestingJob(DOMAINS.strip, {
+    userId,
+    projectSlug: stripSlug,
+    fileMetadata,
     params: {
       height: height,
     },
-    status: "pending",
-    createdAt: new Date(),
-    ownerId: userId,
-    charge,
   });
-
-  return {
-    slug: jobSlug,
-  };
 });
 
 /**
