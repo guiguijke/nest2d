@@ -1,21 +1,21 @@
 <template>
     <div class="licences">
         <h1 class="licences__title">
-            License Information
+            {{ t('licences.title') }}
         </h1>
         <h2 class="licences__subtitle">
-            Third-Party Licenses
+            {{ t('licences.subtitle') }}
         </h2>
         <p class="licences__text">
-            Below is a list of third-party dependencies and their respective licenses used in this project:
+            {{ t('licences.text') }}
         </p>
         <div class="licences__table-wrapper">
             <table class="licences__table">
                 <thead>
                     <tr>
-                        <th>Package</th>
-                        <th>Version</th>
-                        <th>License</th>
+                        <th>{{ t('licences.col.package') }}</th>
+                        <th>{{ t('licences.col.version') }}</th>
+                        <th>{{ t('licences.col.license') }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -35,6 +35,7 @@
 
 <script setup>
 import { packages } from "~~/data/licences";
+const { t } = useLocale()
 definePageMeta({
     layout: "doc",
 });
