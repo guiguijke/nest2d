@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import { timingSafeEqual } from 'node:crypto'
 import { connectDB, COL } from '../../db/mongo'
 import { setupToken } from '../../utils/setupToken'
 
@@ -16,8 +17,15 @@ export default defineEventHandler(async (event) => {
   const name = String(body?.name || '').trim()
   const password = String(body?.password || '')
 
-  // Validate the token.
-  if (!token || token !== setupToken) {
+  // Validate the token in constant time to avoid a timing oracle on the
+  // setup token. Different lengths short-circuit to false (no secret leak:
+  // the token length is not sensitive, only its value).
+  const tokenBuf = Buffer.from(token)
+  const expectedBuf = Buffer.from(setupToken)
+  const validToken =
+    tokenBuf.length === expectedBuf.length &&
+    timingSafeEqual(tokenBuf, expectedBuf)
+  if (!token || !validToken) {
     throw createError({ statusCode: 403, statusMessage: 'Token de configuration invalide ou manquant.' })
   }
 
