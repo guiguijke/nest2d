@@ -3,8 +3,7 @@ import sys
 import os
 import io
 from pathlib import Path
-from utils.mongo import valid_dxf_bucket, dxf_result_bucket, svg_result_bucket
-from utils.mongo import db
+from worker_common.mongo import db, get_bucket
 from core.nesting_input_builder import (
     build_bin,
     build_bpp_instance,
@@ -29,8 +28,12 @@ from ezdxf.math import Matrix44
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from utils.logger import setup_logger
-from utils.crypto import get_dek, read_gridfs, resolve_polygon_parts, write_gridfs
+from worker_common.logger import setup_logger
+from worker_common.crypto import get_dek, read_gridfs, resolve_polygon_parts, write_gridfs
+
+valid_dxf_bucket = get_bucket("validDxf")
+dxf_result_bucket = get_bucket("nestDxf")
+svg_result_bucket = get_bucket("nestSvg")
 
 logger = setup_logger("core_nesting")
 

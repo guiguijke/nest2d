@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 
-from .dxf_parser import convert_entity_to_shapely
+from worker_common.geometry.dxf_parser import convert_entity_to_shapely
 
 from ezdxf.document import Drawing
 # Use the top-level shapely (2.0) functions — `shapely.ops.unary_union` does not
@@ -10,7 +10,7 @@ from shapely import set_precision, unary_union
 from shapely.geometry import Polygon, LineString, Point
 from shapely.ops import polygonize
 
-from utils.logger import setup_logger
+from worker_common.logger import setup_logger
 
 logger = setup_logger("build_geometry")
 

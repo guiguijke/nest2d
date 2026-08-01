@@ -150,6 +150,10 @@ services:
 
   user-file-processing-worker:
     image: ghcr.io/guiguijke/nest2d-user-file-processing-worker:latest
+    # Worker images build with ./workers as context (shared worker_common package).
+    # build:
+    #   context: ./workers
+    #   dockerfile: fileprocessing/Dockerfile
     env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
@@ -165,6 +169,9 @@ services:
 
   nesting-worker:
     image: ghcr.io/guiguijke/nest2d-nesting-worker:latest
+    # build:
+    #   context: ./workers
+    #   dockerfile: nesting/Dockerfile
     env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
@@ -178,6 +185,9 @@ services:
 
   strip-file-processing-worker:
     image: ghcr.io/guiguijke/nest2d-strip-file-processing-worker:latest
+    # build:
+    #   context: ./workers
+    #   dockerfile: stripfileprocessing/Dockerfile
     env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
@@ -191,6 +201,9 @@ services:
 
   strip-nesting-worker:
     image: ghcr.io/guiguijke/nest2d-strip-nesting-worker:latest
+    # build:
+    #   context: ./workers
+    #   dockerfile: stripnesting/Dockerfile
     env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d

@@ -7,7 +7,7 @@ from gridfs.synchronous.grid_file import GridOut
 from ezdxf.audit import Auditor
 from ezdxf.explode import explode_entity
 from ezdxf import recover
-from utils.logger import setup_logger
+from worker_common.logger import setup_logger
 from ezdxf.render.hatching import hatch_entity 
 from ezdxf.disassemble import recursive_decompose
 from ezdxf.entities import DXFGraphic

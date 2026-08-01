@@ -2,7 +2,7 @@
 """
 Debug helper for the strip file processing worker.
 
-Connects to the same MongoDB database as the worker (via the shared `utils.mongo`
+Connects to the same MongoDB database as the worker (via the shared `worker_common.mongo`
 module, which loads the `.env` file) and lets you:
 
   * Plot the `polygonParts` of a single strip file by its slug.
@@ -22,7 +22,7 @@ Plotting requires matplotlib:
 import argparse
 import sys
 
-from utils.mongo import db
+from worker_common.mongo import db
 
 strip_user_dxf_files = db["strip_user_dxf_files"]
 strip_projects = db["strip_projects"]
