@@ -42,6 +42,10 @@ export default defineNuxtConfig({
             // Temporarily hides the paid-plan CTAs (Unlimited trial + Pro
             // upgrade). Set NUXT_PUBLIC_PAID_PLANS_DISABLED=false to restore.
             paidPlansDisabled: false,
+            // Global kill-switch for the strip nesting feature (tab, /strip
+            // pages and API). Disabled by default while the feature is being
+            // reworked; set NUXT_PUBLIC_STRIP_ENABLED=true to re-enable.
+            stripEnabled: false,
         },
     },
 

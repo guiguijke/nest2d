@@ -15,7 +15,7 @@ export const DEFAULT_LOCALE = 'en'
 const dict = {
     en: {
         'nav.home': 'Home',
-        'nav.workspace': 'Workspace',
+        'nav.workspace': 'NestorCut Nesting Application',
         'nav.strip': 'Strip',
         'nav.features': 'Features',
         'nav.howItWorks': 'How It Works',
@@ -321,7 +321,7 @@ const dict = {
 
     fr: {
         'nav.home': 'Accueil',
-        'nav.workspace': 'Espace',
+        'nav.workspace': "Application d'Imbrication NestorCut",
         'nav.strip': 'Strip',
         'nav.features': 'Fonctionnalités',
         'nav.howItWorks': 'Comment ça marche',
