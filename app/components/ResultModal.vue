@@ -142,6 +142,46 @@
                     </span>
                 </template>
             </div>
+            <div
+                v-if="!isHaveError && activeReport"
+                class="modal__report report"
+            >
+                <div class="report__row">
+                    <span class="report__label">{{ t('report.utilization') }}</span>
+                    <div class="report__bar">
+                        <div
+                            class="report__bar-fill"
+                            :style="{ width: `${usedPct}%` }"
+                        />
+                    </div>
+                    <span class="report__value">{{ usedPct.toFixed(1) }}%</span>
+                </div>
+                <div class="report__row report__row--detail">
+                    <span>{{ t('report.areas', { parts: fmtMm2(activeReport.partsAreaMm2), free: fmtMm2(freeAreaMm2) }) }}</span>
+                    <span v-if="activeOffcut">{{ t('report.offcut', { w: Math.round(activeOffcut.width), h: Math.round(activeOffcut.height) }) }}</span>
+                </div>
+                <div
+                    v-if="activeReport.holesFilled > 0"
+                    class="report__row report__row--detail"
+                >
+                    <span>{{ t('report.holesFilled', { n: activeReport.holesFilled }) }}</span>
+                </div>
+                <div class="report__badges">
+                    <span
+                        v-for="badge in reportBadges"
+                        :key="badge.label"
+                        class="report__badge"
+                        :class="{ 'report__badge--ko': badge.ok === false }"
+                    >
+                        {{ badge.ok === false ? '✗' : '✓' }} {{ badge.label }}
+                    </span>
+                </div>
+                <div class="report__engine">
+                    nest-engine · seed {{ activeAltSeed }}
+                    <template v-if="activeReport.iterations"> · {{ t('report.iterations', { n: activeReport.iterations }) }}</template>
+                    <template v-if="activeReport.vcores"> · {{ t('report.cores', { n: activeReport.vcores }) }}</template>
+                </div>
+            </div>
             <div class="controls">
                 <MainButton
                     v-if="resultModalData.isMultiSheet"
@@ -229,6 +269,38 @@ const selectAlt = (altId) => {
     activePart.value = 0
     trackEvent('result_alt_selected', { altId })
 }
+
+// ---- nesting report (measured verification, per active alternative) ------
+const activeReport = computed(() => unref(alternatives)[unref(activeAlt)]?.report || null)
+const activeAltSeed = computed(() => unref(alternatives)[unref(activeAlt)]?.seed ?? '—')
+const usedPct = computed(() => {
+    const alt = unref(alternatives)[unref(activeAlt)]
+    const share = alt?.usedSheetShare ?? alt?.density
+    return share != null ? share * 100 : 0
+})
+const freeAreaMm2 = computed(() => {
+    const r = unref(activeReport)
+    if (!r) return 0
+    return Math.max(0, (r.sheetAreaMm2 || 0) - (r.partsAreaMm2 || 0))
+})
+const fmtMm2 = (v) => (v == null ? '—' : Math.round(v).toLocaleString())
+const activeOffcut = computed(() => {
+    const off = unref(alternatives)[unref(activeAlt)]?.offcut
+    return off && off.area > 1 ? off : null
+})
+const reportBadges = computed(() => {
+    const r = unref(activeReport)
+    if (!r) return []
+    const badges = []
+    if (r.overlapFree != null) badges.push({ ok: r.overlapFree, label: t('report.overlapFree') })
+    if (r.insideSheet != null) badges.push({ ok: r.insideSheet, label: t('report.insideSheet') })
+    if (r.spacingOk != null && r.smallestGapMm != null) {
+        badges.push({ ok: r.spacingOk, label: t('report.spacing', { v: r.smallestGapMm.toFixed(2) }) })
+    }
+    const allPlaced = unref(resultModalData).requested === unref(resultModalData).placed
+    badges.push({ ok: allPlaced, label: t('report.allPlaced', { n: unref(resultModalData).placed }) })
+    return badges
+})
 const formatDensity = (density) => {
     if (density == null) return '—'
     return `${(density * 100).toFixed(1)}%`
@@ -432,6 +504,88 @@ const updatePartPage = (partIndex) => {
             background-color: var(--accent-primary);
             border-color: var(--accent-primary);
         }
+    }
+}
+.report {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--separator-secondary);
+    border-radius: 12px;
+    background-color: var(--background-primary);
+    text-align: left;
+    font-size: 12px;
+    color: var(--label-secondary);
+
+    &__row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        &:not(:last-child) {
+            margin-bottom: 8px;
+        }
+
+        &--detail {
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 4px 12px;
+            font-variant-numeric: tabular-nums;
+        }
+    }
+
+    &__label {
+        flex-shrink: 0;
+        font-weight: 600;
+        color: var(--label-primary);
+    }
+
+    &__bar {
+        flex: 1;
+        height: 6px;
+        border-radius: 3px;
+        background-color: var(--fill-tertiary);
+        overflow: hidden;
+    }
+
+    &__bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        background-color: var(--accent-primary);
+        transition: width 0.4s ease;
+    }
+
+    &__value {
+        flex-shrink: 0;
+        font-weight: 700;
+        color: var(--label-primary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    &__badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+
+    &__badge {
+        padding: 2px 8px;
+        border-radius: 9px;
+        font-size: 10px;
+        font-weight: 700;
+        background-color: color-mix(in srgb, var(--system-green, #2e7d32) 12%, transparent);
+        color: var(--system-green, #2e7d32);
+
+        &--ko {
+            background-color: color-mix(in srgb, var(--error-border, #c62828) 12%, transparent);
+            color: var(--error-border, #c62828);
+        }
+    }
+
+    &__engine {
+        font-size: 10px;
+        color: var(--label-tertiary);
+        font-variant-numeric: tabular-nums;
     }
 }
 .controls {

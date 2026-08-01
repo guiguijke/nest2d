@@ -15,7 +15,7 @@ from core.nesting_input_builder import (
 from core.engine import EngineCancelled, run_engine
 from core.holed_polygons import channel_width_for_space, open_holes_with_channels
 from core.placement import ResultContainer, Transform, parse_result_containers
-from core.metrics import compute_used_sheet_share, largest_empty_rectangle
+from core.metrics import compute_used_sheet_share, largest_empty_rectangle, verify_layout
 from dxf.dxf_utils import read_dxf
 from core.svg_generator import create_svg_from_doc
 from ezdxf.document import Drawing
@@ -838,6 +838,12 @@ def nesting_process(doc):
         dxf_files, svg_files = build_result_dxf_files(
             owner_id, alt_slug, result_containers, add_out_shape, space, dek
         )
+        # Measured physical verification + sheet accounting for the nesting
+        # report (badges are computed, never declared).
+        verification = verify_layout(result_containers, input_items, space)
+        sheet_area = sum(
+            (c.bin_width or 0) * (c.bin_height or 0) for c in result_containers
+        )
         alternatives.append({
             "seed": engine_alt.get("seed"),
             "strategy": strategy,
@@ -850,6 +856,14 @@ def nesting_process(doc):
             "layoutCount": len(result_containers),
             "dxf_files": dxf_files,
             "svg_files": svg_files,
+            # Nesting report data (measured verification + engine stats).
+            "report": {
+                **verification,
+                "partsAreaMm2": round(total_part_area, 1),
+                "sheetAreaMm2": round(sheet_area, 1),
+                "iterations": engine_alt.get("iterations"),
+                "vcores": vcores or None,
+            },
         })
 
     def _strategy_for(engine_alt, rank):

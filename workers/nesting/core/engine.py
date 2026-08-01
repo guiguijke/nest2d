@@ -174,6 +174,7 @@ def run_engine(instance, config, problem_type, on_event=None, should_cancel=None
             # Directional class of this alternative (left/bottom/balanced),
             # None on engines/jobs without directions.
             "bias": alt.get("bias"),
+            "iterations": alt.get("iterations"),
             "solution": _normalize_solution(problem_type, solution),
             "metrics": {
                 "density": alt.get("density") or solution.get("density"),

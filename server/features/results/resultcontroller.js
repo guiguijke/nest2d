@@ -69,6 +69,8 @@ export async function getResults(userId, projectSlug) {
                 // Largest clean rectangular offcut ({width, height, area}).
                 offcut: alt.offcut ?? null,
                 layoutCount: alt.layoutCount,
+                // Nesting report (measured verification + engine stats).
+                report: alt.report ?? null,
                 svgs: (alt.svg_files || []).map((file) => "/api/files/result/svg/" + file),
                 dxfs: (alt.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),
             })),

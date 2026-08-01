@@ -5,7 +5,7 @@ layouts the engine produced, for ranking alternatives and for the UI.
 """
 import math
 
-from shapely.geometry import Polygon, box
+from shapely.geometry import LineString, Point, Polygon, box
 from shapely.affinity import rotate, translate
 from shapely.ops import unary_union
 
@@ -185,3 +185,98 @@ def largest_empty_rectangle(containers, input_items):
                     best = {"width": x2 - x1, "height": span, "area": area}
 
     return best
+
+
+# Above this many placed parts per sheet, the pairwise verification pass is
+# skipped (None = unverified) — O(n^2) distances get too slow to be worth it.
+VERIFY_MAX_PARTS_PER_SHEET = 250
+
+# Intersection area below this counts as touching, not overlapping (the
+# engine guarantees separation by construction; this is the measurement
+# noise floor, mm²).
+OVERLAP_EPS_MM2 = 0.01
+
+
+def verify_layout(containers, input_items, space=0.0):
+    """Physical verification of a layout — MEASURED, not declared.
+
+    Computes, per job alternative:
+      - smallest_gap_mm: min distance between any two placed parts, and
+        parts to the sheet edge (the actually achieved spacing);
+      - overlap_free: no two parts intersect beyond OVERLAP_EPS_MM2;
+      - inside_sheet: every part fully within its sheet;
+      - spacing_ok: smallest_gap >= requested space (minus epsilon);
+      - holes_filled / holes_total: parts nested inside another part's
+        cutout (centroid in hole ring), and total hole slots available.
+
+    Returns a report dict; pairwise fields are None above
+    VERIFY_MAX_PARTS_PER_SHEET parts on a sheet (unverified, not failed).
+    """
+    items_by_id = {item["id"]: item for item in input_items}
+    report = {
+        "smallestGapMm": None,
+        "overlapFree": None,
+        "insideSheet": True,
+        "spacingOk": None,
+        "holesFilled": 0,
+        "holesTotal": 0,
+    }
+
+    smallest_gap = float("inf")
+    overlap_free = True
+    pair_checks_done = True
+
+    for container in containers:
+        sheet_w = container.bin_width or 0
+        sheet_h = container.bin_height or 0
+        sheet = box(0, 0, sheet_w, sheet_h)
+        boundary = sheet.boundary
+
+        placed = []       # outer rings at placement (collision geometry)
+        holed_hosts = []  # (placed index of the host, hole ring at placement)
+        for transform in container.transforms:
+            item = items_by_id.get(getattr(transform, "item_id", None))
+            if item is None:
+                continue
+            poly = _placed_polygon(item, transform)
+            host_idx = len(placed)
+            placed.append(poly)
+            if not sheet.covers(poly):
+                report["insideSheet"] = False
+            for hole in item.get("holes") or []:
+                hole_poly = translate(
+                    rotate(Polygon(hole), transform.angle, origin=(0, 0), use_radians=True),
+                    transform.x, transform.y,
+                )
+                holed_hosts.append((host_idx, hole_poly))
+
+        # Part-in-part: centroid of ANOTHER placed part strictly inside a
+        # hole ring (the host's own centroid sits in its hole by design).
+        report["holesTotal"] += len(holed_hosts)
+        for idx, poly in enumerate(placed):
+            c = poly.centroid
+            for host_idx, hole_poly in holed_hosts:
+                if host_idx != idx and hole_poly.contains(c):
+                    report["holesFilled"] += 1
+                    break
+
+        # Pairwise checks (bounded).
+        if len(placed) > VERIFY_MAX_PARTS_PER_SHEET:
+            pair_checks_done = False
+            continue
+        for i, a in enumerate(placed):
+            gap_to_edge = a.distance(boundary)
+            if gap_to_edge < smallest_gap:
+                smallest_gap = gap_to_edge
+            for b in placed[i + 1:]:
+                dist = a.distance(b)
+                if dist < smallest_gap:
+                    smallest_gap = dist
+                if dist <= 0.0 and a.intersection(b).area > OVERLAP_EPS_MM2:
+                    overlap_free = False
+
+    if pair_checks_done and smallest_gap != float("inf"):
+        report["smallestGapMm"] = round(smallest_gap, 3)
+        report["overlapFree"] = overlap_free
+        report["spacingOk"] = smallest_gap >= float(space or 0) - 0.01
+    return report
