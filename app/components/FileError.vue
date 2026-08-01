@@ -16,15 +16,6 @@
             trackingTag="report_problem"
             class="file__problem"
         />
-        <!-- <div class="file__btn">
-            <MainButton 
-                :label="`delete ${file.name}`"
-                :size="sizeType.s"
-                :icon="iconType.trash"
-                :isLabelShow=false
-                @click="console.log(`delete ${file.name}`)"
-            />
-        </div> -->
     </div>
 </template>
 <script setup>

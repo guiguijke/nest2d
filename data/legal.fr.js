@@ -77,7 +77,7 @@ export function useTerms() {
     const { supportEmail, githubRepo, legal } = useSiteConfig()
     return {
         title: 'Conditions Générales d\'Utilisation',
-        subtitle: 'Les règles qui encadrent votre utilisation d\'NestorCut.',
+        subtitle: 'Les règles qui encadrent votre utilisation de NestorCut.',
         effectiveDate: TODAY,
         sections: [
             {
@@ -135,7 +135,7 @@ export function useTerms() {
             {
                 heading: '7. Licence open-source du code source',
                 paragraphs: [
-                    'Le code source d\'NestorCut est distribué sous licence MIT. Les présentes CGU régissent l\'utilisation du Service hébergé ; l\'utilisation, la modification et la redistribution du code source restent régies par la licence MIT, disponible sur le dépôt du projet.',
+                    'Le code source de NestorCut est distribué sous licence MIT. Les présentes CGU régissent l\'utilisation du Service hébergé ; l\'utilisation, la modification et la redistribution du code source restent régies par la licence MIT, disponible sur le dépôt du projet.',
                 ],
             },
             {
