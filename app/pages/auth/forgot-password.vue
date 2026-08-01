@@ -1,8 +1,8 @@
 <template>
     <div class="forgot-password">
-        <MainTitle label="Reset your password" class="forgot-password__title" />
+        <MainTitle :label="t('auth.forgot.title')" class="forgot-password__title" />
         <p class="forgot-password__subtitle">
-            Enter your account email and we will send you a reset link.
+            {{ t('auth.forgot.subtitle') }}
         </p>
 
         <template v-if="!sent">
@@ -10,7 +10,7 @@
                 <InputField
                     v-model="email"
                     type="email"
-                    placeholder="Email"
+                    :placeholder="t('auth.forgot.placeholder')"
                     :is-error="!!fieldError"
                     class="forgot-password__field"
                 />
@@ -19,7 +19,7 @@
 
                 <MainButton
                     :theme="themeType.primary"
-                    label="Send reset link"
+                    :label="t('auth.forgot.send')"
                     :isDisable="loading"
                     trackingTag="forgot_password_submit"
                     tag="button"
@@ -29,12 +29,11 @@
             </form>
         </template>
         <p v-else class="forgot-password__success">
-            If an account exists for this email, a reset link is on its way.
-            Check your inbox (and spam folder).
+            {{ t('auth.forgot.success') }}
         </p>
 
         <NuxtLink to="/auth/local" class="forgot-password__back">
-            Back to login
+            {{ t('auth.forgot.backToLogin') }}
         </NuxtLink>
     </div>
 </template>
@@ -47,6 +46,7 @@ definePageMeta({
     layout: 'doc',
 })
 
+const { t } = useLocale()
 const email = ref('')
 const fieldError = ref('')
 const loading = ref(false)
@@ -64,7 +64,7 @@ const onSubmit = async () => {
         })
         sent.value = true
     } catch (err) {
-        fieldError.value = err?.data?.statusMessage || err?.statusMessage || 'Something went wrong. Please try again.'
+        fieldError.value = err?.data?.statusMessage || err?.statusMessage || t('auth.errorGeneric')
     } finally {
         loading.value = false
     }

@@ -12,14 +12,14 @@
                     trackingTag="open_projects"
                     class="controls__btn controls__btn--projects"
                     :theme="themeType.secondary"
-                    label="Open projects"
+                    :label="t('common.openProjects')"
                 />
                 <MainButton
                     @click="openResults"
                     trackingTag="open_results"
                     class="controls__btn controls__btn--results"
                     :theme="themeType.secondary"
-                    :label="isHomePage ? 'Open all results' : 'Open results'"
+                    :label="isHomePage ? t('common.openAllResults') : t('common.openResults')"
                 />
             </div>
             <UserProjects @closeAside="close" :class="{'content__projects--open': projectsIsOpen}" class="content__projects"/>
@@ -38,7 +38,7 @@
                 </span>
             </span>
             <span class="btn__label">
-                Support
+                {{ t('common.support') }}
             </span>
         </button>
         <Footer />
@@ -49,6 +49,7 @@
 <script setup>
 import { themeType } from '~~/constants/theme.constants';
 const route = useRoute()
+const { t } = useLocale()
 const supportDialog = useSupportDialog();
 const buyCreditsDialog = useBuyCreditsDialog();
 const vaultUnlockDialog = useVaultUnlockDialog();
