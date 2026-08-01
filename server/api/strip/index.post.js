@@ -1,13 +1,8 @@
 import { defineEventHandler, createError } from "h3";
 
-import { connectDB } from "~~/server/db/mongo";
-import { saveFilesToStripProject } from "~~/server/core/strip/dxf";
+import { DOMAINS } from "~~/server/core/domains";
+import { createProjectWithFiles } from "~~/server/core/project/service";
 import { assertStripFeatureEnabled } from "~~/server/utils/featureFlags";
-import {
-  generateRandomString,
-  generateEntityName,
-} from "~~/server/utils/strings";
-import standardSlugify from "standard-slugify";
 
 export default defineEventHandler(async (event) => {
   const userId = event.context?.auth?.userId;
@@ -15,22 +10,6 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
   await assertStripFeatureEnabled(userId);
-  const db = await connectDB();
-  const stripName = generateEntityName();
-  const stripSlug = `${standardSlugify(stripName, {
-    keepCase: false,
-  })}-${generateRandomString(6)}`;
 
-  await db.collection("strip_projects").insertOne({
-    slug: stripSlug,
-    name: stripName,
-    createdAt: new Date(),
-    ownerId: userId,
-  });
-
-  await saveFilesToStripProject(event, stripSlug, userId);
-
-  return {
-    slug: stripSlug,
-  };
+  return await createProjectWithFiles(DOMAINS.strip, event, userId);
 });
