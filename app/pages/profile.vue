@@ -13,7 +13,7 @@
                 :theme="themeType.primary"
                 trackingTag="logout"
                 @click="logoutHandler"
-                label="Logout"
+                :label="t('nav.logout')"
                 class="profile__btn"
             />
         </div>
@@ -26,6 +26,7 @@
     import { themeType } from '~~/constants/theme.constants'
 
     const router = useRouter()
+    const { t } = useLocale()
 
     definePageMeta({
         layout: 'profile',

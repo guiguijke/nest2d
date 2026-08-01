@@ -83,7 +83,7 @@ export function useTerms() {
             {
                 heading: '1. Acceptation des conditions',
                 paragraphs: [
-                    `Les présentes Conditions Générales d'Utilisation (« CGU ») régissent votre accès et votre utilisation du site NestorCut et de son service de nesting (« le Service »), édités par ${legal.entityName} — nom commercial « ${legal.tradeName} », SIREN ${legal.siren} (« nous », « notre » ou « nos »).`,
+                    `Les présentes Conditions Générales d'Utilisation (« CGU ») régissent votre accès et votre utilisation du site NestorCut et de son service d'imbrication (« le Service »), édités par ${legal.entityName} — nom commercial « ${legal.tradeName} », SIREN ${legal.siren} (« nous », « notre » ou « nos »).`,
                     'En créant un compte ou en utilisant le Service de quelque manière que ce soit, vous reconnaissez avoir lu, compris et accepté les présentes CGU. Si vous n\'acceptez pas tout ou partie de ces conditions, vous ne devez pas utiliser le Service.',
                     'Vous devez être âgé(e) d\'au moins 16 ans, ou de l\'âge du consentement numérique dans votre pays, pour créer un compte. En utilisant le Service, vous déclarez remplir cette condition.',
                 ],
@@ -92,7 +92,7 @@ export function useTerms() {
                 heading: '2. Description du Service',
                 paragraphs: [
                     'NestorCut est un outil en ligne qui dispose des pièces à découper (fichiers DXF) sur des plaques de matière afin d\'en minimiser les chutes. Il s\'adresse aux professionnels et particuliers pratiquant la découpe laser, plasma, traceur et CNC.',
-                    'Le Service met en œuvre des heuristiques d\'optimisation. Les dispositions produites sont efficaces mais, comme tout solveur de nesting, ne sont pas mathématiquement garanties comme optimales. Vous restez seul responsable de la vérification de toute disposition avant la découpe de la matière.',
+                    'Le Service met en œuvre des heuristiques d\'optimisation. Les dispositions produites sont efficaces mais, comme tout solveur d\'imbrication, ne sont pas mathématiquement garanties comme optimales. Vous restez seul responsable de la vérification de toute disposition avant la découpe de la matière.',
                 ],
             },
             {
@@ -107,7 +107,7 @@ export function useTerms() {
                 paragraphs: [
                     'Le Service propose une offre gratuite, un abonnement mensuel (« Unlimited ») et une offre supérieure (« Pro »). Les tarifs et quotas inclus sont décrits sur la page des tarifs et peuvent évoluer ; les changements ne prennent effet que pour les périodes de facturation futures.',
                     'Les paiements sont traités par notre prestataire de paiement, Stripe. Nous ne recevons ni ne stockons jamais vos données bancaires complètes. Les abonnements débutent par une période d\'essai gratuite durant laquelle vous n\'êtes pas facturé ; à l\'issue de l\'essai, la facturation est récurrente jusqu\'à résiliation.',
-                    'Les packs de crédits, lorsqu\'ils sont proposés, sont consommés à chaque opération de nesting. Sauf obligation légale, les crédits et abonnements ne sont pas remboursables, sauf dans les conditions prévues par notre Politique de remboursement.',
+                    'Les packs de crédits, lorsqu\'ils sont proposés, sont consommés à chaque opération d\'imbrication. Sauf obligation légale, les crédits et abonnements ne sont pas remboursables, sauf dans les conditions prévues par notre Politique de remboursement.',
                     'Vous pouvez résilier un abonnement à tout moment depuis votre compte. La résiliation prend effet à la fin de la période de facturation en cours.',
                     `Les prix sont affichés en euros. ${legal.vatNote}.`,
                 ],
@@ -115,7 +115,7 @@ export function useTerms() {
             {
                 heading: '5. Vos fichiers et contenus',
                 paragraphs: [
-                    'Vous conservez l\'ensemble des droits de propriété intellectuelle sur les fichiers que vous téléversez. Nous les traitons uniquement pour exécuter le nesting et en stocker les résultats afin que vous puissiez les télécharger.',
+                    'Vous conservez l\'ensemble des droits de propriété intellectuelle sur les fichiers que vous téléversez. Nous les traitons uniquement pour exécuter l\'imbrication et en stocker les résultats afin que vous puissiez les télécharger.',
                     'Vous garantissez détenir les droits sur les fichiers que vous téléversez et que leur traitement ne porte pas atteinte aux droits de tiers.',
                     'Consultez notre Politique de confidentialité pour le détail du stockage, de la conservation et (sur le plan Pro) du chiffrement des fichiers.',
                 ],
@@ -142,7 +142,7 @@ export function useTerms() {
                 heading: '8. Limitation de responsabilité',
                 paragraphs: [
                     'Le Service est fourni « en l\'état » et « selon disponibilité ». Dans la mesure maximale permise par la loi, nous déclinons toute responsabilité pour tout dommage direct, indirect, accessoire ou consécutif résultant de l\'utilisation ou de l\'impossibilité d\'utiliser le Service.',
-                    'Le nesting est un processus heuristique : nous ne garantissons ni des résultats optimaux, ni l\'absence d\'erreurs dans les dispositions générées.',
+                    'L\'imbrication est un processus heuristique : nous ne garantissons ni des résultats optimaux, ni l\'absence d\'erreurs dans les dispositions générées.',
                     'La sécurité de la plateforme fait l\'objet d\'une revue régulière. Toutefois, compte tenu de la complexité inhérente du logiciel et de la dépendance à des outils et bibliothèques tiers, nous ne saurions être tenus responsables de failles non découvertes affectant ces composants tiers.',
                     'Nous ne garantissons pas que le Service sera ininterrompu ou exempt d\'erreurs, ni que les résultats obtenus répondront à vos besoins spécifiques.',
                 ],
@@ -197,7 +197,7 @@ export function usePrivacy() {
                 ],
                 list: [
                     'Données de compte : adresse email (utilisée comme identifiant), nom affiché, mot de passe haché.',
-                    'Contenus téléversés : les fichiers DXF que vous soumettez et les résultats de nesting que nous générons pour vous.',
+                    'Contenus téléversés : les fichiers DXF que vous soumettez et les résultats d\'imbrication que nous générons pour vous.',
                     'Données techniques : adresse IP, type de navigateur, événements d\'usage (vues de pages, clics) collectés via notre tracking interne, pour l\'exploitation et l\'amélioration du Service.',
                     'Données de facturation : traitées par Stripe. Nous ne conservons qu\'une référence à votre client Stripe et au statut de votre abonnement — jamais vos données bancaires.',
                 ],
@@ -208,7 +208,7 @@ export function usePrivacy() {
                     'Vos données sont traitées aux fins suivantes :',
                 ],
                 list: [
-                    'Fourniture du Service de nesting (exécution du contrat) ;',
+                    'Fourniture du Service d\'imbrication (exécution du contrat) ;',
                     'Gestion du compte et authentification (intérêt légitime) ;',
                     'Facturation et gestion des abonnements (exécution du contrat) ;',
                     'Sécurité, prévention de la fraude et de l\'abus (intérêt légitime) ;',
@@ -218,7 +218,7 @@ export function usePrivacy() {
             {
                 heading: '4. Stockage et chiffrement des fichiers',
                 paragraphs: [
-                    'Vos fichiers téléversés et résultats de nesting sont stockés dans notre base de données et ne sont accessibles qu\'à partir de votre compte.',
+                    'Vos fichiers téléversés et résultats d\'imbrication sont stockés dans notre base de données et ne sont accessibles qu\'à partir de votre compte.',
                     'Sur le plan Pro, un mode de chiffrement zero-knowledge est disponible. Lorsqu\'il est activé, vos fichiers sont chiffrés avec une clé générée sur votre appareil, qui ne nous est jamais transmise en clair. Dans ce mode, nous sommes techniquement incapables de lire vos fichiers, y compris en cas de compromission de la base de données.',
                 ],
             },

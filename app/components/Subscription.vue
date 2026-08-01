@@ -93,7 +93,7 @@ import MainTitle from './MainTitle.vue'
 import { themeType } from '~~/constants/theme.constants'
 import { sizeType } from '~~/constants/size.constants'
 
-const { t, locale } = useLocale()
+const { t } = useLocale()
 
 const { data, refresh } = await useFetch('/api/payment/subscription')
 
@@ -136,7 +136,7 @@ const subscribe = async () => {
         const response = await $fetch('/api/payment/subscribe')
         navigateTo(response.url, { external: true })
     } catch (err) {
-        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec du démarrage de l\'abonnement. Veuillez réessayer.' : 'Failed to start subscription. Please try again.')
+        error.value = err?.data?.statusMessage || t('sub.error.start')
         isLoading.value = false
     }
 }
@@ -149,7 +149,7 @@ const subscribePro = async () => {
         const response = await $fetch('/api/payment/subscribe?tier=privacy')
         navigateTo(response.url, { external: true })
     } catch (err) {
-        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec du démarrage de l\'abonnement Pro. Veuillez réessayer.' : 'Failed to start Pro subscription. Please try again.')
+        error.value = err?.data?.statusMessage || t('sub.error.startPro')
         isLoading.value = false
     }
 }
@@ -164,7 +164,7 @@ const cancelSubscription = async () => {
         await $fetch('/api/payment/subscription/cancel', { method: 'POST' })
         await refresh()
     } catch (err) {
-        error.value = err?.data?.statusMessage || (locale.value === 'fr' ? 'Échec de l\'annulation de l\'abonnement. Veuillez réessayer.' : 'Failed to cancel the subscription. Please try again.')
+        error.value = err?.data?.statusMessage || t('sub.error.cancel')
     } finally {
         isLoading.value = false
     }
