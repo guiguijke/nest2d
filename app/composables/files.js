@@ -261,8 +261,13 @@ async function nest(slug) {
             await authStore.actions.setUser()
         } catch (error) {
             if (error?.response?.status === 402) {
-                const buyCreditsDialog = useBuyCreditsDialog();
-                buyCreditsDialog.value = true;
+                // Skip the paywall dialog when paid plans are temporarily
+                // disabled — it would only offer a "Coming soon" CTA.
+                const paidDisabled = useRuntimeConfig().public.paidPlansDisabled === true
+                if (!paidDisabled) {
+                    const buyCreditsDialog = useBuyCreditsDialog();
+                    buyCreditsDialog.value = true;
+                }
                 return
             }
             if (error?.data?.statusMessage === 'vault_locked') {
