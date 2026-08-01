@@ -8,7 +8,12 @@
         </section>
         <MainSettings />
         <MainButton :theme="themeType.primary" :label="btnLabel" :isDisable="btnIsDisable" trackingTag="project_nest_start"
-            @click="startsNest" class="content__btn" />
+            @click="startsNest" class="content__btn">
+            <template v-if="runningJob">
+                <CoresSpinner :cores="runningCores" :size="16" show-count />
+                {{ t('nest.computing') }}
+            </template>
+        </MainButton>
         <FreeNestBanner />
         <div v-if="nestRequestError" class="content__error">
             {{ nestRequestError }}
@@ -40,6 +45,16 @@ const resultsList = computed(() => getters.resultsList);
 const liveResult = computed(() => {
     const list = unref(resultsList) || [];
     return list.find((r) => r.liveLayout) || null;
+});
+// The job currently being computed (if any): drives the animated state of
+// the nest button (spinning wheel + vcore count while the engine works).
+const runningJob = computed(() => {
+    const list = unref(resultsList) || [];
+    return list.find((r) => r.isInProgress) || null;
+});
+const runningCores = computed(() => {
+    const n = unref(runningJob)?.compute?.vcores;
+    return Math.min(8, Math.max(1, Number(n) || 1));
 });
 const { getters: filesGetters, actions } = filesStore;
 const params = computed(() => filesGetters.params);

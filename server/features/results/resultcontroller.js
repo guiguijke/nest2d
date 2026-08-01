@@ -49,6 +49,9 @@ export async function getResults(userId, projectSlug) {
             liveLayout: queueItem.liveLayout ?? null,
             // Engine item id -> {slug, part} map for the visualizer.
             itemMap: queueItem.itemMap ?? null,
+            // Effective compute profile while the job runs ({vcores, workers,
+            // directions}), written by the worker, unset on completion.
+            compute: queueItem.compute ?? null,
             svgs: (queueItem.svg_files || []).map((file) => "/api/files/result/svg/" + file),
             dxfs: (queueItem.dxf_files || []).map((file) => "/api/files/result/dxf/" + file),
             // Alternative layouts (best first); empty for jobs run before

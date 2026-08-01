@@ -163,7 +163,7 @@ const tiers = computed(() => {
 const comparisonRows = computed(() => [
     { label: t('plans.compare.nestingsIncluded'), values: [t('plans.value.perMonth', { n: FREE_NESTING_LIMIT }), t('plans.value.unlimited'), t('plans.value.unlimited')] },
     { label: t('plans.compare.altLayouts'), values: ['1', '3', '3'] },
-    { label: t('plans.compare.computeBudget'), values: [t('plans.value.standard'), t('plans.value.high'), t('plans.value.maximum')] },
+    { label: t('plans.compare.vcores'), values: ['1', '4', '8'] },
     { label: t('plans.compare.priority'), values: [false, t('plans.value.standard'), t('plans.value.priority')] },
     { label: t('plans.compare.multiSheet'), values: [true, true, true] },
     { label: t('plans.compare.heterogeneous'), values: [true, true, true] },

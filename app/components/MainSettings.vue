@@ -68,28 +68,30 @@
                     <p class="rotations__hint">{{ rotationHint }}</p>
                 </div>
                 <div class="size__compute compute">
-                    <span class="compute__label">{{ t('settings.compute') }}</span>
+                    <span class="compute__label">
+                        {{ t('settings.directions') }}
+                        <span
+                            class="compute__help"
+                            :title="t('settings.directions.help')"
+                            >?</span
+                        >
+                    </span>
                     <div class="compute__options">
                         <button
-                            v-for="option in computeOptions"
+                            v-for="option in directionOptions"
                             :key="option.value"
                             :class="[
                                 'compute__option',
-                                {
-                                    'compute__option--active': localComputeLevel === option.value,
-                                    'compute__option--locked': option.locked,
-                                },
+                                { 'compute__option--active': option.active },
                             ]"
-                            :disabled="option.locked"
-                            :title="
-                                option.locked ? t('settings.compute.lockedTier', { tier: option.label }) : option.hint
-                            "
-                            @click="!option.locked && (localComputeLevel = option.value)"
+                            :title="option.hint"
+                            @click="toggleDirection(option.value)"
                         >
+                            <span class="compute__arrow">{{ option.arrow }}</span>
                             {{ option.label }}
                         </button>
                     </div>
-                    <p class="compute__hint">{{ activeComputeHint }}</p>
+                    <p class="compute__hint">{{ directionsHint }}</p>
                 </div>
                 <label class="size__checkbox">
                     <input
@@ -131,30 +133,55 @@
         set: (value) => updateParams({ rotationCount: value }),
     })
 
-    // Compute level selector: capped server-side by the user's tier
-    // (simple = free, normal = subscription, advanced = pro/privacy).
-    // Levels map to wall-clock compute budgets for the nesting engine
-    // (15s / 45s / 180s — see server/utils/entitlement.js COMPUTE_LEVELS).
-    const LEVEL_ORDER = ['simple', 'normal', 'advanced']
+    // Layout directions selector: which way(s) the engine should optimize
+    // the packing (left edge, bottom edge, or a mix). Every direction is a
+    // full optimization — paid plans get all 3 alternatives in one nesting
+    // (unchecking skips a direction for a faster result); the free plan
+    // gets 1 direction per nesting (3 nestings = all 3 directions).
+    // Allowance comes from the server (user.compute.maxDirections) and is
+    // re-validated at enqueue — the client can never inflate it.
+    const DIRECTION_ORDER = ['left', 'bottom', 'balanced']
+    const DIRECTION_ARROWS = { left: '←', bottom: '↓', balanced: '↙' }
     const { getters: authGetters } = authStore
-    const maxComputeLevel = computed(() => {
-        const lvl = unref(authGetters.user)?.maxComputeLevel
-        return LEVEL_ORDER.includes(lvl) ? lvl : 'simple'
+    const maxDirections = computed(() => {
+        const n = unref(authGetters.user)?.compute?.maxDirections
+        return Math.min(3, Math.max(1, Number(n) || 1))
     })
-    const computeOptions = computed(() => {
-        const maxIdx = LEVEL_ORDER.indexOf(maxComputeLevel.value)
-        return LEVEL_ORDER.map((value, idx) => ({
+    const localDirections = computed(() => {
+        const dirs = unref(params).directions
+        const valid = Array.isArray(dirs) ? dirs.filter((d) => DIRECTION_ORDER.includes(d)) : []
+        return valid.length ? valid : DIRECTION_ORDER.slice(0, maxDirections.value)
+    })
+    const toggleDirection = (value) => {
+        const current = localDirections.value
+        if (maxDirections.value === 1) {
+            // Free plan: radio behaviour — one direction per nesting.
+            updateParams({ directions: [value] })
+            return
+        }
+        if (current.includes(value)) {
+            if (current.length === 1) return // at least one direction
+            updateParams({ directions: current.filter((d) => d !== value) })
+        } else {
+            updateParams({
+                directions: DIRECTION_ORDER.filter((d) => current.includes(d) || d === value),
+            })
+        }
+    }
+    const directionOptions = computed(() =>
+        DIRECTION_ORDER.map((value) => ({
             value,
-            label: t(`settings.compute.level.${value}`),
-            locked: idx > maxIdx,
-            hint: t(`settings.compute.${value}`),
+            arrow: DIRECTION_ARROWS[value],
+            label: t(`settings.directions.${value}`),
+            hint: t(`settings.directions.${value}Hint`),
+            active: localDirections.value.includes(value),
         }))
-    })
-    const localComputeLevel = computed({
-        get: () => unref(params).computeLevel || maxComputeLevel.value,
-        set: (value) => updateParams({ computeLevel: value }),
-    })
-    const activeComputeHint = computed(() => t(`settings.compute.${localComputeLevel.value}`))
+    )
+    const directionsHint = computed(() =>
+        maxDirections.value === 1
+            ? t('settings.directions.freeHint')
+            : t('settings.directions.paidHint')
+    )
 
     // Preview the angles that the current rotation count produces, so the user
     // understands what "N rotations" means (e.g. 8 -> 0°, 45°, 90°, ... 315°).
@@ -308,6 +335,30 @@
             margin-bottom: 8px;
             padding: 0 4px;
             text-align: left;
+        }
+
+        &__help {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            margin-left: 6px;
+            border-radius: 50%;
+            border: 1px solid var(--label-tertiary);
+            color: var(--label-tertiary);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: none;
+            cursor: help;
+            vertical-align: 1px;
+        }
+
+        &__arrow {
+            display: block;
+            font-size: 16px;
+            line-height: 1;
+            margin-bottom: 2px;
         }
 
         &__options {

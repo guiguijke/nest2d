@@ -8,7 +8,7 @@
     >
         <span v-if="Boolean(icon)" class="button__icon" />
         <span v-if="isLabelShow" class="button__label">
-            {{ label }}
+            <slot>{{ label }}</slot>
         </span>
     </component>
 </template>
