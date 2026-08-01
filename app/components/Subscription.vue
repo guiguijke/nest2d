@@ -45,6 +45,7 @@
                 priority queue.
             </p>
             <MainButton
+                v-if="!paidDisabled"
                 :label="t('sub.upgradePro')"
                 :theme="themeType.primary"
                 :size="sizeType.m"
@@ -52,6 +53,14 @@
                 trackingTag="subscription_upgrade_pro"
                 class="subscription__btn"
                 @click="subscribePro"
+            />
+            <MainButton
+                v-else
+                :label="t('sub.comingSoon')"
+                :theme="themeType.secondary"
+                :size="sizeType.m"
+                :isDisable="true"
+                class="subscription__btn"
             />
         </div>
 
@@ -66,6 +75,7 @@
                     {{ t('sub.freeLeft', { n: data.freeRemaining }) }}
                 </div>
                 <MainButton
+                    v-if="!paidDisabled"
                     :label="t('sub.startTrial', { days: data.plan.trialDays })"
                     :theme="themeType.primary"
                     :size="sizeType.m"
@@ -73,6 +83,14 @@
                     trackingTag="subscription_start_trial"
                     class="subscription__btn"
                     @click="subscribe"
+                />
+                <MainButton
+                    v-else
+                    :label="t('sub.comingSoon')"
+                    :theme="themeType.secondary"
+                    :size="sizeType.m"
+                    :isDisable="true"
+                    class="subscription__btn"
                 />
                 <p class="subscription__note">
                     {{ t('sub.cancelTrialNote') }}
@@ -94,6 +112,10 @@ import { themeType } from '~~/constants/theme.constants'
 import { sizeType } from '~~/constants/size.constants'
 
 const { t } = useLocale()
+
+// Temporarily disable paid-plan CTAs (Unlimited trial + Pro upgrade) until
+// Strip ships to production. Toggle via NUXT_PUBLIC_PAID_PLANS_DISABLED.
+const paidDisabled = computed(() => useRuntimeConfig().public.paidPlansDisabled === true)
 
 const { data, refresh } = await useFetch('/api/payment/subscription')
 

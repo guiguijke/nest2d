@@ -85,6 +85,10 @@ const { getters: authGetters } = authStore
 const { t } = useLocale()
 const userIsSet = computed(() => Boolean(unref(authGetters.userIsSet)))
 
+// Temporarily disable paid-plan CTAs (Unlimited trial + Pro upgrade) until
+// Strip ships to production. Toggle via NUXT_PUBLIC_PAID_PLANS_DISABLED.
+const paidDisabled = computed(() => useRuntimeConfig().public.paidPlansDisabled === true)
+
 // Shared with the landing via the 'payment-plans' cache key (deduplicated +
 // cached for a few minutes). See composables/usePlans.js.
 const { data: plans } = usePlans()
@@ -130,7 +134,10 @@ const tiers = computed(() => {
                 t('plans.unlimited.f3'),
                 t('plans.unlimited.f4'),
             ],
-            cta: t('plans.cta.startTrial', { days: TRIAL_DAYS }),
+            // When paid plans are disabled, the card stays visible (price +
+            // features) but the CTA shows "Coming soon" and does nothing.
+            cta: paidDisabled.value ? t('plans.cta.comingSoon') : t('plans.cta.startTrial', { days: TRIAL_DAYS }),
+            comingSoon: paidDisabled.value,
             trackingTag: 'plans_unlimited',
         },
         {
@@ -146,8 +153,8 @@ const tiers = computed(() => {
                 t('plans.pro.f3'),
                 t('plans.pro.f4'),
             ],
-            cta: proAvailable ? t('plans.cta.getPro') : t('plans.cta.comingSoon'),
-            comingSoon: !proAvailable,
+            cta: proAvailable && !paidDisabled.value ? t('plans.cta.getPro') : t('plans.cta.comingSoon'),
+            comingSoon: !proAvailable || paidDisabled.value,
             trackingTag: 'plans_pro',
         },
     ]
