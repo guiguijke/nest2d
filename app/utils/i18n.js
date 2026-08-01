@@ -159,6 +159,11 @@ const dict = {
         'settings.directions.paidHint': 'Uncheck the directions you don’t need — fewer directions, faster result.',
         'nest.computing': 'Computing…',
         'nest.coresTitle': '{n} compute core(s) at work',
+        'alts.strategy.left': '← Left',
+        'alts.strategy.bottom': '↓ Bottom',
+        'alts.strategy.balanced': '↙ Mixed',
+        'alts.strategy.max offcut': 'Max offcut',
+        'alts.strategy.compact': 'Compact',
         'settings.requiredHeight': 'Required height: at least {h} mm (5% above the tallest selected part).',
 
         'project.projects': 'Bin Projects',
@@ -467,6 +472,11 @@ const dict = {
         'settings.directions.paidHint': 'Décochez les sens inutiles — moins de sens, résultat plus rapide.',
         'nest.computing': 'Calcul en cours…',
         'nest.coresTitle': '{n} cœur(s) de calcul au travail',
+        'alts.strategy.left': '← Gauche',
+        'alts.strategy.bottom': '↓ Bas',
+        'alts.strategy.balanced': '↙ Mixte',
+        'alts.strategy.max offcut': 'Chute max',
+        'alts.strategy.compact': 'Compact',
         'settings.requiredHeight': 'Hauteur requise : au moins {h} mm (5 % au-dessus de la plus haute pièce).',
 
         'project.projects': 'Projets',

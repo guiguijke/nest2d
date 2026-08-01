@@ -125,12 +125,72 @@ const cores = computed(() => {
     return n ? Math.min(8, Math.max(1, Number(n) || 1)) : null;
 });
 
+// ---- champion lock ---------------------------------------------------------
+// The default "Best" view used to take the best of the CURRENT per-worker
+// snapshots: it flip-flopped between different walks at similar quality, so
+// the pieces appeared to spin randomly until the final pass. Instead we lock
+// a CHAMPION: the displayed layout is only replaced by a strictly better
+// snapshot (monotone convergence), rate-limited so the view stays calm and
+// every visible change is a genuine global improvement.
+const champion = ref(null);
+let pendingChampion = null;
+let championTimer = null;
+
+// Strict quality order: feasible first, then narrowest strip / fewest bins,
+// then densest. Ties keep the incumbent (stability).
+function isBetter(a, b) {
+    if (!a) return false;
+    if (!b) return true;
+    if ((a.feasible ? 1 : 0) !== (b.feasible ? 1 : 0)) return a.feasible ? true : false;
+    const aw = a.strip_width ?? Infinity, bw = b.strip_width ?? Infinity;
+    if (aw !== bw) return aw < bw;
+    const ab = a.bins ?? Infinity, bb = b.bins ?? Infinity;
+    if (ab !== bb) return ab < bb;
+    return (a.density || 0) > (b.density || 0) + 1e-9;
+}
+
+function offerChampion(live) {
+    if (!isBetter(live, pendingChampion || champion.value)) return;
+    pendingChampion = live;
+    if (championTimer) return;
+    championTimer = setTimeout(() => {
+        championTimer = null;
+        if (isBetter(pendingChampion, champion.value)) {
+            champion.value = pendingChampion;
+        }
+        pendingChampion = null;
+    }, 1200);
+}
+
+// New job: wipe everything (snapshots, champion, sparkline) so no stale
+// layout from the previous run leaks into the new one.
+watch(
+    () => props.result?.slug,
+    () => {
+        snapshots.value = {};
+        champion.value = null;
+        pendingChampion = null;
+        history.value = [];
+        if (championTimer) {
+            clearTimeout(championTimer);
+            championTimer = null;
+        }
+    }
+);
+
+onBeforeUnmount(() => {
+    if (championTimer) clearTimeout(championTimer);
+});
+
 watch(
     () => props.result?.liveLayout,
     (live) => {
-        if (!live || live.worker == null) return;
-        snapshots.value = { ...snapshots.value, [live.worker]: live };
+        if (!live) return;
+        if (live.worker != null) {
+            snapshots.value = { ...snapshots.value, [live.worker]: live };
+        }
         recordHistory(live);
+        offerChampion(live);
         // Prefetch geometry for the item ids we see.
         const map = props.result?.itemMap || [];
         for (const m of map) ensureGeometry(m.slug);
@@ -143,18 +203,13 @@ const workers = computed(() =>
 );
 
 const best = computed(() => {
+    if (activeWorker.value >= 0) return snapshots.value[activeWorker.value] || null;
+    // Default view: the champion (monotone, stable). Falls back to the live
+    // best of current snapshots while no champion is locked yet.
+    if (champion.value) return champion.value;
     const all = Object.values(snapshots.value);
     if (!all.length) return null;
-    if (activeWorker.value >= 0) return snapshots.value[activeWorker.value] || null;
-    // Best: feasible first, then narrowest strip / fewest bins, then densest.
-    return [...all].sort((a, b) => {
-        if ((b.feasible ? 1 : 0) !== (a.feasible ? 1 : 0)) return (b.feasible ? 1 : 0) - (a.feasible ? 1 : 0);
-        const aw = a.strip_width ?? Infinity, bw = b.strip_width ?? Infinity;
-        if (aw !== bw) return aw - bw;
-        const ab = a.bins ?? Infinity, bb = b.bins ?? Infinity;
-        if (ab !== bb) return ab - bb;
-        return (b.density || 0) - (a.density || 0);
-    })[0];
+    return [...all].sort((a, b) => (isBetter(a, b) ? -1 : 1))[0];
 });
 
 const sheet = computed(() => {
