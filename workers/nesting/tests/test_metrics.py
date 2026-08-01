@@ -109,3 +109,87 @@ class TestVertexThreshold:
         rect = largest_empty_rectangle([container], items)
         assert time.time() - t0 < 5.0, "band path must be fast on ornate geometry"
         assert rect is not None
+
+
+from core.metrics import verify_layout
+
+
+def _holed_item(item_id=1):
+    return {
+        "id": item_id,
+        "coords": [[0, 0], [40, 0], [40, 40], [0, 40], [0, 0]],
+        "holes": [[[15, 15], [25, 15], [25, 25], [15, 25], [15, 15]]],
+    }
+
+
+class TestVerifyLayout:
+    def test_clean_layout_all_badges_ok(self):
+        item = _square_item(10.0, 0)
+        container = ResultContainer(
+            1,
+            [
+                Transform("f", ["h"], 5.0, 5.0, 0.0, item_id=0),
+                Transform("f", ["h"], 20.0, 5.0, 0.0, item_id=0),
+            ],
+            bin_width=100.0, bin_height=100.0,
+        )
+        report = verify_layout([container], [item], space=2.0)
+        assert report["overlapFree"] is True
+        assert report["insideSheet"] is True
+        assert report["spacingOk"] is True
+        assert abs(report["smallestGapMm"] - 5.0) < 1e-6
+        assert report["holesFilled"] == 0
+
+    def test_overlap_detected(self):
+        item = _square_item(10.0, 0)
+        container = ResultContainer(
+            1,
+            [
+                Transform("f", ["h"], 0.0, 0.0, 0.0, item_id=0),
+                Transform("f", ["h"], 5.0, 0.0, 0.0, item_id=0),
+            ],
+            bin_width=100.0, bin_height=100.0,
+        )
+        report = verify_layout([container], [item])
+        assert report["overlapFree"] is False
+
+    def test_outside_sheet_detected(self):
+        item = _square_item(10.0, 0)
+        container = ResultContainer(
+            1, [Transform("f", ["h"], 95.0, 0.0, 0.0, item_id=0)],
+            bin_width=100.0, bin_height=100.0,
+        )
+        report = verify_layout([container], [item])
+        assert report["insideSheet"] is False
+
+    def test_spacing_below_requested_is_ko(self):
+        item = _square_item(10.0, 0)
+        container = ResultContainer(
+            1,
+            [
+                Transform("f", ["h"], 5.0, 5.0, 0.0, item_id=0),
+                Transform("f", ["h"], 16.0, 5.0, 0.0, item_id=0),
+            ],
+            bin_width=100.0, bin_height=100.0,
+        )
+        report = verify_layout([container], [item], space=2.0)
+        assert report["spacingOk"] is False
+        assert abs(report["smallestGapMm"] - 1.0) < 1e-6
+
+    def test_part_in_hole_counted(self):
+        host = _holed_item(1)
+        filler = _square_item(6.0, 2)
+        container = ResultContainer(
+            1,
+            [
+                Transform("f", ["h"], 0.0, 0.0, 0.0, item_id=1),
+                # Filler square 6x6 centred on the host's hole (20, 20).
+                Transform("f", ["h"], 17.0, 17.0, 0.0, item_id=2),
+                # Another one clearly outside the hole.
+                Transform("f", ["h"], 60.0, 60.0, 0.0, item_id=2),
+            ],
+            bin_width=100.0, bin_height=100.0,
+        )
+        report = verify_layout([container], [host, filler])
+        assert report["holesTotal"] == 1
+        assert report["holesFilled"] == 1
