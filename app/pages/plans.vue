@@ -1,9 +1,9 @@
 <template>
     <div class="plans">
         <section class="plans__hero">
-            <h1 class="plans__title title title--large">Plans &amp; pricing</h1>
+            <h1 class="plans__title title title--large">{{ t('plans.title') }}</h1>
             <p class="plans__subtitle">
-                Start free, upgrade when the material savings speak for themselves.
+                {{ t('plans.subtitle') }}
             </p>
         </section>
 
@@ -20,7 +20,7 @@
                 <h2 class="cards__name">{{ tier.name }}</h2>
                 <div class="cards__price">
                     {{ tier.price }}
-                    <span class="cards__interval">/ {{ tier.interval }}</span>
+                    <span class="cards__interval">/ {{ tier.intervalLabel }}</span>
                 </div>
                 <p class="cards__description">{{ tier.description }}</p>
                 <ul class="cards__features">
@@ -31,7 +31,7 @@
                 </ul>
                 <MainButton
                     :theme="tier.highlighted ? themeType.primary : themeType.secondary"
-                    :label="userIsSet ? 'Manage in profile' : tier.cta"
+                    :label="userIsSet ? t('plans.cta.manageInProfile') : tier.cta"
                     :isDisable="Boolean(tier.comingSoon && !userIsSet)"
                     :trackingTag="tier.trackingTag"
                     @click="onTierClick(tier)"
@@ -41,15 +41,15 @@
         </section>
 
         <section class="plans__compare compare">
-            <h2 class="compare__title title title--medium">Compare plans</h2>
+            <h2 class="compare__title title title--medium">{{ t('plans.compare') }}</h2>
             <div class="compare__table-wrapper">
                 <table class="compare__table">
                     <thead>
                         <tr>
                             <th></th>
-                            <th>Free</th>
-                            <th class="compare__th--highlighted">Unlimited</th>
-                            <th>Pro</th>
+                            <th>{{ t('plans.tier.free') }}</th>
+                            <th class="compare__th--highlighted">{{ t('plans.tier.unlimited') }}</th>
+                            <th>{{ t('plans.tier.pro') }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -82,6 +82,7 @@ onMounted(() => {
 
 const loginDialog = useLoginDialog()
 const { getters: authGetters } = authStore
+const { t } = useLocale()
 const userIsSet = computed(() => Boolean(unref(authGetters.userIsSet)))
 
 // Shared with the landing via the 'payment-plans' cache key (deduplicated +
@@ -101,69 +102,69 @@ const tiers = computed(() => {
     const proAvailable = Boolean(proPlan?.available)
     return [
         {
-            name: 'Free',
+            name: t('plans.tier.free'),
             price: '€0',
-            interval: 'forever',
-            badge: 'Discovery',
+            intervalLabel: t('plans.interval.forever'),
+            badge: t('plans.badge.discovery'),
             badgeKind: 'neutral',
-            description: 'Try the engine on your own parts, every month.',
+            description: t('plans.free.desc'),
             features: [
-                `${FREE_NESTING_LIMIT} free nestings every month`,
-                'All core nesting features',
-                'DXF & ZIP export',
+                t('plans.free.f1', { n: FREE_NESTING_LIMIT }),
+                t('plans.free.f2'),
+                t('plans.free.f3'),
             ],
-            cta: 'Start for free',
+            cta: t('plans.cta.startFree'),
             trackingTag: 'plans_free',
         },
         {
-            name: 'Unlimited',
+            name: t('plans.tier.unlimited'),
             price: SUBSCRIPTION_PRICE_LABEL,
-            interval: 'month',
-            badge: 'Most popular',
+            intervalLabel: t('plans.interval.month'),
+            badge: t('plans.badge.popular'),
             badgeKind: 'accent',
             highlighted: true,
-            description: 'For makers and workshops that nest every week.',
+            description: t('plans.unlimited.desc'),
             features: [
-                'Unlimited nesting operations',
-                '3 alternative layouts per job',
-                'Multi-sheet jobs',
-                'Email notifications',
+                t('plans.unlimited.f1'),
+                t('plans.unlimited.f2'),
+                t('plans.unlimited.f3'),
+                t('plans.unlimited.f4'),
             ],
-            cta: `Start ${TRIAL_DAYS}-day free trial`,
+            cta: t('plans.cta.startTrial', { days: TRIAL_DAYS }),
             trackingTag: 'plans_unlimited',
         },
         {
-            name: 'Pro',
+            name: t('plans.tier.pro'),
             price: proAvailable ? formatPlanPrice(proPlan) : PRO_PRICE_LABEL,
-            interval: 'month',
-            badge: 'Confidentiality+',
+            intervalLabel: t('plans.interval.month'),
+            badge: t('plans.badge.confidentiality'),
             badgeKind: 'pro',
-            description: 'Maximum confidentiality and the densest layouts.',
+            description: t('plans.pro.desc'),
             features: [
-                'Everything in Unlimited',
-                'Zero-knowledge encryption',
-                'Maximum compute budget',
-                'Priority queue',
+                t('plans.pro.f1'),
+                t('plans.pro.f2'),
+                t('plans.pro.f3'),
+                t('plans.pro.f4'),
             ],
-            cta: proAvailable ? 'Get Pro' : 'Coming soon',
+            cta: proAvailable ? t('plans.cta.getPro') : t('plans.cta.comingSoon'),
             comingSoon: !proAvailable,
             trackingTag: 'plans_pro',
         },
     ]
 })
 
-const comparisonRows = [
-    { label: 'Nestings included', values: [`${FREE_NESTING_LIMIT} / month`, 'Unlimited', 'Unlimited'] },
-    { label: 'Alternative layouts per job', values: ['1', '3', '3'] },
-    { label: 'Compute budget (layout quality)', values: ['Standard', 'High', 'Maximum'] },
-    { label: 'Processing priority', values: [false, 'Standard', 'Priority'] },
-    { label: 'Multi-sheet jobs', values: [true, true, true] },
-    { label: 'Heterogeneous sheet types', values: [true, true, true] },
-    { label: 'DXF & ZIP export', values: [true, true, true] },
-    { label: 'Email notifications', values: [false, true, true] },
-    { label: 'Zero-knowledge encryption', values: [false, false, true] },
-    { label: '7-day free trial', values: [false, true, true] },
-]
+const comparisonRows = computed(() => [
+    { label: t('plans.compare.nestingsIncluded'), values: [t('plans.value.perMonth', { n: FREE_NESTING_LIMIT }), t('plans.value.unlimited'), t('plans.value.unlimited')] },
+    { label: t('plans.compare.altLayouts'), values: ['1', '3', '3'] },
+    { label: t('plans.compare.computeBudget'), values: [t('plans.value.standard'), t('plans.value.high'), t('plans.value.maximum')] },
+    { label: t('plans.compare.priority'), values: [false, t('plans.value.standard'), t('plans.value.priority')] },
+    { label: t('plans.compare.multiSheet'), values: [true, true, true] },
+    { label: t('plans.compare.heterogeneous'), values: [true, true, true] },
+    { label: t('plans.compare.export'), values: [true, true, true] },
+    { label: t('plans.compare.emailNotif'), values: [false, true, true] },
+    { label: t('plans.compare.zeroKnowledge'), values: [false, false, true] },
+    { label: t('plans.compare.trial'), values: [false, true, true] },
+])
 
 function onTierClick(tier) {
     if (tier.comingSoon && !userIsSet.value) return

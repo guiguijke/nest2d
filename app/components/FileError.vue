@@ -11,7 +11,7 @@
             :theme="themeType.secondary"
             href="https://github.com/guiguijke/nest2d/issues/new"
             target="_blank"
-            label="Report a problem"
+            :label="t('nav.reportProblem')"
             tag="a"
             trackingTag="report_problem"
             class="file__problem"
@@ -21,6 +21,8 @@
 <script setup>
 import { sizeType } from "~~/constants/size.constants";
 import { themeType } from '~~/constants/theme.constants';
+
+const { t } = useLocale()
 
 defineProps({
     file: {

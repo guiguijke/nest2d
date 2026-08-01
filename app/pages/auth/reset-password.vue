@@ -1,10 +1,10 @@
 <template>
     <div class="reset-password">
-        <MainTitle label="Choose a new password" class="reset-password__title" />
+        <MainTitle :label="t('auth.reset.title')" class="reset-password__title" />
 
         <template v-if="!token">
             <p class="reset-password__subtitle">
-                This reset link is invalid. Please request a new one.
+                {{ t('auth.reset.invalid') }}
             </p>
         </template>
 
@@ -13,14 +13,14 @@
                 <InputField
                     v-model="password"
                     type="password"
-                    placeholder="New password (min. 8 characters)"
+                    :placeholder="t('auth.reset.placeholderNew')"
                     :is-error="!!fieldError"
                     class="reset-password__field"
                 />
                 <InputField
                     v-model="passwordConfirm"
                     type="password"
-                    placeholder="Confirm new password"
+                    :placeholder="t('auth.reset.placeholderConfirm')"
                     :is-error="!!fieldError"
                     class="reset-password__field"
                 />
@@ -29,7 +29,7 @@
 
                 <MainButton
                     :theme="themeType.primary"
-                    label="Reset password"
+                    :label="t('auth.reset.submit')"
                     :isDisable="loading"
                     trackingTag="reset_password_submit"
                     tag="button"
@@ -40,11 +40,11 @@
         </template>
 
         <p v-else class="reset-password__success">
-            Your password has been updated. You can now log in with your new password.
+            {{ t('auth.reset.success') }}
         </p>
 
         <NuxtLink to="/auth/local" class="reset-password__back">
-            Go to login
+            {{ t('auth.reset.backToLogin') }}
         </NuxtLink>
     </div>
 </template>
@@ -58,6 +58,7 @@ definePageMeta({
 })
 
 const route = useRoute()
+const { t } = useLocale()
 const token = computed(() => String(route.query.token || ''))
 
 const password = ref('')
@@ -69,7 +70,7 @@ const done = ref(false)
 const onSubmit = async () => {
     fieldError.value = ''
     if (password.value !== passwordConfirm.value) {
-        fieldError.value = 'Passwords do not match'
+        fieldError.value = t('auth.reset.mismatch')
         return
     }
     loading.value = true
@@ -82,7 +83,7 @@ const onSubmit = async () => {
         })
         done.value = true
     } catch (err) {
-        fieldError.value = err?.data?.statusMessage || err?.statusMessage || 'Something went wrong. Please try again.'
+        fieldError.value = err?.data?.statusMessage || err?.statusMessage || t('auth.errorGeneric')
     } finally {
         loading.value = false
     }
