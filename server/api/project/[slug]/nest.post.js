@@ -3,7 +3,7 @@ import { connectDB } from '~~/server/db/mongo'
 import { DOMAINS } from '~~/server/core/domains'
 import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
-import { assertCanNest, getComputeProfile } from '~~/server/utils/entitlement'
+import { assertCanNest, getComputeProfile, validateDirections } from '~~/server/utils/entitlement'
 
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId
@@ -126,11 +126,16 @@ export default defineEventHandler(async (event) => {
     // it if the nesting fails.
     const charge = await assertCanNest(userId)
 
-    // Server-side compute budget by tier (never trust the client for this).
-    const compute = await getComputeProfile(userId, charge, params.computeLevel)
-    dbParams.timeBudgetSec = compute.timeBudgetSec
-    dbParams.alternativesCount = compute.nAlternatives
+    // Server-side compute profile by tier (never trust the client for this):
+    // vcores (parallel walks), wall-clock cap, and the direction allowance.
+    // The client only picks WHICH directions (fewer = faster result).
+    const compute = await getComputeProfile(userId, charge)
+    const directions = validateDirections(params.directions, compute.maxDirections)
+    dbParams.timeBudgetSec = compute.wallCapSec
+    dbParams.alternativesCount = directions.length
     dbParams.computeLevel = compute.level
+    dbParams.vcores = compute.vcores
+    dbParams.directions = directions
 
     // Vault gate + job insertion (the already-consumed charge is passed so
     // the quota is not consumed twice).
