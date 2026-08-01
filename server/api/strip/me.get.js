@@ -1,4 +1,5 @@
-import { connectDB } from "~~/server/db/mongo";
+import { DOMAINS } from "~~/server/core/domains";
+import { listProjects } from "~~/server/core/project/service";
 import { assertStripFeatureEnabled } from "~~/server/utils/featureFlags";
 
 export default defineEventHandler(async (event) => {
@@ -8,22 +9,5 @@ export default defineEventHandler(async (event) => {
   }
   await assertStripFeatureEnabled(userId);
 
-  const db = await connectDB();
-  const stripProjects = await db
-    .collection("strip_projects")
-    .find({ ownerId: userId })
-    .sort({ createdAt: -1 })
-    .project({ slug: 1, name: 1, createdAt: 1 })
-    .toArray();
-
-  const projects = stripProjects.map((project) => ({
-    slug: project.slug,
-    name: project.name,
-    createdAt: project.createdAt,
-    results: 0,
-  }));
-
-  return {
-    projects: projects,
-  };
+  return await listProjects(DOMAINS.strip, userId);
 });
