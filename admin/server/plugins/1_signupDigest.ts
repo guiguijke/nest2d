@@ -4,10 +4,17 @@ import { connectDB, COL } from '../db/mongo'
 // NOT already reported by the main app's instant notification (e.g. because
 // Resend was unreachable at signup time).
 //
-// Maintains a cursor in the `admins` collection (metadata.digestCursor) so it
-// only ever reports each user once. Runs every 5 minutes. Best-effort: any
-// failure is logged and retried next cycle.
+// Maintains a cursor in a dedicated `app_meta` collection so it only ever
+// reports each user once. Runs every 5 minutes. Best-effort: any failure is
+// logged and retried next cycle.
+//
+// IMPORTANT: the cursor MUST NOT live in the `admins` collection. Storing it
+// there with an empty-filter upsert created a phantom admin doc on first run
+// (when no admin exists yet), which made setup/status report needsSetup:false
+// and blocked the legitimate first-admin flow. A dedicated meta collection
+// with a fixed _id is both safe and cleaner.
 const INTERVAL_MS = 5 * 60 * 1000
+const META_DOC_ID = 'signupDigest'
 
 async function sendDigestEmail(to: string, users: any[]) {
   const config = useRuntimeConfig()
@@ -65,8 +72,8 @@ export default defineNitroPlugin((nitro) => {
       if (!to) return // no destination configured → skip
 
       const db = await connectDB()
-      const meta = db.collection('admins')
-      const metaDoc = await meta.findOne({}, { projection: { 'digestCursor': 1 } })
+      const meta = db.collection('app_meta')
+      const metaDoc = await meta.findOne({ _id: META_DOC_ID }, { projection: { digestCursor: 1 } })
       const cursor = metaDoc?.digestCursor ? new Date(metaDoc.digestCursor) : new Date(0)
 
       // Find users created after the cursor, newest first, capped to a batch.
@@ -85,7 +92,7 @@ export default defineNitroPlugin((nitro) => {
       // Advance the cursor to the newest signup we just reported.
       const newest = fresh.reduce((m, u) => (u.createdAt > m ? u.createdAt : m), cursor)
       await meta.updateOne(
-        {},
+        { _id: META_DOC_ID },
         { $set: { digestCursor: newest } },
         { upsert: true },
       )

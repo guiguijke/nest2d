@@ -30,13 +30,22 @@ export default defineEventHandler(async (event) => {
   const hasActiveSub = user.subscription?.status && ACTIVE.includes(user.subscription.status) && subId
 
   let result: any
+  // grantedUntil is set in BOTH branches. For subscribers we still apply a
+  // Stripe coupon (visible in the dashboard + zero-invoices the cycle), but we
+  // also set the local field so the entitlement layer honors the free month
+  // even if the user cancels their subscription right after — otherwise the
+  // "free month" promise would silently vanish on cancellation.
+  const until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
   if (hasActiveSub) {
     // Stripe path.
     const { couponId } = await grantStripeFreeMonth(subId)
-    result = { method: 'stripe_coupon', couponId }
+    await users.updateOne(
+      { id },
+      { $set: { grantedUntil: until, grantedBy: admin.id, grantedAt: new Date(), grantedReason: reason || null } },
+    )
+    result = { method: 'stripe_coupon', couponId, until }
   } else {
     // Local grant path.
-    const until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
     await users.updateOne(
       { id },
       { $set: { grantedUntil: until, grantedBy: admin.id, grantedAt: new Date(), grantedReason: reason || null } },
