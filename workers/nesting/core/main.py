@@ -885,10 +885,22 @@ def nesting_process(doc):
         raise Exception("Not all items could be placed in the nesting job")
 
     _heartbeat_stop.set()
-    # Best first: fewest sheets, then least sheet consumed.
-    alternatives.sort(
-        key=lambda alt: (alt.get("layoutCount") or 0, alt.get("usedSheetShare") or 1.0)
-    )
+    # Display order: when the alternatives carry directional tags, the
+    # canonical contract is option 1 = left (historical layout), 2 = bottom,
+    # 3 = balanced — quality sorting stays WITHIN a class. Untagged
+    # (legacy) alternatives keep the quality order: fewest sheets, then
+    # least sheet consumed.
+    _DIRECTION_ORDER = {"left": 0, "bottom": 1, "balanced": 2}
+    if any(alt.get("strategy") in _DIRECTION_ORDER for alt in alternatives):
+        alternatives.sort(key=lambda alt: (
+            _DIRECTION_ORDER.get(alt.get("strategy"), 99),
+            alt.get("layoutCount") or 0,
+            alt.get("usedSheetShare") or 1.0,
+        ))
+    else:
+        alternatives.sort(
+            key=lambda alt: (alt.get("layoutCount") or 0, alt.get("usedSheetShare") or 1.0)
+        )
     for alt_id, alt in enumerate(alternatives):
         alt["alt_id"] = alt_id
 

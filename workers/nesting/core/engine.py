@@ -171,6 +171,9 @@ def run_engine(instance, config, problem_type, on_event=None, should_cancel=None
         alternatives.append({
             "rank": alt.get("rank"),
             "seed": alt.get("seed"),
+            # Directional class of this alternative (left/bottom/balanced),
+            # None on engines/jobs without directions.
+            "bias": alt.get("bias"),
             "solution": _normalize_solution(problem_type, solution),
             "metrics": {
                 "density": alt.get("density") or solution.get("density"),
