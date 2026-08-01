@@ -21,8 +21,8 @@
                      · {{ (best.density * 100).toFixed(1) }}%
                 </template>
             </span>
-            <span v-if="best" class="live__badge" :class="{ 'live__badge--ok': best.feasible }">
-                {{ best.feasible ? t('live.feasible') : t('live.searching') }}
+            <span v-if="best" class="live__badge" :class="{ 'live__badge--ok': bestFitsSheet }">
+                {{ bestFitsSheet ? t('live.feasible') : t('live.searching') }}
             </span>
         </div>
 
@@ -33,9 +33,18 @@
                 class="live__sheet"
                 preserveAspectRatio="xMidYMid meet"
             >
+                <defs>
+                    <clipPath :id="clipId">
+                        <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" />
+                    </clipPath>
+                </defs>
                 <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" class="live__sheet-bg" />
-                <g v-for="(item, i) in displayItems" :key="i">
+                <!-- Mid-search snapshots include out-of-strip placements
+                     (sparrow separation states): never paint outside the sheet. -->
+                <g :clip-path="`url(#${clipId})`">
                     <path
+                        v-for="(item, i) in displayItems"
+                        :key="i"
                         :d="item.d"
                         :transform="`translate(${item.x} ${item.y}) rotate(${item.rot})`"
                         class="live__part"
@@ -118,6 +127,14 @@ function ringsToPath(rings) {
 const snapshots = ref({}); // worker -> liveLayout
 const activeWorker = ref(-1); // -1 = best
 
+// Unique clip id: several LiveNestingView instances (big + compact) can be
+// on the same page, ids must not collide.
+const clipId = `sheet-clip-${Math.random().toString(36).slice(2, 9)}`;
+
+// Badge honesty: "feasible" only when the layout also fits the sheet
+// (sparrow emits collision-free but over-width solutions mid-search).
+const bestFitsSheet = computed(() => fitsSheet(best.value));
+
 // Vcores at work on this job (tier compute profile, written by the worker);
 // null on legacy jobs — the spinner simply stays hidden.
 const cores = computed(() => {
@@ -136,12 +153,24 @@ const champion = ref(null);
 let pendingChampion = null;
 let championTimer = null;
 
-// Strict quality order: feasible first, then narrowest strip / fewest bins,
-// then densest. Ties keep the incumbent (stability).
+// sparrow has NO hard sheet bound: a collision-free ("feasible") solution
+// can still be wider than the sheet. Only layouts that actually fit count
+// as presentable — otherwise the view locks on over-width garbage with a
+// green badge.
+function fitsSheet(s) {
+    if (!s?.feasible) return false;
+    const w = s.sheets?.[0]?.[0];
+    if (w != null && s.strip_width != null) return s.strip_width <= w + 0.5;
+    return true;
+}
+
+// Strict quality order: fits-the-sheet first, then narrowest strip / fewest
+// bins, then densest. Ties keep the incumbent (stability).
 function isBetter(a, b) {
     if (!a) return false;
     if (!b) return true;
-    if ((a.feasible ? 1 : 0) !== (b.feasible ? 1 : 0)) return a.feasible ? true : false;
+    const fa = fitsSheet(a), fb = fitsSheet(b);
+    if (fa !== fb) return fa;
     const aw = a.strip_width ?? Infinity, bw = b.strip_width ?? Infinity;
     if (aw !== bw) return aw < bw;
     const ab = a.bins ?? Infinity, bb = b.bins ?? Infinity;

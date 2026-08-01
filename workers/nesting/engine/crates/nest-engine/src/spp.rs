@@ -281,9 +281,11 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1 });
                         }
-                        if max_width.is_some_and(|mw| s1.strip_width() > mw + 1e-4) {
-                            return None;
-                        }
+                        // Corridor capped at the sheet width even when phase 1
+                        // overshot it: phase 2 then FORCES width = mw (a
+                        // degraded-but-feasible left) instead of losing the
+                        // whole class — with one worker per class, a single
+                        // missed phase 1 must not empty the class.
                         let corridor = match max_width {
                             Some(mw) => (s1.strip_width() + slack).min(mw),
                             None => s1.strip_width() + slack,
@@ -297,7 +299,14 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             Some(corridor),
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
-                            return None;
+                            // Phase 2 overshot the sheet height: fall back to
+                            // the phase-1 width-min layout when IT fits —
+                            // the legacy flow keeps phase-1 results in this
+                            // exact case too.
+                            if max_width.is_some_and(|mw| s1.strip_width() > mw + 1e-4) {
+                                return None;
+                            }
+                            return Some(ClassRun { seed, bias, solution: s1 });
                         }
                         let mapped = map_back_solution(&t_instance, &s2, corridor, &instance);
                         Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped) })
