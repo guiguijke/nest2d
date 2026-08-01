@@ -71,7 +71,11 @@ const state = reactive({
                 space: Number(state.params.space),
                 addOutShape: state.params.addOutShape,
                 rotationCount: Number(state.params.rotationCount),
-                computeLevel: state.params.computeLevel || undefined
+                // Layout directions to optimize towards (server re-validates
+                // against the tier allowance); undefined = server default.
+                directions: Array.isArray(state.params.directions) && state.params.directions.length
+                    ? state.params.directions
+                    : undefined
             }
         })
     })

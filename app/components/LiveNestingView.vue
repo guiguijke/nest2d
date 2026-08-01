@@ -2,6 +2,14 @@
     <div class="live" :class="{ 'live--compact': compact }">
         <div class="live__header">
             <span class="live__stage">{{ stageLabel }}</span>
+            <CoresSpinner
+                v-if="cores"
+                :cores="cores"
+                :size="16"
+                show-count
+                :title="t('nest.coresTitle', { n: cores })"
+                class="live__cores"
+            />
             <span v-if="best" class="live__metric">
                 <template v-if="best.strip_width != null">
                     {{ t('live.width') }} <strong>{{ best.strip_width.toFixed(1) }} mm</strong>
@@ -109,6 +117,13 @@ function ringsToPath(rings) {
 // ---- per-worker snapshots ------------------------------------------------
 const snapshots = ref({}); // worker -> liveLayout
 const activeWorker = ref(-1); // -1 = best
+
+// Vcores at work on this job (tier compute profile, written by the worker);
+// null on legacy jobs — the spinner simply stays hidden.
+const cores = computed(() => {
+    const n = props.result?.compute?.vcores;
+    return n ? Math.min(8, Math.max(1, Number(n) || 1)) : null;
+});
 
 watch(
     () => props.result?.liveLayout,

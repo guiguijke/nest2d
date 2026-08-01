@@ -16,6 +16,12 @@
                     />
                 </div>
                 <p class="result__text result__text--count">
+                    <CoresSpinner
+                        v-if="cores"
+                        :cores="cores"
+                        :size="14"
+                        class="result__cores"
+                    />
                     {{ progressPercent }}%<template v-if="progress.elapsed_sec != null"> · {{ formatElapsed(progress.elapsed_sec) }}</template>
                 </p>
             </template>
@@ -136,6 +142,12 @@ const isResultNexting = computed(() => {
 const progress = computed(() => {
     const p = props.result?.progress;
     return p && p.total > 0 ? p : null;
+});
+
+// Vcores at work on this job (tier compute profile); null on legacy jobs.
+const cores = computed(() => {
+    const n = props.result?.compute?.vcores;
+    return n ? Math.min(8, Math.max(1, Number(n) || 1)) : null;
 });
 
 const progressPercent = computed(() => {
