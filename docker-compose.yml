@@ -122,6 +122,32 @@ services:
     networks:
       - nest2d
 
+  # ---------------------------------------------------------------------------
+  # One-shot index migration. Creates the MongoDB indexes required for login
+  # lookups, the Stripe webhook, and admin log queries (see
+  # scripts/mongo-indexes.mongo.js for the rationale). createIndex is
+  # idempotent, so this runs on every `docker compose up` and is a no-op once
+  # the indexes exist. It exits 0 once done and does not block the app/admin
+  # (they only wait for `mongo` to be healthy, not for this service). If a
+  # unique index cannot be built because of duplicate data, the error is
+  # printed in `docker compose logs mongo-init` and the script still exits
+  # cleanly — de-duplicate the data, then the index builds on the next run.
+  # ---------------------------------------------------------------------------
+  mongo-init:
+    image: mongo:7
+    # Mount the migration script read-only. --quiet keeps the output to just
+    # our own print() lines.
+    volumes:
+      - ./scripts:/scripts:ro
+    entrypoint: ["mongosh"]
+    command: ["--quiet", "mongodb://mongo:27017/nest2d", "/scripts/mongo-indexes.mongo.js"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - nest2d
+
   user-file-processing-worker:
     image: ghcr.io/guiguijke/nest2d-user-file-processing-worker:latest
     env_file: .env
