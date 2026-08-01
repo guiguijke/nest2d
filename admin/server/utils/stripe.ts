@@ -26,6 +26,23 @@ function authHeaders(contentType?: string) {
 export async function grantStripeFreeMonth(subscriptionId: string): Promise<{ couponId: string }> {
   const couponId = 'aplasma_free_month'
 
+  // Guard against repeated application: if this subscription already has the
+  // free-month coupon applied (discount still active), refuse instead of
+  // stacking. Without this, an admin clicking N times would grant N free
+  // cycles on the same subscription.
+  const existing = await $fetch(`${STRIPE_BASE}/subscriptions/${subscriptionId}`, {
+    method: 'GET',
+    headers: authHeaders('application/x-www-form-urlencoded'),
+  }).catch(() => null)
+  const alreadyGranted = (existing?.discount?.coupon?.id === couponId)
+    || (Array.isArray(existing?.discounts) && existing.discounts.some((d: any) => d?.coupon?.id === couponId))
+  if (alreadyGranted) {
+    throw createError({
+      statusCode: 409,
+      statusMessage: "Ce mois gratuit a déjà été appliqué à cet abonnement.",
+    })
+  }
+
   // Ensure the coupon exists (idempotent — Stripe returns the existing one).
   await $fetch(`${STRIPE_BASE}/coupons`, {
     method: 'POST',
