@@ -34,6 +34,13 @@ from typing import Any, Callable
 
 from pymongo import ReturnDocument
 
+from .compute_tokens import (
+    acquire_tokens,
+    ensure_pool,
+    reap_stale_leases,
+    refresh_lease,
+    release_tokens,
+)
 from .logger import setup_logger
 from .mongo import db
 
@@ -64,6 +71,11 @@ class WorkerConfig:
     # Exception type(s) raised by process() when the user cancelled the job;
     # such jobs are already finalized by process() and are only refunded.
     cancelled_exception: type[BaseException] | tuple | None = None
+    # Compute tokens: returns the job's cost in the shared vcore pool
+    # (worker_common.compute_tokens). When set, the loop acquires tokens
+    # before claiming a job and releases them on finalize; when the pool
+    # cannot fit any pending job, the worker idles. None = untracked.
+    token_cost: Callable[[dict], int] | None = None
     idle_sleep: float = 5.0
     heartbeat_interval: float = 10.0
 
@@ -74,14 +86,21 @@ def run_worker(config: WorkerConfig) -> None:
 
     collection = db[config.collection]
     current_doc_id = None
+    current_lease = None  # (lease_id, cost) while a job is in flight
     shutdown_requested = False
 
     def signal_handler(signum, frame):
         """Handle graceful shutdown signals — reset the in-flight job to pending."""
-        nonlocal current_doc_id, shutdown_requested
+        nonlocal current_doc_id, current_lease, shutdown_requested
 
         logger.info(f"Received {signum} signal, initiating graceful shutdown")
         shutdown_requested = True
+
+        if current_lease:
+            try:
+                release_tokens(current_lease)
+            except Exception as e:
+                logger.error(f"Failed to release compute tokens: {e}")
 
         if current_doc_id:
             try:
@@ -119,28 +138,65 @@ def run_worker(config: WorkerConfig) -> None:
                     logger.debug(f"Updated keep-alive for document {current_doc_id}")
                 except Exception as e:
                     logger.error(f"Failed to update keep-alive: {e}")
+            if current_lease:
+                try:
+                    refresh_lease(current_lease)
+                except Exception as e:
+                    logger.error(f"Failed to refresh compute lease: {e}")
 
             time.sleep(config.heartbeat_interval)
 
     keepalive_thread = threading.Thread(target=keep_alive_worker, daemon=True)
     keepalive_thread.start()
 
+    if config.token_cost:
+        ensure_pool()
+
     query = {config.status_field: "pending", **config.query_extra}
+
+    def claim_with_tokens():
+        """Peek pending jobs in priority order, acquire tokens for the first
+        one the pool can fit, then claim it. Avoids head-of-line blocking:
+        an expensive job that does not fit never starves cheaper ones."""
+        reap_stale_leases(logger)
+        finder = collection.find(query)
+        if config.sort:
+            finder = finder.sort(config.sort)
+        for candidate in finder.limit(5):
+            lease = acquire_tokens(config.name, candidate["_id"], config.token_cost(candidate))
+            if lease is None:
+                continue
+            claimed = collection.find_one_and_update(
+                {"_id": candidate["_id"], config.status_field: "pending"},
+                {"$set": {config.status_field: "processing"}},
+                return_document=ReturnDocument.AFTER,
+            )
+            if claimed is None:
+                # Another daemon won the claim race: hand the tokens back.
+                release_tokens(lease)
+                continue
+            return claimed, lease
+        return None, None
 
     while not shutdown_requested:
         logger.info(f"Worker {config.name} looking for pending jobs")
-        doc = collection.find_one_and_update(
-            query,
-            {"$set": {config.status_field: "processing"}},
-            sort=config.sort,
-            return_document=ReturnDocument.AFTER,
-        )
+        lease = None
+        if config.token_cost:
+            doc, lease = claim_with_tokens()
+        else:
+            doc = collection.find_one_and_update(
+                query,
+                {"$set": {config.status_field: "processing"}},
+                sort=config.sort,
+                return_document=ReturnDocument.AFTER,
+            )
 
         if doc is None:
             time.sleep(config.idle_sleep)
             continue
 
         current_doc_id = doc["_id"]
+        current_lease = lease
 
         try:
             start_at = datetime.now()
@@ -191,4 +247,10 @@ def run_worker(config: WorkerConfig) -> None:
                     error_update["finishedAt"] = datetime.now()
                 collection.update_one({"_id": current_doc_id}, {"$set": error_update})
         finally:
+            if current_lease:
+                try:
+                    release_tokens(current_lease)
+                except Exception as e:
+                    logger.error(f"Failed to release compute tokens: {e}")
+            current_lease = None
             current_doc_id = None

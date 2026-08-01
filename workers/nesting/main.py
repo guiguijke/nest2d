@@ -11,6 +11,12 @@ def _on_success(doc):
     db["users"].update_one({"id": doc["ownerId"]}, {"$inc": {"nesting_count": 1}})
 
 
+def _token_cost(doc):
+    """Job cost in the shared vcore pool: the tier's vcores, set server-side
+    at enqueue (params.vcores). Legacy jobs without the field cost 1."""
+    return max(1, int((doc.get("params") or {}).get("vcores") or 1))
+
+
 run_worker(
     WorkerConfig(
         name="main_nesting",
@@ -27,5 +33,6 @@ run_worker(
         on_success=_on_success,
         refund=lambda doc: refund_charge(nesting_jobs, doc),
         cancelled_exception=JobCancelled,
+        token_cost=_token_cost,
     )
 )
