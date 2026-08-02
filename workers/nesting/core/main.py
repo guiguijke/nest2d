@@ -495,8 +495,23 @@ def nesting_process(doc):
 
     # Live combinations counter: SPP feeds it with placement evaluations
     # ('evals' events), BPP with SA iterations ('heartbeat' events) — the
-    # progress doc carries the sum across workers.
+    # progress doc carries the sum across workers. Per-worker counters are
+    # RUN-scoped: a worker starting a new phase (new engine run) restarts at
+    # zero, so the pipeline accumulates deltas into a monotone total.
     _worker_evals = {}
+    _worker_evals_offset = {}
+
+    def _record_worker_evals(worker, evals):
+        if worker is None:
+            return
+        prev = _worker_evals.get(worker, 0)
+        if evals < prev:
+            # New run for this worker: bank the previous run's total.
+            _worker_evals_offset[worker] = _worker_evals_offset.get(worker, 0) + prev
+        _worker_evals[worker] = evals
+
+    def _total_evals():
+        return sum(_worker_evals.values()) + sum(_worker_evals_offset.values())
 
     def report_progress(stage, done, total, pct=None):
         _current_progress.update({"stage": stage, "done": done, "total": total, "pct": pct})
@@ -520,7 +535,7 @@ def nesting_process(doc):
                         # Ticking seconds prove the worker is alive even on
                         # long stages.
                         "elapsed_sec": int(_time.monotonic() - _job_started),
-                        **({"evals": sum(_worker_evals.values())} if _worker_evals else {}),
+                        **({"evals": _total_evals()} if _worker_evals else {}),
                     },
                     "update_ts": datetime.now(),
                 }},
@@ -550,7 +565,7 @@ def nesting_process(doc):
                             "total": p["total"],
                             "pct": p.get("pct"),
                             "elapsed_sec": int(_time.monotonic() - _job_started),
-                            **({"evals": sum(_worker_evals.values())} if _worker_evals else {}),
+                            **({"evals": _total_evals()} if _worker_evals else {}),
                         },
                         "update_ts": datetime.now(),
                     }},
@@ -665,6 +680,7 @@ def nesting_process(doc):
             live = {
                 "stage": stage,
                 "worker": event.get("worker"),
+                "bias": event.get("bias"),
                 "feasible": event.get("feasible"),
                 "strip_width": event.get("strip_width"),
                 "density": event.get("density"),
@@ -689,10 +705,10 @@ def nesting_process(doc):
         if etype == "layout":
             report_live_layout(event)
         elif etype == "evals":
-            _worker_evals[event.get("worker")] = event.get("evals") or 0
+            _record_worker_evals(event.get("worker"), event.get("evals") or 0)
         elif etype in ("progress", "heartbeat"):
             if etype == "heartbeat" and event.get("iterations") is not None:
-                _worker_evals[event.get("worker")] = event["iterations"]
+                _record_worker_evals(event.get("worker"), event["iterations"])
             stage = event.get("stage", "explore")
             # Real percentage: the engine reports its elapsed seconds and we
             # know the time budget it was given (it stops by itself at 100%).

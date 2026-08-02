@@ -14,7 +14,8 @@ pub fn compression_phase(
     init_sol: &SPSolution,
     sol_listener: &mut impl SolutionListener,
     term: &impl Terminator,
-    config: &CompressionConfig
+    config: &CompressionConfig,
+    evals_base: usize,
 ) -> (SPSolution, crate::optimizer::worker::SepStats) {
     let mut best_sol = init_sol.clone();
     let mut stats = crate::optimizer::worker::SepStats { total_moves: 0, total_evals: 0 };
@@ -41,6 +42,9 @@ pub fn compression_phase(
         let (attempt, round_stats) = attempt_to_compress(sep, &best_sol, step, term, sol_listener);
         stats.total_moves += round_stats.total_moves;
         stats.total_evals += round_stats.total_evals;
+        // Monotone across the whole run: compression continues where
+        // exploration left off (evals_base = explore total).
+        sol_listener.report_evals(evals_base + stats.total_evals);
         match attempt {
             Some(compacted_sol) => {
                 info!("[CMPR] success at {:.3}% ({:.3} | {:.3}%)", step * 100.0, compacted_sol.strip_width(), compacted_sol.density(instance) * 100.0);

@@ -38,6 +38,9 @@ pub fn exploration_phase(instance: &SPInstance, sep: &mut Separator, sol_listene
         };
         stats.total_moves += round_stats.total_moves;
         stats.total_evals += round_stats.total_evals;
+        // Run-cumulative combinations counter (monotone — the per-round
+        // sep_stats alone would reset on every separation round).
+        sol_listener.report_evals(stats.total_evals);
         let total_loss = local_best.1.get_total_loss();
 
         if total_loss == 0.0 {

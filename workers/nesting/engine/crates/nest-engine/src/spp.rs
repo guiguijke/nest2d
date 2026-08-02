@@ -93,6 +93,7 @@ fn optimize_one(
     live: bool,
     map_back_height: Option<f32>,
     plateau_patience: Option<Duration>,
+    bias_tag: Option<&'static str>,
 ) -> (SPSolution, usize) {
     let mut cfg = *sparrow_cfg;
     cfg.expl_cfg.time_limit = budget.mul_f32(explore_ratio);
@@ -100,7 +101,8 @@ fn optimize_one(
     let rng = Xoshiro256PlusPlus::seed_from_u64(seed);
     let mut listener = ProgressListener::new(worker, started)
         .with_live(live)
-        .with_map_back(map_back_height);
+        .with_map_back(map_back_height)
+        .with_bias(bias_tag);
     let mut terminator = PlateauTerminator::new(listener.improvement_clock(), plateau_patience);
     let (solution, evals) = optimize(
         instance.clone(),
@@ -161,6 +163,7 @@ fn optimize_multi(
                 live,
                 map_back_height,
                 plateau_patience,
+                None,
             );
             WorkerRun { seed, solution, evals }
         })
@@ -285,6 +288,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             &instance, &sparrow_config,
                             if two_phase { b1 } else { budget },
                             explore, seed, w, started, gravity_on, live, None, plateau,
+                            Some(bias.as_str()),
                         );
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
@@ -305,6 +309,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             &t_instance, &sparrow_config, b2, explore,
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
                             Some(corridor), plateau,
+                            Some(bias.as_str()),
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
                             // Phase 2 overshot the sheet height: fall back to
@@ -331,6 +336,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             let (s, evals) = optimize_one(
                                 &instance, &sparrow_config, budget, explore,
                                 seed, w, started, gravity_on, live, None, plateau,
+                                Some(bias.as_str()),
                             );
                             return Some(ClassRun { seed, bias, solution: s, evals });
                         };
@@ -342,6 +348,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             if two_phase { b1 } else { budget },
                             explore, seed, w, started, gravity_on, live,
                             Some(mw), plateau,
+                            Some(bias.as_str()),
                         );
                         if s1.strip_width() > ext_instance.strip_height + 1e-4 {
                             return None; // taller than the sheet: unusable
@@ -363,6 +370,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             &inst2, &sparrow_config, b2, explore,
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
                             None, plateau,
+                            Some(bias.as_str()),
                         );
                         if s2.strip_width() > mw + 1e-4 {
                             // Width overshot the sheet: keep the phase-1
@@ -385,6 +393,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             let (s, evals) = optimize_one(
                                 &instance, &sparrow_config, budget, explore,
                                 seed, w, started, gravity_on, live, None, plateau,
+                                Some(bias.as_str()),
                             );
                             return Some(ClassRun { seed, bias, solution: s, evals });
                         };
@@ -392,6 +401,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             &instance, &sparrow_config,
                             if two_phase { b1 } else { budget },
                             explore, seed, w, started, gravity_on, live, None, plateau,
+                            Some(bias.as_str()),
                         );
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
@@ -404,6 +414,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             &t_instance, &sparrow_config, b2, explore,
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
                             Some(corridor), plateau,
+                            Some(bias.as_str()),
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
                             // Corridor overshot the sheet height: fall back to
