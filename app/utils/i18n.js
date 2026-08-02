@@ -308,6 +308,20 @@ const dict = {
         'auth.toggleToRegister': "Don't have an account? Sign up",
         'auth.errorGeneric': 'Something went wrong. Please try again.',
 
+        // ── Email verification & newsletter ──
+        'auth.newsletterOptIn': 'Keep me informed about NestorCut news and updates (optional newsletter, unsubscribe anytime).',
+        'auth.checkEmail.title': 'Check your inbox',
+        'auth.checkEmail.text': 'We sent you a verification link. Click it to activate your account and start nesting. The link is valid for 24 hours — check your spam folder if needed.',
+        'auth.checkEmail.resend': 'Resend the verification email',
+        'auth.checkEmail.resent': 'Email sent again ✓',
+        'auth.checkEmail.skip': 'I\'ll do it later, take me to the app',
+        'auth.verify.okTitle': 'Email verified ✓',
+        'auth.verify.okText': 'Your account is now active. You can start nesting your DXF files.',
+        'auth.verify.cta': 'Go to my workspace',
+        'auth.verify.errTitle': 'Invalid or expired link',
+        'auth.verify.errText': 'This verification link is invalid or has expired. Request a new one to activate your account.',
+        'auth.verify.errCta': 'Resend the verification email',
+
         // ── Forgot password (auth/forgot-password.vue) ──
         'auth.forgot.title': 'Reset your password',
         'auth.forgot.subtitle': 'Enter your account email and we will send you a reset link.',
@@ -633,6 +647,20 @@ const dict = {
         'auth.toggleToLogin': 'Déjà un compte ? Connexion',
         'auth.toggleToRegister': 'Pas de compte ? Inscrivez-vous',
         'auth.errorGeneric': 'Une erreur est survenue. Veuillez réessayer.',
+
+        // ── Vérification d'email & newsletter ──
+        'auth.newsletterOptIn': 'Je veux être tenu informé des nouveautés de NestorCut (newsletter facultative, désinscription à tout moment).',
+        'auth.checkEmail.title': 'Vérifiez votre boîte mail',
+        'auth.checkEmail.text': 'Nous vous avons envoyé un lien de vérification. Cliquez dessus pour activer votre compte et commencer à imbriquer. Le lien est valable 24 h — pensez à vérifier vos spams.',
+        'auth.checkEmail.resend': 'Renvoyer l\'email de vérification',
+        'auth.checkEmail.resent': 'Email renvoyé ✓',
+        'auth.checkEmail.skip': 'Je le ferai plus tard, aller à l\'app',
+        'auth.verify.okTitle': 'Email vérifié ✓',
+        'auth.verify.okText': 'Votre compte est maintenant actif. Vous pouvez commencer à imbriquer vos fichiers DXF.',
+        'auth.verify.cta': 'Aller à mon espace',
+        'auth.verify.errTitle': 'Lien invalide ou expiré',
+        'auth.verify.errText': 'Ce lien de vérification est invalide ou a expiré. Demandez-en un nouveau pour activer votre compte.',
+        'auth.verify.errCta': 'Renvoyer l\'email de vérification',
 
         // ── Mot de passe oublié (auth/forgot-password.vue) ──
         'auth.forgot.title': 'Réinitialiser votre mot de passe',

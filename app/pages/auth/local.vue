@@ -29,6 +29,11 @@
                 class="local-auth__field"
             />
 
+            <label v-if="isRegister" class="local-auth__optin optin">
+                <input type="checkbox" v-model="newsletterOptIn" class="optin__checkbox" />
+                <span class="optin__label">{{ t('auth.newsletterOptIn') }}</span>
+            </label>
+
             <p v-if="fieldError" class="local-auth__error">{{ fieldError }}</p>
 
             <MainButton
@@ -68,6 +73,7 @@ const isRegister = ref(true)
 const name = ref('')
 const email = ref('')
 const password = ref('')
+const newsletterOptIn = ref(false)
 const fieldError = ref('')
 const loading = ref(false)
 
@@ -81,7 +87,7 @@ const onSubmit = async () => {
     loading.value = true
     trackEvent(isRegister.value ? 'click_local_register' : 'click_local_login', { page: 'local_auth' })
     try {
-        await $fetch(`/api/auth/local/${isRegister.value ? 'register' : 'login'}`, {
+        const response = await $fetch(`/api/auth/local/${isRegister.value ? 'register' : 'login'}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -89,8 +95,14 @@ const onSubmit = async () => {
                 name: name.value,
                 email: email.value,
                 password: password.value,
+                newsletterOptIn: isRegister.value ? newsletterOptIn.value : undefined,
             }),
         })
+        // New local accounts must confirm their email before nesting.
+        if (isRegister.value && response?.needsVerification) {
+            router.push({ path: '/auth/check-email' })
+            return
+        }
         router.push({ path: '/home' })
     } catch (err) {
         fieldError.value = err?.data?.statusMessage || err?.statusMessage || t('auth.errorGeneric')
@@ -171,6 +183,29 @@ onMounted(async () => {
                 color: var(--accent-primary);
             }
         }
+    }
+}
+
+.optin {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    text-align: left;
+
+    &__checkbox {
+        margin-top: 3px;
+        width: 16px;
+        height: 16px;
+        accent-color: var(--accent-primary);
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    &__label {
+        font-size: 13px;
+        color: var(--label-secondary);
+        line-height: 1.4;
     }
 }
 </style>
