@@ -372,11 +372,22 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                         }
                         Some(ClassRun { seed, bias, solution: s2, evals: s1_evals + s2_evals })
                     }
-                    // Width-min, then compaction through a LOOSE height
-                    // corridor (5x slack): parts still get driven into holes,
-                    // but the layout keeps a more natural spread than the
-                    // tightly compacted left class — the middle ground.
+                    // Corner blob: width-min first (like left), then the
+                    // transposed compaction with a corridor of 2x that
+                    // minimal width instead of the tight one — hosts stay
+                    // grouped (hole filling is preserved, like left) but the
+                    // layout spreads into a compact corner rectangle about
+                    // two columns wide, with an L-shaped offcut. Distinct
+                    // from both the left column and the bottom row.
                     DirBias::Balanced => {
+                        let Some(mw) = max_width else {
+                            // No sheet bound: directions are meaningless here.
+                            let (s, evals) = optimize_one(
+                                &instance, &sparrow_config, budget, explore,
+                                seed, w, started, gravity_on, live, None, plateau,
+                            );
+                            return Some(ClassRun { seed, bias, solution: s, evals });
+                        };
                         let (s1, s1_evals) = optimize_one(
                             &instance, &sparrow_config,
                             if two_phase { b1 } else { budget },
@@ -385,14 +396,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
                         }
-                        if max_width.is_some_and(|mw| s1.strip_width() > mw + 1e-4) {
-                            return None;
-                        }
-                        let loose_slack = slack * 5.0;
-                        let corridor = match max_width {
-                            Some(mw) => (s1.strip_width() + loose_slack).min(mw),
-                            None => s1.strip_width() + loose_slack,
-                        };
+                        let corridor = (s1.strip_width() * 2.0).min(mw);
                         let t_ext = transpose_instance(&ext_instance, corridor);
                         let t_instance =
                             jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
@@ -402,12 +406,17 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             Some(corridor), plateau,
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
-                            // Loose corridor overshot the sheet height: fall
-                            // back to the phase-1 layout (legacy resilience).
+                            // Corridor overshot the sheet height: fall back to
+                            // the phase-1 layout (legacy resilience).
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals + s2_evals });
                         }
                         let mapped = map_back_solution(&t_instance, &s2, corridor, &instance);
-                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped), evals: s1_evals + s2_evals })
+                        Some(ClassRun {
+                            seed,
+                            bias,
+                            solution: gravity_after(&instance, mapped),
+                            evals: s1_evals + s2_evals,
+                        })
                     }
                 }
             })

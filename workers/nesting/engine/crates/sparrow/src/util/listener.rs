@@ -3,6 +3,10 @@ use jagua_rs::probs::spp::entities::{SPInstance, SPSolution};
 /// Trait for listeners that can receive solutions during the optimization process
 pub trait SolutionListener {
     fn report(&mut self, report: ReportType, solution: &SPSolution, instance: &SPInstance);
+
+    /// Cumulative placement evaluations so far (live counter). Called every
+    /// separator iteration; listeners are expected to throttle output.
+    fn report_evals(&mut self, _evals: usize) {}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

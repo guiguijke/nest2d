@@ -117,6 +117,7 @@ impl Separator {
                 // Update the GLS weights
                 self.ct.update_weights();
                 n_iter += 1;
+                sol_listener.report_evals(sep_stats.total_evals);
             }
 
             if initial_strike_loss * 0.98 <= min_loss {

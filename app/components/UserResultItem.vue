@@ -1,9 +1,7 @@
 <template>
     <div class="result">
         <template v-if="isResultNexting">
-            <LiveNestingView v-if="result.liveLayout" :result="result" compact />
             <MainLoader
-                v-else
                 :size="sizeType.s"
                 :theme="themeType.secondary"
                 class="result__display"
