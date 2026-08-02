@@ -274,6 +274,13 @@ async function nest(slug) {
                 }
                 return
             }
+            if (error?.data?.statusMessage === 'email_not_verified') {
+                // Local account without a confirmed email — send the user to
+                // the verification page (with a resend button).
+                const router = useRouter()
+                router.push({ path: '/auth/check-email' })
+                return
+            }
             if (error?.data?.statusMessage === 'vault_locked') {
                 const vaultUnlockDialog = useVaultUnlockDialog();
                 vaultUnlockDialog.value = true;

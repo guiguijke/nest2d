@@ -93,3 +93,17 @@ export async function sendPasswordResetEmail(email, resetUrl) {
   await sendEmail(email, emailSubject, emailBody);
   logger.info(`Password reset email sent to ${email}`);
 }
+
+export async function sendVerificationEmail(email, verifyUrl) {
+  const emailSubject = 'Verify your NestorCut account';
+  const emailBody = `
+    <p>Hello,</p>
+    <p>Thanks for creating your NestorCut account. Please confirm your email address to start nesting:</p>
+    <p><a href="${verifyUrl}">Verify my email address</a></p>
+    <p>This link is valid for 24 hours. If you did not create an account, you can safely ignore this email.</p>
+    <p>Best regards, <br> NestorCut</p>
+  `;
+
+  await sendEmail(email, emailSubject, emailBody);
+  logger.info(`Verification email sent to ${email}`);
+}

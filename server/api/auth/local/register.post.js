@@ -4,6 +4,8 @@ import { generateSession } from '~~/server/utils/auth'
 import { setSessionCookie } from '~~/server/utils/user'
 import { sendWelcomeMessage } from '~~/server/features/support/welcomemessage'
 import { notifyAdminNewUser } from '~~/server/features/notification/adminNotify'
+import { sendEmailVerification } from '~~/server/features/notification/emailVerification'
+import { subscribeToNewsletter } from '~~/server/features/listmonk/subscribe'
 import { COUNTRY_HEADER_NAME } from '~~/server/tracking/const'
 import logger from '~~/server/utils/logger'
 
@@ -21,6 +23,8 @@ export default defineEventHandler(async (event) => {
         .toLowerCase()
     const name = String(body?.name || '').trim()
     const password = String(body?.password || '')
+    // GDPR: newsletter is strictly opt-in (checkbox never pre-ticked).
+    const newsletterOptIn = body?.newsletterOptIn === true
 
     if (!EMAIL_RE.test(email)) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid email' })
@@ -56,6 +60,10 @@ export default defineEventHandler(async (event) => {
         createdAt: new Date(),
         isStripFeatureEnable: true,
         freeNestingUsed: 0,
+        // Local signups must verify their email before nesting (anti-fake).
+        emailVerified: false,
+        newsletterOptIn,
+        newsletterOptInAt: newsletterOptIn ? new Date() : null,
         // Geo + provenance, captured at signup for the admin panel. Country
         // comes from Cloudflare's cf-ipcountry header (null without it).
         signupCountry: event.node.req.headers[COUNTRY_HEADER_NAME] || null,
@@ -64,6 +72,22 @@ export default defineEventHandler(async (event) => {
             event.node.req.socket?.remoteAddress ||
             null,
     })
+
+    // The verification email is the core of the anti-fake flow, but a mailer
+    // outage must not break the signup — the user can request a new link
+    // from the check-email page.
+    try {
+        await sendEmailVerification(event, userId, email)
+    } catch (err) {
+        logger.error('Failed to send verification email:', err)
+    }
+
+    if (newsletterOptIn) {
+        // Best-effort, never blocks registration.
+        subscribeToNewsletter(event, { email, name }).catch((err) => {
+            logger.warn('listmonk subscription error:', err)
+        })
+    }
 
     try {
         await sendWelcomeMessage(userId)
@@ -77,5 +101,5 @@ export default defineEventHandler(async (event) => {
     })
 
     setSessionCookie(event, session)
-    return { ok: true }
+    return { ok: true, needsVerification: true }
 })

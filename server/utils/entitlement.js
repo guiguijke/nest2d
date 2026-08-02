@@ -237,10 +237,19 @@ export async function assertCanNest(userId) {
     const db = await connectDB()
     const user = await db
         .collection('users')
-        .findOne({ id: userId }, { projection: { id: 1, freeNestingUsed: 1, subscription: 1, grantedUntil: 1 } })
+        .findOne(
+            { id: userId },
+            { projection: { id: 1, freeNestingUsed: 1, subscription: 1, grantedUntil: 1, emailVerified: 1, provider: 1 } }
+        )
 
     if (!user) {
         throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    }
+
+    // Anti-fake: local accounts must verify their email before nesting.
+    // Google accounts are verified by Google (emailVerified set at creation).
+    if (user.provider === 'local' && user.emailVerified === false) {
+        throw createError({ statusCode: 403, statusMessage: 'email_not_verified' })
     }
 
     // An admin-granted free period ("mois gratuit", set from the admin panel)
