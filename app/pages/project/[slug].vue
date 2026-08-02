@@ -180,7 +180,9 @@ const startsNest = () => {
         margin: 0 0 12px;
         font-size: 15px;
         font-weight: 600;
-        color: var(--label-primary);
+        // The live panel sits on a dark background in this theme — force a
+        // readable light tone (label-primary is blue-on-navy here).
+        color: #eef2f7;
         text-align: left;
     }
 

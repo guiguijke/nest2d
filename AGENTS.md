@@ -111,6 +111,15 @@ admin/                 (back-office Nuxt)
     explicite (fond clair, pièces accent, texte foncé).
 22. **Ids SVG uniques par instance** (clipPath) : plusieurs visualizers sur
     la même page.
+23. **`$fetch` en auto-import Nuxt, jamais via `useNuxtApp()`** : 
+    `nuxtApp.$fetch` peut être undefined → le fetch échoue dans le
+    try/catch, le cache géométrie reste vide et **aucune pièce ne se
+    dessine** (bug muet, vu en prod).
+24. **Toute stat affichée porte un libellé visible** (« 144 M combinaisons »,
+    « ×4 cœurs ») — un nombre nu (« 37.6 M », « ×4 ») est
+    incompréhensible. Et le texte sur fond foncé utilise des couleurs
+    explicites (#eef2f7 / #b8c2d0 / #6ea8ff), jamais les vars de thème
+    (bleu sur bleu marine ici).
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 

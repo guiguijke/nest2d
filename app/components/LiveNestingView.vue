@@ -8,19 +8,16 @@
                 {{ bestFitsSheet ? t('live.feasible') : t('live.searching') }}
             </span>
             <span class="live__spacer" />
-            <span v-if="best?.elapsed_ms != null" class="live__stat">
+            <span v-if="best?.elapsed_ms != null" class="live__stat" :title="t('live.elapsedTitle')">
                 {{ formatElapsed(Math.round(best.elapsed_ms / 1000)) }}
             </span>
             <span v-if="evalsCount" class="live__stat live__stat--accent" :title="t('live.evalsTitle')">
-                {{ evalsCount }}
+                {{ evalsCount }} <span class="live__stat-suffix">{{ t('live.combinations') }}</span>
             </span>
-            <CoresSpinner
-                v-if="cores"
-                :cores="cores"
-                :size="16"
-                show-count
-                :title="t('nest.coresTitle', { n: cores })"
-            />
+            <span v-if="cores" class="live__stat" :title="t('nest.coresTitle', { n: cores })">
+                <CoresSpinner :cores="cores" :size="16" show-count />
+                <span class="live__stat-suffix">{{ t('live.cores') }}</span>
+            </span>
         </div>
 
         <div class="live__body">
@@ -47,6 +44,15 @@
                         fill-rule="evenodd"
                     />
                 </g>
+                <text
+                    v-if="!mainItems.length"
+                    :x="sheet[0] / 2"
+                    :y="sheet[1] / 2"
+                    text-anchor="middle"
+                    class="live__placeholder"
+                >
+                    {{ t('live.waiting') }}
+                </text>
             </svg>
 
             <!-- One card per strategy: its own champion-locked track. Click
@@ -110,7 +116,9 @@ const props = defineProps({
 });
 
 const { t } = useLocale();
-const { $fetch } = useNuxtApp();
+// NOTE: bare $fetch (Nuxt auto-import) — nuxtApp.$fetch is not reliable
+// everywhere; a failed fetch here silently empties the whole render.
+
 
 // ---- part geometry cache ---------------------------------------------------
 const geometryCache = ref({}); // fileSlug -> [{d}]
@@ -255,7 +263,14 @@ watch(
 const best = computed(() => {
     const champ = champions.value[selected.value];
     if (champ) return champ;
-    // Fallback: the best FITTING snapshot of the selected class (never a
+    // The selected strategy has no champion yet: show the best available
+    // champion of ANY class (a strategy that is still exploring over-width
+    // must never leave the main view empty while others have layouts).
+    const anyChamp = Object.values(champions.value);
+    if (anyChamp.length) {
+        return anyChamp.sort((a, b) => (isBetter(a, b) ? -1 : 1))[0];
+    }
+    // Last resort: the best FITTING snapshot of the selected class (never a
     // mid-search working state).
     const fitting = Object.values(snapshots.value).filter((s) => {
         const cls = DIRECTION_CLASSES.includes(s.bias) ? s.bias : 'best';
@@ -343,11 +358,15 @@ const formatElapsed = (sec) => {
         align-items: center;
         gap: 10px;
         font-size: 13px;
-        color: var(--label-primary);
+        // The panel background is dark in this theme: force readable light
+        // text instead of relying on theme label vars (which can be blue
+        // on navy here).
+        color: #eef2f7;
     }
 
     &__stage {
         font-weight: 700;
+        color: #eef2f7;
     }
 
     &__badge {
@@ -368,14 +387,23 @@ const formatElapsed = (sec) => {
     }
 
     &__stat {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         font-size: 12px;
-        color: var(--label-secondary);
+        color: #b8c2d0;
         font-variant-numeric: tabular-nums;
 
         &--accent {
             font-weight: 700;
-            color: var(--accent-primary, #3b82f6);
+            color: #6ea8ff;
         }
+    }
+
+    &__stat-suffix {
+        font-size: 10px;
+        font-weight: 500;
+        color: #8b98ab;
     }
 
     &__body {
@@ -443,6 +471,12 @@ const formatElapsed = (sec) => {
         font-weight: 700;
         color: var(--label-primary);
         text-align: left;
+    }
+
+    &__placeholder {
+        fill: #94a3b8;
+        font-size: 28px;
+        font-weight: 600;
     }
 
     &__card-sheet {
