@@ -11,8 +11,11 @@ from shapely.ops import unary_union
 
 
 def _placed_polygon(item, transform):
-    """The item's geometry at its placement."""
-    poly = Polygon(item["coords"])
+    """The item's MATERIAL geometry at its placement (outer ring minus the
+    holes). Using the outer ring alone would count the hole interiors as
+    solid material: every part nested in a cutout would read as an overlap
+    with a 0 gap."""
+    poly = Polygon(item["coords"], item.get("holes") or [])
     return translate(
         rotate(poly, transform.angle, origin=(0, 0), use_radians=True),
         transform.x, transform.y,
@@ -95,8 +98,12 @@ def _band_offcut(containers, items_by_id):
 # free-space vertices — a few dozen simple parts are fine, but many parts OR
 # ornate geometry (hundreds of vertices each) makes it take minutes. Above
 # these budgets, switch to the band offcut.
+# VERTEX budget kept low on purpose: the scan's cost is driven by the
+# FREE-SPACE vertex count, which ornate rings (64-gon holes, sampled arcs)
+# explode quadratically — 64-gon holed hosts at 10 copies took hours where
+# the band offcut answers in milliseconds.
 EXACT_OFFCUT_MAX_PARTS = 60
-EXACT_OFFCUT_MAX_VERTICES = 3000
+EXACT_OFFCUT_MAX_VERTICES = 600
 
 
 def largest_empty_rectangle(containers, input_items):
@@ -116,11 +123,17 @@ def largest_empty_rectangle(containers, input_items):
         for t in c.transforms:
             item = items_by_id.get(getattr(t, "item_id", None))
             if item is not None:
-                total_vertices += len(item["coords"])
+                # Holes count too: they are subtracted from the placed polys,
+                # so their vertices land in the free-space polygon and drive
+                # the exact scan's cost just as much as outer rings.
+                total_vertices += len(item["coords"]) + sum(
+                    len(h) for h in item.get("holes") or []
+                )
     if total_parts > EXACT_OFFCUT_MAX_PARTS or total_vertices > EXACT_OFFCUT_MAX_VERTICES:
         return _band_offcut(containers, items_by_id)
 
     best = None
+    bailed = False
 
     for container in containers:
         sheet_w, sheet_h = container.bin_width or 0, container.bin_height or 0
@@ -150,6 +163,13 @@ def largest_empty_rectangle(containers, input_items):
                     xs.add(x)
                     ys.add(y)
         xs = sorted(xs)
+
+        # The scan is O(len(xs)^2 x parts): ornate free-space geometry makes
+        # it balloon well past what the input budget predicted — degrade to
+        # the band offcut for this container instead of hanging the worker.
+        if len(xs) * len(ys) > 40_000:
+            bailed = True
+            break
 
         # For each x-pair, the tallest vertical span of the strip that is
         # free across the strip's whole width: a placed part intersecting
@@ -184,6 +204,8 @@ def largest_empty_rectangle(containers, input_items):
                 if area > 0 and (best is None or area > best["area"]):
                     best = {"width": x2 - x1, "height": span, "area": area}
 
+    if bailed:
+        return _band_offcut(containers, items_by_id)
     return best
 
 

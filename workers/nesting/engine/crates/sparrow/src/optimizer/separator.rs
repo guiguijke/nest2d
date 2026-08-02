@@ -69,7 +69,7 @@ impl Separator {
     }
 
     /// Algorithm 9 from https://doi.org/10.48550/arXiv.2509.13329
-    pub fn separate(&mut self, term: &impl Terminator, sol_listener: &mut impl SolutionListener) -> (SPSolution, CTSnapshot) {
+    pub fn separate(&mut self, term: &impl Terminator, sol_listener: &mut impl SolutionListener) -> (SPSolution, CTSnapshot, SepStats) {
         let mut min_loss_sol = (self.prob.save(), self.ct.save());
         let mut min_loss = self.ct.get_total_loss();
         log!(self.config.log_level,"[SEP] separating at width: {:.3} and loss: {} ", self.prob.strip_width(), FMT().fmt2(min_loss));
@@ -139,7 +139,7 @@ impl Separator {
         );
 
         // Return the best solution found: a feasible one if separation was successful, otherwise the 'least' infeasible one
-        (min_loss_sol.0, min_loss_sol.1)
+        (min_loss_sol.0, min_loss_sol.1, sep_stats)
     }
 
     /// Algorithm 10 from https://doi.org/10.48550/arXiv.2509.13329

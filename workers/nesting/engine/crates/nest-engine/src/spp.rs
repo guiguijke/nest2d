@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 struct WorkerRun {
     seed: u64,
     solution: SPSolution,
+    evals: usize,
 }
 
 /// One finished run in directions mode, tagged with its directional class.
@@ -26,6 +27,7 @@ struct ClassRun {
     seed: u64,
     bias: crate::bpp::constructive::DirBias,
     solution: SPSolution,
+    evals: usize,
 }
 
 /// Splitmix-style derivation of independent per-worker seeds from the master
@@ -91,7 +93,7 @@ fn optimize_one(
     live: bool,
     map_back_height: Option<f32>,
     plateau_patience: Option<Duration>,
-) -> SPSolution {
+) -> (SPSolution, usize) {
     let mut cfg = *sparrow_cfg;
     cfg.expl_cfg.time_limit = budget.mul_f32(explore_ratio);
     cfg.cmpr_cfg.time_limit = budget.mul_f32(1.0 - explore_ratio);
@@ -100,7 +102,7 @@ fn optimize_one(
         .with_live(live)
         .with_map_back(map_back_height);
     let mut terminator = PlateauTerminator::new(listener.improvement_clock(), plateau_patience);
-    let solution = optimize(
+    let (solution, evals) = optimize(
         instance.clone(),
         rng,
         &mut listener,
@@ -111,7 +113,7 @@ fn optimize_one(
     );
     // Gravity post-pass: the search minimizes strip width only, so
     // under-constrained layouts can come out vertically scattered.
-    if gravity_enabled {
+    let solution = if gravity_enabled {
         let mut prob = jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
         prob.restore(&solution);
         crate::gravity::gravity_compact(&mut prob);
@@ -122,7 +124,8 @@ fn optimize_one(
         solution
     } else {
         solution
-    }
+    };
+    (solution, evals)
 }
 
 /// Runs the explore+compress pipeline on `n_workers` parallel multi-starts,
@@ -146,7 +149,7 @@ fn optimize_multi(
         .into_par_iter()
         .map(|w| {
             let seed = derive_seed(master_seed, seed_offset + w);
-            let solution = optimize_one(
+            let (solution, evals) = optimize_one(
                 instance,
                 sparrow_cfg,
                 budget,
@@ -159,7 +162,7 @@ fn optimize_multi(
                 map_back_height,
                 plateau_patience,
             );
-            WorkerRun { seed, solution }
+            WorkerRun { seed, solution, evals }
         })
         .collect()
 }
@@ -278,13 +281,13 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                     // Historical behaviour: width-min, then transposed height
                     // compaction when a sheet bound exists.
                     DirBias::LeftFirst => {
-                        let s1 = optimize_one(
+                        let (s1, s1_evals) = optimize_one(
                             &instance, &sparrow_config,
                             if two_phase { b1 } else { budget },
                             explore, seed, w, started, gravity_on, live, None, plateau,
                         );
                         if !two_phase {
-                            return Some(ClassRun { seed, bias, solution: s1 });
+                            return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
                         }
                         // Corridor capped at the sheet width even when phase 1
                         // overshot it: phase 2 then FORCES width = mw (a
@@ -298,7 +301,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                         let t_ext = transpose_instance(&ext_instance, corridor);
                         let t_instance =
                             jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
-                        let s2 = optimize_one(
+                        let (s2, s2_evals) = optimize_one(
                             &t_instance, &sparrow_config, b2, explore,
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
                             Some(corridor), plateau,
@@ -311,47 +314,100 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                             if max_width.is_some_and(|mw| s1.strip_width() > mw + 1e-4) {
                                 return None;
                             }
-                            return Some(ClassRun { seed, bias, solution: s1 });
+                            return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals + s2_evals });
                         }
                         let mapped = map_back_solution(&t_instance, &s2, corridor, &instance);
-                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped) })
+                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped), evals: s1_evals + s2_evals })
                     }
-                    // Minimize USED HEIGHT: full solve on the 90°-transposed
-                    // strip (transposed width == original height usage) —
-                    // the offcut becomes a clean top band.
+                    // Minimize USED HEIGHT: phase 1 on the 90°-transposed
+                    // strip (transposed width == original height usage),
+                    // then phase 2 back in the original frame with a tight
+                    // HEIGHT corridor — minimizing the width inside that
+                    // corridor forces parts into holes and pockets, exactly
+                    // like the transposed compaction does for the left class.
                     DirBias::BottomFirst => {
                         let Some(mw) = max_width else {
                             // No sheet bound: directions are meaningless here.
-                            let s = optimize_one(
+                            let (s, evals) = optimize_one(
                                 &instance, &sparrow_config, budget, explore,
                                 seed, w, started, gravity_on, live, None, plateau,
                             );
-                            return Some(ClassRun { seed, bias, solution: s });
+                            return Some(ClassRun { seed, bias, solution: s, evals });
                         };
                         let t_ext = transpose_instance(&ext_instance, mw);
                         let t_instance =
                             jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
-                        let s = optimize_one(
-                            &t_instance, &sparrow_config, budget, explore,
-                            seed, w, started, gravity_on, live, Some(mw), plateau,
+                        let (s1, s1_evals) = optimize_one(
+                            &t_instance, &sparrow_config,
+                            if two_phase { b1 } else { budget },
+                            explore, seed, w, started, gravity_on, live,
+                            Some(mw), plateau,
                         );
-                        if s.strip_width() > ext_instance.strip_height + 1e-4 {
+                        if s1.strip_width() > ext_instance.strip_height + 1e-4 {
                             return None; // taller than the sheet: unusable
                         }
-                        let mapped = map_back_solution(&t_instance, &s, mw, &instance);
-                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped) })
-                    }
-                    // Width-min + gravity only: a natural corner blob with no
-                    // forced compaction.
-                    DirBias::Balanced => {
-                        let s = optimize_one(
-                            &instance, &sparrow_config, budget, explore,
-                            seed, w, started, gravity_on, live, None, plateau,
+                        if !two_phase {
+                            let mapped = map_back_solution(&t_instance, &s1, mw, &instance);
+                            return Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped), evals: s1_evals });
+                        }
+                        // Phase 2: original frame, strip height = best height
+                        // + slack. The width minimizer can no longer stack
+                        // past the corridor, so it packs parts into holes.
+                        let height_corridor =
+                            (s1.strip_width() + slack).min(ext_instance.strip_height);
+                        let mut ext2 = ext_instance.clone();
+                        ext2.strip_height = height_corridor;
+                        let inst2 =
+                            jagua_rs::probs::spp::io::import_instance(&importer, &ext2).ok()?;
+                        let (s2, s2_evals) = optimize_one(
+                            &inst2, &sparrow_config, b2, explore,
+                            seed ^ 0x5EED_5EED, w, started, gravity_on, live,
+                            None, plateau,
                         );
-                        if max_width.is_some_and(|mw| s.strip_width() > mw + 1e-4) {
+                        if s2.strip_width() > mw + 1e-4 {
+                            // Width overshot the sheet: keep the phase-1
+                            // transposed result (mapped back) instead.
+                            let mapped = map_back_solution(&t_instance, &s1, mw, &instance);
+                            return Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped), evals: s1_evals + s2_evals });
+                        }
+                        Some(ClassRun { seed, bias, solution: s2, evals: s1_evals + s2_evals })
+                    }
+                    // Width-min, then compaction through a LOOSE height
+                    // corridor (5x slack): parts still get driven into holes,
+                    // but the layout keeps a more natural spread than the
+                    // tightly compacted left class — the middle ground.
+                    DirBias::Balanced => {
+                        let (s1, s1_evals) = optimize_one(
+                            &instance, &sparrow_config,
+                            if two_phase { b1 } else { budget },
+                            explore, seed, w, started, gravity_on, live, None, plateau,
+                        );
+                        if !two_phase {
+                            return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
+                        }
+                        if max_width.is_some_and(|mw| s1.strip_width() > mw + 1e-4) {
                             return None;
                         }
-                        Some(ClassRun { seed, bias, solution: s })
+                        let loose_slack = slack * 5.0;
+                        let corridor = match max_width {
+                            Some(mw) => (s1.strip_width() + loose_slack).min(mw),
+                            None => s1.strip_width() + loose_slack,
+                        };
+                        let t_ext = transpose_instance(&ext_instance, corridor);
+                        let t_instance =
+                            jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
+                        let (s2, s2_evals) = optimize_one(
+                            &t_instance, &sparrow_config, b2, explore,
+                            seed ^ 0x5EED_5EED, w, started, gravity_on, live,
+                            Some(corridor), plateau,
+                        );
+                        if s2.strip_width() > ext_instance.strip_height + 1e-4 {
+                            // Loose corridor overshot the sheet height: fall
+                            // back to the phase-1 layout (legacy resilience).
+                            return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals + s2_evals });
+                        }
+                        let mapped = map_back_solution(&t_instance, &s2, corridor, &instance);
+                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped), evals: s1_evals + s2_evals })
                     }
                 }
             })
@@ -410,6 +466,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                 "rank": alternatives.len(),
                 "seed": run.seed,
                 "bias": run.bias.as_str(),
+                "evaluations": run.evals,
                 "strip_width": output.solution.strip_width,
                 "density": output.solution.density,
                 "solution": output.solution,
@@ -535,6 +592,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                     final_runs.push(WorkerRun {
                         seed: run.seed,
                         solution: mapped,
+                        evals: run.evals,
                     });
                 }
                 if final_runs.is_empty() {
@@ -550,6 +608,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         final_runs = feasible1.into_iter().map(|r| WorkerRun {
             seed: r.seed,
             solution: r.solution.clone(),
+            evals: r.evals,
         }).collect();
     }
 
@@ -584,6 +643,7 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         alternatives.push(serde_json::json!({
             "rank": alternatives.len(),
             "seed": run.seed,
+            "evaluations": run.evals,
             "strip_width": output.solution.strip_width,
             "density": output.solution.density,
             "solution": output.solution,

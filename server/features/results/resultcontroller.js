@@ -58,6 +58,7 @@ export async function getResults(userId, projectSlug) {
             // the feature existed — dxfs/svgs above stay the canonical ones.
             alternatives: (queueItem.alternatives || []).map((alt) => ({
                 altId: alt.alt_id,
+                seed: alt.seed ?? null,
                 density: alt.density,
                 // Share of sheet actually consumed (used bbox / sheet area,
                 // lower = better): rewards compaction, which the solver

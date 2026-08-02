@@ -172,7 +172,7 @@ const dict = {
         'report.insideSheet': 'Inside sheet',
         'report.spacing': 'Gap ≥ {v} mm',
         'report.allPlaced': 'All {n} parts placed',
-        'report.iterations': '{n} iterations',
+        'report.iterations': '{n} combinations tested',
         'report.cores': '{n} cores',
         'settings.requiredHeight': 'Required height: at least {h} mm (5% above the tallest selected part).',
 
@@ -495,7 +495,7 @@ const dict = {
         'report.insideSheet': 'Dans la tôle',
         'report.spacing': 'Écart ≥ {v} mm',
         'report.allPlaced': 'Les {n} pièces sont placées',
-        'report.iterations': '{n} itérations',
+        'report.iterations': '{n} combinaisons testées',
         'report.cores': '{n} cœurs',
         'settings.requiredHeight': 'Hauteur requise : au moins {h} mm (5 % au-dessus de la plus haute pièce).',
 

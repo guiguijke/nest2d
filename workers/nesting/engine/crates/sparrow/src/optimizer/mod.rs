@@ -27,7 +27,7 @@ pub fn optimize(
     expl_config: &ExplorationConfig,
     cmpr_config: &CompressionConfig,
     initial_solution: Option<&SPSolution>
-) -> SPSolution {
+) -> (SPSolution, usize) {
     let mut next_rng = || Xoshiro256PlusPlus::seed_from_u64(rng.next_u64());
     
     // First build an initial solution if none is provided
@@ -47,7 +47,7 @@ pub fn optimize(
     // Begin by executing the exploration phase
     terminator.new_timeout(expl_config.time_limit);
     let mut expl_separator = Separator::new(instance.clone(), start_prob, next_rng(), expl_config.separator_config);
-    let solutions = exploration_phase(
+    let (solutions, expl_stats) = exploration_phase(
         &instance,
         &mut expl_separator,
         sol_listener,
@@ -59,7 +59,7 @@ pub fn optimize(
     // Start the compression phase from the final solution from the exploration phase
     terminator.new_timeout(cmpr_config.time_limit);
     let mut cmpr_separator = Separator::new(expl_separator.instance, expl_separator.prob, next_rng(), cmpr_config.separator_config);
-    let cmpr_sol = compression_phase(
+    let (cmpr_sol, cmpr_stats) = compression_phase(
         &instance,
         &mut cmpr_separator,
         &final_explore_sol,
@@ -70,6 +70,7 @@ pub fn optimize(
 
     sol_listener.report(ReportType::Final, &cmpr_sol, &instance);
 
-    // Return the final compressed solution
-    cmpr_sol
+    // Return the final compressed solution with the total number of
+    // placement evaluations performed across both phases.
+    (cmpr_sol, expl_stats.total_evals + cmpr_stats.total_evals)
 }
