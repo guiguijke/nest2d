@@ -44,6 +44,9 @@ export async function createOrUpdateUser({ event, sessionId, providerId, email, 
             freeNestingUsed: 0,
             signupCountry,
             signupIp,
+            // Google accounts are verified by Google itself — no email
+            // verification step needed (unlike local signups).
+            emailVerified: true,
         },
         $push: {
             sessions: session,
