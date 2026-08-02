@@ -23,6 +23,12 @@ export default defineNuxtConfig({
         stripeWebhookSecret: '',
         resendToken: '',
         resendFrom: 'onboarding@resend.dev',
+        // Self-hosted listmonk newsletter (optional — signup checkbox is a
+        // no-op until these are set). API user created in listmonk Settings.
+        listmonkUrl: '',
+        listmonkUser: '',
+        listmonkPassword: '',
+        listmonkListId: '',
         encryptionMasterKey: '',
         apiToken: '',
         googleClientSecret: '',
