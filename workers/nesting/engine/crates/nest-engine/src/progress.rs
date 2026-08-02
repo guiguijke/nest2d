@@ -76,6 +76,9 @@ pub struct ProgressListener {
     /// Separate 1 Hz slot for the live evals counter (so it never starves
     /// the scalar progress events of their own slot).
     last_evals_emit: Instant,
+    /// Directional class of this run (directions mode), tagged on every
+    /// event so the frontend can show one track per strategy.
+    bias: Option<&'static str>,
 }
 
 fn stage_of(report: &ReportType) -> &'static str {
@@ -98,6 +101,7 @@ impl ProgressListener {
             map_back_height: None,
             last_improvement: Arc::new(Mutex::new(Instant::now())),
             last_evals_emit: Instant::now() - std::time::Duration::from_secs(2),
+            bias: None,
         }
     }
 
@@ -116,6 +120,18 @@ impl ProgressListener {
         self
     }
 
+    pub fn with_bias(mut self, bias: Option<&'static str>) -> Self {
+        self.bias = bias;
+        self
+    }
+
+    fn bias_json(&self) -> String {
+        match self.bias {
+            Some(b) => format!(",\"bias\":\"{b}\""),
+            None => String::new(),
+        }
+    }
+
     /// Emits a layout snapshot outside the listener flow — used for the
     /// post-gravity final state, so the last streamed frame matches the
     /// exported solution exactly.
@@ -127,12 +143,13 @@ impl ProgressListener {
 
     fn emit(&mut self, stage: &'static str, feasible: bool, strip_width: f32) {
         println!(
-            "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"elapsed_sec\":{}}}",
+            "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"elapsed_sec\":{}{}}}",
             self.worker,
             stage,
             feasible,
             strip_width,
-            self.started.elapsed().as_secs()
+            self.started.elapsed().as_secs(),
+            self.bias_json()
         );
         let _ = std::io::stdout().flush();
     }
@@ -167,14 +184,15 @@ impl ProgressListener {
         let strip_width = solution.strip_width();
         let density = solution.density(instance);
         println!(
-            "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"density\":{:.4},\"elapsed_ms\":{},\"items\":{}}}",
+            "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"density\":{:.4},\"elapsed_ms\":{},\"items\":{}{}}}",
             self.worker,
             stage,
             feasible,
             strip_width,
             density,
             self.started.elapsed().as_millis(),
-            items
+            items,
+            self.bias_json()
         );
         let _ = std::io::stdout().flush();
     }
@@ -187,10 +205,11 @@ impl SolutionListener for ProgressListener {
         if self.last_evals_emit.elapsed().as_millis() >= 1000 {
             self.last_evals_emit = Instant::now();
             println!(
-                "{{\"type\":\"evals\",\"worker\":{},\"evals\":{},\"elapsed_sec\":{}}}",
+                "{{\"type\":\"evals\",\"worker\":{},\"evals\":{},\"elapsed_sec\":{}{}}}",
                 self.worker,
                 evals,
-                self.started.elapsed().as_secs()
+                self.started.elapsed().as_secs(),
+                self.bias_json()
             );
             let _ = std::io::stdout().flush();
         }

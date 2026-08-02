@@ -115,12 +115,13 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                 &mut rng,
                 |cost, solution| {
                     println!(
-                        "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"elapsed_sec\":{}}}",
+                        "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"elapsed_sec\":{},\"bias\":\"{}\"}}",
                         w,
                         cost.unplaced == 0,
                         cost.bin_cost,
                         cost.unplaced,
-                        started.elapsed().as_secs()
+                        started.elapsed().as_secs(),
+                        bias.as_str()
                     );
                     if live {
                         // Full layout snapshot of the new incumbent for the
@@ -148,14 +149,15 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                         }
                         items.push(']');
                         println!(
-                            "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"remnant\":{:.4},\"elapsed_ms\":{},\"items\":{}}}",
+                            "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"remnant\":{:.4},\"elapsed_ms\":{},\"items\":{},\"bias\":\"{}\"}}",
                             w,
                             cost.unplaced == 0,
                             cost.bin_cost,
                             cost.unplaced,
                             cost.remnant,
                             started.elapsed().as_millis(),
-                            items
+                            items,
+                            bias.as_str()
                         );
                     }
                     let _ = std::io::stdout().flush();

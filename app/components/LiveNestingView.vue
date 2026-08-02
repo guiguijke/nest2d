@@ -1,38 +1,30 @@
 <template>
     <div class="live" :class="{ 'live--compact': compact }">
+        <!-- Header: stage + badge on the left, stats on the right — all
+             high-contrast text on the panel background. -->
         <div class="live__header">
             <span class="live__stage">{{ stageLabel }}</span>
+            <span v-if="best" class="live__badge" :class="{ 'live__badge--ok': bestFitsSheet }">
+                {{ bestFitsSheet ? t('live.feasible') : t('live.searching') }}
+            </span>
+            <span class="live__spacer" />
+            <span v-if="best?.elapsed_ms != null" class="live__stat">
+                {{ formatElapsed(Math.round(best.elapsed_ms / 1000)) }}
+            </span>
+            <span v-if="evalsCount" class="live__stat live__stat--accent" :title="t('live.evalsTitle')">
+                {{ evalsCount }}
+            </span>
             <CoresSpinner
                 v-if="cores"
                 :cores="cores"
                 :size="16"
                 show-count
                 :title="t('nest.coresTitle', { n: cores })"
-                class="live__cores"
             />
-            <span v-if="best" class="live__metric">
-                <template v-if="best.strip_width != null">
-                    {{ t('live.width') }} <strong>{{ best.strip_width.toFixed(1) }} mm</strong>
-                </template>
-                <template v-else-if="best.bins != null">
-                    {{ t('live.sheets') }} <strong>{{ best.bins }}</strong>
-                </template>
-                <template v-if="best.density != null">
-                     · {{ (best.density * 100).toFixed(1) }}%
-                </template>
-            </span>
-            <span v-if="best?.elapsed_ms != null" class="live__elapsed">
-                {{ formatElapsed(Math.round(best.elapsed_ms / 1000)) }}
-            </span>
-            <span v-if="evalsCount" class="live__evals" :title="t('live.evalsTitle')">
-                {{ evalsCount }}
-            </span>
-            <span v-if="best" class="live__badge" :class="{ 'live__badge--ok': bestFitsSheet }">
-                {{ bestFitsSheet ? t('live.feasible') : t('live.searching') }}
-            </span>
         </div>
 
         <div class="live__body">
+            <!-- Main view: champion of the selected strategy (default: left). -->
             <svg
                 v-if="sheet"
                 :viewBox="`0 0 ${sheet[0]} ${sheet[1]}`"
@@ -45,43 +37,83 @@
                     </clipPath>
                 </defs>
                 <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" class="live__sheet-bg" />
-                <!-- Mid-search snapshots include out-of-strip placements
-                     (sparrow separation states): never paint outside the sheet. -->
                 <g :clip-path="`url(#${clipId})`">
                     <path
-                        v-for="(item, i) in displayItems"
+                        v-for="(item, i) in mainItems"
                         :key="i"
                         :d="item.d"
                         :transform="`translate(${item.x} ${item.y}) rotate(${item.rot})`"
                         class="live__part"
-                        :class="{ 'live__part--collision': !best.feasible }"
                         fill-rule="evenodd"
                     />
                 </g>
             </svg>
+
+            <!-- One card per strategy: its own champion-locked track. Click
+                 to make it the main view. -->
+            <div v-if="classCards.length > 1" class="live__cards">
+                <button
+                    v-for="card in classCards"
+                    :key="card.cls"
+                    class="live__card"
+                    :class="{ 'live__card--active': card.cls === selected }"
+                    :title="t(`settings.directions.${card.cls}Hint`)"
+                    @click="selected = card.cls"
+                >
+                    <span class="live__card-label">{{ t(`settings.directions.${card.cls}`) }}</span>
+                    <svg
+                        v-if="card.champ && sheet"
+                        :viewBox="`0 0 ${sheet[0]} ${sheet[1]}`"
+                        class="live__card-sheet"
+                        preserveAspectRatio="xMidYMid meet"
+                    >
+                        <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" class="live__sheet-bg" />
+                        <g :clip-path="`url(#${clipId})`">
+                            <path
+                                v-for="(item, i) in card.items"
+                                :key="i"
+                                :d="item.d"
+                                :transform="`translate(${item.x} ${item.y}) rotate(${item.rot})`"
+                                class="live__part"
+                                fill-rule="evenodd"
+                            />
+                        </g>
+                    </svg>
+                    <span v-if="card.champ" class="live__card-metric">
+                        <template v-if="card.champ.strip_width != null">{{ card.champ.strip_width.toFixed(0) }} mm</template>
+                        <template v-else-if="card.champ.bins != null">{{ t('live.sheets') }} {{ card.champ.bins }}</template>
+                    </span>
+                    <span v-else class="live__card-metric live__card-metric--pending">…</span>
+                </button>
+            </div>
         </div>
     </div>
 </template>
 
 <script setup>
 /**
- * Real-time nesting visualizer: watches the engine's live layout stream
- * (liveLayout on the job doc, pushed over SSE) and animates parts moving on
- * the sheet. The default view is champion-locked (monotone convergence) so
- * the animation stays calm; mid-search out-of-sheet states are clipped.
+ * Real-time nesting visualizer. One champion-locked track per directional
+ * strategy (left / bottom / balanced — champions only ever get REPLACED by
+ * strictly better layouts that fit the sheet, so the animation is monotone
+ * and calm). The main view shows the selected strategy's champion; the
+ * right cards let you compare all three strategies live.
+ *
+ * Working states (sparrow separations: over-width, pieces outside the
+ * strip) are never displayed: a champion locks only on fitsSheet snapshots
+ * and everything is clipped to the sheet rect.
  */
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onBeforeUnmount } from 'vue';
 
 const props = defineProps({
-    // The result item ({liveLayout, itemMap, ...}) pushed by the SSE stream.
     result: { type: Object, required: true },
     compact: { type: Boolean, default: false },
 });
 
 const { t } = useLocale();
+const { $fetch } = useNuxtApp();
 
-// ---- geometry (fetched once per file slug) -------------------------------
-const geometryCache = ref({}); // slug -> [{d, dWithHoles}]
+// ---- part geometry cache ---------------------------------------------------
+const geometryCache = ref({}); // fileSlug -> [{d}]
 const pendingSlugs = new Set();
 
 async function ensureGeometry(slug) {
@@ -107,49 +139,36 @@ function ringsToPath(rings) {
         .join(' ');
 }
 
-// ---- per-worker snapshots ------------------------------------------------
+function buildItems(snap, itemMap, cache) {
+    if (!snap?.items?.length || !itemMap) return [];
+    const byId = Object.fromEntries(itemMap.map((m) => [m.id, m]));
+    const out = [];
+    for (const raw of snap.items) {
+        let id, bin, rot, x, y;
+        if (raw.length === 5) [id, bin, rot, x, y] = raw; // BPP
+        else [id, rot, x, y] = raw; // SPP
+        const m = byId[id];
+        const part = m && cache[m.slug]?.[m.part];
+        if (!part) continue;
+        out.push({ d: part.d, rot, x, y });
+    }
+    return out;
+}
+
+// ---- snapshots & champion locks (per strategy) ------------------------------
 const snapshots = ref({}); // worker -> liveLayout
+// One champion per strategy class ('left'|'bottom'|'balanced'|'best').
+const champions = ref({});
+let pendingChamps = {};
+let champTimer = null;
 
-// Unique clip id: several LiveNestingView instances (big + compact) can be
-// on the same page, ids must not collide.
+const DIRECTION_CLASSES = ['left', 'bottom', 'balanced'];
+
 const clipId = `sheet-clip-${Math.random().toString(36).slice(2, 9)}`;
-
-// Badge honesty: "feasible" only when the layout also fits the sheet
-// (sparrow emits collision-free but over-width solutions mid-search).
-const bestFitsSheet = computed(() => fitsSheet(best.value));
-
-// Vcores at work on this job (tier compute profile, written by the worker);
-// null on legacy jobs — the spinner simply stays hidden.
-const cores = computed(() => {
-    const n = props.result?.compute?.vcores;
-    return n ? Math.min(8, Math.max(1, Number(n) || 1)) : null;
-});
-
-// Live combinations counter (placement evaluations / SA iterations, summed
-// across workers on the progress doc). Compact k/M formatting.
-const evalsCount = computed(() => {
-    const n = props.result?.progress?.evals;
-    if (!n) return null;
-    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
-    if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
-    return `${n}`;
-});
-
-// ---- champion lock ---------------------------------------------------------
-// The default "Best" view used to take the best of the CURRENT per-worker
-// snapshots: it flip-flopped between different walks at similar quality, so
-// the pieces appeared to spin randomly until the final pass. Instead we lock
-// a CHAMPION: the displayed layout is only replaced by a strictly better
-// snapshot (monotone convergence), rate-limited so the view stays calm and
-// every visible change is a genuine global improvement.
-const champion = ref(null);
-let pendingChampion = null;
-let championTimer = null;
 
 // sparrow has NO hard sheet bound: a collision-free ("feasible") solution
 // can still be wider than the sheet. Only layouts that actually fit count
-// as presentable — otherwise the view locks on over-width garbage with a
-// green badge.
+// as presentable — otherwise the view locks on over-width garbage.
 function fitsSheet(s) {
     if (!s?.feasible) return false;
     const w = s.sheets?.[0]?.[0];
@@ -174,38 +193,44 @@ function isBetter(a, b) {
 function offerChampion(live) {
     // Never lock onto a working state: only layouts that FIT the sheet may
     // become champion — mid-search separation states (over-width, pieces
-    // spilling out) are working states, not presentable layouts. Until the
-    // first fitting layout exists, the view stays an empty clean sheet.
+    // spilling out) are working states, not presentable layouts.
     if (!fitsSheet(live)) return;
-    if (!isBetter(live, pendingChampion || champion.value)) return;
-    pendingChampion = live;
-    if (championTimer) return;
-    championTimer = setTimeout(() => {
-        championTimer = null;
-        if (isBetter(pendingChampion, champion.value)) {
-            champion.value = pendingChampion;
+    const cls = DIRECTION_CLASSES.includes(live.bias) ? live.bias : 'best';
+    if (!isBetter(live, pendingChamps[cls] || champions.value[cls])) return;
+    pendingChamps[cls] = live;
+    if (champTimer) return;
+    champTimer = setTimeout(() => {
+        champTimer = null;
+        const next = { ...champions.value };
+        for (const [k, v] of Object.entries(pendingChamps)) {
+            if (isBetter(v, next[k])) next[k] = v;
         }
-        pendingChampion = null;
+        champions.value = next;
+        pendingChamps = {};
     }, 600);
 }
 
-// New job: wipe everything (snapshots, champion, sparkline) so no stale
-// layout from the previous run leaks into the new one.
+// The displayed strategy: 'left' by default when directions exist (option 1
+// = the historical layout), 'best' on legacy jobs. Clickable via the cards.
+const selected = ref('best');
+
+// New job: wipe everything so no stale layout from the previous run leaks.
 watch(
     () => props.result?.slug,
     () => {
         snapshots.value = {};
-        champion.value = null;
-        pendingChampion = null;
-        if (championTimer) {
-            clearTimeout(championTimer);
-            championTimer = null;
+        champions.value = {};
+        pendingChamps = {};
+        selected.value = 'best';
+        if (champTimer) {
+            clearTimeout(champTimer);
+            champTimer = null;
         }
     }
 );
 
 onBeforeUnmount(() => {
-    if (championTimer) clearTimeout(championTimer);
+    if (champTimer) clearTimeout(champTimer);
 });
 
 watch(
@@ -216,60 +241,84 @@ watch(
             snapshots.value = { ...snapshots.value, [live.worker]: live };
         }
         offerChampion(live);
-        // Prefetch geometry for the item ids we see.
+        // Default the main view to the left strategy as soon as it exists.
+        if (selected.value === 'best' && champions.value.left) {
+            selected.value = 'left';
+        }
         const map = props.result?.itemMap || [];
         for (const m of map) ensureGeometry(m.slug);
     },
     { immediate: true, deep: true }
 );
 
+// ---- views ------------------------------------------------------------------
 const best = computed(() => {
-    // Default view: the champion (monotone, stable). Falls back to the best
-    // FITTING snapshot while no champion is locked yet — never to a
-    // mid-search working state (that is what looked unprofessional).
-    if (champion.value) return champion.value;
-    const fitting = Object.values(snapshots.value).filter(fitsSheet);
+    const champ = champions.value[selected.value];
+    if (champ) return champ;
+    // Fallback: the best FITTING snapshot of the selected class (never a
+    // mid-search working state).
+    const fitting = Object.values(snapshots.value).filter((s) => {
+        const cls = DIRECTION_CLASSES.includes(s.bias) ? s.bias : 'best';
+        return cls === selected.value && fitsSheet(s);
+    });
     if (!fitting.length) return null;
     return fitting.sort((a, b) => (isBetter(a, b) ? -1 : 1))[0];
 });
 
+const bestFitsSheet = computed(() => fitsSheet(best.value));
+
 const sheet = computed(() => {
     const b = best.value;
-    if (b?.sheets?.length) {
-        // SPP = one sheet; BPP = the sheet of the first layout shown (v1).
-        return b.sheets[0];
-    }
-    // Before the first fitting layout: show the clean empty sheet frame
-    // (from any snapshot) rather than mid-search working states.
+    if (b?.sheets?.length) return b.sheets[0];
     const anySnap = Object.values(snapshots.value)[0];
     return anySnap?.sheets?.[0] || null;
 });
 
-// ---- items to draw --------------------------------------------------------
-const displayItems = computed(() => {
-    const b = best.value;
-    if (!b?.items?.length || !props.result?.itemMap) return [];
-    const byId = Object.fromEntries(props.result.itemMap.map((m) => [m.id, m]));
-    const out = [];
-    for (const raw of b.items) {
-        let id, bin, rot, x, y;
-        if (raw.length === 5) [id, bin, rot, x, y] = raw; // BPP
-        else [id, rot, x, y] = raw; // SPP
-        const m = byId[id];
-        const part = m && geometryCache.value[m.slug]?.[m.part];
-        if (!part) continue;
-        out.push({ d: part.d, rot, x, y });
-    }
-    return out;
+const mainItems = computed(() =>
+    buildItems(best.value, props.result?.itemMap, geometryCache.value)
+);
+
+// One card per observed/declared strategy, each with its own champion.
+const classCards = computed(() => {
+    const declared = props.result?.compute?.directions;
+    const observed = new Set(
+        Object.values(snapshots.value)
+            .map((s) => s.bias)
+            .filter((b) => DIRECTION_CLASSES.includes(b))
+    );
+    const classes = DIRECTION_CLASSES.filter(
+        (c) => observed.has(c) || (Array.isArray(declared) && declared.includes(c))
+    );
+    return classes.map((cls) => {
+        const champ = champions.value[cls] || null;
+        return {
+            cls,
+            champ,
+            items: buildItems(champ, props.result?.itemMap, geometryCache.value),
+        };
+    });
 });
 
-// ---- labels ---------------------------------------------------------------
+// ---- header stats -------------------------------------------------------------
+const cores = computed(() => {
+    const n = props.result?.compute?.vcores;
+    return n ? Math.min(8, Math.max(1, Number(n) || 1)) : null;
+});
+
+const evalsCount = computed(() => {
+    const n = props.result?.progress?.evals;
+    if (!n) return null;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
+    if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
+    return `${n}`;
+});
+
 const stageLabel = computed(() => {
-    const b = best.value;
-    if (!b?.stage) return t('results.nesting');
-    const key = `progress.stage.${b.stage}`;
+    const stage = props.result?.progress?.stage || best.value?.stage;
+    if (!stage) return t('results.nesting');
+    const key = `progress.stage.${stage}`;
     const translated = t(key);
-    return translated === key ? b.stage : translated;
+    return translated === key ? stage : translated;
 });
 
 const formatElapsed = (sec) => {
@@ -280,32 +329,31 @@ const formatElapsed = (sec) => {
 </script>
 
 <style lang="scss" scoped>
+// Explicit, readable palette: the panel inherits the app theme (dark in some
+// setups), so the CANVAS is forced light — a clean CAD-style render where
+// parts and text are always legible.
 .live {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
 
     &__header {
         display: flex;
         align-items: center;
         gap: 10px;
-        font-size: 12px;
+        font-size: 13px;
+        color: var(--label-primary);
     }
 
     &__stage {
-        color: var(--label-primary);
-        font-weight: 600;
-    }
-
-    &__metric {
-        color: var(--label-secondary);
+        font-weight: 700;
     }
 
     &__badge {
-        margin-left: auto;
-        padding: 2px 8px;
-        font-size: 10px;
+        padding: 2px 9px;
+        font-size: 11px;
+        font-weight: 700;
         border-radius: 10px;
         background: var(--system-orange, #b26a00);
         color: #fff;
@@ -315,49 +363,104 @@ const formatElapsed = (sec) => {
         }
     }
 
-    &__body {
-        display: flex;
-        gap: 8px;
-        align-items: stretch;
-    }
-
-    &__sheet {
+    &__spacer {
         flex: 1;
-        min-height: 120px;
-        border: 1px solid var(--separator-secondary);
-        border-radius: 6px;
-        background: var(--background-secondary, #fafafa);
     }
 
-    &__sheet-bg {
-        fill: transparent;
-        stroke: var(--accent-primary, #3b82f6);
-        stroke-width: 0.5;
-    }
+    &__stat {
+        font-size: 12px;
+        color: var(--label-secondary);
+        font-variant-numeric: tabular-nums;
 
-    &__part {
-        fill: rgba(59, 130, 246, 0.25);
-        stroke: var(--accent-primary, #3b82f6);
-        stroke-width: 0.4;
-        transition: transform 0.6s ease, fill 0.3s ease, stroke 0.3s ease;
-
-        &--collision {
-            fill: rgba(255, 152, 0, 0.3);
-            stroke: var(--system-orange, #f57c00);
+        &--accent {
+            font-weight: 700;
+            color: var(--accent-primary, #3b82f6);
         }
     }
 
-    &__elapsed {
-        font-size: 11px;
-        color: var(--label-tertiary);
-        font-variant-numeric: tabular-nums;
+    &__body {
+        display: flex;
+        gap: 10px;
+        align-items: stretch;
     }
 
-    &__evals {
+    // The CAD canvas: light, always.
+    &__sheet {
+        flex: 1;
+        min-height: 160px;
+        border: 1px solid #d5dbe3;
+        border-radius: 8px;
+        background: #f8fafc;
+    }
+
+    &__sheet-bg {
+        fill: #ffffff;
+        stroke: #3b82f6;
+        stroke-width: 1;
+    }
+
+    &__part {
+        fill: rgba(59, 130, 246, 0.22);
+        stroke: #2563eb;
+        stroke-width: 1.2;
+        transition: transform 0.6s ease, fill 0.3s ease, stroke 0.3s ease;
+    }
+
+    &__cards {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 132px;
+        flex-shrink: 0;
+    }
+
+    &__card {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        padding: 8px;
+        border: 1.5px solid var(--separator-secondary);
+        border-radius: 10px;
+        background: var(--background-primary, #ffffff);
+        cursor: pointer;
+        transition: border-color 0.2s, box-shadow 0.2s;
+
+        &--active {
+            border-color: var(--accent-primary, #3b82f6);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary, #3b82f6) 18%, transparent);
+        }
+
+        @media (hover: hover) {
+            &:hover {
+                border-color: var(--accent-primary, #3b82f6);
+            }
+        }
+    }
+
+    &__card-label {
         font-size: 11px;
         font-weight: 700;
-        color: var(--accent-primary, #3b82f6);
+        color: var(--label-primary);
+        text-align: left;
+    }
+
+    &__card-sheet {
+        width: 100%;
+        border: 1px solid #d5dbe3;
+        border-radius: 6px;
+        background: #f8fafc;
+    }
+
+    &__card-metric {
+        font-size: 10px;
+        color: var(--label-secondary);
         font-variant-numeric: tabular-nums;
+        text-align: left;
+
+        &--pending {
+            color: var(--label-tertiary);
+        }
     }
 }
 </style>

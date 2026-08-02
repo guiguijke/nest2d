@@ -66,6 +66,7 @@ pub fn optimize(
         sol_listener,
         terminator,
         cmpr_config,
+        expl_stats.total_evals,
     );
 
     sol_listener.report(ReportType::Final, &cmpr_sol, &instance);
