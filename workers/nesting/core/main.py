@@ -861,7 +861,7 @@ def nesting_process(doc):
                 **verification,
                 "partsAreaMm2": round(total_part_area, 1),
                 "sheetAreaMm2": round(sheet_area, 1),
-                "iterations": engine_alt.get("iterations"),
+                "iterations": engine_alt.get("evaluations") or engine_alt.get("iterations"),
                 "vcores": vcores or None,
             },
         })

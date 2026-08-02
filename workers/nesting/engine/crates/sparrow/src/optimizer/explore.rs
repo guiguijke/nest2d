@@ -18,7 +18,7 @@ use slotmap::SecondaryMap;
 use std::cmp::Reverse;
 
 /// Algorithm 12 from https://doi.org/10.48550/arXiv.2509.13329
-pub fn exploration_phase(instance: &SPInstance, sep: &mut Separator, sol_listener: &mut impl SolutionListener, term: &impl Terminator, config: &ExplorationConfig) -> Vec<SPSolution> {
+pub fn exploration_phase(instance: &SPInstance, sep: &mut Separator, sol_listener: &mut impl SolutionListener, term: &impl Terminator, config: &ExplorationConfig) -> (Vec<SPSolution>, crate::optimizer::worker::SepStats) {
     let mut current_width = sep.prob.strip_width();
     let mut best_width = current_width;
 
@@ -28,10 +28,16 @@ pub fn exploration_phase(instance: &SPInstance, sep: &mut Separator, sol_listene
     info!("[EXPL] starting optimization with initial width: {:.3} ({:.3}%)",current_width,sep.prob.density() * 100.0);
 
     let mut infeas_sol_pool: Vec<(SPSolution, f32)> = vec![];
+    let mut stats = crate::optimizer::worker::SepStats { total_moves: 0, total_evals: 0 };
 
     while !term.kill() {
         // Attempt to separate the current layout
-        let local_best = sep.separate(term, sol_listener);
+        let (local_best, round_stats) = {
+            let (sol, ct, st) = sep.separate(term, sol_listener);
+            ((sol, ct), st)
+        };
+        stats.total_moves += round_stats.total_moves;
+        stats.total_evals += round_stats.total_evals;
         let total_loss = local_best.1.get_total_loss();
 
         if total_loss == 0.0 {
@@ -83,7 +89,7 @@ pub fn exploration_phase(instance: &SPInstance, sep: &mut Separator, sol_listene
 
     info!("[EXPL] finished, best feasible solution: width: {:.3} ({:.3}%)",best_width,feasible_sols.last().unwrap().density(instance) * 100.0);
 
-    feasible_sols
+    (feasible_sols, stats)
 }
 
 fn disrupt_solution(sep: &mut Separator, config: &ExplorationConfig) {

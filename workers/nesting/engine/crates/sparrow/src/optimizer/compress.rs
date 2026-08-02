@@ -15,8 +15,9 @@ pub fn compression_phase(
     sol_listener: &mut impl SolutionListener,
     term: &impl Terminator,
     config: &CompressionConfig
-) -> SPSolution {
+) -> (SPSolution, crate::optimizer::worker::SepStats) {
     let mut best_sol = init_sol.clone();
+    let mut stats = crate::optimizer::worker::SepStats { total_moves: 0, total_evals: 0 };
     let start = Instant::now();
     let mut n_failed_attempts = 0;
 
@@ -37,7 +38,10 @@ pub fn compression_phase(
 
     // As long as the shrink step size is above the minimum, keep attempting to compress
     while !term.kill() && let step = shrink_step_size(n_failed_attempts) && step >= config.shrink_range.1 {
-        match attempt_to_compress(sep, &best_sol, step, term, sol_listener) {
+        let (attempt, round_stats) = attempt_to_compress(sep, &best_sol, step, term, sol_listener);
+        stats.total_moves += round_stats.total_moves;
+        stats.total_evals += round_stats.total_evals;
+        match attempt {
             Some(compacted_sol) => {
                 info!("[CMPR] success at {:.3}% ({:.3} | {:.3}%)", step * 100.0, compacted_sol.strip_width(), compacted_sol.density(instance) * 100.0);
                 sol_listener.report(ReportType::CmprFeas, &compacted_sol, instance);
@@ -50,11 +54,11 @@ pub fn compression_phase(
         }
     }
     info!("[CMPR] finished, compressed from {:.3}% to {:.3}% (+{:.3}%)", init_sol.density(instance) * 100.0, best_sol.density(instance) * 100.0, (best_sol.density(instance) - init_sol.density(instance)) * 100.0);
-    best_sol
+    (best_sol, stats)
 }
 
 
-fn attempt_to_compress(sep: &mut Separator, init_sol: &SPSolution, r_shrink: f32, term: &impl Terminator, sol_listener: &mut impl SolutionListener) -> Option<SPSolution> {
+fn attempt_to_compress(sep: &mut Separator, init_sol: &SPSolution, r_shrink: f32, term: &impl Terminator, sol_listener: &mut impl SolutionListener) -> (Option<SPSolution>, crate::optimizer::worker::SepStats) {
     // Restore to the initial solution and width
     sep.change_strip_width(init_sol.strip_width(), None);
     sep.rollback(init_sol, None);
@@ -65,9 +69,10 @@ fn attempt_to_compress(sep: &mut Separator, init_sol: &SPSolution, r_shrink: f32
     sep.change_strip_width(new_width, Some(split_pos));
 
     // Try to separate layout, if all collisions are eliminated, return the solution
-    let (compacted_sol, ot) = sep.separate(term, sol_listener);
-    match ot.get_total_loss() == 0.0 {
+    let (compacted_sol, ot, stats) = sep.separate(term, sol_listener);
+    let sol = match ot.get_total_loss() == 0.0 {
         true => Some(compacted_sol),
         false => None,
-    }
+    };
+    (sol, stats)
 }

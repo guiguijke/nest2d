@@ -175,6 +175,7 @@ def run_engine(instance, config, problem_type, on_event=None, should_cancel=None
             # None on engines/jobs without directions.
             "bias": alt.get("bias"),
             "iterations": alt.get("iterations"),
+            "evaluations": alt.get("evaluations"),
             "solution": _normalize_solution(problem_type, solution),
             "metrics": {
                 "density": alt.get("density") or solution.get("density"),

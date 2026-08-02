@@ -21,6 +21,9 @@
                      · {{ (best.density * 100).toFixed(1) }}%
                 </template>
             </span>
+            <span v-if="best?.elapsed_ms != null" class="live__elapsed">
+                {{ formatElapsed(Math.round(best.elapsed_ms / 1000)) }}
+            </span>
             <span v-if="best" class="live__badge" :class="{ 'live__badge--ok': bestFitsSheet }">
                 {{ bestFitsSheet ? t('live.feasible') : t('live.searching') }}
             </span>
@@ -53,28 +56,6 @@
                     />
                 </g>
             </svg>
-            <div class="live__aside">
-                <div class="live__workers" v-if="workers.length > 1">
-                    <button
-                        v-for="w in workers"
-                        :key="w"
-                        :class="['live__worker', { 'live__worker--active': w === activeWorker }]"
-                        @click="activeWorker = w"
-                    >
-                        W{{ w + 1 }}
-                    </button>
-                    <button
-                        :class="['live__worker', { 'live__worker--active': activeWorker === -1 }]"
-                        @click="activeWorker = -1"
-                    >
-                        {{ t('live.best') }}
-                    </button>
-                </div>
-                <svg v-if="history.length > 1" class="live__spark" :viewBox="`0 0 100 30`" preserveAspectRatio="none">
-                    <polyline :points="sparkPoints" class="live__spark-line" />
-                </svg>
-                <p v-if="best" class="live__elapsed">{{ formatElapsed(Math.round((best.elapsed_ms || 0) / 1000)) }}</p>
-            </div>
         </div>
     </div>
 </template>
@@ -83,8 +64,8 @@
 /**
  * Real-time nesting visualizer: watches the engine's live layout stream
  * (liveLayout on the job doc, pushed over SSE) and animates parts moving on
- * the sheet. Also accumulates the quality-over-time sparkline — the curve
- * that tells you when more compute stops paying off.
+ * the sheet. The default view is champion-locked (monotone convergence) so
+ * the animation stays calm; mid-search out-of-sheet states are clipped.
  */
 import { computed, ref, watch } from 'vue';
 
@@ -125,7 +106,6 @@ function ringsToPath(rings) {
 
 // ---- per-worker snapshots ------------------------------------------------
 const snapshots = ref({}); // worker -> liveLayout
-const activeWorker = ref(-1); // -1 = best
 
 // Unique clip id: several LiveNestingView instances (big + compact) can be
 // on the same page, ids must not collide.
@@ -199,7 +179,6 @@ watch(
         snapshots.value = {};
         champion.value = null;
         pendingChampion = null;
-        history.value = [];
         if (championTimer) {
             clearTimeout(championTimer);
             championTimer = null;
@@ -218,7 +197,6 @@ watch(
         if (live.worker != null) {
             snapshots.value = { ...snapshots.value, [live.worker]: live };
         }
-        recordHistory(live);
         offerChampion(live);
         // Prefetch geometry for the item ids we see.
         const map = props.result?.itemMap || [];
@@ -227,12 +205,7 @@ watch(
     { immediate: true, deep: true }
 );
 
-const workers = computed(() =>
-    Object.keys(snapshots.value).map(Number).sort((a, b) => a - b)
-);
-
 const best = computed(() => {
-    if (activeWorker.value >= 0) return snapshots.value[activeWorker.value] || null;
     // Default view: the champion (monotone, stable). Falls back to the live
     // best of current snapshots while no champion is locked yet.
     if (champion.value) return champion.value;
@@ -264,34 +237,6 @@ const displayItems = computed(() => {
         out.push({ d: part.d, rot, x, y });
     }
     return out;
-});
-
-// ---- sparkline (quality over time) ---------------------------------------
-const MAX_HISTORY_POINTS = 240;
-const history = ref([]); // [elapsed_ms, quality]
-function recordHistory(live) {
-    const q = live.strip_width ?? live.bins ?? null;
-    if (q == null || live.elapsed_ms == null) return;
-    const last = history.value[history.value.length - 1];
-    if (last && Math.abs(last[0] - live.elapsed_ms) < 800 && last[1] === q) return;
-    const next = [...history.value, [live.elapsed_ms, q]];
-    // Cap the history so a long nesting job can't grow this array unbounded.
-    history.value = next.length > MAX_HISTORY_POINTS ? next.slice(-MAX_HISTORY_POINTS) : next;
-}
-
-const sparkPoints = computed(() => {
-    const h = history.value;
-    if (h.length < 2) return '';
-    const minT = h[0][0], maxT = h[h.length - 1][0] || 1;
-    const qs = h.map((p) => p[1]);
-    const minQ = Math.min(...qs), maxQ = Math.max(...qs) || 1;
-    return h
-        .map(([t, q]) => {
-            const px = ((t - minT) / Math.max(1, maxT - minT)) * 100;
-            const py = 28 - ((q - minQ) / Math.max(1e-6, maxQ - minQ)) * 26;
-            return `${px.toFixed(1)},${py.toFixed(1)}`;
-        })
-        .join(' ');
 });
 
 // ---- labels ---------------------------------------------------------------
@@ -378,52 +323,10 @@ const formatElapsed = (sec) => {
         }
     }
 
-    &__aside {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        width: 70px;
-    }
-
-    &__workers {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 3px;
-    }
-
-    &__worker {
-        padding: 1px 5px;
-        font-size: 9px;
-        border: 1px solid var(--separator-secondary);
-        border-radius: 4px;
-        background: transparent;
-        color: var(--label-secondary);
-        cursor: pointer;
-
-        &--active {
-            background: var(--accent-primary, #3b82f6);
-            color: #fff;
-            border-color: transparent;
-        }
-    }
-
-    &__spark {
-        width: 100%;
-        height: 30px;
-        border: 1px solid var(--separator-secondary);
-        border-radius: 4px;
-    }
-
-    &__spark-line {
-        fill: none;
-        stroke: var(--accent-primary, #3b82f6);
-        stroke-width: 1;
-    }
-
     &__elapsed {
-        font-size: 10px;
-        color: var(--label-secondary);
-        text-align: right;
+        font-size: 11px;
+        color: var(--label-tertiary);
+        font-variant-numeric: tabular-nums;
     }
 }
 </style>
