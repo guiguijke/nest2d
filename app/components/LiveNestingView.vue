@@ -24,6 +24,9 @@
             <span v-if="best?.elapsed_ms != null" class="live__elapsed">
                 {{ formatElapsed(Math.round(best.elapsed_ms / 1000)) }}
             </span>
+            <span v-if="evalsCount" class="live__evals" :title="t('live.evalsTitle')">
+                {{ evalsCount }}
+            </span>
             <span v-if="best" class="live__badge" :class="{ 'live__badge--ok': bestFitsSheet }">
                 {{ bestFitsSheet ? t('live.feasible') : t('live.searching') }}
             </span>
@@ -31,7 +34,7 @@
 
         <div class="live__body">
             <svg
-                v-if="best && sheet"
+                v-if="sheet"
                 :viewBox="`0 0 ${sheet[0]} ${sheet[1]}`"
                 class="live__sheet"
                 preserveAspectRatio="xMidYMid meet"
@@ -122,6 +125,16 @@ const cores = computed(() => {
     return n ? Math.min(8, Math.max(1, Number(n) || 1)) : null;
 });
 
+// Live combinations counter (placement evaluations / SA iterations, summed
+// across workers on the progress doc). Compact k/M formatting.
+const evalsCount = computed(() => {
+    const n = props.result?.progress?.evals;
+    if (!n) return null;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
+    if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
+    return `${n}`;
+});
+
 // ---- champion lock ---------------------------------------------------------
 // The default "Best" view used to take the best of the CURRENT per-worker
 // snapshots: it flip-flopped between different walks at similar quality, so
@@ -159,6 +172,11 @@ function isBetter(a, b) {
 }
 
 function offerChampion(live) {
+    // Never lock onto a working state: only layouts that FIT the sheet may
+    // become champion — mid-search separation states (over-width, pieces
+    // spilling out) are working states, not presentable layouts. Until the
+    // first fitting layout exists, the view stays an empty clean sheet.
+    if (!fitsSheet(live)) return;
     if (!isBetter(live, pendingChampion || champion.value)) return;
     pendingChampion = live;
     if (championTimer) return;
@@ -168,7 +186,7 @@ function offerChampion(live) {
             champion.value = pendingChampion;
         }
         pendingChampion = null;
-    }, 1200);
+    }, 600);
 }
 
 // New job: wipe everything (snapshots, champion, sparkline) so no stale
@@ -206,19 +224,25 @@ watch(
 );
 
 const best = computed(() => {
-    // Default view: the champion (monotone, stable). Falls back to the live
-    // best of current snapshots while no champion is locked yet.
+    // Default view: the champion (monotone, stable). Falls back to the best
+    // FITTING snapshot while no champion is locked yet — never to a
+    // mid-search working state (that is what looked unprofessional).
     if (champion.value) return champion.value;
-    const all = Object.values(snapshots.value);
-    if (!all.length) return null;
-    return [...all].sort((a, b) => (isBetter(a, b) ? -1 : 1))[0];
+    const fitting = Object.values(snapshots.value).filter(fitsSheet);
+    if (!fitting.length) return null;
+    return fitting.sort((a, b) => (isBetter(a, b) ? -1 : 1))[0];
 });
 
 const sheet = computed(() => {
     const b = best.value;
-    if (!b?.sheets?.length) return null;
-    // SPP = one sheet; BPP = the sheet of the first layout shown (v1).
-    return b.sheets[0];
+    if (b?.sheets?.length) {
+        // SPP = one sheet; BPP = the sheet of the first layout shown (v1).
+        return b.sheets[0];
+    }
+    // Before the first fitting layout: show the clean empty sheet frame
+    // (from any snapshot) rather than mid-search working states.
+    const anySnap = Object.values(snapshots.value)[0];
+    return anySnap?.sheets?.[0] || null;
 });
 
 // ---- items to draw --------------------------------------------------------
@@ -326,6 +350,13 @@ const formatElapsed = (sec) => {
     &__elapsed {
         font-size: 11px;
         color: var(--label-tertiary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    &__evals {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--accent-primary, #3b82f6);
         font-variant-numeric: tabular-nums;
     }
 }

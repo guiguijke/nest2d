@@ -73,6 +73,9 @@ pub struct ProgressListener {
     /// Improvement clock shared with the PlateauTerminator: bumped on every
     /// progress report (the run is demonstrably not converged).
     last_improvement: Arc<Mutex<Instant>>,
+    /// Separate 1 Hz slot for the live evals counter (so it never starves
+    /// the scalar progress events of their own slot).
+    last_evals_emit: Instant,
 }
 
 fn stage_of(report: &ReportType) -> &'static str {
@@ -94,6 +97,7 @@ impl ProgressListener {
             last_layout_emit: Instant::now() - std::time::Duration::from_secs(2),
             map_back_height: None,
             last_improvement: Arc::new(Mutex::new(Instant::now())),
+            last_evals_emit: Instant::now() - std::time::Duration::from_secs(2),
         }
     }
 
@@ -177,6 +181,21 @@ impl ProgressListener {
 }
 
 impl SolutionListener for ProgressListener {
+    fn report_evals(&mut self, evals: usize) {
+        // Live combinations counter: throttled to 1 Hz per worker, the
+        // Python side sums the latest value of every worker.
+        if self.last_evals_emit.elapsed().as_millis() >= 1000 {
+            self.last_evals_emit = Instant::now();
+            println!(
+                "{{\"type\":\"evals\",\"worker\":{},\"evals\":{},\"elapsed_sec\":{}}}",
+                self.worker,
+                evals,
+                self.started.elapsed().as_secs()
+            );
+            let _ = std::io::stdout().flush();
+        }
+    }
+
     fn report(&mut self, report: ReportType, solution: &SPSolution, instance: &SPInstance) {
         let stage = stage_of(&report);
         let feasible = matches!(report, ReportType::ExplFeas | ReportType::CmprFeas | ReportType::Final);

@@ -493,6 +493,11 @@ def nesting_process(doc):
     _current_progress = {"stage": "preparing", "done": 0, "total": 1}
     _heartbeat_stop = _threading.Event()
 
+    # Live combinations counter: SPP feeds it with placement evaluations
+    # ('evals' events), BPP with SA iterations ('heartbeat' events) — the
+    # progress doc carries the sum across workers.
+    _worker_evals = {}
+
     def report_progress(stage, done, total, pct=None):
         _current_progress.update({"stage": stage, "done": done, "total": total, "pct": pct})
         now = _time.time()
@@ -515,6 +520,7 @@ def nesting_process(doc):
                         # Ticking seconds prove the worker is alive even on
                         # long stages.
                         "elapsed_sec": int(_time.monotonic() - _job_started),
+                        **({"evals": sum(_worker_evals.values())} if _worker_evals else {}),
                     },
                     "update_ts": datetime.now(),
                 }},
@@ -544,6 +550,7 @@ def nesting_process(doc):
                             "total": p["total"],
                             "pct": p.get("pct"),
                             "elapsed_sec": int(_time.monotonic() - _job_started),
+                            **({"evals": sum(_worker_evals.values())} if _worker_evals else {}),
                         },
                         "update_ts": datetime.now(),
                     }},
@@ -681,7 +688,11 @@ def nesting_process(doc):
         etype = event.get("type")
         if etype == "layout":
             report_live_layout(event)
+        elif etype == "evals":
+            _worker_evals[event.get("worker")] = event.get("evals") or 0
         elif etype in ("progress", "heartbeat"):
+            if etype == "heartbeat" and event.get("iterations") is not None:
+                _worker_evals[event.get("worker")] = event["iterations"]
             stage = event.get("stage", "explore")
             # Real percentage: the engine reports its elapsed seconds and we
             # know the time budget it was given (it stops by itself at 100%).
