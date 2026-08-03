@@ -48,18 +48,22 @@ class TestDwgIntegration:
     @pytest.mark.skipif(not HAS_DWGWRITE, reason="dwgwrite not installed on this host")
     def test_roundtrip_fixture_generated_by_dwgwrite(self, tmp_path):
         """dwgwrite builds a DWG from a DXF R2000; dwgread must read it back
-        with the entities intact (line + circle)."""
+        with the entities intact (line + circle). The DXF is authored with
+        ezdxf: handwritten minimal DXFs lack the HEADER/table sections
+        dwgwrite requires."""
+        import ezdxf
+
+        doc = ezdxf.new("R2010")
+        doc.header["$INSUNITS"] = 4
+        msp = doc.modelspace()
+        msp.add_line((0, 0), (100, 50))
+        msp.add_circle((50, 50), 25)
         dxf = tmp_path / "fixture.dxf"
-        dxf.write_text(
-            "0\nSECTION\n2\nENTITIES\n"
-            "0\nLINE\n8\n0\n10\n0.0\n20\n0.0\n11\n100.0\n21\n50.0\n"
-            "0\nCIRCLE\n8\n0\n10\n50.0\n20\n50.0\n40\n25.0\n"
-            "0\nENDSEC\n0\nEOF\n",
-            encoding="ascii",
-        )
+        doc.saveas(dxf)
+
         dwg = tmp_path / "fixture.dwg"
         subprocess.run(
-            ["dwgwrite", "-O", "DWG", "-o", str(dwg), str(dxf)],
+            ["dwgwrite", "-I", "DXF", "-o", str(dwg), str(dxf)],
             check=True, capture_output=True, timeout=60,
         )
         out = dwg_bytes_to_dxf_bytes(dwg.read_bytes())
