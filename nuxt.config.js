@@ -204,9 +204,14 @@ export default defineNuxtConfig({
                     'cache-control': 'public,max-age=31536000,immutable'
                 }
             },
+            // HTML SSR : JAMAIS de s-maxage. Un cache partagé (reverse proxy)
+            // garderait des pages périmées 24 h (ex. /plans affichant "Bientôt
+            // disponible" après la synchro Stripe) et pourrait servir le HTML
+            // d'une session connectée à un autre visiteur. no-cache = le
+            // navigateur/proxy revalide à chaque fois, le SSR reste frais.
             '/**': {
                 headers: {
-                    'cache-control': 'public,max-age=0,s-maxage=86400,stale-while-revalidate'
+                    'cache-control': 'no-cache'
                 }
             }
         }
