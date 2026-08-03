@@ -117,6 +117,13 @@ admin/                 (back-office Nuxt)
 ### Frontend
 20. **Apostrophes françaises dans i18n.js** : utiliser des doubles quotes
     pour les chaînes contenant `'` (sinon PARSE_ERROR au build).
+20b. **SVG y-down vs moteur y-up : le flip est OBLIGATOIRE** — tout rendu de
+    placements (live view, SVG résultat coloré) doit dessiner avec
+    `translate(x, H-y) scale(1,-1) rotate(θ)` (les coords jagua/DXF sont
+    y-up). Sans le scale, la feuille entière est MIRÉE verticalement par
+    rapport à la vue DXF (rotate SVG horaire = rotation moteur anti-horaire
+    une fois flippée — la formule est exacte, verrou :
+    `test_svg_colored.py::test_transform_matches_the_production_dxf`).
 21. **`var(--background-secondary)` est sombre** dans ce thème : ne jamais
     compter sur les vars de thème pour un canvas lisible — palette
     explicite (fond clair, pièces accent, texte foncé).

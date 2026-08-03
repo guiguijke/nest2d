@@ -49,17 +49,21 @@ def test_holes_become_subpaths_of_the_same_path():
     assert holed.count("M") == 2  # outer + hole in ONE path
 
 
-def test_transform_is_applied_in_sheet_frame():
+def test_transform_matches_the_production_dxf():
+    # SVG is y-down, the engine frame is y-up: every part is drawn with
+    # translate(x, H - y) scale(1, -1) rotate(deg). Without the flip the
+    # whole sheet renders vertically mirrored against the DXF viewer.
     svg = build_colored_sheet_svg(_transforms(), ITEMS, 1000.0, 500.0)
-    assert 'transform="translate(10.000 20.000) rotate(0.000)"' in svg
-    assert 'transform="translate(200.000 100.000) rotate(90.000)"' in svg
+    assert 'transform="translate(10.000 480.000) scale(1 -1) rotate(0.000)"' in svg
+    assert 'transform="translate(200.000 400.000) scale(1 -1) rotate(90.000)"' in svg
 
 
 def test_unit_scale_applies_to_frame_rings_and_translation():
     svg = build_colored_sheet_svg(_transforms(), ITEMS, 1000.0, 500.0,
                                   unit_scale=1 / 25.4, unit_attr="in")
     assert 'width="39.37007874015748in"' in svg
-    assert "translate(0.394 0.787)" in svg
+    # H = 500mm / 25.4 = 19.685in ; y=20mm -> 0.787in ; H - y = 18.898in
+    assert "translate(0.394 18.898)" in svg
     assert "M0.000 0.000 L3.937 0.000" in svg or "M0.000 0.000 3.937" in svg or "3.937" in svg
 
 
