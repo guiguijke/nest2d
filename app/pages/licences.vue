@@ -9,32 +9,49 @@
         <p class="licences__text">
             {{ t('licences.text') }}
         </p>
-        <div class="licences__table-wrapper">
-            <table class="licences__table">
-                <thead>
-                    <tr>
-                        <th>{{ t('licences.col.package') }}</th>
-                        <th>{{ t('licences.col.version') }}</th>
-                        <th>{{ t('licences.col.license') }}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr
-                        v-for="pkg in packages"
-                        :key="pkg.name"
-                    >
-                        <td>{{ pkg.name }}</td>
-                        <td>{{ pkg.version }}</td>
-                        <td>{{ pkg.license }}</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
+        <section
+            v-for="group in groups"
+            :key="group.id"
+            class="licences__group"
+        >
+            <h3 class="licences__group-title">
+                {{ t(`licences.group.${group.id}`) }}
+            </h3>
+            <div class="licences__table-wrapper">
+                <table class="licences__table">
+                    <thead>
+                        <tr>
+                            <th>{{ t('licences.col.package') }}</th>
+                            <th>{{ t('licences.col.version') }}</th>
+                            <th>{{ t('licences.col.license') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr
+                            v-for="pkg in group.packages"
+                            :key="pkg.name"
+                        >
+                            <td>
+                                {{ pkg.name }}
+                                <div
+                                    v-if="pkg.note"
+                                    class="licences__note"
+                                >
+                                    {{ pkg.note }}
+                                </div>
+                            </td>
+                            <td>{{ pkg.version }}</td>
+                            <td>{{ pkg.license }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
     </div>
 </template>
 
 <script setup>
-import { packages } from "~~/data/licences";
+import { groups } from "~~/data/licences";
 const { t } = useLocale()
 definePageMeta({
     layout: "doc",
@@ -65,6 +82,23 @@ definePageMeta({
     &__text {
         margin-bottom: 24px;
         font-size: 15px;
+    }
+
+    &__group {
+        margin-bottom: 32px;
+    }
+
+    &__group-title {
+        color: var(--label-primary);
+        font-size: 1.05rem;
+        font-weight: 700;
+        margin-bottom: 10px;
+    }
+
+    &__note {
+        color: var(--label-tertiary);
+        font-size: 12px;
+        font-weight: 400;
     }
 
     &__table-wrapper {

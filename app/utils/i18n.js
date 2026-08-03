@@ -397,6 +397,10 @@ const dict = {
         'licences.col.package': 'Package',
         'licences.col.version': 'Version',
         'licences.col.license': 'License',
+        'licences.group.web': 'Web application (Nuxt / Vue)',
+        'licences.group.server': 'API server (Node.js)',
+        'licences.group.workers': 'Processing workers (Python)',
+        'licences.group.engine': 'Nesting engine (Rust)',
     },
 
     fr: {
@@ -786,6 +790,10 @@ const dict = {
         'licences.col.package': 'Paquet',
         'licences.col.version': 'Version',
         'licences.col.license': 'Licence',
+        'licences.group.web': 'Application web (Nuxt / Vue)',
+        'licences.group.server': "Serveur d'API (Node.js)",
+        'licences.group.workers': 'Workers de traitement (Python)',
+        'licences.group.engine': "Moteur d'imbrication (Rust)",
     },
 }
 
