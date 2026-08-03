@@ -4,13 +4,16 @@ import { getCurrencyByCountry } from '~~/server/utils/currency'
 import { createCustomer, createSubscriptionCheckout } from '~~/server/features/payment/stripe'
 import { TRIAL_DAYS } from '~~/server/features/payment/const'
 
-const baseUrl = useRuntimeConfig().public.baseUrl
-
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId
     if (!userId) {
         throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
     }
+
+    // useRuntimeConfig must be called with the event inside the handler —
+    // at module top level there is no Nuxt context and baseUrl resolves to
+    // undefined, which broke checkout with a malformed success_url.
+    const baseUrl = useRuntimeConfig(event).public.baseUrl
 
     const db = await connectDB()
 

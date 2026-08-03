@@ -63,6 +63,16 @@ const dict = {
 
         'profile.subscription': 'Subscription',
 
+        'newsletter.title': 'Newsletter',
+        'newsletter.desc': 'Receive NestorCut updates: new features, nesting tips and product news. No spam, unsubscribe anytime.',
+        'newsletter.toggle': 'Keep me informed about NestorCut updates',
+        'newsletter.subscribed': 'Subscribed ✓',
+        'newsletter.notSubscribed': 'Unsubscribed ✓',
+        'newsletter.promptTitle': 'Stay in the loop?',
+        'newsletter.promptText': 'Want to receive NestorCut updates by email? New features, nesting tips, product news. No spam — unsubscribe anytime from your profile.',
+        'newsletter.yes': 'Yes, keep me informed',
+        'newsletter.no': 'No thanks',
+
         'sub.active': 'Active',
         'sub.trialActive': 'Free trial active',
         'sub.proPrivacy': 'Pro — Privacy+',
@@ -290,6 +300,37 @@ const dict = {
         'vault.error.disable': 'Disable failed. Please try again.',
         'vault.error.destroy': 'Destruction failed. Please try again.',
 
+        // ── Account deletion & plan switch (DeleteAccount.vue) ──
+        'account.title': 'Account',
+        'account.alternativesTitle': 'Before you go…',
+        'account.alternativesDesc':
+            'You have an active subscription. Deleting your account cancels it immediately, without a refund. You can also simply switch plans and keep your data.',
+        'account.toFree': 'Switch to the Free plan',
+        'account.toFreeNotice':
+            'Your subscription will end on {date}. Your account and data stay active on the Free plan.',
+        'account.toFreeConfirm':
+            'Your subscription will be canceled at the end of the current billing period. You keep your account and data. Continue?',
+        'account.toPrivacy': 'Switch to {plan}',
+        'account.toPrivacyNotice': 'You are now on the {plan} plan. The prorated difference was charged to your card.',
+        'account.toPrivacyConfirm':
+            'Your subscription will switch to the {plan} plan immediately: the prorated difference will be charged to your card on file. Continue?',
+        'account.discoverPlan': 'Discover the {plan} plan',
+        'account.deleteTitle': 'Delete my account',
+        'account.deleteDesc':
+            'This permanently deletes your account and all your data: projects, DXF files, nesting results, preferences. This cannot be undone.',
+        'account.deleteWarningSubscription': 'Your active subscription will be canceled immediately, without a refund.',
+        'account.confirmEmailLabel': 'To confirm, type your email address {email} below:',
+        'account.passwordLabel': 'Enter your password to confirm:',
+        'account.passwordPlaceholder': 'Your password',
+        'account.deleteBtn': 'Delete permanently',
+        'account.deleteConfirm':
+            'LAST WARNING: your account and ALL your data will be permanently deleted, and any active subscription canceled without a refund. There is no way back. Continue?',
+        'account.error.mismatch': 'The email address does not match your account email.',
+        'account.error.password': 'Incorrect password.',
+        'account.error.passwordRequired': 'Please enter your password.',
+        'account.error.generic': 'Deletion failed. Please try again.',
+        'account.error.change': 'Plan change failed. Please try again.',
+
         'auth.email': 'Email',
         'auth.password': 'Password',
         'auth.name': 'Name',
@@ -407,6 +448,16 @@ const dict = {
         'stats.successRate': 'Taux de réussite',
 
         'profile.subscription': 'Abonnement',
+
+        'newsletter.title': 'Newsletter',
+        'newsletter.desc': 'Recevez les actualités de NestorCut : nouvelles fonctionnalités, conseils nesting et nouveautés produit. Pas de spam, désinscription à tout moment.',
+        'newsletter.toggle': 'Me tenir informé des nouveautés de NestorCut',
+        'newsletter.subscribed': 'Abonné ✓',
+        'newsletter.notSubscribed': 'Désabonné ✓',
+        'newsletter.promptTitle': 'Restez informé ?',
+        'newsletter.promptText': 'Souhaitez-vous recevoir les actualités de NestorCut par email ? Nouvelles fonctionnalités, conseils nesting, nouveautés produit. Pas de spam — désinscription à tout moment depuis votre profil.',
+        'newsletter.yes': 'Oui, me tenir informé',
+        'newsletter.no': 'Non merci',
 
         'sub.active': 'Actif',
         'sub.trialActive': 'Essai gratuit en cours',
@@ -636,6 +687,37 @@ const dict = {
         'vault.error.rotate': 'Échec du renouvellement. Vos fichiers sont toujours chiffrés avec l\'ancienne clé.',
         'vault.error.disable': 'Échec de la désactivation. Veuillez réessayer.',
         'vault.error.destroy': 'Échec de la destruction. Veuillez réessayer.',
+
+        // ── Suppression de compte & changement d'offre (DeleteAccount.vue) ──
+        'account.title': 'Compte',
+        'account.alternativesTitle': "Avant de partir…",
+        'account.alternativesDesc':
+            "Vous avez un abonnement actif. Supprimer votre compte le résilie immédiatement, sans remboursement. Vous pouvez aussi simplement changer d'offre et conserver vos données.",
+        'account.toFree': "Passer à l'offre gratuite",
+        'account.toFreeNotice':
+            "Votre abonnement se terminera le {date}. Votre compte et vos données restent actifs sur l'offre gratuite.",
+        'account.toFreeConfirm':
+            "Votre abonnement sera annulé à la fin de la période de facturation en cours. Vous conservez votre compte et vos données. Continuer ?",
+        'account.toPrivacy': "Passer à {plan}",
+        'account.toPrivacyNotice': "Vous êtes maintenant sur l'offre {plan}. La différence au prorata a été débitée de votre carte.",
+        'account.toPrivacyConfirm':
+            "Votre abonnement va passer immédiatement à l'offre {plan} : la différence au prorata sera débitée de la carte enregistrée. Continuer ?",
+        'account.discoverPlan': "Découvrir l'offre {plan}",
+        'account.deleteTitle': "Supprimer mon compte",
+        'account.deleteDesc':
+            "Cette action supprime définitivement votre compte et toutes vos données : projets, fichiers DXF, résultats d'imbrication, préférences. C'est irréversible.",
+        'account.deleteWarningSubscription': "Votre abonnement actif sera résilié immédiatement, sans remboursement.",
+        'account.confirmEmailLabel': "Pour confirmer, saisissez votre adresse e-mail {email} ci-dessous :",
+        'account.passwordLabel': "Saisissez votre mot de passe pour confirmer :",
+        'account.passwordPlaceholder': "Votre mot de passe",
+        'account.deleteBtn': "Supprimer définitivement",
+        'account.deleteConfirm':
+            "DERNIER AVERTISSEMENT : votre compte et TOUTES vos données seront définitivement supprimés, et tout abonnement actif résilié sans remboursement. C'est irréversible. Continuer ?",
+        'account.error.mismatch': "L'adresse e-mail ne correspond pas à celle de votre compte.",
+        'account.error.password': "Mot de passe incorrect.",
+        'account.error.passwordRequired': "Veuillez saisir votre mot de passe.",
+        'account.error.generic': "Échec de la suppression. Veuillez réessayer.",
+        'account.error.change': "Échec du changement d'offre. Veuillez réessayer.",
 
         'auth.email': 'E-mail',
         'auth.password': 'Mot de passe',

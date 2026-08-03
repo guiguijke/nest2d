@@ -102,6 +102,8 @@ const formatPlanPrice = (plan) => {
 }
 
 const tiers = computed(() => {
+    const stdPlan = unref(plans)?.standard
+    const stdAvailable = Boolean(stdPlan?.available)
     const proPlan = unref(plans)?.privacy
     const proAvailable = Boolean(proPlan?.available)
     return [
@@ -122,7 +124,8 @@ const tiers = computed(() => {
         },
         {
             name: t('plans.tier.unlimited'),
-            price: SUBSCRIPTION_PRICE_LABEL,
+            // Live Stripe price when the sync worked, static label as fallback.
+            price: stdAvailable ? formatPlanPrice(stdPlan) : SUBSCRIPTION_PRICE_LABEL,
             intervalLabel: t('plans.interval.month'),
             badge: t('plans.badge.popular'),
             badgeKind: 'accent',
@@ -136,8 +139,10 @@ const tiers = computed(() => {
             ],
             // When paid plans are disabled, the card stays visible (price +
             // features) but the CTA shows "Coming soon" and does nothing.
-            cta: paidDisabled.value ? t('plans.cta.comingSoon') : t('plans.cta.startTrial', { days: TRIAL_DAYS }),
-            comingSoon: paidDisabled.value,
+            // Same when the Stripe sync failed (plan unavailable) — never
+            // offer a checkout that can only 503.
+            cta: stdAvailable && !paidDisabled.value ? t('plans.cta.startTrial', { days: TRIAL_DAYS }) : t('plans.cta.comingSoon'),
+            comingSoon: !stdAvailable || paidDisabled.value,
             trackingTag: 'plans_unlimited',
         },
         {
