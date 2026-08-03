@@ -4,6 +4,15 @@ Guide de l'architecture et **liste des pièges** rencontrés (avec leur règle).
 Objectif : ne jamais refaire ces erreurs. Lis la section Pièges avant de
 toucher au moteur, au worker Python ou au visualizer.
 
+> **Specs (mémoire des décisions) : le dossier `specs/` (gitignored, local)
+> fait foi pour le QUOI et le POURQUOI** — formats d'import, moteur,
+> couleurs, démo, monétisation, vie privée, et le journal chronologique
+> `specs/90-decisions.md`. **Avant de modifier un comportement tranché,
+> vérifie la spec correspondante** ; toute nouvelle décision (ou infirmation
+> d'une ancienne) y est ajoutée avec date et statut — jamais de retour en
+> arrière silencieux. AGENTS.md (ce fichier) reste la référence des pièges
+> techniques ; les specs restent la référence des décisions.
+
 ## 1. Architecture
 
 ```

@@ -60,3 +60,6 @@ workers/nesting/benchmarks/tmp
 
 # LibreDWG tarball downloaded locally for checksum verification (the Docker build fetches its own).
 libredwg.tar.xz
+
+# Local product specs (decision memory) — intentionally NOT committed.
+specs/
