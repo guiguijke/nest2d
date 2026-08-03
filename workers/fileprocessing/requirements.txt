@@ -5,3 +5,4 @@ python-dotenv==1.1.1
 Pillow==10.4.0
 matplotlib==3.10.5
 cryptography
+svgelements==1.9.6

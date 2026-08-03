@@ -12,6 +12,9 @@ from shapely.geometry import Point
 import time
 
 from core.geometry.build_geometry import build_geometry
+from core.format_detect import detect_format
+from core.svg_to_drawing import svg_bytes_to_drawing
+from core.dwg_convert import dwg_bytes_to_dxf_bytes
 from worker_common.colors import pick_colors
 from worker_common.crypto import (
     encrypt_polygon_parts,
@@ -53,11 +56,11 @@ def _getting_drawing(doc) -> Drawing:
 def _make_dxf_copy(doc) -> Drawing:
     logger = setup_logger("dxf_copy_maker")
     dxf_file_slug = doc["slug"]
-    
+
     if doc.get("isDxfCopyExist", False):
         logger.info("Dxf copy already exists", extra={"dxf_file_slug": dxf_file_slug})
-        return 
-    
+        return
+
     user_id = doc["ownerId"]
 
     logger.info("Making dxf copy", extra={"dxf_file_slug": dxf_file_slug})
@@ -65,7 +68,18 @@ def _make_dxf_copy(doc) -> Drawing:
     dek = get_dek(db, user_id)
     dxf_bytes = read_gridfs(user_dxf_bucket, dxf_file_slug, user_id, dek)
 
-    dxf_copy = read_dxf(io.BytesIO(dxf_bytes))
+    # SVG and DWG uploads are normalized at this boundary: whatever the
+    # source, the canonical copy written to validDxf is ALWAYS a DXF in mm,
+    # so polygonization/colors/previews/nesting never see the difference.
+    source_format = detect_format(dxf_bytes)
+    if source_format == "svg":
+        logger.info("SVG source detected, converting", extra={"slug": dxf_file_slug})
+        dxf_copy = svg_bytes_to_drawing(dxf_bytes)
+    elif source_format == "dwg":
+        logger.info("DWG source detected, converting", extra={"slug": dxf_file_slug})
+        dxf_copy = read_dxf(io.BytesIO(dwg_bytes_to_dxf_bytes(dxf_bytes)))
+    else:
+        dxf_copy = read_dxf(io.BytesIO(dxf_bytes))
     
     logger.info("Make a copy Drawing info", extra={"entity_count": len(dxf_copy.modelspace())})
     
