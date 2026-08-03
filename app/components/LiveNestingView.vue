@@ -8,8 +8,8 @@
                 {{ bestFitsSheet ? t('live.feasible') : t('live.searching') }}
             </span>
             <span class="live__spacer" />
-            <span v-if="best?.elapsed_ms != null" class="live__stat" :title="t('live.elapsedTitle')">
-                {{ formatElapsed(Math.round(best.elapsed_ms / 1000)) }}
+            <span v-if="elapsedSec != null" class="live__stat" :title="t('live.elapsedTitle')">
+                {{ formatElapsed(elapsedSec) }}
             </span>
             <span v-if="evalsCount" class="live__stat live__stat--accent" :title="t('live.evalsTitle')">
                 {{ evalsCount }} <span class="live__stat-suffix">{{ t('live.combinations') }}</span>
@@ -318,6 +318,13 @@ const classCards = computed(() => {
 const cores = computed(() => {
     const n = props.result?.compute?.vcores;
     return n ? Math.min(8, Math.max(1, Number(n) || 1)) : null;
+});
+
+// Job clock from the worker's progress heartbeat — NOT the champion's
+// event timestamp (an early near-optimal champion would freeze it at 0s).
+const elapsedSec = computed(() => {
+    const n = props.result?.progress?.elapsed_sec;
+    return n != null ? Math.round(n) : null;
 });
 
 const evalsCount = computed(() => {
