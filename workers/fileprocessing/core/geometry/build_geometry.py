@@ -172,7 +172,7 @@ class ClosedPolygon:
     geometry: Polygon
     handles: List[str]
 
-    def to_mongo_dict(self) -> Dict[str, List[List[float]]] :
+    def to_mongo_dict(self, color: str | None = None) -> Dict[str, List[List[float]]] :
         if not isinstance(self.geometry, Polygon):
             raise TypeError("The 'geometry' attribute must be a shapely Polygon.")
 
@@ -201,7 +201,7 @@ class ClosedPolygon:
             if len(ring) >= 3
         ]
 
-        return {
+        doc = {
             'coordinates': exterior_coords,
             # Interior rings (cutouts). Empty for legacy readers, which all
             # access it via .get() — the nesting post-pass uses them to place
@@ -211,6 +211,14 @@ class ClosedPolygon:
             'width': width,
             'height': height
         }
+
+        # Random display color assigned at import (screen rendering only).
+        # Older documents lack the key — readers fall back to
+        # worker_common.colors.color_for_part(slug, index).
+        if color is not None:
+            doc['color'] = color
+
+        return doc
 
 
 def build_geometry(drawing: Drawing, tolerance: float) -> List[ClosedPolygon]:

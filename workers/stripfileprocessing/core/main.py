@@ -3,6 +3,7 @@ import time
 
 from worker_common.logger import setup_logger
 from worker_common.mongo import db, get_bucket
+from worker_common.colors import pick_colors
 from worker_common.crypto import encrypt_polygon_parts, get_dek, read_gridfs
 
 strip_user_dxf_bucket = get_bucket("stripUserDxf")
@@ -80,8 +81,10 @@ def _close_polygon_from_dxf(doc):
         raise Exception("Closed parts is 0")
 
     polygon_parts = []
-    for part in closed_parts:
-        mongo_dict = part.to_mongo_dict()
+    # One random display color per part (screen rendering only), sampled
+    # without replacement first so parts of the same file look distinct.
+    for part, color in zip(closed_parts, pick_colors(len(closed_parts))):
+        mongo_dict = part.to_mongo_dict(color=color)
         if mongo_dict is not None:
             polygon_parts.append(mongo_dict)
 

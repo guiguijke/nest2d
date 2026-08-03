@@ -148,3 +148,26 @@ class TestMultiPart:
         assert len(parts) == 2
         for part in parts:
             assert len(part["handles"]) == 1
+
+
+class TestPartColor:
+    def test_color_is_persisted_when_provided(self, tmp_path):
+        def draw(msp):
+            msp.add_lwpolyline([(0, 0), (50, 0), (50, 50), (0, 50)], close=True)
+
+        path = _make_dxf(tmp_path / "colored.dxf", [draw])
+        doc = read_dxf_file(str(path))
+        closed = build_geometry(doc, 0.01)
+        mongo_dict = closed[0].to_mongo_dict(color="#2563EB")
+        assert mongo_dict["color"] == "#2563EB"
+
+    def test_color_key_absent_without_argument(self, tmp_path):
+        # Legacy call sites (and old tests) get the historical dict shape —
+        # readers resolve the deterministic fallback color themselves.
+        def draw(msp):
+            msp.add_lwpolyline([(0, 0), (50, 0), (50, 50), (0, 50)], close=True)
+
+        path = _make_dxf(tmp_path / "uncolored.dxf", [draw])
+        doc = read_dxf_file(str(path))
+        closed = build_geometry(doc, 0.01)
+        assert "color" not in closed[0].to_mongo_dict()
