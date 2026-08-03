@@ -280,6 +280,7 @@ export function usePrivacy() {
             {
                 heading: '10. Exercising your rights',
                 paragraphs: [
+                    'You can delete your account and all associated data at any time, self-service, from your Profile page ("Account" section). Deletion is immediate and irreversible; any active subscription is then canceled immediately, without a refund.',
                     `To exercise any of these rights, contact us at ${supportEmail}. We will respond within the legal timeframe (one month under the GDPR).`,
                     'If you reside in France, you also have the right to lodge a complaint with the CNIL (Commission Nationale de l\'Informatique et des Libertés — www.cnil.fr).',
                 ],
@@ -330,7 +331,7 @@ export function useRefund() {
             {
                 heading: '5. Account closure',
                 paragraphs: [
-                    'Requesting a refund does not automatically close your account. To delete your account and the associated data, follow the procedure described in our Privacy Policy.',
+                    'Requesting a refund does not automatically close your account. You can delete your account and the associated data at any time from your Profile page ("Account" section), as described in our Privacy Policy.',
                 ],
             },
         ],
