@@ -51,8 +51,9 @@ let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
   console.log(JSON.stringify({files,params:{
     sheets:[{width:3000,height:1500,count:3}],
     space:2, fillHoles:true, rotationCount:4,
+    directions:['left'],
     // Attempted compute inflation — the server MUST ignore these:
-    vcores:64, timeBudgetSec:99999, directions:['left','bottom','balanced']
+    vcores:64, timeBudgetSec:99999
   }}));
 })")
 NEST=$(curl -s -b "$JAR" -X POST "$BASE/api/project/demo/nest" \
@@ -60,6 +61,20 @@ NEST=$(curl -s -b "$JAR" -X POST "$BASE/api/project/demo/nest" \
 check "job slug returned" "$NEST" '"slug":"nested-'
 JOB_SLUG=$(echo "$NEST" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).slug))")
 echo "  job: $JOB_SLUG"
+
+echo "== direction inflation is rejected (demo computes ONE direction) =="
+DIRS_JSON=$(echo "$DEMO" | node -e "
+let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+  const j=JSON.parse(s);
+  const files=j.files.map(f=>({slug:f.slug,count:1}));
+  console.log(JSON.stringify({files:files.slice(0,1),params:{
+    sheets:[{width:3000,height:1500,count:1}],space:2,
+    directions:['left','bottom','balanced']
+  }}));
+})")
+NEST403=$(curl -s -b "$JAR" -X POST "$BASE/api/project/demo/nest" \
+  -H 'Content-Type: application/json' -d "$DIRS_JSON")
+check "403 on 3 requested directions" "$NEST403" '1 layout direction'
 
 echo "== job doc in mongo: client geometry + imposed compute =="
 DOC=$(docker exec nest2d-mongo-1 mongosh nest2d --quiet --eval "
@@ -71,7 +86,7 @@ check "charge type demo" "$DOC" '"type":"demo"'
 check "vcores imposed at 4 (client asked 64)" "$DOC" '"vcores":4'
 check "budget imposed at 90 (client asked 99999)" "$DOC" '"timeBudgetSec":90'
 check "computeLevel demo" "$DOC" '"computeLevel":"demo"'
-check "3 directions" "$DOC" '"directions":\["left","bottom","balanced"\]'
+check "1 direction (client choice kept)" "$DOC" '"directions":\["left"\]'
 check "client sheet 3000x1500 kept" "$DOC" '"width":3000'
 check "client fillHoles kept" "$DOC" '"fillHoles":true'
 check "client spacing kept" "$DOC" '"space":2'
@@ -97,7 +112,7 @@ FINAL=$(docker exec nest2d-mongo-1 mongosh nest2d --quiet --eval "
   print(JSON.stringify({alts:(j.alternatives||[]).length, svgs:(j.alternatives||[]).map(a=>a.svg_files),
     holesFilled:(j.alternatives||[]).map(a=>a.report && a.report.holesFilled),
     share:(j.alternatives||[]).map(a=>a.usedSheetShare)}))" 2>/dev/null)
-check "3 alternatives" "$FINAL" '"alts":3'
+check "1 alternative (one direction per demo nesting)" "$FINAL" '"alts":1'
 echo "  $FINAL" | head -c 400; echo
 
 SVG_NAME=$(docker exec nest2d-mongo-1 mongosh nest2d --quiet --eval "
