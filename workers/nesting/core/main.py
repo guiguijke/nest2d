@@ -17,7 +17,7 @@ from core.holed_polygons import channel_width_for_space, open_holes_with_channel
 from core.placement import ResultContainer, Transform, parse_result_containers
 from core.metrics import compute_used_sheet_share, largest_empty_rectangle, verify_layout
 from dxf.dxf_utils import read_dxf
-from core.svg_generator import create_svg_from_doc
+from core.svg_colored import build_colored_sheet_svg
 from ezdxf.document import Drawing
 import ezdxf
 from ezdxf import xref
@@ -30,6 +30,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from worker_common.logger import setup_logger
 from worker_common.crypto import get_dek, read_gridfs, resolve_polygon_parts, write_gridfs
+from worker_common.colors import resolve_part_color
 from worker_common.geometry.units import output_scale_and_headers
 
 valid_dxf_bucket = get_bucket("validDxf")
@@ -93,7 +94,7 @@ def convert_files_to_input_items(files, dek=None):
         # Decrypts the enc blob when the file was processed while the vault
         # was enabled; passes legacy plaintext through untouched.
         plogonParts = resolve_polygon_parts(db, user_dxf_file, dek)
-        for part in plogonParts:
+        for part_index, part in enumerate(plogonParts):
             coords, holes = _simplify_part(
                 part.get("coordinates"), part.get("holes") or []
             )
@@ -106,7 +107,11 @@ def convert_files_to_input_items(files, dek=None):
                 'holes': holes,
                 'handles': handles,
                 'count': count,
-                'rotations': rotations
+                'rotations': rotations,
+                # Display color (screen rendering only — never applied to the
+                # production DXF). Persisted at import; deterministic fallback
+                # for files imported before colors existed.
+                'color': resolve_part_color(part, file_slug, part_index),
             }
 
             id += 1
@@ -126,21 +131,23 @@ def save_dxf_result(owner_id, file_name, drawing, dek=None):
 
     write_gridfs(dxf_result_bucket, file_name, dxf_copy_bytes, owner_id, dek)
 
-def save_svg_result(owner_id, file_name, drawing, dek=None, bin_width=None, bin_height=None,
-                    unit_scale=1.0, unit_attr="mm"):
-    # The drawing is already in the output unit (scaled in build_part) — the
-    # bin frame and physical SVG size attribute must follow it.
-    svg_string = create_svg_from_doc(
-        drawing,
-        0.001,
-        None if bin_width is None else bin_width * unit_scale,
-        None if bin_height is None else bin_height * unit_scale,
+def save_svg_result(owner_id, file_name, transforms, items_by_id, dek=None,
+                    bin_width=None, bin_height=None, unit_scale=1.0, unit_attr="mm"):
+    # Colored per-part render from the placements + source rings — the
+    # production DXF is never recolored, only this on-screen SVG is.
+    # bin dims stay in canonical mm; the generator applies unit_scale itself.
+    svg_string = build_colored_sheet_svg(
+        transforms,
+        items_by_id,
+        bin_width,
+        bin_height,
+        unit_scale,
         unit_attr,
     )
     svg_bytes = svg_string.encode('utf-8')
     write_gridfs(svg_result_bucket, file_name, svg_bytes, owner_id, dek)
 
-def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=False, space=0, dek=None,
+def build_result_dxf_files(owner_id, slug, result_containers, input_items, add_out_shape=False, space=0, dek=None,
                            output_unit="mm"):
     """
     Iterates through containers, builds a combined/transformed DXF for each,
@@ -151,6 +158,9 @@ def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=Fals
 
     unit_scale, _, _ = output_scale_and_headers(output_unit)
     unit_attr = "in" if output_unit == "inch" else "mm"
+
+    # O(1) color/ring lookup for the colored SVG render.
+    items_by_id = {item["id"]: item for item in input_items}
 
     dxf_files = []
     svg_files = []
@@ -176,7 +186,8 @@ def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=Fals
         save_svg_result(
             owner_id,
             svg_file_name,
-            new_drawing,
+            result_container.transforms,
+            items_by_id,
             dek,
             result_container.bin_width,
             result_container.bin_height,
@@ -898,7 +909,7 @@ def nesting_process(doc):
         report_progress("building", rank, n_alternatives,
                         min(99, round(rank / max(1, n_alternatives) * 100)))
         dxf_files, svg_files = build_result_dxf_files(
-            owner_id, alt_slug, result_containers, add_out_shape, space, dek,
+            owner_id, alt_slug, result_containers, input_items, add_out_shape, space, dek,
             output_unit
         )
         # Measured physical verification + sheet accounting for the nesting
