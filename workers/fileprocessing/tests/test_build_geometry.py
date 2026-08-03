@@ -23,6 +23,9 @@ def _build(path, tolerance=0.01):
 def _make_dxf(path, entities):
     """entities: list of callables receiving the modelspace."""
     doc = ezdxf.new()
+    # Fixtures are authored in mm — declare it, because ezdxf.new() defaults
+    # to meters ($INSUNITS=6) and the importer normalizes units for real.
+    doc.header["$INSUNITS"] = 4
     msp = doc.modelspace()
     for add in entities:
         add(msp)

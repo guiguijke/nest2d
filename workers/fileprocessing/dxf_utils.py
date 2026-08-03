@@ -8,18 +8,24 @@ from ezdxf.audit import Auditor
 from ezdxf.explode import explode_entity
 from ezdxf import recover
 from worker_common.logger import setup_logger
-from ezdxf.render.hatching import hatch_entity 
+from worker_common.geometry.units import insunits_to_mm, insunits_code
+from ezdxf.math import Matrix44
+from ezdxf.render.hatching import hatch_entity
 from ezdxf.disassemble import recursive_decompose
 from ezdxf.entities import DXFGraphic
 
 logger = setup_logger("dxf_utils")
 
-def read_dxf(dxf_stream: GridOut) -> Drawing:
+def read_dxf(dxf_stream: GridOut, normalize_units: bool = True) -> Drawing:
     """
     Reads a DXF stream and returns the modelspace without entities TEXT and MTEXT.
 
     Parameters:
         dxf_stream: The DXF string to process.
+        normalize_units: scale foreign-unit geometry ($INSUNITS) to canonical
+            mm. False when reading a pipeline-produced copy (already mm —
+            copies written before the units feature declare meters while
+            holding mm numbers, so re-normalizing would corrupt them).
 
     Returns:
         Modelspace: The modelspace of the DXF document.
@@ -28,9 +34,9 @@ def read_dxf(dxf_stream: GridOut) -> Drawing:
         temp_file_path = os.path.join(tmpdir, "input.dxf")
         with open(temp_file_path, "wb") as temp_file:
             temp_file.write(dxf_stream.read())
-        return read_dxf_file(temp_file_path)
+        return read_dxf_file(temp_file_path, normalize_units)
 
-def read_dxf_file(dxf_path: str) -> Drawing | None:
+def read_dxf_file(dxf_path: str, normalize_units: bool = True) -> Drawing | None:
     """
     Reads a DXF file and performs several cleaning operations.
 
@@ -60,21 +66,40 @@ def read_dxf_file(dxf_path: str) -> Drawing | None:
 
     msp = doc.modelspace()
 
+    # Unit normalization ($INSUNITS -> canonical mm). The factor is computed
+    # on the SOURCE document, before anything is rebuilt.
+    unit_factor = insunits_to_mm(doc) if normalize_units else 1.0
+    source_insunits = insunits_code(doc)
+
     text_entities = msp.query("TEXT MTEXT IMAGE SOLID")
     if text_entities:
         for text_entity in text_entities:
             msp.delete_entity(text_entity)
         logger.info(f"Removed {len(text_entities)} TEXT/MTEXT/IMAGE entities.")
-        
+
     new_doc = ezdxf.new()
     new_msp = new_doc.modelspace()
-    
+
     flattened_entities = list(recursive_decompose(msp))
-    
+
+    # Decompose FIRST (block INSERTs are resolved into flat primitives in
+    # modelspace coordinates), THEN scale: non-scaled block definitions can
+    # never corrupt the result.
+    scale_matrix = Matrix44.scale(unit_factor, unit_factor, 1.0) if unit_factor != 1.0 else None
     for entity in flattened_entities:
         if isinstance(entity, DXFGraphic):
             new_entity = entity.copy()
+            if scale_matrix is not None:
+                new_entity.transform(scale_matrix)
             new_msp.add_entity(new_entity)
+
+    # The cleaned document is canonical mm from here on — say so explicitly
+    # (CAM tools that honor the header then read it correctly).
+    new_doc.header["$INSUNITS"] = 4
+    new_doc.header["$MEASUREMENT"] = 1
+    # Traceability: the source document's declared units (0 = unitless),
+    # read by _make_dxf_copy to persist `sourceUnits` on the file record.
+    new_doc.source_insunits = source_insunits
                 
     logger.info(f"Successfully processed.")
     

@@ -41,7 +41,10 @@ def _getting_drawing(doc) -> Drawing:
     dek = get_dek(db, doc["ownerId"])
     dxf_bytes = read_gridfs(valid_dxf_bucket, dxf_file_slug, doc["ownerId"], dek)
 
-    drawing = read_dxf(io.BytesIO(dxf_bytes))
+    # The valid bucket holds pipeline-produced copies — already canonical mm
+    # (copies written before the units feature even declare meters while
+    # holding mm numbers). Never re-normalize them.
+    drawing = read_dxf(io.BytesIO(dxf_bytes), normalize_units=False)
     _drawing_cache[dxf_file_slug] = drawing
     
     return drawing
@@ -81,7 +84,13 @@ def _make_dxf_copy(doc) -> Drawing:
     
     db["user_dxf_files"].update_one(
         {"_id": doc["_id"]},
-        {"$set": {"isDxfCopyExist": True}}
+        {"$set": {
+            "isDxfCopyExist": True,
+            # Declared drawing units of the SOURCE file ($INSUNITS code,
+            # 0 = unitless). Geometry is normalized to mm at import; this is
+            # pure traceability for support/debugging.
+            "sourceUnits": getattr(dxf_copy, "source_insunits", 0),
+        }}
     )
     doc["isDxfCopyExist"] = True
     

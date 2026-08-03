@@ -10,6 +10,8 @@ from ezdxf.audit import Auditor
 from ezdxf.explode import explode_entity
 from ezdxf import recover
 from worker_common.logger import setup_logger
+from worker_common.geometry.units import insunits_to_mm, insunits_code
+from ezdxf.math import Matrix44
 from ezdxf.render.hatching import hatch_entity
 from ezdxf.disassemble import recursive_decompose
 from ezdxf.entities import DXFGraphic
@@ -103,6 +105,11 @@ def read_dxf_file(dxf_path: str) -> Tuple[Drawing, List[OriginalFootprint]] | No
 
     msp = doc.modelspace()
 
+    # Unit normalization ($INSUNITS -> canonical mm). The factor is computed
+    # on the SOURCE document, before anything is rebuilt.
+    unit_factor = insunits_to_mm(doc)
+    source_insunits = insunits_code(doc)
+
     # Capture original handles + footprints before any entity is deleted or the
     # drawing is decomposed into primitives (which re-numbers handles).
     original_footprints = _extract_original_footprints(msp)
@@ -113,16 +120,34 @@ def read_dxf_file(dxf_path: str) -> Tuple[Drawing, List[OriginalFootprint]] | No
         for text_entity in text_entities:
             msp.delete_entity(text_entity)
         logger.info(f"Removed {len(text_entities)} TEXT/MTEXT/IMAGE entities.")
-        
+
     new_doc = ezdxf.new()
     new_msp = new_doc.modelspace()
-    
+
     flattened_entities = list(recursive_decompose(msp))
-    
+
+    # Decompose FIRST (block INSERTs are resolved into flat primitives in
+    # modelspace coordinates), THEN scale: non-scaled block definitions can
+    # never corrupt the result. The footprints were captured on the untouched
+    # modelspace, so they must follow the same scaling to stay in the parts'
+    # coordinate frame.
+    scale_matrix = Matrix44.scale(unit_factor, unit_factor, 1.0) if unit_factor != 1.0 else None
+    if scale_matrix is not None:
+        original_footprints = [
+            (handle, Point(p.x * unit_factor, p.y * unit_factor))
+            for handle, p in original_footprints
+        ]
     for entity in flattened_entities:
         if isinstance(entity, DXFGraphic):
             new_entity = entity.copy()
+            if scale_matrix is not None:
+                new_entity.transform(scale_matrix)
             new_msp.add_entity(new_entity)
+
+    # The cleaned document is canonical mm from here on — say so explicitly.
+    new_doc.header["$INSUNITS"] = 4
+    new_doc.header["$MEASUREMENT"] = 1
+    new_doc.source_insunits = source_insunits
                 
     logger.info(f"Successfully processed.")
     

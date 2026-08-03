@@ -3,7 +3,7 @@ from worker_common.geometry.dxf_parser import flatten_entity
 
 logger = setup_logger("svg_generator")
 
-def build_svg_string(drawing, bin_width=None, bin_height=None):
+def build_svg_string(drawing, bin_width=None, bin_height=None, unit_attr="mm"):
     entities = drawing.modelspace()
 
     flatten_entities = []
@@ -38,7 +38,7 @@ def build_svg_string(drawing, bin_width=None, bin_height=None):
     stroke_width = min(width, height) * 0.002
 
     svg_string = f"<?xml version='1.0' encoding='utf-8'?>\n"
-    svg_string += f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}mm\" height=\"{height}mm\" viewBox=\"0 0 {width} {height}\">\n"
+    svg_string += f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}{unit_attr}\" height=\"{height}{unit_attr}\" viewBox=\"0 0 {width} {height}\">\n"
 
     if has_bin_frame:
         svg_string += (
@@ -54,7 +54,7 @@ def build_svg_string(drawing, bin_width=None, bin_height=None):
 
     return svg_string
 
-def create_svg_from_doc(doc, max_flattening_distance, bin_width=None, bin_height=None):
-    svg_string = build_svg_string(doc, bin_width, bin_height)
+def create_svg_from_doc(doc, max_flattening_distance, bin_width=None, bin_height=None, unit_attr="mm"):
+    svg_string = build_svg_string(doc, bin_width, bin_height, unit_attr)
 
     return svg_string
