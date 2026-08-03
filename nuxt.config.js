@@ -178,6 +178,12 @@ export default defineNuxtConfig({
 
     nitro: {
         compressPublicAssets: true,
+        // Demo project assets (generated DXF + manifest, committed under
+        // server/seed/demo): bundled into .output so the seed plugin works
+        // in the production image (which only ships .output).
+        serverAssets: [
+            { baseName: 'demo-seed', dir: './server/seed/demo' },
+        ],
         routeRules: {
             '/blog': { redirect: '/changelog' },
             '/icons/**': {
