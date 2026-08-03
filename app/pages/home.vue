@@ -61,6 +61,8 @@
                 {{ t('home.noProjects') }}
             </p>
         </section>
+
+        <NewsletterPrompt />
     </div>
 </template>
 
