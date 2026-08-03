@@ -68,6 +68,17 @@ def channel_width_for_space(space):
     return min(max(CHANNEL_WIDTH, space + CHANNEL_SEPARATION_MARGIN), CHANNEL_MAX_WIDTH)
 
 
+def channels_usable(space):
+    """Whether hole channels survive the separation inflation at all.
+
+    Above ~2.4 mm of spacing the width cap kicks in and the inflation seals
+    the channel shut — and the crushed ring breaks the jagua import
+    (duplicate vertices / empty offset). Callers MUST leave holes closed in
+    that case (the safe degradation: holes go unused, never a broken job).
+    """
+    return channel_width_for_space(space) > float(space or 0)
+
+
 def open_holes_with_channels(outer_ring, hole_rings, channel_width=None):
     """Returns the exterior ring of `outer_ring` with every hole connected to
     the outside by a narrow channel (a simple polygon, as a point list).

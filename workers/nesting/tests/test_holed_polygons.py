@@ -76,3 +76,27 @@ class TestChannelConversion:
         ring = open_holes_with_channels(SQUARE, [HOLE_R35])
         pts = ring[:-1] if ring[0] == ring[-1] else ring
         assert len(set(map(tuple, pts))) == len(pts)
+
+
+class TestSealedChannelGuard:
+    """Above ~2.4mm of spacing the width cap seals the channel under the
+    jagua inflation — opening holes then CRUSHES the ring and breaks the
+    engine import (duplicate vertices / empty offset). The caller-side
+    channels_usable gate must keep holes closed in that regime."""
+
+    def test_channels_usable_below_cap(self):
+        from core.holed_polygons import channels_usable
+        assert channels_usable(0)
+        assert channels_usable(1.0)
+        assert channels_usable(2.0)
+        assert channels_usable(2.4)
+
+    def test_channels_sealed_at_and_above_cap(self):
+        from core.holed_polygons import CHANNEL_MAX_WIDTH, channels_usable
+        # Usable while space + margin fits the cap (channel = space + 0.1);
+        # sealed from space == CHANNEL_MAX_WIDTH up (engine-verified: import
+        # breaks at 2.5, survives 2.4).
+        assert channels_usable(CHANNEL_MAX_WIDTH - 0.1)
+        assert not channels_usable(CHANNEL_MAX_WIDTH)
+        assert not channels_usable(3.0)
+        assert not channels_usable(10.0)

@@ -13,7 +13,7 @@ from core.nesting_input_builder import (
     deterministic_seed,
 )
 from core.engine import EngineCancelled, run_engine
-from core.holed_polygons import channel_width_for_space, open_holes_with_channels
+from core.holed_polygons import channel_width_for_space, channels_usable, open_holes_with_channels
 from core.placement import ResultContainer, Transform, parse_result_containers
 from core.metrics import compute_used_sheet_share, largest_empty_rectangle, verify_layout
 from dxf.dxf_utils import read_dxf
@@ -485,7 +485,25 @@ def nesting_process(doc):
     # geometry is the plain outer ring and cutouts become dead space. The
     # Python-side item['holes'] is kept either way (exact verification and
     # hole-fill metrics still see the true geometry).
-    has_holes = fill_holes and any(item.get("holes") for item in input_items)
+    #
+    # Sealed-channel guard: jagua inflates items by space/2 on each side, so
+    # a channel narrower than `space` is crushed shut — and the crushed ring
+    # breaks the engine import (duplicate vertices / empty offset). Opening
+    # holes in that case is worse than useless: skip the channel entirely and
+    # let the holes go unused, which is the SAFE degradation the docstring of
+    # holed_polygons.channel_width_for_space already promises.
+    channel_width = channel_width_for_space(space)
+    channels_sealed = fill_holes and not channels_usable(space)
+    if channels_sealed:
+        logger.warning(
+            "Spacing seals hole channels — holes stay closed this run",
+            extra={"space": space, "channel_width": channel_width},
+        )
+    has_holes = (
+        fill_holes
+        and not channels_sealed
+        and any(item.get("holes") for item in input_items)
+    )
 
     total_requested_count = 0
     total_part_area = 0.0
@@ -494,11 +512,11 @@ def nesting_process(doc):
         # Use per-file rotations if available, otherwise fall back to global setting
         allowed_orientations = item.get("rotations", default_allowed_orientations)
         shape_coords = item.get("coords")
-        if fill_holes and item.get("holes"):
+        if has_holes and item.get("holes"):
             # Channel widened past the separation inflation, otherwise jagua
             # seals it and the holes become unreachable (see holed_polygons).
             shape_coords = open_holes_with_channels(
-                shape_coords, item["holes"], channel_width_for_space(space)
+                shape_coords, item["holes"], channel_width
             )
         jaguar_item = build_item(item.get("id"), count, shape_coords, allowed_orientations)
         total_requested_count += count
@@ -656,6 +674,19 @@ def nesting_process(doc):
             "area_ratio": round(total_part_area / single_sheet_area, 3) if single_sheet_area else None,
         },
     )
+
+    if is_spp and space > 0 and total_part_area / bin_dims[0][1] <= space:
+        # jagua initializes the strip width to total_area/strip_height and then
+        # DEFLATES it by space/2 on each side (min_item_separation). When the
+        # spacing exceeds that initial width the strip offset comes out empty
+        # and the engine panics deep inside a rayon walk ("Offset resulted in
+        # an empty polygon") — fail fast with an actionable message instead.
+        raise Exception(
+            f"Spacing {space} mm is too large for this instance: parts total "
+            f"{round(total_part_area)} mm² on a {bin_dims[0][1]:.0f} mm-high sheet "
+            f"(initial strip width {total_part_area / bin_dims[0][1]:.1f} mm). "
+            f"Reduce the spacing or add more parts/stock."
+        )
 
     if is_spp:
         instance = build_spp_instance(
