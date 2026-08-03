@@ -232,6 +232,8 @@ const dict = {
         'result.placed': '{n} parts placed',
         'result.noSolution': 'No solution found — try to increase the sheet size or reduce the requested part count',
         'result.tryAgain': 'Try again',
+        'result.colorView': 'Color preview',
+        'result.dxfView': 'DXF view',
 
         'progress.stage.preparing': 'Preparing geometry',
         'progress.stage.explore': 'Exploring layouts',
@@ -622,6 +624,8 @@ const dict = {
         'result.placed': '{n} pièces placées',
         'result.noSolution': "Aucune solution trouvée — essayez d'agrandir la plaque ou de réduire le nombre de pièces",
         'result.tryAgain': 'Réessayer',
+        'result.colorView': "Aperçu couleur",
+        'result.dxfView': "Vue DXF",
 
         'progress.stage.preparing': 'Préparation de la géométrie',
         'progress.stage.explore': 'Exploration des imbrications',

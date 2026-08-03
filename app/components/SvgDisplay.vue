@@ -7,6 +7,7 @@
             :src="svgDataUri"
             alt="SVG Image"
             class="dispay__img"
+            :class="{ 'dispay__img--preserve-colors': preserveColors }"
         />
     </div>
 </template>
@@ -14,7 +15,7 @@
 <script setup>
 import { defaultSizeType } from "~~/constants/size.constants";
 
-const { svgContent, src, size } = defineProps({
+const { svgContent, src, size, preserveColors } = defineProps({
     svgContent: {
         type: String,
         default: '',
@@ -26,6 +27,12 @@ const { svgContent, src, size } = defineProps({
     size: {
         type: String,
         default: defaultSizeType,
+    },
+    // Server SVGs are now colored per part at generation time — skip the
+    // legacy contrast filter (it would crush the colors to black/white).
+    preserveColors: {
+        type: Boolean,
+        default: false,
     },
 });
 
@@ -69,6 +76,11 @@ const dispayClasses = computed(() => ({
         // Server SVG previews ship a low-contrast pinkish stroke — force it to
         // solid black (light theme) / white (dark theme) for readability.
         filter: var(--primary-svg-filter);
+
+        // Colored server SVGs (per-part colors): rendered as-is.
+        &--preserve-colors {
+            filter: none;
+        }
     }
 }
 </style>

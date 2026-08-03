@@ -1,6 +1,6 @@
 <template>
     <div class="file">
-        <SvgDisplay :size="sizeType.s" :src="file.svgUrl" class="file__display" />
+        <SvgDisplay :size="sizeType.s" :src="file.svgUrl" class="file__display" preserve-colors />
         <FileParts @click="openModal()" :parts="file.parts" class="file__parts" />
         <p class="file__name">
             {{ file.name }}

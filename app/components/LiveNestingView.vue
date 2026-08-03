@@ -41,6 +41,9 @@
                         :d="item.d"
                         :transform="`translate(${item.x} ${item.y}) rotate(${item.rot})`"
                         class="live__part"
+                        :fill="item.color"
+                        :fill-opacity="partFillOpacity"
+                        :stroke="item.color"
                         fill-rule="evenodd"
                     />
                 </g>
@@ -81,6 +84,9 @@
                                 :d="item.d"
                                 :transform="`translate(${item.x} ${item.y}) rotate(${item.rot})`"
                                 class="live__part"
+                                :fill="item.color"
+                                :fill-opacity="partFillOpacity"
+                                :stroke="item.color"
                                 fill-rule="evenodd"
                             />
                         </g>
@@ -123,8 +129,13 @@ const { fmtLength } = useUnit();
 
 
 // ---- part geometry cache ---------------------------------------------------
-const geometryCache = ref({}); // fileSlug -> [{d}]
+const geometryCache = ref({}); // fileSlug -> [{d, color}]
 const pendingSlugs = new Set();
+
+// Parts are filled with their own display color at low opacity (CAD-style:
+// the stroke carries the full color, holes stay readable through the fill).
+const partFillOpacity = 0.35;
+const FALLBACK_PART_COLOR = '#2563eb';
 
 async function ensureGeometry(slug) {
     if (!slug || geometryCache.value[slug] || pendingSlugs.has(slug)) return;
@@ -133,6 +144,9 @@ async function ensureGeometry(slug) {
         const data = await $fetch(`/api/files/project/geometry/${slug}`);
         const parts = (data.parts || []).map((p) => ({
             d: ringsToPath([p.coordinates, ...(p.holes || [])]),
+            // Assigned at import; the geometry route always resolves one
+            // (deterministic fallback for legacy files).
+            color: p.color || FALLBACK_PART_COLOR,
         }));
         geometryCache.value = { ...geometryCache.value, [slug]: parts };
     } catch (e) {
@@ -160,7 +174,7 @@ function buildItems(snap, itemMap, cache) {
         const m = byId[id];
         const part = m && cache[m.slug]?.[m.part];
         if (!part) continue;
-        out.push({ d: part.d, rot, x, y });
+        out.push({ d: part.d, color: part.color || FALLBACK_PART_COLOR, rot, x, y });
     }
     return out;
 }
@@ -437,8 +451,8 @@ const formatElapsed = (sec) => {
     }
 
     &__part {
-        fill: rgba(59, 130, 246, 0.22);
-        stroke: #2563eb;
+        // fill/stroke come from the per-part color bound inline — a CSS rule
+        // here would override the SVG presentation attributes.
         stroke-width: 1.2;
         transition: transform 0.6s ease, fill 0.3s ease, stroke 0.3s ease;
     }
