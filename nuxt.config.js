@@ -21,6 +21,10 @@ export default defineNuxtConfig({
         // NUXT_STRIPE_WEBHOOK_SECRET. Empty string disables signature checks
         // (webhook then returns 503 — we refuse to run unauthenticated).
         stripeWebhookSecret: '',
+        // Clé API Abby (suk_...) pour pousser les encaissements Stripe dans le
+        // livre des recettes (webhook invoice.payment_succeeded →
+        // features/accounting/abby.js). Vide = intégration désactivée.
+        abbyApiKey: '',
         resendToken: '',
         resendFrom: 'onboarding@resend.dev',
         // Self-hosted listmonk newsletter (optional — signup checkbox is a
