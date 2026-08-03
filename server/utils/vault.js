@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { connectDB } from '~~/server/db/mongo'
+import { DEMO_OWNER_ID } from '~~/shared/constants/demo.constants'
 import {
     ENC_FLAG,
     createDecryptStream,
@@ -197,7 +198,9 @@ export async function openOwnedFileStream(event, bucket, fileName) {
     }
 
     const ownerId = fileDoc.metadata?.ownerId
-    if (ownerId !== userId) {
+    // Demo project files (technical DEMO_OWNER_ID account) are world-readable:
+    // the shared read-only demo project must be browsable by every user.
+    if (ownerId !== userId && ownerId !== DEMO_OWNER_ID) {
         throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
     }
 
