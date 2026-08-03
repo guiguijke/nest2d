@@ -7,8 +7,6 @@ import { assertCanNest, assertCanNestDemo, getComputeProfile, validateDirections
 import {
     DEMO_MAX_PARTS,
     DEMO_PRIORITY,
-    DEMO_SHEETS,
-    DEMO_SPACE_MM,
     DEMO_TIME_BUDGET_SEC,
     DEMO_VCORES,
 } from '~~/shared/constants/demo.constants'
@@ -108,9 +106,11 @@ export default defineEventHandler(async (event) => {
     // Multi-sheet: the client sends params.sheets (list of sheet types with
     // their own dimensions and stock). Legacy clients send a single
     // width/height/sheetCount — normalized to the same shape. Demo nestings
-    // ignore client sheet params entirely: the demo sheet is imposed.
+    // accept the client's sheets exactly like regular projects (the demo is
+    // a playground); the anti-abuse lives in the imposed compute profile and
+    // the DEMO_MAX_PARTS cap, not in fixed geometry.
     let sheets = null
-    if (!isDemo && Array.isArray(params.sheets) && params.sheets.length > 0) {
+    if (Array.isArray(params.sheets) && params.sheets.length > 0) {
         sheets = params.sheets
             .map((sheet) => ({
                 width: Number(sheet.width),
@@ -135,26 +135,48 @@ export default defineEventHandler(async (event) => {
         }
     }
 
+    // Spacing must be a finite non-negative number — validated explicitly on
+    // the demo path too since it is a public free surface.
+    const space = Number(params.space)
+    if (params.space != null && (!Number.isFinite(space) || space < 0)) {
+        throw createError({
+            statusCode: 400,
+            statusMessage: 'Please provide a valid spacing.',
+        })
+    }
+
     let dbParams
     let charge
     let compute
     if (isDemo) {
         // Demo gate: its own monthly free quota (never touches the user's
-        // regular free nestings). Compute profile is standard-tier at full
-        // directions, imposed server-side like every other tier.
+        // regular free nestings). Geometry params (sheets, spacing, hole
+        // filling, rotations) come from the client like a regular project —
+        // but the COMPUTE profile stays server-imposed (4 vcores, 90 s wall
+        // cap, 3 directions max) so the free demo can never be abused into
+        // more machine time.
         charge = await assertCanNestDemo(userId)
-        dbParams = {
-            sheets: DEMO_SHEETS.map((sheet) => ({ ...sheet })),
-            space: DEMO_SPACE_MM,
-            addOutShape: false,
-            // The demo showcases the engine at full power — hole filling on.
-            fillHoles: true,
-            timeBudgetSec: DEMO_TIME_BUDGET_SEC,
-            alternativesCount: NEST_DIRECTIONS.length,
-            computeLevel: 'demo',
-            vcores: DEMO_VCORES,
-            directions: [...NEST_DIRECTIONS],
-        }
+        const directions = validateDirections(params.directions, NEST_DIRECTIONS.length)
+        dbParams = sheets
+            ? {
+                  sheets,
+                  space: params.space,
+                  addOutShape: params.addOutShape,
+                  fillHoles: params.fillHoles !== false,
+              }
+            : {
+                  height: params.height,
+                  width: params.width,
+                  space: params.space,
+                  sheetCount: params.sheetCount,
+                  addOutShape: params.addOutShape,
+                  fillHoles: params.fillHoles !== false,
+              }
+        dbParams.timeBudgetSec = DEMO_TIME_BUDGET_SEC
+        dbParams.alternativesCount = directions.length
+        dbParams.computeLevel = 'demo'
+        dbParams.vcores = DEMO_VCORES
+        dbParams.directions = directions
         compute = { priority: DEMO_PRIORITY }
     } else {
         dbParams = sheets

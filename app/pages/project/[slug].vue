@@ -9,7 +9,6 @@
             <p class="demo-banner__text">
                 {{ t('demo.banner', { n: DEMO_LIMIT }) }}
             </p>
-            <p class="demo-banner__params">{{ demoParamsText }}</p>
             <p class="demo-banner__remaining">{{ t('demo.remaining', { n: demoRemaining, total: DEMO_LIMIT }) }}</p>
         </div>
         <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
@@ -17,7 +16,7 @@
             <h3 class="live-panel__title">{{ t('live.title') }}</h3>
             <LiveNestingView :result="liveResult" />
         </section>
-        <MainSettings v-if="!isDemo" />
+        <MainSettings />
         <MainButton :theme="themeType.primary" :label="btnLabel" :isDisable="btnIsDisable" trackingTag="project_nest_start"
             @click="startsNest" class="content__btn">
             <template v-if="runningJob">
@@ -43,6 +42,7 @@
 
 <script setup async>
 import { themeType } from "~~/constants/theme.constants";
+import { mmToDisplay } from "~/utils/units";
 import {
     DEMO_NESTING_LIMIT,
     DEMO_SHEETS,
@@ -57,7 +57,7 @@ definePageMeta({
 const { t } = useLocale()
 // Part dims arrive in canonical mm; sheet params are display-unit strings —
 // displayToMm normalizes them for the fit check.
-const { unitLabel, fmtLengthValue, displayToMm } = useUnit()
+const { unit, unitLabel, fmtLengthValue, displayToMm } = useUnit()
 const $apiFetch = useApiFetch();
 
 const { getters } = globalStore;
@@ -90,20 +90,44 @@ const slug = route.params.slug;
 const apiPath = API_ROUTES.PROJECT(slug);
 const data = filesGetters.projectFiles || await $apiFetch(apiPath);
 
-// Shared read-only demo project: server-imposed sheet/params, files are not
-// editable (quantities still are), and nestings draw from the user's own
-// monthly demo allowance instead of the regular free quota.
+// Shared read-only demo project: files are not editable, but quantities AND
+// nesting settings are — the demo plays like a regular project. Only the
+// compute profile (4 vcores, 90 s, 3 directions) and the monthly demo quota
+// stay server-imposed.
 const isDemo = computed(() => Boolean(data.isDemo));
 const DEMO_LIMIT = DEMO_NESTING_LIMIT;
-const demoSheet = DEMO_SHEETS[0];
-const demoParamsText = computed(() => t('demo.params', {
-    w: fmtLengthValue(demoSheet.width),
-    h: fmtLengthValue(demoSheet.height),
-    space: fmtLengthValue(DEMO_SPACE_MM),
-    unit: unitLabel.value,
-}));
 const user = computed(() => unref(authStore.getters.user) || {});
 const demoRemaining = computed(() => Number(user.value.demoRemaining ?? DEMO_LIMIT));
+
+// Pre-fill the demo settings (converted to the user's display unit) — only
+// on the first visit of this page instance, so manual tweaks survive the
+// live updates but a fresh visit starts from the curated defaults again.
+const demoDefaultsApplied = ref(false);
+const applyDemoDefaults = () => {
+    // mm -> display unit, rounded for the input fields (the 0.001" precision
+    // is a UI matter; canonical geometry stays mm server-side).
+    const mmToDisp = (mm) => {
+        const v = mmToDisplay(mm, unit.value);
+        return unit.value === 'inch' ? String(Math.round(v * 1000) / 1000) : String(v);
+    };
+    actions.updateParams({
+        sheets: DEMO_SHEETS.map((sheet) => ({
+            width: mmToDisp(sheet.width),
+            height: mmToDisp(sheet.height),
+            count: String(sheet.count),
+        })),
+        space: mmToDisp(DEMO_SPACE_MM),
+        addOutShape: false,
+        fillHoles: true,
+        rotationCount: 4,
+    });
+};
+watch(isDemo, (val) => {
+    if (val && !demoDefaultsApplied.value) {
+        demoDefaultsApplied.value = true;
+        applyDemoDefaults();
+    }
+}, { immediate: true });
 
 const pageTitle = computed(() => {
     return isDemo.value
@@ -135,10 +159,7 @@ const currentSheets = computed(() => {
     return [{ width: p.widthPlate ?? 0, height: p.heightPlate ?? 0 }];
 })
 // A part fits if it fits inside at least one sheet type, in either orientation.
-// Demo: always true — the demo sheet is imposed server-side and every demo
-// part was authored to fit it (client sheet params are hidden and ignored).
 const sizesIsAvailable = computed(() => {
-    if (unref(isDemo)) return true;
     const { width: partWidth, height: partHeight } = unref(biggestPartSizes);
     return unref(currentSheets).some((sheet) => {
         // Sheet params hold display-unit strings; parts are mm. Compare in mm.
@@ -274,13 +295,6 @@ const startsNest = () => {
     &__text {
         font-size: 13px;
         color: var(--label-secondary);
-    }
-
-    &__params {
-        margin-top: 6px;
-        font-size: 12px;
-        font-variant-numeric: tabular-nums;
-        color: var(--label-tertiary);
     }
 
     &__remaining {
