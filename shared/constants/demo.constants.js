@@ -12,12 +12,14 @@ export const DEMO_NESTING_LIMIT = 10
 // nesting (the seeded default is ~300 on the 3000x1500 sheet).
 export const DEMO_MAX_PARTS = 500
 // Demo nesting ANTI-ABUSE profile, imposed server-side (never
-// client-tunable): wall-clock cap and parallelism are fixed, the client only
-// picks geometry (sheets, spacing, rotations, hole filling) and WHICH of the
-// 3 layout directions to compute.
+// client-tunable): wall-clock cap and parallelism are fixed. The client only
+// picks geometry (sheets, spacing, rotations, hole filling) and ONE of the
+// 3 layout directions — the 3 stay selectable so newcomers see them all,
+// but a demo nesting computes a single alternative (server cost control).
 export const DEMO_TIME_BUDGET_SEC = 90
 export const DEMO_VCORES = 4
 export const DEMO_PRIORITY = 20
+export const DEMO_MAX_DIRECTIONS = 1
 // Initial demo settings pre-filled in the UI (fully adjustable afterwards —
 // the demo plays like a regular project). 2 mm spacing keeps hole channels
 // OPEN (channel = space + 0.1, capped at 2.5 mm): the demo must showcase

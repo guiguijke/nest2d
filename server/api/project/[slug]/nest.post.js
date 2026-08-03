@@ -5,6 +5,7 @@ import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
 import { assertCanNest, assertCanNestDemo, getComputeProfile, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
 import {
+    DEMO_MAX_DIRECTIONS,
     DEMO_MAX_PARTS,
     DEMO_PRIORITY,
     DEMO_TIME_BUDGET_SEC,
@@ -156,7 +157,7 @@ export default defineEventHandler(async (event) => {
         // cap, 3 directions max) so the free demo can never be abused into
         // more machine time.
         charge = await assertCanNestDemo(userId)
-        const directions = validateDirections(params.directions, NEST_DIRECTIONS.length)
+        const directions = validateDirections(params.directions, DEMO_MAX_DIRECTIONS)
         dbParams = sheets
             ? {
                   sheets,
