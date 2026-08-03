@@ -117,6 +117,13 @@
                     />
                     {{ t('settings.addOutShape') }}
                 </label>
+                <label class="size__checkbox" :title="t('settings.fillHolesHint')">
+                    <input
+                        type="checkbox"
+                        v-model="localFillHoles"
+                    />
+                    {{ t('settings.fillHoles') }}
+                </label>
             </div>
         </div>
     </div>
@@ -155,6 +162,11 @@
     const localAddOutShape = computed({
         get: () => unref(params).addOutShape,
         set: (value) => updateParams({ addOutShape: value }),
+    })
+
+    const localFillHoles = computed({
+        get: () => unref(params).fillHoles !== false,
+        set: (value) => updateParams({ fillHoles: value }),
     })
 
     const localRotationCount = computed({

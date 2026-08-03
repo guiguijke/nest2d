@@ -147,6 +147,8 @@ export default defineEventHandler(async (event) => {
             sheets: DEMO_SHEETS.map((sheet) => ({ ...sheet })),
             space: DEMO_SPACE_MM,
             addOutShape: false,
+            // The demo showcases the engine at full power — hole filling on.
+            fillHoles: true,
             timeBudgetSec: DEMO_TIME_BUDGET_SEC,
             alternativesCount: NEST_DIRECTIONS.length,
             computeLevel: 'demo',
@@ -160,6 +162,7 @@ export default defineEventHandler(async (event) => {
                   sheets,
                   space: params.space,
                   addOutShape: params.addOutShape,
+                  fillHoles: params.fillHoles !== false,
               }
             : {
                   height: params.height,
@@ -167,6 +170,7 @@ export default defineEventHandler(async (event) => {
                   space: params.space,
                   sheetCount: params.sheetCount,
                   addOutShape: params.addOutShape,
+                  fillHoles: params.fillHoles !== false,
               }
 
         // Subscription / free-quota gate. Consumes a unit only once the request is

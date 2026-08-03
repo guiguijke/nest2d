@@ -360,6 +360,11 @@ def nesting_process(doc):
     space = params.get("space") or 0
     allow_rotation = params.get("allowRotation", True)
     add_out_shape = params.get("addOutShape", False)
+    # Hole filling switch (UI setting): when off, holed parts stay sealed —
+    # the engine sees their plain outer ring, so nothing can be nested inside
+    # their cutouts. Default ON for backward compatibility (jobs and clients
+    # predating the switch always filled holes).
+    fill_holes = bool(params.get("fillHoles", True))
     owner_id = doc.get("ownerId")
 
     # Sheet types: new multi-sheet format, falling back to the legacy single
@@ -476,7 +481,11 @@ def nesting_process(doc):
     # Holed parts are opened to the exterior with a hairline channel so the
     # engine can nest parts inside their cutouts natively (the channel exists
     # only in the collision geometry; result DXFs use the original entities).
-    has_holes = any(item.get("holes") for item in input_items)
+    # When the user disabled hole filling, holes stay sealed: the collision
+    # geometry is the plain outer ring and cutouts become dead space. The
+    # Python-side item['holes'] is kept either way (exact verification and
+    # hole-fill metrics still see the true geometry).
+    has_holes = fill_holes and any(item.get("holes") for item in input_items)
 
     total_requested_count = 0
     total_part_area = 0.0
@@ -485,7 +494,7 @@ def nesting_process(doc):
         # Use per-file rotations if available, otherwise fall back to global setting
         allowed_orientations = item.get("rotations", default_allowed_orientations)
         shape_coords = item.get("coords")
-        if item.get("holes"):
+        if fill_holes and item.get("holes"):
             # Channel widened past the separation inflation, otherwise jagua
             # seals it and the holes become unreachable (see holed_polygons).
             shape_coords = open_holes_with_channels(
