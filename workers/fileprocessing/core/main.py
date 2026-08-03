@@ -123,7 +123,8 @@ def _make_svg_file(doc):
     owner_id = doc["ownerId"]
     dek = get_dek(db, owner_id)
     closed_parts = resolve_polygon_parts(db, doc, dek)
-    svg_slug = slug.removesuffix('.dxf') + '-origin.svg'
+    # Strip the source extension whatever the upload format (.dxf/.svg/.dwg).
+    svg_slug = slug.rsplit(".", 1)[0] + "-origin.svg"
 
     svg_string = create_svg_from_doc(drawing, closed_parts)
     svg_bytes = svg_string.encode("utf-8")

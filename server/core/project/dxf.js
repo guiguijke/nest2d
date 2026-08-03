@@ -7,6 +7,10 @@ import { trackEvent } from "~~/server/tracking/add";
 
 import standardSlugify from "standard-slugify";
 
+// Upload formats accepted by the file-processing pipeline (SVG and DWG are
+// converted to canonical-mm DXF at the import boundary, server-side).
+const ALLOWED_EXTENSIONS = [".dxf", ".svg", ".dwg"];
+
 /**
  * Saves the multipart DXF files of `event` into the domain's bucket and
  * inserts one pending file record per file into the domain's collection.
@@ -36,9 +40,21 @@ export async function saveFiles(domain, event, projectSlug, userId) {
   for (const dxfFile of dxfFileFields) {
     const fileBuffer = dxfFile.data;
     const userFileName = dxfFile.filename;
-    const file_slug = standardSlugify(userFileName, {
+
+    // Server-side format check (the client filter is cosmetic): the original
+    // extension is preserved in the slug so source downloads keep their type.
+    const dotIndex = userFileName.lastIndexOf(".");
+    const ext = dotIndex >= 0 ? userFileName.slice(dotIndex).toLowerCase() : "";
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      throw createError({
+        statusCode: 400,
+        message: `Unsupported file type "${ext || userFileName}" — only DXF, SVG and DWG files are accepted.`,
+      });
+    }
+    const baseName = dotIndex >= 0 ? userFileName.slice(0, dotIndex) : userFileName;
+    const file_slug = standardSlugify(baseName, {
       keepCase: false,
-    }) + `-${generateRandomString(6)}.dxf`;
+    }) + `-${generateRandomString(6)}${ext}`;
 
     // Encrypted on the fly when the vault is enabled; awaited so the
     // document is only created once the bytes are durably stored.

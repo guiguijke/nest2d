@@ -1,6 +1,39 @@
 # Build context is ./workers (repo CI sets it) so the shared worker_common
 # package can be installed into the image.
+
+# ---------------------------------------------------------------------------
+# Stage 1: build GNU LibreDWG (GPL v3) — provides dwgread (DWG -> DXF import)
+# and dwgwrite (test fixtures). Pinned version + sha256; the source tree is
+# shipped in the final image at /opt/libredwg-src (GPL source offer).
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS libredwg
+ARG LIBREDWG_VERSION=0.13.3
+ARG LIBREDWG_SHA256=83f1f6e78a744777a481ff4520e4cef3f8ac4b2c1c25671077ca12fe81e8816e
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl xz-utils build-essential libpcre2-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL "https://ftp.gnu.org/gnu/libredwg/libredwg-${LIBREDWG_VERSION}.tar.xz" -o /tmp/libredwg.tar.xz \
+    && echo "${LIBREDWG_SHA256}  /tmp/libredwg.tar.xz" | sha256sum -c - \
+    && mkdir -p /opt && tar -xJf /tmp/libredwg.tar.xz -C /opt
+RUN cd /opt/libredwg-${LIBREDWG_VERSION} \
+    && ./configure --prefix=/usr/local --disable-bindings --disable-python --disable-shared \
+    && make -j"$(nproc)" -C src \
+    && make -j"$(nproc)" -C programs \
+    && make -C src install \
+    && make -C programs install
+
+# ---------------------------------------------------------------------------
+# Final image
+# ---------------------------------------------------------------------------
 FROM python:3.11-slim
+
+# Runtime dep of dwgread (PCRE2).
+RUN apt-get update && apt-get install -y --no-install-recommends libpcre2-8-0 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=libredwg /usr/local/bin/dwgread /usr/local/bin/dwgread
+COPY --from=libredwg /usr/local/bin/dwgwrite /usr/local/bin/dwgwrite
+# GPL source offer: the exact sources the binaries were built from.
+COPY --from=libredwg /opt/libredwg-0.13.3 /opt/libredwg-src
 
 WORKDIR /app
 
