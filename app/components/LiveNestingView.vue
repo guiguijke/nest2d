@@ -39,7 +39,7 @@
                         v-for="(item, i) in mainItems"
                         :key="i"
                         :d="item.d"
-                        :transform="`translate(${item.x} ${item.y}) rotate(${item.rot})`"
+                        :transform="partTransform(item, sheet[1])"
                         class="live__part"
                         :fill="item.color"
                         :fill-opacity="partFillOpacity"
@@ -82,7 +82,7 @@
                                 v-for="(item, i) in card.items"
                                 :key="i"
                                 :d="item.d"
-                                :transform="`translate(${item.x} ${item.y}) rotate(${item.rot})`"
+                                :transform="partTransform(item, sheet[1])"
                                 class="live__part"
                                 :fill="item.color"
                                 :fill-opacity="partFillOpacity"
@@ -161,6 +161,14 @@ function ringsToPath(rings) {
         .filter((r) => r && r.length > 2)
         .map((ring) => 'M' + ring.map((p) => `${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join('L') + 'Z')
         .join(' ');
+}
+
+// SVG is y-down, the engine frame is y-up: translate(x, H - y) scale(1, -1)
+// rotate(deg) lands the part exactly where the production DXF (and the dxf
+// viewer) puts it. Without the flip the live view renders vertically
+// mirrored against the final result.
+function partTransform(item, sheetHeight) {
+    return `translate(${item.x} ${sheetHeight - item.y}) scale(1 -1) rotate(${item.rot})`;
 }
 
 function buildItems(snap, itemMap, cache) {

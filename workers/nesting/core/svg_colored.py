@@ -6,10 +6,12 @@ keeps its source layers/colors untouched (cutting machines may key off them)
 while the on-screen render carries the random per-part colors assigned at
 import.
 
-Draw convention matches the live visualizer exactly: rings in their local
-frame, `translate(x y) rotate(angle)` in the sheet frame, no y-flip (SVG
-y-down mirrors the layout the same way the old entity-flattened SVG and the
-live view both did) — live and final renders therefore look identical.
+Draw convention matches the PRODUCTION DXF exactly (the dxf-viewer shows the
+same thing): SVG is y-down while the engine frame is y-up, so every part is
+drawn with `translate(x, H - y) scale(1, -1) rotate(angle)` — the scale flips
+the ring back to y-up and the rotation (SVG clockwise == engine
+counterclockwise once flipped) lands exactly on the DXF placement. Without
+the flip the whole sheet renders vertically MIRRORED against the DXF view.
 """
 import math
 
@@ -50,7 +52,8 @@ def build_colored_sheet_svg(transforms, items_by_id, bin_width, bin_height,
         deg = math.degrees(t.angle)
         parts.append(
             f'<path d="{d}" '
-            f'transform="translate({t.x * unit_scale:.3f} {t.y * unit_scale:.3f}) rotate({deg:.3f})" '
+            f'transform="translate({t.x * unit_scale:.3f} {h - t.y * unit_scale:.3f}) '
+            f'scale(1 -1) rotate({deg:.3f})" '
             f'fill="{color}" fill-opacity="{FILL_OPACITY_LAYOUT}" fill-rule="evenodd" '
             f'stroke="{color}" stroke-width="{stroke_width}" />'
         )

@@ -11,11 +11,11 @@
             </p>
             <p class="demo-banner__remaining">{{ t('demo.remaining', { n: demoRemaining, total: DEMO_LIMIT }) }}</p>
         </div>
-        <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
-        <section v-if="liveResult" class="content__live live-panel">
+        <section v-if="liveResult" ref="liveSection" class="content__live live-panel">
             <h3 class="live-panel__title">{{ t('live.title') }}</h3>
             <LiveNestingView :result="liveResult" />
         </section>
+        <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
         <MainSettings />
         <MainButton :theme="themeType.primary" :label="btnLabel" :isDisable="btnIsDisable" trackingTag="project_nest_start"
             @click="startsNest" class="content__btn">
@@ -78,6 +78,21 @@ const runningCores = computed(() => {
     const n = unref(runningJob)?.compute?.vcores;
     return Math.min(8, Math.max(1, Number(n) || 1));
 });
+
+// The live section sits at the TOP of the page (above the files grid, which
+// is 8 screens tall on the demo): when a new job starts streaming, bring it
+// into view once so the animation is never missed below the fold.
+const liveSection = ref(null);
+const lastLiveSlug = ref(null);
+watch(
+    () => unref(liveResult)?.slug,
+    async (slug) => {
+        if (!slug || slug === lastLiveSlug.value) return;
+        lastLiveSlug.value = slug;
+        await nextTick();
+        liveSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+);
 const { getters: filesGetters, actions } = filesStore;
 const params = computed(() => filesGetters.params);
 const { setProjectFiles, setProjectName, nest } = actions;
