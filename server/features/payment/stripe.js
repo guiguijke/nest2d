@@ -109,6 +109,24 @@ export async function getSubscription(subscriptionId) {
 }
 
 /**
+ * Reads a charge with its balance transaction expanded. The balance
+ * transaction carries the amount actually settled in the account currency
+ * (EUR for a French account) — used to record non-EUR payments in the
+ * income book at their real EUR value.
+ * @param {string} chargeId
+ * @returns {Promise<any>}
+ */
+export async function getChargeBalanceTransaction(chargeId) {
+    return await $fetch(`${STRIPE_BASE}/charges/${chargeId}`, {
+        method: 'GET',
+        headers: authHeaders(),
+        query: {
+            'expand[]': 'balance_transaction',
+        },
+    })
+}
+
+/**
  * Maps a raw Stripe subscription object to the fields we persist on the user.
  * @param {any} subscription
  * @returns {{stripeSubscriptionId: string, status: string, currentPeriodEnd: Date, cancelAtPeriodEnd: boolean, priceId: string, updatedAt: Date}}
@@ -138,6 +156,62 @@ export function mapSubscription(subscription) {
 export async function cancelSubscriptionAtPeriodEnd(subscriptionId) {
     const params = new URLSearchParams()
     params.append('cancel_at_period_end', 'true')
+    return await $fetch(`${STRIPE_BASE}/subscriptions/${subscriptionId}`, {
+        method: 'POST',
+        headers: authHeaders('application/x-www-form-urlencoded'),
+        body: params,
+    })
+}
+
+/**
+ * Cancels a subscription IMMEDIATELY (DELETE revokes access at once, no end
+ * of period). Only used on account deletion, where keeping access until the
+ * period end is meaningless — the account is gone.
+ * @param {string} subscriptionId
+ * @returns {Promise<any>} the canceled Stripe subscription object
+ */
+export async function cancelSubscriptionImmediately(subscriptionId) {
+    return await $fetch(`${STRIPE_BASE}/subscriptions/${subscriptionId}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+    })
+}
+
+/**
+ * Deletes a Stripe customer (cancels any remaining subscription and detaches
+ * payment methods). Best-effort on account deletion: without it, a late
+ * webhook addressed to the orphan customer would keep hitting our API.
+ * @param {string} customerId
+ * @returns {Promise<any>}
+ */
+export async function deleteCustomer(customerId) {
+    return await $fetch(`${STRIPE_BASE}/customers/${customerId}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+    })
+}
+
+/**
+ * Switches an existing subscription to a different price IN PLACE (Stripe
+ * subscription update), with proration — the upgrade difference is charged
+ * immediately on the card on file, and a trialing subscription keeps its
+ * trial. This is the proper upgrade path: creating a new Checkout session
+ * for an existing subscriber would stack a SECOND subscription on the same
+ * customer (double billing).
+ * @param {string} subscriptionId
+ * @param {string} newPriceId
+ * @returns {Promise<any>} the updated Stripe subscription object
+ */
+export async function changeSubscriptionPrice(subscriptionId, newPriceId) {
+    const subscription = await getSubscription(subscriptionId)
+    const itemId = subscription?.items?.data?.[0]?.id
+    if (!itemId) {
+        throw createError({ statusCode: 502, statusMessage: 'Subscription has no item to update' })
+    }
+    const params = new URLSearchParams()
+    params.append('items[0][id]', itemId)
+    params.append('items[0][price]', newPriceId)
+    params.append('proration_behavior', 'create_prorations')
     return await $fetch(`${STRIPE_BASE}/subscriptions/${subscriptionId}`, {
         method: 'POST',
         headers: authHeaders('application/x-www-form-urlencoded'),

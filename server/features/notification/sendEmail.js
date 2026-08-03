@@ -107,3 +107,16 @@ export async function sendVerificationEmail(email, verifyUrl) {
   await sendEmail(email, emailSubject, emailBody);
   logger.info(`Verification email sent to ${email}`);
 }
+
+export async function sendAccountDeletedEmail(email) {
+  const emailSubject = 'Your NestorCut account has been deleted';
+  const emailBody = `
+    <p>Hello,</p>
+    <p>Your NestorCut account and all associated data (projects, DXF files, nesting results) have been permanently deleted. Any active subscription was canceled immediately.</p>
+    <p>If you did not request this deletion, please contact our support team right away.</p>
+    <p>Best regards, <br> NestorCut</p>
+  `;
+
+  await sendEmail(email, emailSubject, emailBody);
+  logger.info(`Account deletion confirmation email sent to ${email}`);
+}

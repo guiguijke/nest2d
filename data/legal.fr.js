@@ -279,6 +279,7 @@ export function usePrivacy() {
             {
                 heading: '10. Exercice de vos droits',
                 paragraphs: [
+                    'Vous pouvez supprimer votre compte et l\'ensemble des données associées à tout moment, en libre-service, depuis votre page Profil (section « Compte »). La suppression est immédiate et irréversible ; tout abonnement actif est alors résilié immédiatement, sans remboursement.',
                     `Pour exercer ces droits, contactez-nous à ${supportEmail}. Nous répondrons dans le délai légal (un mois en application du RGPD).`,
                     'Si vous résidez en France, vous disposez également du droit d\'introduire une réclamation auprès de la CNIL (Commission Nationale de l\'Informatique et des Libertés — www.cnil.fr).',
                 ],
@@ -329,7 +330,7 @@ export function useRefund() {
             {
                 heading: '5. Fermeture de compte',
                 paragraphs: [
-                    'Demander un remboursement ne clôt pas automatiquement votre compte. Pour supprimer votre compte et les données associées, suivez la procédure décrite dans notre Politique de confidentialité.',
+                    'Demander un remboursement ne clôt pas automatiquement votre compte. Vous pouvez supprimer votre compte et les données associées à tout moment depuis votre page Profil (section « Compte »), comme décrit dans notre Politique de confidentialité.',
                 ],
             },
         ],
