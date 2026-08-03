@@ -136,6 +136,10 @@ export default defineEventHandler(async (event) => {
     dbParams.computeLevel = compute.level
     dbParams.vcores = compute.vcores
     dbParams.directions = directions
+    // Unit for the exported result DXF, taken from the server-side user
+    // profile (never the client). Internal geometry stays mm — the worker
+    // converts only at the export boundary.
+    dbParams.outputUnit = user.preferredUnit === 'inch' ? 'inch' : 'mm'
 
     // Vault gate + job insertion (the already-consumed charge is passed so
     // the quota is not consumed twice).

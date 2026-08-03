@@ -60,6 +60,9 @@ export default defineEventHandler(async (event) => {
         createdAt: new Date(),
         isStripFeatureEnable: true,
         freeNestingUsed: 0,
+        // Measurement unit preference ('mm' | 'inch') — default metric;
+        // switchable via PATCH /api/user/preferences.
+        preferredUnit: 'mm',
         // Local signups must verify their email before nesting (anti-fake).
         emailVerified: false,
         newsletterOptIn,
