@@ -630,9 +630,11 @@ def nesting_process(doc):
     else:
         n_workers = None
     # Plateau stop: end walks once converged instead of burning the whole
-    # wall cap. Generous floor — hard instances (swim-like) have long flat
-    # regions before a late improvement.
-    plateau_patience_sec = max(15.0, time_budget_sec / 4.0)
+    # wall cap. Flat regions on hard instances (swim-like) can run ~10-20s
+    # before a late improvement, so patience needs a real floor — but a
+    # fraction of the wall cap overshoots badly on easy jobs that converge
+    # in seconds (75s of dead time at the standard 300s cap).
+    plateau_patience_sec = max(12.0, min(30.0, time_budget_sec / 8.0))
 
     engine_config = build_engine_config(
         time_budget_sec,
