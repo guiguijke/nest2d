@@ -131,6 +131,7 @@
 
 <script setup>
     import { SHEET_PRESETS } from '~/utils/units'
+    import { DEMO_PROJECT_SLUG } from '~~/shared/constants/demo.constants'
 
     const { t } = useLocale()
     const { unit, unitLabel, enabled: unitsEnabled } = useUnit()
@@ -184,7 +185,13 @@
     const DIRECTION_ORDER = ['left', 'bottom', 'balanced']
     const DIRECTION_ARROWS = { left: '←', bottom: '↓', balanced: '↙' }
     const { getters: authGetters } = authStore
+    const route = useRoute()
+    // The shared demo project always runs at standard power (3 directions,
+    // server-imposed) regardless of the user's tier — the checkboxes must
+    // show what the server will actually compute, not the tier allowance.
+    const isDemoProject = computed(() => route.params.slug === DEMO_PROJECT_SLUG)
     const maxDirections = computed(() => {
+        if (unref(isDemoProject)) return 3
         const n = unref(authGetters.user)?.compute?.maxDirections
         return Math.min(3, Math.max(1, Number(n) || 1))
     })
