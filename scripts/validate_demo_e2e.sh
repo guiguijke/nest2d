@@ -43,12 +43,17 @@ echo "== geometry route returns per-part colors (demo file, world-readable) =="
 GEO=$(curl -s -b "$JAR" "$BASE/api/files/project/geometry/demo-marine-lpl-022.dxf")
 check "color in geometry" "$GEO" '"color":"#'
 
-echo "== POST demo nesting (server-imposed params) =="
+echo "== POST demo nesting (client geometry, server-imposed compute) =="
 FILES_JSON=$(echo "$DEMO" | node -e "
 let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
   const j=JSON.parse(s);
   const files=j.files.map(f=>({slug:f.slug,count:f.demoQuantity}));
-  console.log(JSON.stringify({files,params:{}}));
+  console.log(JSON.stringify({files,params:{
+    sheets:[{width:3000,height:1500,count:3}],
+    space:2, fillHoles:true, rotationCount:4,
+    // Attempted compute inflation — the server MUST ignore these:
+    vcores:64, timeBudgetSec:99999, directions:['left','bottom','balanced']
+  }}));
 })")
 NEST=$(curl -s -b "$JAR" -X POST "$BASE/api/project/demo/nest" \
   -H 'Content-Type: application/json' -d "$FILES_JSON")
@@ -56,20 +61,20 @@ check "job slug returned" "$NEST" '"slug":"nested-'
 JOB_SLUG=$(echo "$NEST" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).slug))")
 echo "  job: $JOB_SLUG"
 
-echo "== job doc in mongo: demo charge + imposed compute =="
+echo "== job doc in mongo: client geometry + imposed compute =="
 DOC=$(docker exec nest2d-mongo-1 mongosh nest2d --quiet --eval "
   const j = db.nesting_jobs.findOne({slug:'$JOB_SLUG'});
   print(JSON.stringify({charge:j.charge, vcores:j.params.vcores, timeBudgetSec:j.params.timeBudgetSec,
     computeLevel:j.params.computeLevel, directions:j.params.directions, sheets:j.params.sheets, fillHoles:j.params.fillHoles,
     space:j.params.space}))" 2>/dev/null)
 check "charge type demo" "$DOC" '"type":"demo"'
-check "4 vcores" "$DOC" '"vcores":4'
-check "90s budget" "$DOC" '"timeBudgetSec":90'
+check "vcores imposed at 4 (client asked 64)" "$DOC" '"vcores":4'
+check "budget imposed at 90 (client asked 99999)" "$DOC" '"timeBudgetSec":90'
 check "computeLevel demo" "$DOC" '"computeLevel":"demo"'
 check "3 directions" "$DOC" '"directions":\["left","bottom","balanced"\]'
-check "imposed sheet 3000x1500" "$DOC" '"width":3000'
-check "fillHoles imposed on" "$DOC" '"fillHoles":true'
-check "demo spacing 2mm (channels open)" "$DOC" '"space":2'
+check "client sheet 3000x1500 kept" "$DOC" '"width":3000'
+check "client fillHoles kept" "$DOC" '"fillHoles":true'
+check "client spacing kept" "$DOC" '"space":2'
 
 echo "== user demoNestingUsed consumed =="
 USED=$(docker exec nest2d-mongo-1 mongosh nest2d --quiet --eval "
