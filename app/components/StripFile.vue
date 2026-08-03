@@ -27,7 +27,7 @@
                 {{ file.name }}
             </p>
             <p v-if="minHeight != null" class="file__height">
-                Min height: {{ minHeight }}mm
+                Min height: {{ minHeight }}
             </p>
             <div class="file__counter counter">
                 <MainButton :size="sizeType.s" :icon="iconType.minus" :isLabelShow="false" :isDisable="file.count < 1"
@@ -84,12 +84,13 @@ const rotationOptions = [
     { value: '[0, 180]', label: '180°' },
 ]
 
+const { fmtLength } = useUnit()
 const minHeight = computed(() => {
     const value = props.file.minHeight
     if (value == null) {
         return null
     }
-    return Math.round(value * 100) / 100
+    return fmtLength(value)
 })
 
 const openModal = () => {

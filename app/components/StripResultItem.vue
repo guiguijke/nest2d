@@ -21,8 +21,8 @@
             </p>
         </template>
         <div class="result__meta">
-            <span class="result__tag">H {{ result.height }}mm</span>
-            <span v-if="result.width != null" class="result__tag">W {{ roundedWidth }}mm</span>
+            <span class="result__tag">H {{ fmtLength(result.height) }}</span>
+            <span v-if="result.width != null" class="result__tag">W {{ roundedWidth }}</span>
             <span class="result__tag">{{ result.fileCount }} files</span>
         </div>
         <div class="result__controls controls">
@@ -70,7 +70,8 @@ const isFailed = computed(() => {
 
 const canPreview = computed(() => Boolean(props.result?.dxfUrl) && !isInProgress.value && !isFailed.value);
 
-const roundedWidth = computed(() => Math.round((props.result?.width ?? 0) * 100) / 100);
+const { fmtLength } = useUnit()
+const roundedWidth = computed(() => fmtLength(props.result?.width ?? 0));
 
 const openModal = () => {
     emit('openModal');

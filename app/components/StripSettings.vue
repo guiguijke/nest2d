@@ -3,7 +3,7 @@
         <MainTitle :label="t('settings.nesting')" class="settings__title" />
         <div class="settings__content content">
             <div class="content__size size">
-                <InputField :prefix="t('settings.height')" :suffix="t('settings.mm')" v-model="localHeight" :isError="isHeightTooSmall"
+                <InputField :prefix="t('settings.height')" :suffix="unitLabel" v-model="localHeight" :isError="isHeightTooSmall"
                     class="size__input" />
             </div>
         </div>
@@ -19,16 +19,18 @@
 
 <script setup>
 const { t } = useLocale()
+const { unitLabel, fmtLength } = useUnit()
 const { getters, actions } = stripStore;
 const { updateParams } = actions;
 const params = computed(() => getters.params);
 const isHeightTooSmall = computed(() => getters.isHeightTooSmall);
+// requiredHeight arrives in canonical mm — format it in the user's unit.
 const requiredHeight = computed(() => {
     const value = unref(getters.requiredHeight);
     if (value == null) {
         return null;
     }
-    return Math.round(value * 100) / 100;
+    return fmtLength(value);
 });
 
 const localHeight = computed({

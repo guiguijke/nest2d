@@ -86,7 +86,7 @@
                         </g>
                     </svg>
                     <span v-if="card.champ" class="live__card-metric">
-                        <template v-if="card.champ.strip_width != null">{{ card.champ.strip_width.toFixed(0) }} mm</template>
+                        <template v-if="card.champ.strip_width != null">{{ fmtLength(card.champ.strip_width) }}</template>
                         <template v-else-if="card.champ.bins != null">{{ t('live.sheets') }} {{ card.champ.bins }}</template>
                     </span>
                     <span v-else class="live__card-metric live__card-metric--pending">…</span>
@@ -116,6 +116,8 @@ const props = defineProps({
 });
 
 const { t } = useLocale();
+// strip_width arrives in canonical mm — fmtLength converts at display.
+const { fmtLength } = useUnit();
 // NOTE: bare $fetch (Nuxt auto-import) — nuxtApp.$fetch is not reliable
 // everywhere; a failed fetch here silently empties the whole render.
 

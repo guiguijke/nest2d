@@ -72,6 +72,7 @@
                 />
             </div>
             <LocaleSwitcher class="header__btn" />
+            <UnitSwitcher class="header__btn" />
             <MainButton
                 :href="githubIssues"
                 target="_blank"

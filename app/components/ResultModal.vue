@@ -157,8 +157,8 @@
                     <span class="report__value">{{ usedPct.toFixed(1) }}%</span>
                 </div>
                 <div class="report__row report__row--detail">
-                    <span>{{ t('report.areas', { parts: fmtMm2(activeReport.partsAreaMm2), free: fmtMm2(freeAreaMm2) }) }}</span>
-                    <span v-if="activeOffcut">{{ t('report.offcut', { w: Math.round(activeOffcut.width), h: Math.round(activeOffcut.height) }) }}</span>
+                    <span>{{ t('report.areas', { parts: fmtArea(activeReport.partsAreaMm2), free: fmtArea(freeAreaMm2) }) }}</span>
+                    <span v-if="activeOffcut">{{ t('report.offcut', { w: fmtLengthValue(activeOffcut.width), h: fmtLengthValue(activeOffcut.height), unit: unitLabel }) }}</span>
                 </div>
                 <div
                     v-if="activeReport.holesFilled > 0"
@@ -226,6 +226,7 @@ import { onMounted } from 'vue'
 const { getters } = globalStore
 const resultModalData = computed(() => getters.resultModalData)
 const { t } = useLocale()
+const { fmtArea, fmtLength, fmtLengthValue, unitLabel } = useUnit()
 
 const resultDialog = useResultDialog()
 
@@ -283,7 +284,6 @@ const freeAreaMm2 = computed(() => {
     if (!r) return 0
     return Math.max(0, (r.sheetAreaMm2 || 0) - (r.partsAreaMm2 || 0))
 })
-const fmtMm2 = (v) => (v == null ? '—' : Math.round(v).toLocaleString())
 const activeOffcut = computed(() => {
     const off = unref(alternatives)[unref(activeAlt)]?.offcut
     return off && off.area > 1 ? off : null
@@ -295,7 +295,9 @@ const reportBadges = computed(() => {
     if (r.overlapFree != null) badges.push({ ok: r.overlapFree, label: t('report.overlapFree') })
     if (r.insideSheet != null) badges.push({ ok: r.insideSheet, label: t('report.insideSheet') })
     if (r.spacingOk != null && r.smallestGapMm != null) {
-        badges.push({ ok: r.spacingOk, label: t('report.spacing', { v: r.smallestGapMm.toFixed(2) }) })
+        // Sub-mm resolution: 2 decimals in mm, 4 in inches.
+        const gap = fmtLengthValue(r.smallestGapMm, unitLabel.value === '"' ? 4 : 2)
+        badges.push({ ok: r.spacingOk, label: t('report.spacing', { v: gap, unit: unitLabel.value }) })
     }
     const allPlaced = unref(resultModalData).requested === unref(resultModalData).placed
     badges.push({ ok: allPlaced, label: t('report.allPlaced', { n: unref(resultModalData).placed }) })
@@ -325,7 +327,7 @@ const altTitle = (alt) => {
     const parts = []
     if (alt.strategy) parts.push(strategyLabel(alt.strategy))
     if (alt.offcut && alt.offcut.area > 1) {
-        parts.push(`Clean offcut: ${alt.offcut.width.toFixed(0)} × ${alt.offcut.height.toFixed(0)} mm`)
+        parts.push(`Clean offcut: ${fmtLength(alt.offcut.width)} × ${fmtLength(alt.offcut.height)}`)
     }
     return parts.join('\n') || 'Layout option'
 }

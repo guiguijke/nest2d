@@ -1,6 +1,8 @@
 
 import { computed, reactive, readonly } from 'vue'
 import { processingType } from '~~/constants/files.constants'
+import { convertInputValue, displayToMm, DEFAULT_SHEET, DEFAULT_SPACE } from '~/utils/units'
+import { getUnitState } from '~/composables/useUnit'
 
 const { actions } = globalStore
 const { getProjects, setModalNestData } = actions
@@ -54,21 +56,26 @@ const state = reactive({
     requestBody: computed(() => {
         const sheets = normalizedSheets(state.params)
         const first = sheets[0] || { width: 0, height: 0, count: 0 }
+        // Params hold DISPLAY-unit strings (the user's preferred unit) — the
+        // API and the whole pipeline speak canonical mm, so convert here,
+        // at the boundary.
+        const unit = getUnitState()
+        const toMm = (v) => displayToMm(Number(v), unit)
         return JSON.stringify({
             files: state.filesToNest,
             params: {
                 sheets: sheets.map((sheet) => ({
-                    width: Number(sheet.width),
-                    height: Number(sheet.height),
+                    width: toMm(sheet.width),
+                    height: toMm(sheet.height),
                     count: Number(sheet.count),
                 })),
                 // Legacy mirror of the first sheet — older workers/APIs only
                 // understand width/height/sheetCount.
-                width: Number(first.width),
-                height: Number(first.height),
+                width: toMm(first.width),
+                height: toMm(first.height),
                 sheetCount: Number(first.count),
                 tolerance: Number(state.params.tolerance),
-                space: Number(state.params.space),
+                space: toMm(state.params.space),
                 addOutShape: state.params.addOutShape,
                 rotationCount: Number(state.params.rotationCount),
                 // Layout directions to optimize towards (server re-validates
@@ -195,8 +202,44 @@ function updateSheet(index, patch) {
 }
 function addSheet() {
     const sheets = normalizedSheets(state.params)
-    const last = sheets[sheets.length - 1] || { width: '1000', height: '2000', count: '1' }
+    const last = sheets[sheets.length - 1] || { ...DEFAULT_SHEET.mm, count: '1' }
     state.params = { ...state.params, sheets: [...sheets, { ...last, count: '1' }] }
+}
+
+// Factory defaults per unit — used to snap pristine params on a unit switch
+// (a fresh inch session should offer 48×96, not a converted 39.37×78.74).
+const FACTORY_PARAMS = {
+    mm: { sheet: { ...DEFAULT_SHEET.mm, count: '100' }, space: DEFAULT_SPACE.mm },
+    inch: { sheet: { ...DEFAULT_SHEET.inch, count: '100' }, space: DEFAULT_SPACE.inch },
+}
+
+/**
+ * Converts the in-progress form values between units (called on unit
+ * switch). Params still matching the factory defaults snap to the other
+ * unit's factory sheet; anything the user typed is converted numerically.
+ */
+function convertParamsUnits(fromUnit, toUnit) {
+    if (!fromUnit || !toUnit || fromUnit === toUnit) return
+    const p = state.params
+    const sheets = normalizedSheets(p)
+    const factory = FACTORY_PARAMS[fromUnit]
+    if (!factory) return
+    const pristine =
+        sheets.length === 1 &&
+        String(sheets[0].width) === factory.sheet.width &&
+        String(sheets[0].height) === factory.sheet.height &&
+        String(p.space) === factory.space
+    if (pristine) {
+        const next = FACTORY_PARAMS[toUnit]
+        state.params = { ...p, sheets: [{ ...next.sheet }], space: next.space }
+        return
+    }
+    const conv = (v) => convertInputValue(v, fromUnit, toUnit)
+    state.params = {
+        ...p,
+        sheets: sheets.map((s) => ({ ...s, width: conv(s.width), height: conv(s.height) })),
+        space: conv(p.space),
+    }
 }
 function removeSheet(index) {
     const sheets = normalizedSheets(state.params)
@@ -322,6 +365,7 @@ export const filesStore = readonly({
         updateSheet,
         addSheet,
         removeSheet,
+        convertParamsUnits,
         updateCount,
         updateRotation,
         getProject,

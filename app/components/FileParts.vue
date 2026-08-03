@@ -10,7 +10,7 @@
                     :key="index"
                     class="parts__item"
                 >
-                    {{ part.width }} x {{ part.height }}
+                    {{ fmtLengthValue(part.width) }} x {{ fmtLengthValue(part.height) }} {{ unitLabel }}
                 </li>
             </ul>
         </UiScrollbar>
@@ -19,6 +19,8 @@
 <script setup>
 
 const { t } = useLocale()
+// Part dims arrive from the server in canonical mm — display converts.
+const { fmtLengthValue, unitLabel } = useUnit()
 
 const props = defineProps({
     parts: {
