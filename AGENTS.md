@@ -139,6 +139,17 @@ admin/                 (back-office Nuxt)
 28. **Export = pleine précision + en-têtes cohérents** : ×1/25,4 exact,
     `$INSUNITS=1` + `$MEASUREMENT=0` pour les pouces. Zéro arrondi
     géométrique ; le 0.001" est une affaire d'UI uniquement.
+29. **Env nitro : `NUXT_PUBLIC_FOO_BAR` → `public.fooBar`** — la clé config
+    doit matcher le nom camelCase COMPLET de la variable
+    (`NUXT_PUBLIC_UNIT_SWITCH_ENABLED` → `unitSwitchEnabled`, pas
+    `unitsEnabled`). Et l'override runtime arrive en **string** (`'true'`),
+    jamais en booléen : tester `=== true || === 'true'`.
+30. **`watch` dans un composable singleton = scope du 1er appelant** : il
+    meurt au démontage du composant (changement de layout à la navigation)
+    et un garde `initialized` empêche toute réinscription → enregistrer le
+    watch dans un **plugin** (scope app, immortel, `app/plugins/*.client.js`)
+    et sourcer `useNuxtData('user')` (cache hydraté, réactif) plutôt qu'un
+    store alimenté par middleware.
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 
