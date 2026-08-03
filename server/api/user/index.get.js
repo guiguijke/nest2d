@@ -18,12 +18,18 @@ export default defineEventHandler(async (event) => {
     const vault = await getVaultStatus(userId)
     const compute = await getComputeProfile(userId, null)
 
+    const config = useRuntimeConfig(event)
+
     return {
         id: user.id,
         name: user.name,
         email: user.email,
         avatar: user.avatarUrl || '/api/user/avatar',
         isStripFeatureEnable: isStripFeatureEnable,
+        // Lazy default: accounts created before the units feature have no
+        // preferredUnit field — they are metric.
+        preferredUnit: user.preferredUnit === 'inch' ? 'inch' : 'mm',
+        unitsEnabled: config.public.unitsEnabled === true,
         freeRemaining: entitlement.freeRemaining,
         subscriptionStatus: entitlement.subscriptionStatus,
         requiresPaywall: entitlement.requiresPaywall,

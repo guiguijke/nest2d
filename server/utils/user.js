@@ -42,6 +42,8 @@ export async function createOrUpdateUser({ event, sessionId, providerId, email, 
             createdAt: new Date(),
             isStripFeatureEnable: true,
             freeNestingUsed: 0,
+            // Measurement unit preference ('mm' | 'inch') — default metric.
+            preferredUnit: 'mm',
             signupCountry,
             signupIp,
             // Google accounts are verified by Google itself — no email

@@ -52,6 +52,10 @@ export default defineNuxtConfig({
             // pages and API). Disabled by default while the feature is being
             // reworked; set NUXT_PUBLIC_STRIP_ENABLED=true to re-enable.
             stripEnabled: false,
+            // Master switch for imperial units (inches): shows the unit
+            // switcher and honors users.preferredUnit. Ships dark; set
+            // NUXT_PUBLIC_UNIT_SWITCH_ENABLED=true to enable.
+            unitsEnabled: false,
         },
     },
 
