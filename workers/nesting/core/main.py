@@ -30,6 +30,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from worker_common.logger import setup_logger
 from worker_common.crypto import get_dek, read_gridfs, resolve_polygon_parts, write_gridfs
+from worker_common.geometry.units import output_scale_and_headers
 
 valid_dxf_bucket = get_bucket("validDxf")
 dxf_result_bucket = get_bucket("nestDxf")
@@ -125,18 +126,31 @@ def save_dxf_result(owner_id, file_name, drawing, dek=None):
 
     write_gridfs(dxf_result_bucket, file_name, dxf_copy_bytes, owner_id, dek)
 
-def save_svg_result(owner_id, file_name, drawing, dek=None, bin_width=None, bin_height=None):
-    svg_string = create_svg_from_doc(drawing, 0.001, bin_width, bin_height)
+def save_svg_result(owner_id, file_name, drawing, dek=None, bin_width=None, bin_height=None,
+                    unit_scale=1.0, unit_attr="mm"):
+    # The drawing is already in the output unit (scaled in build_part) — the
+    # bin frame and physical SVG size attribute must follow it.
+    svg_string = create_svg_from_doc(
+        drawing,
+        0.001,
+        None if bin_width is None else bin_width * unit_scale,
+        None if bin_height is None else bin_height * unit_scale,
+        unit_attr,
+    )
     svg_bytes = svg_string.encode('utf-8')
     write_gridfs(svg_result_bucket, file_name, svg_bytes, owner_id, dek)
 
-def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=False, space=0, dek=None):
+def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=False, space=0, dek=None,
+                           output_unit="mm"):
     """
     Iterates through containers, builds a combined/transformed DXF for each,
     and saves the result. Returns (dxf_files, svg_files) — the caller is
     responsible for persisting them on the job document.
     """
     print(f"Starting build process for slug: {slug}")
+
+    unit_scale, _, _ = output_scale_and_headers(output_unit)
+    unit_attr = "in" if output_unit == "inch" else "mm"
 
     dxf_files = []
     svg_files = []
@@ -151,6 +165,7 @@ def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=Fals
             dek,
             result_container.bin_width,
             result_container.bin_height,
+            output_unit,
         )
 
         logger.info("Saving combined file", extra={"file_name": dxf_file_name})
@@ -165,12 +180,15 @@ def build_result_dxf_files(owner_id, slug, result_containers, add_out_shape=Fals
             dek,
             result_container.bin_width,
             result_container.bin_height,
+            unit_scale,
+            unit_attr,
         )
         svg_files.append(svg_file_name)
 
     return dxf_files, svg_files
 
-def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None, bin_width=None, bin_height=None):
+def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None, bin_width=None, bin_height=None,
+               output_unit="mm"):
     """
     Creates a single new DXF drawing by fetching, transforming, and combining
     entities from a list of transform operations. When bin dimensions are
@@ -269,6 +287,18 @@ def build_part(transforms, add_out_shape=False, space=0, owner_id=None, dek=None
         except Exception as e:
             logger.error("Failed to add bounding box", extra={"error": e})
 
+    # Export boundary: geometry was computed in canonical mm. Scale the whole
+    # modelspace (parts, BIN_BOUNDARY, OUT_SHAPE) to the user's output unit —
+    # full precision, never rounded — and make the headers agree with the
+    # numbers so any CAM reads the file correctly.
+    unit_scale, insunits, measurement = output_scale_and_headers(output_unit)
+    if unit_scale != 1.0:
+        scale_matrix = Matrix44.scale(unit_scale, unit_scale, 1.0)
+        for entity in new_msp:
+            entity.transform(scale_matrix)
+    new_doc.header["$INSUNITS"] = insunits
+    new_doc.header["$MEASUREMENT"] = measurement
+
     return new_doc
 
 dxf_document_cache = {}
@@ -353,6 +383,9 @@ def nesting_process(doc):
     # (engine auto-sizes threads, all directions).
     vcores = max(1, int(params.get("vcores") or 0))
     directions = params.get("directions") or None
+    # Unit of the exported result DXF/SVG, written server-side at enqueue
+    # from the owner's preference. Legacy jobs have no field -> mm (safe).
+    output_unit = params.get("outputUnit") or "mm"
 
     # Unwrapped DEK when the owner's vault is unlocked, None on the legacy
     # plaintext path. Raises VaultLockedError when files are encrypted but
@@ -865,7 +898,8 @@ def nesting_process(doc):
         report_progress("building", rank, n_alternatives,
                         min(99, round(rank / max(1, n_alternatives) * 100)))
         dxf_files, svg_files = build_result_dxf_files(
-            owner_id, alt_slug, result_containers, add_out_shape, space, dek
+            owner_id, alt_slug, result_containers, add_out_shape, space, dek,
+            output_unit
         )
         # Measured physical verification + sheet accounting for the nesting
         # report (badges are computed, never declared).
