@@ -57,3 +57,6 @@ __pycache__
 workers/nesting/engine/target
 workers/nesting/benchmarks/tmp
 *.egg-info/
+
+# LibreDWG tarball downloaded locally for checksum verification (the Docker build fetches its own).
+libredwg.tar.xz
