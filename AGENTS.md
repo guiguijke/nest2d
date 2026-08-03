@@ -121,6 +121,25 @@ admin/                 (back-office Nuxt)
     explicites (#eef2f7 / #b8c2d0 / #6ea8ff), jamais les vars de thème
     (bleu sur bleu marine ici).
 
+### Unités (mm canonique + inches)
+25. **mm canonique interne, conversion aux 3 frontières seulement** :
+    import DXF (`$INSUNITS` → mm dans `dxf_utils.read_dxf_file`), UI
+    (display/saisie via `app/utils/units.js` + `useUnit`), export DXF
+    (`params.outputUnit` écrit serveur). Jamais d'unité dans le pipeline,
+    le moteur ou Mongo.
+26. **Import = decompose PUIS scale** : `recursive_decompose` d'abord (les
+    INSERT de blocs sont résolus en primitives), `Matrix44.scale(f,f,1)`
+    ensuite — scaler le modelspace avant decompose laisserait les
+    définitions de blocs non scalées (verrou : `test_dxf_units.py`).
+27. **`ezdxf.new()` déclare des MÈTRES** (`$INSUNITS=6`) : tout doc reconstruit
+    doit poser `$INSUNITS=4` + `$MEASUREMENT=1` explicitement. Les copies
+    pipeline (bucket validDxf) sont déjà en mm — les relire avec
+    `normalize_units=False` (les copies pré-feature déclarent 6 avec du
+    contenu mm : re-normaliser = ×1000).
+28. **Export = pleine précision + en-têtes cohérents** : ×1/25,4 exact,
+    `$INSUNITS=1` + `$MEASUREMENT=0` pour les pouces. Zéro arrondi
+    géométrique ; le 0.001" est une affaire d'UI uniquement.
+
 ## 3. Banc d'essai (workers/nesting/bench/)
 
 Boucle de test de bout en bout, sans UI :
@@ -158,8 +177,9 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 
 ```bash
 cd workers/nesting/engine && cargo test --release          # 17 + 1 ignore
-cd workers/nesting && python -m pytest tests/ -q           # 33 (PYTHONPATH=workers/common)
-cd workers/common && python -m pytest tests/ -q            # 5
+cd workers/nesting && python -m pytest tests/ -q           # 36 (PYTHONPATH=workers/common)
+cd workers/common && python -m pytest tests/ -q            # 19
+cd workers/fileprocessing && python -m pytest tests/ -q    # 11
 npx nuxt build                                             # app
 cd nestorcut-website && npm run build                      # site marketing
 ```
