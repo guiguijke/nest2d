@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300mm" height="200mm" viewBox="0 0 300 200">
+  <!-- plaque rectangulaire avec trou circulaire -->
+  <rect x="10" y="10" width="180" height="120"/>
+  <circle cx="100" cy="70" r="25"/>
+  <!-- gousset triangulaire -->
+  <path d="M210 10 L290 10 L290 90 Z"/>
+  <!-- bézier ouverte (linework) -->
+  <path d="M10 150 C 60 130, 140 170, 190 150"/>
+  <!-- cornière en L sous groupe transformé -->
+  <g transform="translate(220,110)">
+    <path d="M0 0 L70 0 L70 15 L15 15 L15 70 L0 70 Z"/>
+  </g>
+  <!-- ellipse -->
+  <ellipse cx="100" cy="165" rx="40" ry="18"/>
+</svg>

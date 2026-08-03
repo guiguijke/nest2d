@@ -219,7 +219,7 @@ const dict = {
 
         'upload.choose': 'Choose files',
         'upload.drop': 'or drop your files here',
-        'upload.limit': 'Up to 20 files, max 5 MB each',
+        'upload.limit': 'Up to 20 files (DXF, SVG or DWG), max 5 MB each',
 
         'parts.label': 'Part: ',
         'parts.count': '{n} parts: ',
@@ -618,7 +618,7 @@ const dict = {
 
         'upload.choose': 'Choisir des fichiers',
         'upload.drop': 'ou déposez vos fichiers ici',
-        'upload.limit': "Jusqu'à 20 fichiers, 5 Mo max chacun",
+        'upload.limit': "Jusqu'à 20 fichiers (DXF, SVG ou DWG), 5 Mo max chacun",
 
         'parts.label': 'Pièce : ',
         'parts.count': '{n} pièces : ',

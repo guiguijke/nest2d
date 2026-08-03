@@ -162,6 +162,21 @@ admin/                 (back-office Nuxt)
     et sourcer `useNuxtData('user')` (cache hydraté, réactif) plutôt qu'un
     store alimenté par middleware.
 
+### Formats d'import (DXF + SVG + DWG)
+31. **Détection par signature de contenu, JAMAIS par extension** : les slugs
+    d'upload finissaient historiquement tous en `.dxf` quel que soit le
+    format réel — `core/format_detect.py` lit les magic bytes (`<svg`,
+    `AC10xx`), point d'injection unique `_make_dxf_copy`. La copie
+    `validDxf` est TOUJOURS un DXF mm : tout l'aval est format-agnostique.
+32. **SVG = px CSS 96 dpi → mm (formule unique)** : svgelements normalise
+    unités/viewBox/transforms en px ; `mm = px × 25,4/96` couvre mm/in/px et
+    viewBox mismatch (verrou : `test_svg_import.py`). y SVG inversé → y DXF.
+    Segments droits = 2 points (sinon un rectangle = 1500 sommets, piège #15).
+33. **DWG via `dwgread` (GNU LibreDWG, GPL v3) en subprocess** — jamais de
+    linkage, jamais de binaire modifié (mere aggregation, voir
+    `docs/dwg-license.md`). R2013+ expérimental → rejet propre avec message
+    actionnable, jamais d'import partiel silencieux.
+
 ## 3. Banc d'essai (workers/nesting/bench/)
 
 Boucle de test de bout en bout, sans UI :

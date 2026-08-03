@@ -13,7 +13,7 @@
             <input
                 type="file"
                 name="dxf"
-                accept=".dxf"
+                :accept="extensions.join(',')"
                 multiple
                 @change="onDXFChange"
                 class="upload__input"
@@ -43,7 +43,7 @@ const { t } = useLocale()
 const props = defineProps({
     extensions: {
         type: Array,
-        default: () => [".dxf"],
+        default: () => [".dxf", ".svg", ".dwg"],
     },
 });
 const emit = defineEmits(["files"]);
