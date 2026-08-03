@@ -9,6 +9,10 @@ import {
 import { assertCanNest } from "~~/server/utils/entitlement";
 import { requireFileAccess, resolvePolygonParts } from "~~/server/utils/vault";
 import { resolvePartColor } from "~~/server/utils/colors";
+import {
+  DEMO_OWNER_ID,
+  DEMO_PROJECT_SLUG,
+} from "~~/shared/constants/demo.constants";
 
 /**
  * Shared services for the bin (workspace projects) and strip domains. Every
@@ -46,6 +50,9 @@ export async function createProjectWithFiles(domain, event, userId) {
 /**
  * Lists the user's projects, newest first. Bin projects also expose the raw
  * jobs queue and per-project result counts (domain.includeJobsInProjectList).
+ * The shared read-only demo project is pinned first for everyone (bin
+ * domain only) — it never appears in the user's own list since its ownerId
+ * is the technical demo account.
  */
 export async function listProjects(domain, userId) {
   const db = await connectDB();
@@ -55,6 +62,15 @@ export async function listProjects(domain, userId) {
     .sort({ createdAt: -1 })
     .project({ slug: 1, name: 1, createdAt: 1 })
     .toArray();
+
+  const demoProject = domain.includeJobsInProjectList
+    ? await db
+        .collection(domain.projectsCollection)
+        .findOne(
+          { slug: DEMO_PROJECT_SLUG, isDemo: true },
+          { projection: { slug: 1, name: 1, createdAt: 1 } }
+        )
+    : null;
 
   if (!domain.includeJobsInProjectList) {
     return {
@@ -74,20 +90,22 @@ export async function listProjects(domain, userId) {
     .project({ [domain.projectSlugField]: 1 })
     .toArray();
 
+  const toUi = (project, extra = {}) => ({
+    slug: project.slug,
+    name: project.name,
+    createdAt: project.createdAt,
+    results: queueList.filter(
+      (queueItem) => queueItem[domain.projectSlugField] === project.slug
+    ).length,
+    ...extra,
+  });
+
   return {
     queueList: queueList,
-    projects: projects.map((project) => {
-      const resultsLength = queueList.filter(
-        (queueItem) => queueItem[domain.projectSlugField] === project.slug
-      ).length;
-
-      return {
-        slug: project.slug,
-        name: project.name,
-        createdAt: project.createdAt,
-        results: resultsLength,
-      };
-    }),
+    projects: [
+      ...(demoProject ? [toUi(demoProject, { isDemo: true })] : []),
+      ...projects.map((project) => toUi(project)),
+    ],
   };
 }
 
@@ -117,7 +135,9 @@ export async function assertProjectAccess(domain, userId, slug) {
 
 /**
  * Project detail with its files mapped for the UI (GET /api/project/[slug]
- * or /api/strip/[slug]).
+ * or /api/strip/[slug]). The shared demo project is readable by everyone:
+ * the 403 check is skipped and its files are listed by the technical demo
+ * owner instead of the caller.
  */
 export async function getProjectFiles(domain, userId, slug) {
   const db = await connectDB();
@@ -128,6 +148,7 @@ export async function getProjectFiles(domain, userId, slug) {
         name: 1,
         slug: 1,
         ownerId: 1,
+        isDemo: 1,
       },
     }
   );
@@ -139,7 +160,8 @@ export async function getProjectFiles(domain, userId, slug) {
     });
   }
 
-  if (domain.rejectForeignProject && project.ownerId !== userId) {
+  const isDemo = Boolean(project.isDemo);
+  if (!isDemo && domain.rejectForeignProject && project.ownerId !== userId) {
     throw createError({ statusCode: 403, message: "Forbidden" });
   }
 
@@ -147,7 +169,7 @@ export async function getProjectFiles(domain, userId, slug) {
     .collection(domain.filesCollection)
     .find({
       [domain.projectSlugField]: slug,
-      ownerId: userId,
+      ownerId: isDemo ? DEMO_OWNER_ID : userId,
     })
     .sort({ uploadAt: 1 })
     .toArray();
@@ -159,6 +181,7 @@ export async function getProjectFiles(domain, userId, slug) {
   return {
     name: project.name,
     slug: project.slug,
+    isDemo,
     files,
   };
 }
@@ -264,7 +287,7 @@ export function buildJobSlug(domain, fileMetadata) {
  */
 export async function enqueueNestingJob(
   domain,
-  { userId, projectSlug, fileMetadata, params, extraFields = {}, charge = null }
+  { userId, projectSlug, fileMetadata, params, extraFields = {}, charge = null, skipVaultGate = false }
 ) {
   const db = await connectDB();
 
@@ -274,8 +297,11 @@ export async function enqueueNestingJob(
 
   // Encrypted vaults must be unlocked before a job can be enqueued — the
   // workers need an active session to read the source files. Also refreshes
-  // the sliding TTL so the session outlives the job.
-  await requireFileAccess(userId);
+  // the sliding TTL so the session outlives the job. Demo jobs skip this:
+  // the demo files are plaintext and shared, the user's vault is irrelevant.
+  if (!skipVaultGate) {
+    await requireFileAccess(userId);
+  }
 
   const jobSlug = buildJobSlug(domain, fileMetadata);
 
