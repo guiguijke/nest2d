@@ -41,6 +41,17 @@ admin/                 (back-office Nuxt)
    capillaire (`core/holed_polygons.py`) ; `narrow_concavity_cutoff: null`
    obligatoire sinon le canal est refermé et les trous deviennent
    inaccessibles. Le canal doit être > `space` (inflation) mais ≤ 2.5 mm.
+   **Au-delà de ~2.4 mm d'espacement le canal est scellé par l'inflation** :
+   ouvrir quand même écrase l'anneau et casse l'import moteur
+   (« non-consecutive duplicate vertices » / « Offset resulted in an empty
+   polygon ») — ce n'est PAS une dégradation sûre automatique. Toujours
+   passer par `channels_usable(space)` : si scellé, laisser les trous
+   fermés (outer plein) — trous inutilisés mais job vivant.
+2b. **Strip initial jagua = aire totale / hauteur, DEFLATÉ de space/2** :
+   si `total_part_area / strip_height ≤ space`, l'offset du strip sort vide
+   et le moteur panique dans un thread rayon (« Offset resulted in an empty
+   polygon », opaque). Garde côté Python avant `run_engine` (exception
+   explicite : réduire l'espacement ou ajouter pièces/stock).
 3. **`min_item_separation` = inflation jagua** (exacte, ±space/2). Toute
    validation d'ajustement (filler dans trou) doit éroder le trou de
    space/2, sinon promesses non tenables.
