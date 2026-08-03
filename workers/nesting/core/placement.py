@@ -7,7 +7,7 @@ without pulling in Mongo/GridFS/ezdxf.
 
 
 class Transform:
-    def __init__(self, file_slug: str, handles, x, y, angle, item_id=None):
+    def __init__(self, file_slug: str, handles, x, y, angle, item_id=None, color=None):
         self.file_slug = file_slug
         self.handles = handles
         self.x = x
@@ -16,6 +16,9 @@ class Transform:
         # Input item this placement came from (used by the metrics to recover
         # the part's geometry).
         self.item_id = item_id
+        # Display color of the placed part (screen rendering only — the
+        # production DXF keeps its source layers/colors untouched).
+        self.color = color
 
     def __str__(self) -> str:
         return f"Transform -> File(Parts): {self.file_slug}, Handles: {self.handles}, X: {self.x}, Y: {self.y}, Angle: {self.angle}"
@@ -83,7 +86,10 @@ def parse_result_containers(output, input_items, bin_dims, shape_centroids=None)
             file_slug = source_item.get("file_slug")
             handles = source_item.get("handles")
 
-            transforms.append(Transform(file_slug, handles, x, y, rotation, item_id=item_id))
+            transforms.append(Transform(
+                file_slug, handles, x, y, rotation,
+                item_id=item_id, color=source_item.get("color"),
+            ))
             total_placed_count += 1
 
         result_containers.append(ResultContainer(seq_id, transforms, bin_width, bin_height))
