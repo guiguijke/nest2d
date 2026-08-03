@@ -3,7 +3,15 @@ import { connectDB } from '~~/server/db/mongo'
 import { DOMAINS } from '~~/server/core/domains'
 import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
-import { assertCanNest, getComputeProfile, validateDirections } from '~~/server/utils/entitlement'
+import { assertCanNest, assertCanNestDemo, getComputeProfile, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
+import {
+    DEMO_MAX_PARTS,
+    DEMO_PRIORITY,
+    DEMO_SHEETS,
+    DEMO_SPACE_MM,
+    DEMO_TIME_BUDGET_SEC,
+    DEMO_VCORES,
+} from '~~/shared/constants/demo.constants'
 
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId
@@ -28,17 +36,17 @@ export default defineEventHandler(async (event) => {
         projectSlug: projectSlug,
     })
 
-    // All users are gated by assertCanNest: grant → active subscription → free
-    // monthly quota. Consumes a unit only once the request is fully validated.
-    // The charge is stored on the job so the worker can refund it if the
-    // nesting fails.
-    const project = await db.collection('projects').findOne({ slug: projectSlug, ownerId: userId })
-    if (!project) {
+    // The shared demo project is nestable by everyone (its own free quota);
+    // regular projects require ownership (404, never reveal existence).
+    const project = await db.collection('projects').findOne({ slug: projectSlug })
+    if (!project || (!project.isDemo && project.ownerId !== userId)) {
         throw createError({
             statusCode: 404,
             statusMessage: 'Project not found',
         })
     }
+    const isDemo = Boolean(project.isDemo)
+
     const body = await readBody(event)
     /**
      * @type {{originFiles: {name: string, count: int}[], params: {height: float, width: float, space: float}}}
@@ -55,11 +63,14 @@ export default defineEventHandler(async (event) => {
             ? [0]
             : Array.from({ length: rotationCount }, (_, i) => Math.round((i * 360) / rotationCount))
 
+    // Demo nestings may only reference the demo project's own files — the
+    // slugs are predictable by design, so scope them strictly.
+    const filesQuery = isDemo
+        ? { projectSlug, isDemo: true }
+        : { slug: { $in: filteredFiles.map((file) => file.slug) } }
     const userDxfFilesDatabase = await db
         .collection('user_dxf_files')
-        .find({
-            slug: { $in: filteredFiles.map((file) => file.slug) },
-        })
+        .find(filesQuery)
         .project({
             _id: 0,
             slug: 1,
@@ -76,13 +87,30 @@ export default defineEventHandler(async (event) => {
             // Per-file override wins; otherwise apply the global rotation setting.
             rotations: requestFile?.rotation ? JSON.parse(requestFile.rotation) : globalRotations,
         }
-    })
+    }).filter((file) => file.count > 0)
+
+    if (isDemo) {
+        const totalParts = fileMetadata.reduce((sum, file) => sum + file.count, 0)
+        if (fileMetadata.length === 0 || totalParts === 0) {
+            throw createError({
+                statusCode: 400,
+                statusMessage: 'Please request at least one demo part.',
+            })
+        }
+        if (totalParts > DEMO_MAX_PARTS) {
+            throw createError({
+                statusCode: 400,
+                statusMessage: `Demo nestings are limited to ${DEMO_MAX_PARTS} parts.`,
+            })
+        }
+    }
 
     // Multi-sheet: the client sends params.sheets (list of sheet types with
     // their own dimensions and stock). Legacy clients send a single
-    // width/height/sheetCount — normalized to the same shape.
+    // width/height/sheetCount — normalized to the same shape. Demo nestings
+    // ignore client sheet params entirely: the demo sheet is imposed.
     let sheets = null
-    if (Array.isArray(params.sheets) && params.sheets.length > 0) {
+    if (!isDemo && Array.isArray(params.sheets) && params.sheets.length > 0) {
         sheets = params.sheets
             .map((sheet) => ({
                 width: Number(sheet.width),
@@ -107,48 +135,72 @@ export default defineEventHandler(async (event) => {
         }
     }
 
-    const dbParams = sheets
-        ? {
-              sheets,
-              space: params.space,
-              addOutShape: params.addOutShape,
-          }
-        : {
-              height: params.height,
-              width: params.width,
-              space: params.space,
-              sheetCount: params.sheetCount,
-              addOutShape: params.addOutShape,
-          }
+    let dbParams
+    let charge
+    let compute
+    if (isDemo) {
+        // Demo gate: its own monthly free quota (never touches the user's
+        // regular free nestings). Compute profile is standard-tier at full
+        // directions, imposed server-side like every other tier.
+        charge = await assertCanNestDemo(userId)
+        dbParams = {
+            sheets: DEMO_SHEETS.map((sheet) => ({ ...sheet })),
+            space: DEMO_SPACE_MM,
+            addOutShape: false,
+            timeBudgetSec: DEMO_TIME_BUDGET_SEC,
+            alternativesCount: NEST_DIRECTIONS.length,
+            computeLevel: 'demo',
+            vcores: DEMO_VCORES,
+            directions: [...NEST_DIRECTIONS],
+        }
+        compute = { priority: DEMO_PRIORITY }
+    } else {
+        dbParams = sheets
+            ? {
+                  sheets,
+                  space: params.space,
+                  addOutShape: params.addOutShape,
+              }
+            : {
+                  height: params.height,
+                  width: params.width,
+                  space: params.space,
+                  sheetCount: params.sheetCount,
+                  addOutShape: params.addOutShape,
+              }
 
-    // Subscription / free-quota gate. Consumes a unit only once the request is
-    // fully validated. The charge is stored on the job so the worker can refund
-    // it if the nesting fails.
-    const charge = await assertCanNest(userId)
+        // Subscription / free-quota gate. Consumes a unit only once the request is
+        // fully validated. The charge is stored on the job so the worker can refund
+        // it if the nesting fails.
+        charge = await assertCanNest(userId)
 
-    // Server-side compute profile by tier (never trust the client for this):
-    // vcores (parallel walks), wall-clock cap, and the direction allowance.
-    // The client only picks WHICH directions (fewer = faster result).
-    const compute = await getComputeProfile(userId, charge)
-    const directions = validateDirections(params.directions, compute.maxDirections)
-    dbParams.timeBudgetSec = compute.wallCapSec
-    dbParams.alternativesCount = directions.length
-    dbParams.computeLevel = compute.level
-    dbParams.vcores = compute.vcores
-    dbParams.directions = directions
+        // Server-side compute profile by tier (never trust the client for this):
+        // vcores (parallel walks), wall-clock cap, and the direction allowance.
+        // The client only picks WHICH directions (fewer = faster result).
+        compute = await getComputeProfile(userId, charge)
+        const directions = validateDirections(params.directions, compute.maxDirections)
+        dbParams.timeBudgetSec = compute.wallCapSec
+        dbParams.alternativesCount = directions.length
+        dbParams.computeLevel = compute.level
+        dbParams.vcores = compute.vcores
+        dbParams.directions = directions
+    }
     // Unit for the exported result DXF, taken from the server-side user
     // profile (never the client). Internal geometry stays mm — the worker
     // converts only at the export boundary.
     dbParams.outputUnit = user.preferredUnit === 'inch' ? 'inch' : 'mm'
 
     // Vault gate + job insertion (the already-consumed charge is passed so
-    // the quota is not consumed twice).
+    // the quota is not consumed twice). Demo jobs skip the vault gate: the
+    // demo files are plaintext and shared — a privacy-tier user with a locked
+    // vault can still try the demo.
     return await enqueueNestingJob(DOMAINS.bin, {
         userId,
         projectSlug,
         fileMetadata,
         params: dbParams,
-        extraFields: { priority: compute.priority },
+        extraFields: { priority: isDemo ? DEMO_PRIORITY : compute.priority },
         charge,
+        skipVaultGate: isDemo,
     })
 })

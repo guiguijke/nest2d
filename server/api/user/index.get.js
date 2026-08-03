@@ -1,5 +1,5 @@
 import { connectDB } from '~~/server/db/mongo'
-import { getComputeProfile, getEntitlement } from '~~/server/utils/entitlement'
+import { getComputeProfile, getDemoEntitlement, getEntitlement } from '~~/server/utils/entitlement'
 import { getVaultStatus } from '~~/server/utils/vault'
 
 export default defineEventHandler(async (event) => {
@@ -14,6 +14,7 @@ export default defineEventHandler(async (event) => {
 
     const isStripFeatureEnable = user.isStripFeatureEnable || false
     const entitlement = await getEntitlement(userId)
+    const demo = await getDemoEntitlement(userId)
 
     const vault = await getVaultStatus(userId)
     const compute = await getComputeProfile(userId, null)
@@ -39,6 +40,8 @@ export default defineEventHandler(async (event) => {
         // null = never asked (first-login prompt eligible), true/false = answered.
         newsletterOptIn: user.newsletterOptIn ?? null,
         freeRemaining: entitlement.freeRemaining,
+        // Demo project monthly allowance (separate from the free quota).
+        demoRemaining: demo.demoRemaining,
         subscriptionStatus: entitlement.subscriptionStatus,
         requiresPaywall: entitlement.requiresPaywall,
         compute: {
