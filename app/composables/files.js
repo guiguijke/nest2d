@@ -16,6 +16,9 @@ const state = reactive({
         sheets: [{ width: '1000', height: '2000', count: '100' }],
         space: '0.1',
         addOutShape: false,
+        // Allow nesting smaller parts inside the cutouts of holed parts
+        // (engine opens them with a hairline channel; off = sealed cutouts).
+        fillHoles: true,
         rotationCount: 4
     },
     isSvgLoaded: computed(
@@ -77,6 +80,7 @@ const state = reactive({
                 tolerance: Number(state.params.tolerance),
                 space: toMm(state.params.space),
                 addOutShape: state.params.addOutShape,
+                fillHoles: state.params.fillHoles !== false,
                 rotationCount: Number(state.params.rotationCount),
                 // Layout directions to optimize towards (server re-validates
                 // against the tier allowance); undefined = server default.
