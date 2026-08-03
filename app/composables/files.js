@@ -213,13 +213,20 @@ const FACTORY_PARAMS = {
     inch: { sheet: { ...DEFAULT_SHEET.inch, count: '100' }, space: DEFAULT_SPACE.inch },
 }
 
+// The unit state.params is CURRENTLY expressed in. Starts at mm (factory
+// defaults); tracked so a unit sync is idempotent — re-applying the same
+// unit (SPA remount, DB re-sync) never double-converts user values.
+let paramsUnit = 'mm'
+
 /**
- * Converts the in-progress form values between units (called on unit
- * switch). Params still matching the factory defaults snap to the other
+ * Brings the in-progress form values to `toUnit` (called on unit switch AND
+ * on init, when the cookie/DB preference differs from the mm factory
+ * defaults). Params still matching the factory defaults snap to the other
  * unit's factory sheet; anything the user typed is converted numerically.
  */
-function convertParamsUnits(fromUnit, toUnit) {
-    if (!fromUnit || !toUnit || fromUnit === toUnit) return
+function syncParamsToUnit(toUnit) {
+    if (!toUnit || paramsUnit === toUnit) return
+    const fromUnit = paramsUnit
     const p = state.params
     const sheets = normalizedSheets(p)
     const factory = FACTORY_PARAMS[fromUnit]
@@ -232,14 +239,15 @@ function convertParamsUnits(fromUnit, toUnit) {
     if (pristine) {
         const next = FACTORY_PARAMS[toUnit]
         state.params = { ...p, sheets: [{ ...next.sheet }], space: next.space }
-        return
+    } else {
+        const conv = (v) => convertInputValue(v, fromUnit, toUnit)
+        state.params = {
+            ...p,
+            sheets: sheets.map((s) => ({ ...s, width: conv(s.width), height: conv(s.height) })),
+            space: conv(p.space),
+        }
     }
-    const conv = (v) => convertInputValue(v, fromUnit, toUnit)
-    state.params = {
-        ...p,
-        sheets: sheets.map((s) => ({ ...s, width: conv(s.width), height: conv(s.height) })),
-        space: conv(p.space),
-    }
+    paramsUnit = toUnit
 }
 function removeSheet(index) {
     const sheets = normalizedSheets(state.params)
@@ -365,7 +373,7 @@ export const filesStore = readonly({
         updateSheet,
         addSheet,
         removeSheet,
-        convertParamsUnits,
+        syncParamsToUnit,
         updateCount,
         updateRotation,
         getProject,

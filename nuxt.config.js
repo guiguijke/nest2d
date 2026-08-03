@@ -55,7 +55,7 @@ export default defineNuxtConfig({
             // Master switch for imperial units (inches): shows the unit
             // switcher and honors users.preferredUnit. Ships dark; set
             // NUXT_PUBLIC_UNIT_SWITCH_ENABLED=true to enable.
-            unitsEnabled: false,
+            unitSwitchEnabled: false,
         },
     },
 

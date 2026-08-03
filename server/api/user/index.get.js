@@ -20,6 +20,11 @@ export default defineEventHandler(async (event) => {
 
     const config = useRuntimeConfig(event)
 
+    // Env overrides arrive as strings ('true'), not booleans — same
+    // defensive pattern as localAuthEnabled in register.post.js.
+    const unitsEnabled =
+        config.public.unitSwitchEnabled === true || config.public.unitSwitchEnabled === 'true'
+
     return {
         id: user.id,
         name: user.name,
@@ -29,7 +34,7 @@ export default defineEventHandler(async (event) => {
         // Lazy default: accounts created before the units feature have no
         // preferredUnit field — they are metric.
         preferredUnit: user.preferredUnit === 'inch' ? 'inch' : 'mm',
-        unitsEnabled: config.public.unitsEnabled === true,
+        unitsEnabled,
         freeRemaining: entitlement.freeRemaining,
         subscriptionStatus: entitlement.subscriptionStatus,
         requiresPaywall: entitlement.requiresPaywall,

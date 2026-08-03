@@ -42,8 +42,11 @@ export function getUnitState() {
 
 export function useUnit() {
     const config = useRuntimeConfig()
-    const enabled = computed(() => config.public.unitsEnabled === true)
-    enabledState = config.public.unitsEnabled === true
+    // Env overrides arrive as strings ('true'), not booleans.
+    const flagOn =
+        config.public.unitSwitchEnabled === true || config.public.unitSwitchEnabled === 'true'
+    const enabled = computed(() => flagOn)
+    enabledState = flagOn
     const cookie = useCookie('unit', { maxAge: 60 * 60 * 24 * 365, sameSite: 'lax' })
 
     if (import.meta.client && !initialized) {
@@ -51,10 +54,14 @@ export function useUnit() {
         if (enabled.value && isValidUnit(cookie.value)) {
             unitState.value = cookie.value
         }
-        // DB wins over the cookie once the user is known; reset the watch
-        // source on logout (user becomes {}).
+        // DB wins over the cookie once the user is known. Watch the SHARED
+        // asyncData cache (hydrated from the SSR payload, refreshed by
+        // setUser on every navigation) with the auth store as fallback —
+        // watching authStore alone misses updates tied to the cached
+        // payload (SPA login never re-calls setUser on the same page).
+        const { data: userData } = useNuxtData('user')
         watch(
-            () => authStore.getters.user.value?.preferredUnit,
+            () => userData.value?.preferredUnit ?? authStore.getters.user.value?.preferredUnit,
             (preferred) => {
                 if (!enabled.value) return
                 if (isValidUnit(preferred)) {
