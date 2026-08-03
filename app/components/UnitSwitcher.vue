@@ -54,15 +54,20 @@ function choose(code) {
     isOpen.value = false
 }
 
-// Convert the in-progress form values whenever the unit changes — manual
-// switch here, cookie init, or account preference synced from the DB. The
-// stores keep display-unit strings; converting avoids forcing the user to
-// retype sheet dimensions after a switch.
-watch(unit, (to, from) => {
-    if (!enabled.value || !to || !from || to === from) return
-    filesStore.actions.convertParamsUnits(from, to)
-    stripStore.actions.convertParamsUnits(from, to)
-})
+// Bring the in-progress form values to the current unit — on manual switch,
+// on cookie init, and on account preference synced from the DB. immediate
+// covers the load path (the unit is set BEFORE this watcher registers, so
+// without it no change event ever fires); the stores' paramsUnit tracking
+// keeps the sync idempotent across remounts.
+watch(
+    unit,
+    (to) => {
+        if (!enabled.value || !to) return
+        filesStore.actions.syncParamsToUnit(to)
+        stripStore.actions.syncParamsToUnit(to)
+    },
+    { immediate: true }
+)
 
 // Close on outside click / Escape.
 function onClickOutside(e) {

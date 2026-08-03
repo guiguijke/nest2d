@@ -190,12 +190,17 @@ function updateParams(param) {
 // Factory default strip height per unit (250 mm ~= 10 in).
 const FACTORY_HEIGHT = { mm: '250', inch: '10' }
 
+// The unit state.params is CURRENTLY expressed in — makes the sync
+// idempotent (re-applying the same unit never double-converts).
+let paramsUnit = 'mm'
+
 /**
- * Converts the in-progress height between units (called on unit switch).
- * A pristine factory value snaps to the other unit's factory default.
+ * Brings the in-progress height to `toUnit` (called on unit switch AND on
+ * init). A pristine factory value snaps to the other unit's factory default.
  */
-function convertParamsUnits(fromUnit, toUnit) {
-    if (!fromUnit || !toUnit || fromUnit === toUnit) return
+function syncParamsToUnit(toUnit) {
+    if (!toUnit || paramsUnit === toUnit) return
+    const fromUnit = paramsUnit
     const h = String(state.params.height)
     state.params = {
         ...state.params,
@@ -203,6 +208,7 @@ function convertParamsUnits(fromUnit, toUnit) {
             ? FACTORY_HEIGHT[toUnit]
             : convertInputValue(h, fromUnit, toUnit),
     }
+    paramsUnit = toUnit
 }
 async function nest(slug) {
     state.isNesting = true
@@ -318,7 +324,7 @@ export const stripStore = readonly({
         updateCount,
         updateRotation,
         updateParams,
-        convertParamsUnits,
+        syncParamsToUnit,
         nest,
     }
 })
