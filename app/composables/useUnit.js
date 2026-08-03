@@ -3,6 +3,7 @@ import {
     isValidUnit,
     unitLabel,
     fmtLength,
+    fmtLengthValue,
     fmtArea,
     mmToDisplay,
     displayToMm,
@@ -27,11 +28,22 @@ import {
  * input conversion at the UI boundary.
  */
 const unitState = ref(DEFAULT_UNIT)
+let enabledState = false
 let initialized = false
+
+/**
+ * Non-composable accessor for module-level stores (files.js / strip.js)
+ * whose computed request bodies run outside component setup. Honors the
+ * master switch: 'mm' whenever the feature is disabled.
+ */
+export function getUnitState() {
+    return enabledState ? unitState.value : DEFAULT_UNIT
+}
 
 export function useUnit() {
     const config = useRuntimeConfig()
     const enabled = computed(() => config.public.unitsEnabled === true)
+    enabledState = config.public.unitsEnabled === true
     const cookie = useCookie('unit', { maxAge: 60 * 60 * 24 * 365, sameSite: 'lax' })
 
     if (import.meta.client && !initialized) {
@@ -82,6 +94,7 @@ export function useUnit() {
         enabled,
         unitLabel: computed(() => unitLabel(unit.value)),
         fmtLength: (mm) => fmtLength(mm, unit.value),
+        fmtLengthValue: (mm, decimals) => fmtLengthValue(mm, unit.value, decimals),
         fmtArea: (mm2) => fmtArea(mm2, unit.value),
         mmToDisplay: (mm) => mmToDisplay(mm, unit.value),
         displayToMm: (v) => displayToMm(v, unit.value),

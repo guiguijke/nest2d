@@ -12,7 +12,7 @@
                 {{ fileModalData.name }}
             </div>
             <p v-if="minHeight != null" class="modal__height">
-                Min height: {{ minHeight }}mm
+                Min height: {{ minHeight }}
             </p>
         </div>
     </DialogWrapper>
@@ -20,6 +20,7 @@
 
 <script setup>
 const { getters } = stripStore;
+const { fmtLength } = useUnit()
 const fileModalData = computed(() => getters.fileModalData);
 
 const minHeight = computed(() => {
@@ -27,7 +28,7 @@ const minHeight = computed(() => {
     if (value == null) {
         return null
     }
-    return Math.round(value * 100) / 100
+    return fmtLength(value)
 })
 </script>
 

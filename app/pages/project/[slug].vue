@@ -19,7 +19,7 @@
             {{ nestRequestError }}
         </div>
         <div v-if="!sizesIsAvailable && !nestRequestError" class="content__error">
-            {{ t('project.minSheet', { w: biggestPartSizes.width, h: biggestPartSizes.height }) }}
+            {{ t('project.minSheet', { w: fmtLengthValue(biggestPartSizes.width), h: fmtLengthValue(biggestPartSizes.height), unit: unitLabel }) }}
         </div>
         <div v-if="!isNewParams" class="content__text">
             {{ t('project.changeToRegenerate') }}
@@ -36,6 +36,9 @@ definePageMeta({
 });
 
 const { t } = useLocale()
+// Part dims arrive in canonical mm; sheet params are display-unit strings —
+// displayToMm normalizes them for the fit check.
+const { unitLabel, fmtLengthValue, displayToMm } = useUnit()
 const $apiFetch = useApiFetch();
 
 const { getters } = globalStore;
@@ -95,8 +98,9 @@ const currentSheets = computed(() => {
 const sizesIsAvailable = computed(() => {
     const { width: partWidth, height: partHeight } = unref(biggestPartSizes);
     return unref(currentSheets).some((sheet) => {
-        const width = Math.max(Number(sheet.width) || 0, Number(sheet.height) || 0);
-        const height = Math.min(Number(sheet.width) || 0, Number(sheet.height) || 0);
+        // Sheet params hold display-unit strings; parts are mm. Compare in mm.
+        const width = Math.max(displayToMm(Number(sheet.width) || 0), displayToMm(Number(sheet.height) || 0));
+        const height = Math.min(displayToMm(Number(sheet.width) || 0), displayToMm(Number(sheet.height) || 0));
         return width >= partWidth && height >= partHeight;
     });
 })

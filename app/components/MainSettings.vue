@@ -22,17 +22,34 @@
                             ✕
                         </button>
                     </div>
+                    <div
+                        v-if="sheetPresets.length"
+                        class="sheet__presets presets"
+                    >
+                        <button
+                            v-for="preset in sheetPresets"
+                            :key="`${preset.width}x${preset.height}`"
+                            :class="[
+                                'presets__chip',
+                                { 'presets__chip--active': isPresetActive(sheet, preset) },
+                            ]"
+                            :title="t('settings.sheetPreset.hint')"
+                            @click="applyPreset(index, preset)"
+                        >
+                            {{ preset.width }}×{{ preset.height }}
+                        </button>
+                    </div>
                     <div class="size__line">
                         <InputField
                             :prefix="t('settings.width')"
-                            :suffix="t('settings.mm')"
+                            :suffix="unitLabel"
                             :modelValue="sheet.width"
                             @update:modelValue="(value) => updateSheet(index, { width: value })"
                             class="size__input"
                         />
                         <InputField
                             :prefix="t('settings.height')"
-                            :suffix="t('settings.mm')"
+                            :suffix="unitLabel"
                             :modelValue="sheet.height"
                             @update:modelValue="(value) => updateSheet(index, { height: value })"
                             class="size__input"
@@ -54,7 +71,7 @@
                 </button>
                 <InputField
                     :prefix="t('settings.spacing')"
-                    suffix="mm"
+                    :suffix="unitLabel"
                     v-model="localSpace"
                     class="size__input"
                 />
@@ -106,10 +123,22 @@
 </template>
 
 <script setup>
+    import { SHEET_PRESETS } from '~/utils/units'
+
     const { t } = useLocale()
+    const { unit, unitLabel, enabled: unitsEnabled } = useUnit()
     const { getters, actions } = filesStore
     const { updateParams, updateSheet, addSheet, removeSheet } = actions
     const params = computed(() => getters.params)
+
+    // Standard sheet sizes of the current unit (a US user picks 48×96 from a
+    // list, never types it). Hidden when the units feature is off.
+    const sheetPresets = computed(() => (unitsEnabled.value ? SHEET_PRESETS[unit.value] || [] : []))
+    const isPresetActive = (sheet, preset) =>
+        Number(String(sheet.width).replace(',', '.')) === preset.width &&
+        Number(String(sheet.height).replace(',', '.')) === preset.height
+    const applyPreset = (index, preset) =>
+        updateSheet(index, { width: String(preset.width), height: String(preset.height) })
 
     const sheets = computed(() => {
         const p = unref(params)
@@ -320,6 +349,40 @@
                 &:hover {
                     color: var(--error-border);
                 }
+            }
+        }
+    }
+
+    .presets {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+
+        &__chip {
+            padding: 5px 10px;
+            border: 1px solid var(--separator-secondary);
+            border-radius: 999px;
+            background-color: transparent;
+            color: var(--label-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition:
+                border-color 0.2s,
+                color 0.2s,
+                background-color 0.2s;
+
+            @media (hover: hover) {
+                &:hover {
+                    border-color: var(--accent-primary);
+                    color: var(--accent-primary);
+                }
+            }
+
+            &--active {
+                border-color: var(--accent-primary);
+                color: var(--accent-primary);
+                background-color: color-mix(in srgb, var(--accent-primary) 8%, transparent);
             }
         }
     }

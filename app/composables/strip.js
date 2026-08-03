@@ -1,5 +1,7 @@
 import { computed, reactive, readonly } from 'vue'
 import { processingType } from '~~/constants/files.constants'
+import { convertInputValue, displayToMm } from '~/utils/units'
+import { getUnitState } from '~/composables/useUnit'
 
 const state = reactive({
     projectsList: null,
@@ -29,11 +31,13 @@ const state = reactive({
                 rotation: file.rotation || '[0]'
             }))
     ),
+    // params.height holds the DISPLAY-unit string — convert to canonical mm
+    // at the API boundary.
     requestBody: computed(() =>
         JSON.stringify({
             files: state.filesToNest,
             params: {
-                height: Number(state.params.height)
+                height: displayToMm(Number(state.params.height), getUnitState())
             }
         })
     ),
@@ -182,6 +186,24 @@ async function getStripResults(slug) {
 function updateParams(param) {
     state.params = { ...state.params, ...param }
 }
+
+// Factory default strip height per unit (250 mm ~= 10 in).
+const FACTORY_HEIGHT = { mm: '250', inch: '10' }
+
+/**
+ * Converts the in-progress height between units (called on unit switch).
+ * A pristine factory value snaps to the other unit's factory default.
+ */
+function convertParamsUnits(fromUnit, toUnit) {
+    if (!fromUnit || !toUnit || fromUnit === toUnit) return
+    const h = String(state.params.height)
+    state.params = {
+        ...state.params,
+        height: h === FACTORY_HEIGHT[fromUnit]
+            ? FACTORY_HEIGHT[toUnit]
+            : convertInputValue(h, fromUnit, toUnit),
+    }
+}
 async function nest(slug) {
     state.isNesting = true
     try {
@@ -261,11 +283,12 @@ export const stripStore = readonly({
             if (required == null) {
                 return false
             }
-            const height = Number(state.params.height)
-            if (!Number.isFinite(height) || height <= 0) {
+            // minHeight comes from the server in canonical mm — compare in mm.
+            const heightMm = displayToMm(Number(state.params.height), getUnitState())
+            if (!Number.isFinite(heightMm) || heightMm <= 0) {
                 return false
             }
-            return height < required
+            return heightMm < required
         }),
         isNewParams: computed(() => state.requestBody !== state.lastParams),
         isNesting: computed(() => state.isNesting),
@@ -295,6 +318,7 @@ export const stripStore = readonly({
         updateCount,
         updateRotation,
         updateParams,
+        convertParamsUnits,
         nest,
     }
 })

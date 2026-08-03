@@ -71,15 +71,25 @@ function trimFixed(v, decimals) {
 }
 
 /**
- * Length for display (includes the unit suffix).
- * mm: 0.1 resolution. inch: 0.001" resolution (0.0254 mm — far below any
- * real kerf, so display rounding has no business impact).
+ * Length VALUE for display, without the unit suffix (for "{w} × {h} {unit}"
+ * strings). mm: 0.1 resolution; inch: 0.001" resolution (0.0254 mm — far
+ * below any real kerf, so display rounding has no business impact).
+ * Pass `decimals` to override (e.g. 2 for sub-mm spacing gaps).
  */
-export function fmtLength(mm, unit) {
+export function fmtLengthValue(mm, unit, decimals) {
     const v = mmToDisplay(mm, unit)
     if (!Number.isFinite(v)) return '—'
-    if (unit === 'inch') return `${trimFixed(v, 3)}"`
-    return `${trimFixed(v, 1)} mm`
+    const d = decimals ?? (unit === 'inch' ? 3 : 1)
+    return trimFixed(v, d)
+}
+
+/**
+ * Length for display (includes the unit suffix).
+ */
+export function fmtLength(mm, unit) {
+    const s = fmtLengthValue(mm, unit)
+    if (s === '—') return s
+    return unit === 'inch' ? `${s}"` : `${s} mm`
 }
 
 /**

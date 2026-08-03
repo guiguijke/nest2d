@@ -12,8 +12,8 @@
                 {{ resultModalData.slug }}.dxf
             </div>
             <div class="modal__meta">
-                <span class="modal__tag">H {{ resultModalData.height }}mm</span>
-                <span v-if="resultModalData.width != null" class="modal__tag">W {{ roundedWidth }}mm</span>
+                <span class="modal__tag">H {{ fmtLength(resultModalData.height) }}</span>
+                <span v-if="resultModalData.width != null" class="modal__tag">W {{ roundedWidth }}</span>
                 <span class="modal__tag">{{ resultModalData.fileCount }} files</span>
             </div>
             <div class="controls">
@@ -39,7 +39,8 @@ const { t } = useLocale()
 const { getters } = stripStore;
 const resultModalData = computed(() => getters.resultModalData);
 
-const roundedWidth = computed(() => Math.round((unref(resultModalData)?.width ?? 0) * 100) / 100);
+const { fmtLength } = useUnit()
+const roundedWidth = computed(() => fmtLength(unref(resultModalData)?.width ?? 0));
 </script>
 
 <style lang="scss" scoped>
