@@ -1,6 +1,7 @@
 import { createError } from 'h3'
 import { connectDB } from '~~/server/db/mongo'
 import { FREE_NESTING_LIMIT } from '~~/server/features/payment/const'
+import { DEMO_NESTING_LIMIT } from '~~/shared/constants/demo.constants'
 import { ACTIVE_SUBSCRIPTION_STATUSES, getSubscription, mapSubscription } from '~~/server/features/payment/stripe'
 import logger from './logger'
 
@@ -287,4 +288,74 @@ export async function assertCanNest(userId) {
         statusMessage: 'Subscription required',
         data: { reason: 'paywall' },
     })
+}
+
+/**
+ * Gate for DEMO nestings (jobs launched from the shared read-only demo
+ * project). Completely separate from the regular free quota: demo nestings
+ * have their own monthly allowance (demoNestingUsed / demoNestingPeriod,
+ * same lazy-reset mechanism) so newcomers can always try the engine at full
+ * power without spending their own free nestings — and abuse stays bounded.
+ *
+ * The consumed unit is returned so the caller persists it on the job — the
+ * workers refund it if the nesting fails.
+ *
+ * @param {string} userId
+ * @returns {Promise<{type: 'demo'}>}
+ */
+export async function assertCanNestDemo(userId) {
+    const db = await connectDB()
+    const user = await db
+        .collection('users')
+        .findOne(
+            { id: userId },
+            { projection: { id: 1, demoNestingUsed: 1, demoNestingPeriod: 1, emailVerified: 1, provider: 1 } }
+        )
+
+    if (!user) {
+        throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    }
+
+    // Same anti-fake rule as regular nestings.
+    if (user.provider === 'local' && user.emailVerified === false) {
+        throw createError({ statusCode: 403, statusMessage: 'email_not_verified' })
+    }
+
+    await db
+        .collection('users')
+        .updateOne(
+            { id: userId, demoNestingPeriod: { $ne: currentFreePeriod() } },
+            { $set: { demoNestingUsed: 0, demoNestingPeriod: currentFreePeriod() } },
+        )
+
+    const consumed = await db
+        .collection('users')
+        .findOneAndUpdate(
+            { id: userId, demoNestingUsed: { $lt: DEMO_NESTING_LIMIT } },
+            { $inc: { demoNestingUsed: 1 } },
+        )
+
+    if (consumed) {
+        return { type: 'demo' }
+    }
+
+    throw createError({
+        statusCode: 402,
+        statusMessage: 'Demo nesting quota reached',
+        data: { reason: 'demo_quota' },
+    })
+}
+
+/**
+ * Read-only demo quota summary for UI (demo banner).
+ * @param {string} userId
+ * @returns {Promise<{demoRemaining: number}>}
+ */
+export async function getDemoEntitlement(userId) {
+    const db = await connectDB()
+    const user = await db
+        .collection('users')
+        .findOne({ id: userId }, { projection: { demoNestingUsed: 1, demoNestingPeriod: 1 } })
+    const used = user?.demoNestingPeriod === currentFreePeriod() ? user?.demoNestingUsed || 0 : 0
+    return { demoRemaining: Math.max(0, DEMO_NESTING_LIMIT - used) }
 }
