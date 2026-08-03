@@ -12,6 +12,7 @@ from shapely.geometry import Point
 import time
 
 from core.geometry.build_geometry import build_geometry
+from worker_common.colors import pick_colors
 from worker_common.crypto import (
     encrypt_polygon_parts,
     get_dek,
@@ -185,8 +186,10 @@ def _close_polygon_from_dxf(doc, logger_tag: str):
         raise Exception("Closed parts is 0")
     
     polygon_parts = []
-    for part in closed_parts:
-        mongo_dict = part.to_mongo_dict()
+    # One random display color per part, sampled without replacement first so
+    # parts of the same file look distinct in the viewer and result SVG.
+    for part, color in zip(closed_parts, pick_colors(len(closed_parts))):
+        mongo_dict = part.to_mongo_dict(color=color)
         if mongo_dict is not None:
             polygon_parts.append(mongo_dict)
 

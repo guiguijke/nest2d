@@ -83,7 +83,7 @@ class ClosedPolygon:
     geometry: Polygon
     handles: List[str]
 
-    def to_mongo_dict(self) -> Dict[str, List[List[float]]] :
+    def to_mongo_dict(self, color: str | None = None) -> Dict[str, List[List[float]]] :
         if not isinstance(self.geometry, Polygon):
             raise TypeError("The 'geometry' attribute must be a shapely Polygon.")
 
@@ -110,12 +110,20 @@ class ClosedPolygon:
 
             exterior_coords = reduced
 
-        return {
+        doc = {
             'coordinates': exterior_coords,
             'handles': self.handles,
             'width': width,
             'height': height
         }
+
+        # Random display color assigned at import (screen rendering only).
+        # Older documents lack the key — readers fall back to
+        # worker_common.colors.color_for_part(slug, index).
+        if color is not None:
+            doc['color'] = color
+
+        return doc
 
 
 def build_geometry(
