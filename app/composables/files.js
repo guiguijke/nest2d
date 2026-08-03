@@ -12,6 +12,9 @@ const state = reactive({
     projectSlug: null,
     projectName: '',
     lastParams: '',
+    // Set when a demo nesting hits the monthly demo quota — shown on the
+    // project page instead of the paywall (demo 402s are reason=demo_quota).
+    demoQuotaReached: false,
     params: {
         sheets: [{ width: '1000', height: '2000', count: '100' }],
         space: '0.1',
@@ -149,7 +152,9 @@ function setProjectFiles(files, path) {
     )
     state.projectFiles = files.map((file) => ({
         ...file,
-        count: countBySlug.has(file.slug) ? countBySlug.get(file.slug) : 1,
+        // Demo files carry their suggested quantity from the seed; anything
+        // else starts at 1 (or keeps the user's previous pick on reload).
+        count: countBySlug.has(file.slug) ? countBySlug.get(file.slug) : (file.demoQuantity ?? 1),
         rotation: rotationBySlug.has(file.slug) ? rotationBySlug.get(file.slug) : null
     }))
     state.projectSlug = path ?? null
@@ -307,6 +312,7 @@ function updateRotation(value, index) {
 async function nest(slug) {
     try {
         try {
+            state.demoQuotaReached = false
             const data = await $fetch(API_ROUTES.NEST(slug), {
                 method: 'POST',
                 headers: {
@@ -320,6 +326,12 @@ async function nest(slug) {
             await authStore.actions.setUser()
         } catch (error) {
             if (error?.response?.status === 402) {
+                // Demo nestings draw from their own monthly quota — show the
+                // dedicated message, never the subscription paywall.
+                if (error?.data?.data?.reason === 'demo_quota') {
+                    state.demoQuotaReached = true
+                    return
+                }
                 // Skip the paywall dialog when paid plans are temporarily
                 // disabled — it would only offer a "Coming soon" CTA.
                 const paidDisabled = useRuntimeConfig().public.paidPlansDisabled === true
@@ -358,6 +370,7 @@ export const filesStore = readonly({
             state.filesStatusDone.reduce((acc, curr) => acc + curr.count, 0)
         ),
         isNewParams: computed(() => state.requestBody !== state.lastParams),
+        demoQuotaReached: computed(() => state.demoQuotaReached),
         params: computed(() => state.params),
         nestRequestError: computed(() => {
             if (filesStore.getters.filesCount < 1) {

@@ -3,12 +3,13 @@
         :class="projectClasses"
         class="project"
     >
-        <NuxtLink 
+        <NuxtLink
             :to="`/project/${project.slug}`"
             @click="getProject(API_ROUTES.PROJECT(project.slug))"
             class="project__label"
         >
-            {{ project.name }}
+            {{ projectName }}
+            <span v-if="project.isDemo" class="project__badge">{{ t('demo.badge') }}</span>
         </NuxtLink>
         <div class="project__info info">
             <p class="info__time">
@@ -43,6 +44,10 @@ const { getProject } = actions;
 const projectClasses = computed(() => ({
     'project--active': unref(project).slug === route.params.slug
 }))
+// The shared demo project carries a generic DB name — localize it.
+const projectName = computed(() =>
+    project.isDemo ? t('demo.projectName') : project.name
+)
 const timeAgo = computed(() => {
     const past = new Date(project.createdAt);
     const diffMs = unref(now) - past;
@@ -115,6 +120,20 @@ onBeforeUnmount(() => {
             bottom: 0;
             right: 0;
         }
+    }
+
+    &__badge {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: var(--accent-primary);
+        color: var(--background-primary);
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        vertical-align: middle;
     }
 
     &__btn {

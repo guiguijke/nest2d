@@ -1,6 +1,6 @@
 <template>
     <div class="files">
-        <DxfUpload @files="addFiles" />
+        <DxfUpload v-if="!readonly" @files="addFiles" />
         <template
             v-for="(file, fileIndex) in projectFiles"
             :key="file.slug"
@@ -34,6 +34,11 @@ defineProps({
     projectFiles: {
         type: Array,
         required: true
+    },
+    // Read-only mode (shared demo project): no upload dropzone.
+    readonly: {
+        type: Boolean,
+        default: false
     }
 })
 
