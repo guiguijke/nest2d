@@ -3,6 +3,9 @@ import { fileURLToPath } from 'node:url'
 
 // Sass requires forward-slash paths in @import, even on Windows.
 const scssDir = fileURLToPath(new URL('./app/assets/scss/', import.meta.url)).replace(/\\/g, '/')
+// Absolute path: nitro resolves serverAssets.dir against its own srcDir
+// (<root>/server), so a relative './server/...' would point nowhere.
+const demoSeedDir = fileURLToPath(new URL('./server/seed/demo', import.meta.url))
 
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
@@ -182,7 +185,7 @@ export default defineNuxtConfig({
         // server/seed/demo): bundled into .output so the seed plugin works
         // in the production image (which only ships .output).
         serverAssets: [
-            { baseName: 'demo-seed', dir: './server/seed/demo' },
+            { baseName: 'demo-seed', dir: demoSeedDir },
         ],
         routeRules: {
             '/blog': { redirect: '/changelog' },

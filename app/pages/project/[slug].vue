@@ -1,12 +1,23 @@
 <template>
     <div class="content">
-        <MainTitle :label="t('project.files', { n: filesCount })" class="content__title" />
-        <ProjectFiles :projectFiles="projectFiles" @addFiles="addFiles" class="content__files" />
+        <MainTitle :label="pageTitle" class="content__title" />
+        <div v-if="isDemo" class="demo-banner">
+            <div class="demo-banner__head">
+                <span class="demo-banner__badge">{{ t('demo.badge') }}</span>
+                <span class="demo-banner__name">{{ t('demo.projectName') }}</span>
+            </div>
+            <p class="demo-banner__text">
+                {{ t('demo.banner', { n: DEMO_LIMIT }) }}
+            </p>
+            <p class="demo-banner__params">{{ demoParamsText }}</p>
+            <p class="demo-banner__remaining">{{ t('demo.remaining', { n: demoRemaining, total: DEMO_LIMIT }) }}</p>
+        </div>
+        <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
         <section v-if="liveResult" class="content__live live-panel">
             <h3 class="live-panel__title">{{ t('live.title') }}</h3>
             <LiveNestingView :result="liveResult" />
         </section>
-        <MainSettings />
+        <MainSettings v-if="!isDemo" />
         <MainButton :theme="themeType.primary" :label="btnLabel" :isDisable="btnIsDisable" trackingTag="project_nest_start"
             @click="startsNest" class="content__btn">
             <template v-if="runningJob">
@@ -14,7 +25,10 @@
                 {{ t('nest.computing') }}
             </template>
         </MainButton>
-        <FreeNestBanner />
+        <FreeNestBanner v-if="!isDemo" />
+        <div v-if="isDemo && demoQuotaReached" class="content__error">
+            {{ t('demo.quotaEmpty') }}
+        </div>
         <div v-if="nestRequestError" class="content__error">
             {{ nestRequestError }}
         </div>
@@ -29,6 +43,11 @@
 
 <script setup async>
 import { themeType } from "~~/constants/theme.constants";
+import {
+    DEMO_NESTING_LIMIT,
+    DEMO_SHEETS,
+    DEMO_SPACE_MM,
+} from "~~/shared/constants/demo.constants";
 
 definePageMeta({
     layout: "auth",
@@ -65,14 +84,35 @@ const { setProjectFiles, setProjectName, nest } = actions;
 const filesCount = computed(() => filesGetters.filesCount);
 const isNewParams = computed(() => filesGetters.isNewParams);
 const nestRequestError = computed(() => filesGetters.nestRequestError);
+const demoQuotaReached = computed(() => filesGetters.demoQuotaReached);
 const route = useRoute();
 const slug = route.params.slug;
 const apiPath = API_ROUTES.PROJECT(slug);
 const data = filesGetters.projectFiles || await $apiFetch(apiPath);
 
+// Shared read-only demo project: server-imposed sheet/params, files are not
+// editable (quantities still are), and nestings draw from the user's own
+// monthly demo allowance instead of the regular free quota.
+const isDemo = computed(() => Boolean(data.isDemo));
+const DEMO_LIMIT = DEMO_NESTING_LIMIT;
+const demoSheet = DEMO_SHEETS[0];
+const demoParamsText = computed(() => t('demo.params', {
+    w: fmtLengthValue(demoSheet.width),
+    h: fmtLengthValue(demoSheet.height),
+    space: fmtLengthValue(DEMO_SPACE_MM),
+    unit: unitLabel.value,
+}));
+const user = computed(() => unref(authStore.getters.user) || {});
+const demoRemaining = computed(() => Number(user.value.demoRemaining ?? DEMO_LIMIT));
+
+const pageTitle = computed(() => {
+    return isDemo.value
+        ? `${t('demo.projectName')} · ${t('project.files', { n: unref(filesCount) })}`
+        : t('project.files', { n: unref(filesCount) });
+});
 
 const projectFiles = computed(() => {
-    return filesGetters.projectFiles || data.files.map(file => ({ ...file, count: 1 }))
+    return filesGetters.projectFiles || data.files.map(file => ({ ...file, count: file.demoQuantity ?? 1 }))
 })
 const biggestPartSizes = computed(() => {
     const parts = projectFiles.value
@@ -95,7 +135,10 @@ const currentSheets = computed(() => {
     return [{ width: p.widthPlate ?? 0, height: p.heightPlate ?? 0 }];
 })
 // A part fits if it fits inside at least one sheet type, in either orientation.
+// Demo: always true — the demo sheet is imposed server-side and every demo
+// part was authored to fit it (client sheet params are hidden and ignored).
 const sizesIsAvailable = computed(() => {
+    if (unref(isDemo)) return true;
     const { width: partWidth, height: partHeight } = unref(biggestPartSizes);
     return unref(currentSheets).some((sheet) => {
         // Sheet params hold display-unit strings; parts are mm. Compare in mm.
@@ -193,6 +236,58 @@ const startsNest = () => {
     :deep(.live__sheet) {
         min-height: 380px;
         max-height: 60vh;
+    }
+}
+
+.demo-banner {
+    margin: 0 auto 24px;
+    padding: 14px 18px;
+    max-width: 640px;
+    text-align: left;
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--accent-primary) 7%, transparent);
+
+    &__head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 6px;
+    }
+
+    &__badge {
+        padding: 2px 9px;
+        border-radius: 999px;
+        background: var(--accent-primary);
+        color: var(--background-primary);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    &__name {
+        font-weight: 700;
+        color: var(--label-primary);
+    }
+
+    &__text {
+        font-size: 13px;
+        color: var(--label-secondary);
+    }
+
+    &__params {
+        margin-top: 6px;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: var(--label-tertiary);
+    }
+
+    &__remaining {
+        margin-top: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--accent-primary);
     }
 }
 </style>
