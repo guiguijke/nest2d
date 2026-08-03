@@ -29,12 +29,15 @@ export default defineEventHandler(async (event) => {
         id: user.id,
         name: user.name,
         email: user.email,
+        provider: user.provider,
         avatar: user.avatarUrl || '/api/user/avatar',
         isStripFeatureEnable: isStripFeatureEnable,
         // Lazy default: accounts created before the units feature have no
         // preferredUnit field — they are metric.
         preferredUnit: user.preferredUnit === 'inch' ? 'inch' : 'mm',
         unitsEnabled,
+        // null = never asked (first-login prompt eligible), true/false = answered.
+        newsletterOptIn: user.newsletterOptIn ?? null,
         freeRemaining: entitlement.freeRemaining,
         subscriptionStatus: entitlement.subscriptionStatus,
         requiresPaywall: entitlement.requiresPaywall,

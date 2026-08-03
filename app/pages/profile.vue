@@ -19,7 +19,9 @@
         </div>
         <UserStats class="profile__stats" />
         <Subscription />
+        <NewsletterSettings />
         <VaultSettings v-if="isStripFeatureEnable" />
+        <DeleteAccount />
     </div>
 </template>
 <script setup>

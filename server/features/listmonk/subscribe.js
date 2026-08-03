@@ -46,3 +46,33 @@ export async function subscribeToNewsletter(event, { email, name }) {
         return false
     }
 }
+
+/**
+ * Unsubscribe via listmonk's blocklist endpoint: the record is kept but
+ * blocklisted (no more campaigns), which is the listmonk-idiomatic opt-out.
+ */
+export async function unsubscribeFromNewsletter(event, { email }) {
+    const config = useRuntimeConfig(event)
+    const { listmonkUrl, listmonkUser, listmonkPassword } = config
+
+    if (!listmonkUrl || !listmonkUser || !listmonkPassword) {
+        return false
+    }
+
+    try {
+        const auth = Buffer.from(`${listmonkUser}:${listmonkPassword}`).toString('base64')
+        await $fetch(`${listmonkUrl.replace(/\/$/, '')}/api/subscribers/blocklist`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Basic ${auth}`,
+            },
+            body: { emails: [email] },
+        })
+        logger.info(`Newsletter opt-out recorded for ${email}`)
+        return true
+    } catch (err) {
+        logger.warn(`listmonk opt-out failed for ${email}:`, err?.data || err?.message || err)
+        return false
+    }
+}
