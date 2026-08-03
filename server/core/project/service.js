@@ -8,6 +8,7 @@ import {
 } from "~~/server/utils/strings";
 import { assertCanNest } from "~~/server/utils/entitlement";
 import { requireFileAccess, resolvePolygonParts } from "~~/server/utils/vault";
+import { resolvePartColor } from "~~/server/utils/colors";
 
 /**
  * Shared services for the bin (workspace projects) and strip domains. Every
@@ -184,9 +185,14 @@ const mapBinFileToUi = async (userId, file) => {
     svgUrl: completed ? `/api/files/project/svg/${file.svgFileSlug}` : null,
     dxfUrl: completed ? `/api/files/project/dxf/${file.slug}` : null,
     processingStatus: mapProcessingStatus(file.processingStatus),
-    parts: parts.map((part) => ({
+    // Demo project only: suggested initial quantity (undefined elsewhere).
+    demoQuantity: file.demoQuantity,
+    parts: parts.map((part, index) => ({
       width: Math.round(part.width * 10) / 10,
       height: Math.round(part.height * 10) / 10,
+      // Display color persisted at import; deterministic fallback for
+      // legacy files so the list matches the live view and result SVG.
+      color: resolvePartColor(part, file.slug, index),
     })),
   };
 };

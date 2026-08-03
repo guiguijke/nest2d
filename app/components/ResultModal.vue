@@ -51,6 +51,27 @@
                     class="controls__next"
                 />
             </div>
+            <div
+                v-if="hasColorPreview"
+                class="view-toggle"
+            >
+                <button
+                    class="view-toggle__btn"
+                    :class="{ 'view-toggle__btn--active': viewMode === 'color' }"
+                    tracking-tag="result_view_color"
+                    @click="selectViewMode('color')"
+                >
+                    {{ t('result.colorView') }}
+                </button>
+                <button
+                    class="view-toggle__btn"
+                    :class="{ 'view-toggle__btn--active': viewMode === 'dxf' }"
+                    tracking-tag="result_view_dxf"
+                    @click="selectViewMode('dxf')"
+                >
+                    {{ t('result.dxfView') }}
+                </button>
+            </div>
             <div class="modal__wrapper">
                 <LiveNestingView
                     v-if="isInProgress && resultModalData.liveLayout"
@@ -65,7 +86,16 @@
                     Err
                 </div>
                 <template v-else-if="resultModalData.isMultiSheet">
+                    <img
+                        v-if="showColorPreview"
+                        :key="`svg-${activeAlt}-${activePart}`"
+                        :src="currentSvgs[activePart]"
+                        :class="displayClasses"
+                        class="modal__display modal__svg-preview"
+                        alt="colored sheet preview"
+                    />
                     <DxfViewerComponent
+                        v-else
                         :key="`dxf-${activeAlt}-${activePart}-${isFullScreen}`"
                         :dxfUrl="currentDxfs[activePart]"
                         :isFullScreen="isFullScreen"
@@ -84,6 +114,14 @@
                         trackingTag="result_part_download"
                     />
                 </template>
+                <img
+                    v-else-if="showColorPreview"
+                    :key="`svg-${activeAlt}-0`"
+                    :src="currentSvgs[0]"
+                    :class="displayClasses"
+                    class="modal__display modal__svg-preview"
+                    alt="colored sheet preview"
+                />
                 <DxfViewerComponent
                     v-else
                     :key="`dxf-${activeAlt}-0-${isFullScreen}`"
@@ -251,6 +289,7 @@ watch(resultDialog, (isOpen) => {
     if (isOpen) {
         activePart.value = 0
         activeAlt.value = 0
+        viewMode.value = 'color'
     }
 })
 
@@ -269,6 +308,25 @@ const selectAlt = (altId) => {
     activeAlt.value = altId
     activePart.value = 0
     trackEvent('result_alt_selected', { altId })
+}
+
+// Colored per-part SVG preview (default) vs raw DXF inspection view. The
+// SVGs are generated server-side with the same colors as the live view; the
+// downloadable production DXF is never recolored.
+const viewMode = ref('color') // 'color' | 'dxf'
+const currentSvgs = computed(() => {
+    const alts = unref(alternatives)
+    if (alts.length > 0 && alts[unref(activeAlt)]) {
+        return alts[unref(activeAlt)].svgs || []
+    }
+    return unref(resultModalData).svgs || []
+})
+// Legacy jobs have no server SVGs — they silently stay on the DXF viewer.
+const hasColorPreview = computed(() => !unref(isInProgress) && !unref(isHaveError) && unref(currentSvgs).length > 0)
+const showColorPreview = computed(() => unref(hasColorPreview) && unref(viewMode) === 'color')
+const selectViewMode = (mode) => {
+    viewMode.value = mode
+    trackEvent('result_view_mode', { mode })
 }
 
 // ---- nesting report (measured verification, per active alternative) ------
@@ -379,6 +437,15 @@ const updatePartPage = (partIndex) => {
         cursor: pointer;
     }
 
+    // Colored sheet preview (server SVG, per-part colors): keeps its own
+    // white CAD background, never upscaled beyond its box.
+    &__svg-preview {
+        object-fit: contain;
+        background: #ffffff;
+        border: 1px solid #d5dbe3;
+        border-radius: 8px;
+    }
+
     &__display,
     &__placeholder {
         max-width: 100%;
@@ -449,6 +516,37 @@ const updatePartPage = (partIndex) => {
         margin-left: auto;
         margin-right: auto;
         margin-top: 8px;
+    }
+}
+
+.view-toggle {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin: 0 auto 10px;
+
+    &__btn {
+        padding: 5px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--separator-secondary);
+        background-color: var(--fill-tertiary);
+        color: var(--label-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: border-color 0.3s, background-color 0.3s;
+
+        @media (hover:hover) {
+            &:hover {
+                border-color: var(--accent-primary);
+            }
+        }
+
+        &--active {
+            color: var(--background-primary);
+            background-color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
     }
 }
 

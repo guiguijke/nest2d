@@ -44,12 +44,13 @@
                     :class="svgRowClasses"
                     class="result__svg-row"
                 >
-                    <SvgDisplay 
-                        v-for="(svg, svgIndex) in result.svgs" 
-                        :key="`svg-${svgIndex}`" 
+                    <SvgDisplay
+                        v-for="(svg, svgIndex) in result.svgs"
+                        :key="`svg-${svgIndex}`"
                         :src="svg"
                         :size="sizeType.s"
-                        class="result__display" 
+                        class="result__display"
+                        preserve-colors
                     />
                 </div>
             </template>

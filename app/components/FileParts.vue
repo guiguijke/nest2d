@@ -10,6 +10,11 @@
                     :key="index"
                     class="parts__item"
                 >
+                    <span
+                        v-if="part.color"
+                        class="parts__dot"
+                        :style="{ backgroundColor: part.color }"
+                    />
                     {{ fmtLengthValue(part.width) }} x {{ fmtLengthValue(part.height) }} {{ unitLabel }}
                 </li>
             </ul>
@@ -53,6 +58,19 @@ const partsTitle = computed(() => {
 
     &__item {
         font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    // Per-part display color assigned at import — matches the live view and
+    // the colored result preview.
+    &__dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
     }
 }
 </style>
