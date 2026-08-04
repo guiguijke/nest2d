@@ -13,6 +13,7 @@ const nav = [
   { to: '/jobs', label: 'Jobs', icon: '⚙️' },
   { to: '/geo', label: 'Géographie', icon: '🌍' },
   { to: '/payments', label: 'Paiements', icon: '💳' },
+  { to: '/promo-codes', label: 'Codes promo', icon: '🎟️' },
   { to: '/support', label: 'Support', icon: '💬' },
   { to: '/logs', label: 'Logs (avancé)', icon: '🔧' },
 ]
