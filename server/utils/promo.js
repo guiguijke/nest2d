@@ -3,16 +3,29 @@ import { createError } from 'h3'
 /**
  * Partner promo codes ("JD20" → 20 free nestings/month instead of 10).
  *
- * Model: one code = a raised free monthly quota, snapshot on the user at
- * redeem time (users.promo = { code, freeNestingLimit, redeemedAt }). Later
- * edits/deactivation/expiration of the code never affect existing
- * beneficiaries — expiration and maxRedemptions only gate NEW redeems
- * (partnership promise). One code per user (v1).
+ * Model: one code = a raised free monthly quota for the duration of a
+ * campaign. The campaign end date (promoCodes.expiresAt) is snapshot on the
+ * user at redeem time (users.promo.expiresAt) and the admin can RENEW the
+ * campaign: setting a new expiresAt on the code propagates to every
+ * beneficiary (admin PATCH route). A code without expiresAt is unlimited.
+ * When a user's promo expires, their quota falls back to the default and
+ * they may redeem another code (one ACTIVE code per account).
  *
  * Stripe is NOT involved: this is not a discount, just a bigger free quota.
  */
 
 export const PROMO_CODE_REGEX = /^[A-Z0-9]{3,20}$/
+
+/**
+ * Whether a users.promo snapshot currently grants the raised quota.
+ * @param {any} promo users.promo subdocument (may be null/undefined)
+ * @returns {boolean}
+ */
+export function isPromoActive(promo) {
+    if (!promo) return false
+    if (!Number.isInteger(promo.freeNestingLimit) || promo.freeNestingLimit <= 0) return false
+    return !promo.expiresAt || new Date(promo.expiresAt) > new Date()
+}
 
 /**
  * @param {any} raw
@@ -31,14 +44,15 @@ export function normalizePromoCode(raw) {
  *  - 404 promo_invalid  unknown code
  *  - 410 promo_expired  inactive or expired code
  *  - 409 promo_maxed    maxRedemptions reached
- *  - 409 promo_already  the user already redeemed a (different) code
+ *  - 409 promo_already  the user already has an ACTIVE promo (an expired one
+ *                       can be replaced by a new code)
  *
  * No transaction (Mongo standalone): the guarded $inc on promoCodes is the
- * atomic gate for new redeems; the users $set is guarded by
- * `promo: { $exists: false }` with a compensating decrement on race. The
- * documented residual race is two concurrent redeems of the LAST allowed
- * redemption both passing the guard → redemptionCount may exceed
- * maxRedemptions by at most 1 (accepted, see specs/90-decisions.md).
+ * atomic gate for new redeems; the users $set is guarded by "no promo OR
+ * expired promo" with a compensating decrement on race. The documented
+ * residual race is two concurrent redeems of the LAST allowed redemption
+ * both passing the guard → redemptionCount may exceed maxRedemptions by at
+ * most 1 (accepted, see specs/90-decisions.md).
  *
  * @param {import('mongodb').Db} db
  * @param {any} user user document carrying at least { id, promo }
@@ -50,7 +64,7 @@ export async function redeemPromoCode(db, user, rawCode) {
     if (!code || !PROMO_CODE_REGEX.test(code)) {
         throw createError({ statusCode: 400, statusMessage: 'promo_invalid' })
     }
-    if (user?.promo) {
+    if (isPromoActive(user?.promo)) {
         throw createError({ statusCode: 409, statusMessage: 'promo_already' })
     }
 
@@ -98,23 +112,26 @@ export async function redeemPromoCode(db, user, rawCode) {
         throw createError({ statusCode: 409, statusMessage: 'promo_maxed' })
     }
 
-    // Snapshot the limit on the user. The $exists guard turns a concurrent
-    // double-redeem (same user, two tabs) into a clean refusal instead of a
-    // silent overwrite.
-    const assigned = await db
-        .collection('users')
-        .updateOne(
-            { id: user.id, promo: { $exists: false } },
-            {
-                $set: {
-                    promo: {
-                        code,
-                        freeNestingLimit: doc.freeNestingLimit,
-                        redeemedAt: now,
-                    },
+    // Snapshot the limit AND the campaign end date on the user (the admin
+    // can extend it later for every beneficiary at once). The guard turns a
+    // concurrent double-redeem — or a re-redeem while the previous promo is
+    // still active — into a clean refusal instead of a silent overwrite.
+    const assigned = await db.collection('users').updateOne(
+        {
+            id: user.id,
+            $or: [{ promo: { $exists: false } }, { 'promo.expiresAt': { $lte: now } }],
+        },
+        {
+            $set: {
+                promo: {
+                    code,
+                    freeNestingLimit: doc.freeNestingLimit,
+                    redeemedAt: now,
+                    expiresAt: doc.expiresAt ?? null,
                 },
             },
-        )
+        },
+    )
     if (assigned.modifiedCount === 0) {
         await promoCodes.updateOne({ code }, { $inc: { redemptionCount: -1 } })
         throw createError({ statusCode: 409, statusMessage: 'promo_already' })

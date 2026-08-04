@@ -1,6 +1,7 @@
 import { createError } from 'h3'
 import { connectDB } from '~~/server/db/mongo'
 import { FREE_NESTING_LIMIT } from '~~/server/features/payment/const'
+import { isPromoActive } from '~~/server/utils/promo'
 import { DEMO_NESTING_LIMIT } from '~~/shared/constants/demo.constants'
 import { ACTIVE_SUBSCRIPTION_STATUSES, getSubscription, mapSubscription } from '~~/server/features/payment/stripe'
 import logger from './logger'
@@ -30,17 +31,17 @@ async function resetFreeQuotaIfNewPeriod(db, userId) {
 /**
  * The user's effective free monthly nesting limit. A redeemed partner promo
  * code snapshots a raised limit on the user document (users.promo, set by
- * /api/user/promo/redeem); everyone else gets the default FREE_NESTING_LIMIT.
+ * /api/user/promo/redeem) for the duration of the campaign — once
+ * promo.expiresAt is past, the quota falls back to FREE_NESTING_LIMIT.
  *
  * RULE: never read FREE_NESTING_LIMIT directly for a user-specific decision —
  * always go through this resolver (AGENTS.md, Server / quotas).
  *
- * @param {any} user user document (or projection carrying promo.freeNestingLimit)
+ * @param {any} user user document (or projection carrying promo)
  * @returns {number}
  */
 export function effectiveFreeLimit(user) {
-    const limit = user?.promo?.freeNestingLimit
-    return Number.isInteger(limit) && limit > 0 ? limit : FREE_NESTING_LIMIT
+    return isPromoActive(user?.promo) ? user.promo.freeNestingLimit : FREE_NESTING_LIMIT
 }
 
 /**
@@ -103,7 +104,7 @@ export async function getEntitlement(userId) {
         .collection('users')
         .findOne(
             { id: userId },
-            { projection: { freeNestingUsed: 1, subscription: 1, grantedUntil: 1, 'promo.freeNestingLimit': 1 } }
+            { projection: { freeNestingUsed: 1, subscription: 1, grantedUntil: 1, promo: 1 } }
         )
 
     const subscriptionStatus = user?.subscription?.status || null
@@ -267,7 +268,7 @@ export async function assertCanNest(userId) {
                     grantedUntil: 1,
                     emailVerified: 1,
                     provider: 1,
-                    'promo.freeNestingLimit': 1,
+                    promo: 1,
                 },
             }
         )

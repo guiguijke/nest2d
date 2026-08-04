@@ -54,11 +54,14 @@
     const user = computed(() => unref(getters.user) || {})
 
     // The monthly quota is per-user: a redeemed partner promo code raises it
-    // (snapshot on the user doc). Same resolution as effectiveFreeLimit()
-    // server-side — never show the bare default for a promo user.
+    // for the campaign duration (server computes promo.active from the
+    // snapshotted end date). Same resolution as effectiveFreeLimit()
+    // server-side — never show the raised limit once the campaign has ended.
     const freeLimit = computed(() => {
-        const promoLimit = user.value.promo?.freeNestingLimit
-        return Number.isInteger(promoLimit) && promoLimit > 0 ? promoLimit : FREE_NESTING_LIMIT
+        const promo = user.value.promo
+        return promo?.active && Number.isInteger(promo.freeNestingLimit) && promo.freeNestingLimit > 0
+            ? promo.freeNestingLimit
+            : FREE_NESTING_LIMIT
     })
 
     const isSubscribed = computed(() => {

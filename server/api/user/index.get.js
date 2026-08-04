@@ -1,5 +1,6 @@
 import { connectDB } from '~~/server/db/mongo'
 import { getComputeProfile, getDemoEntitlement, getEntitlement } from '~~/server/utils/entitlement'
+import { isPromoActive } from '~~/server/utils/promo'
 import { getVaultStatus } from '~~/server/utils/vault'
 
 export default defineEventHandler(async (event) => {
@@ -39,10 +40,17 @@ export default defineEventHandler(async (event) => {
         unitsEnabled,
         // null = never asked (first-login prompt eligible), true/false = answered.
         newsletterOptIn: user.newsletterOptIn ?? null,
-        // Partner promo code redeemed on this account (raised free quota,
-        // snapshotted at redeem). null when none.
+        // Partner promo code redeemed on this account (raised free quota for
+        // the campaign duration). null when none; active=false once the
+        // campaign end date is past (quota already back to the default via
+        // effectiveFreeLimit). The user may then redeem another code.
         promo: user.promo
-            ? { code: user.promo.code, freeNestingLimit: user.promo.freeNestingLimit }
+            ? {
+                  code: user.promo.code,
+                  freeNestingLimit: user.promo.freeNestingLimit,
+                  expiresAt: user.promo.expiresAt ?? null,
+                  active: isPromoActive(user.promo),
+              }
             : null,
         freeRemaining: entitlement.freeRemaining,
         // Demo project monthly allowance (separate from the free quota).

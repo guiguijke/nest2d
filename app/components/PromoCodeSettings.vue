@@ -6,16 +6,29 @@
         />
         <template v-if="activePromo">
             <p class="promo__desc">
-                {{
-                    t('account.promo.active', {
-                        code: activePromo.code,
-                        n: activePromo.freeNestingLimit,
-                    })
-                }}
+                {{ t('account.promo.active', { code: activePromo.code, n: activePromo.freeNestingLimit }) }}
+                <template v-if="activePromo.expiresAt">
+                    {{ t('account.promo.until', { date: fmtDate(activePromo.expiresAt) }) }}
+                </template>
             </p>
         </template>
         <template v-else>
-            <p class="promo__desc">
+            <p
+                v-if="endedPromo"
+                class="promo__desc"
+            >
+                {{
+                    t('account.promo.ended', {
+                        code: endedPromo.code,
+                        date: fmtDate(endedPromo.expiresAt),
+                        n: FREE_NESTING_LIMIT,
+                    })
+                }}
+            </p>
+            <p
+                v-else
+                class="promo__desc"
+            >
                 {{ t('account.promo.desc') }}
             </p>
             <form
@@ -53,10 +66,23 @@
 </template>
 
 <script setup>
-    const { t } = useLocale()
+    import { FREE_NESTING_LIMIT } from '~~/shared/constants/payment.constants'
+
+    const { t, locale } = useLocale()
 
     const { getters } = authStore
-    const activePromo = computed(() => unref(getters.user)?.promo || null)
+    const promo = computed(() => unref(getters.user)?.promo || null)
+    // The server computes promo.active from the snapshotted campaign end date.
+    // An expired promo shows the form again — the user may redeem a new code.
+    const activePromo = computed(() => (promo.value?.active ? promo.value : null))
+    const endedPromo = computed(() => (promo.value && !promo.value.active ? promo.value : null))
+
+    const fmtDate = (d) =>
+        new Date(d).toLocaleDateString(locale.value === 'fr' ? 'fr-FR' : 'en-US', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+        })
 
     const code = ref('')
     const loading = ref(false)
