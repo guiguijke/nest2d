@@ -39,6 +39,11 @@ export default defineEventHandler(async (event) => {
         unitsEnabled,
         // null = never asked (first-login prompt eligible), true/false = answered.
         newsletterOptIn: user.newsletterOptIn ?? null,
+        // Partner promo code redeemed on this account (raised free quota,
+        // snapshotted at redeem). null when none.
+        promo: user.promo
+            ? { code: user.promo.code, freeNestingLimit: user.promo.freeNestingLimit }
+            : null,
         freeRemaining: entitlement.freeRemaining,
         // Demo project monthly allowance (separate from the free quota).
         demoRemaining: demo.demoRemaining,

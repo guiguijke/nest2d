@@ -47,6 +47,10 @@ const indexes = [
   // ── admins ──
   ['admins', { id: 1 }, { unique: true, name: 'uniq.id' }],
 
+  // ── promo codes (partner codes boosting the free monthly quota) ──
+  // Looked up on every redeem; unique so the same code can never exist twice.
+  ['promoCodes', { code: 1 }, { unique: true, name: 'uniq.code' }],
+
   // ── logs (time-windowed admin queries) ──
   ['tracking', { timestamp: -1 }, { name: 'timestamp_desc' }],
   ['http', { timestamp: -1 }, { name: 'timestamp_desc' }],

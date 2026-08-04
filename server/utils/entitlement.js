@@ -28,6 +28,22 @@ async function resetFreeQuotaIfNewPeriod(db, userId) {
 }
 
 /**
+ * The user's effective free monthly nesting limit. A redeemed partner promo
+ * code snapshots a raised limit on the user document (users.promo, set by
+ * /api/user/promo/redeem); everyone else gets the default FREE_NESTING_LIMIT.
+ *
+ * RULE: never read FREE_NESTING_LIMIT directly for a user-specific decision —
+ * always go through this resolver (AGENTS.md, Server / quotas).
+ *
+ * @param {any} user user document (or projection carrying promo.freeNestingLimit)
+ * @returns {number}
+ */
+export function effectiveFreeLimit(user) {
+    const limit = user?.promo?.freeNestingLimit
+    return Number.isInteger(limit) && limit > 0 ? limit : FREE_NESTING_LIMIT
+}
+
+/**
  * Returns true if the user's stored subscription currently grants access.
  * @param {any} user
  * @returns {boolean}
@@ -85,14 +101,17 @@ export async function getEntitlement(userId) {
     await resetFreeQuotaIfNewPeriod(db, userId)
     const user = await db
         .collection('users')
-        .findOne({ id: userId }, { projection: { freeNestingUsed: 1, subscription: 1, grantedUntil: 1 } })
+        .findOne(
+            { id: userId },
+            { projection: { freeNestingUsed: 1, subscription: 1, grantedUntil: 1, 'promo.freeNestingLimit': 1 } }
+        )
 
     const subscriptionStatus = user?.subscription?.status || null
     const active = hasActiveSubscription(user)
     // An admin-granted free period (set from the admin panel) grants full access
     // until its expiry, exactly like an active subscription would.
     const granted = user?.grantedUntil && new Date(user.grantedUntil) > new Date()
-    const freeRemaining = Math.max(0, FREE_NESTING_LIMIT - (user?.freeNestingUsed || 0))
+    const freeRemaining = Math.max(0, effectiveFreeLimit(user) - (user?.freeNestingUsed || 0))
 
     return {
         freeRemaining,
@@ -240,7 +259,17 @@ export async function assertCanNest(userId) {
         .collection('users')
         .findOne(
             { id: userId },
-            { projection: { id: 1, freeNestingUsed: 1, subscription: 1, grantedUntil: 1, emailVerified: 1, provider: 1 } }
+            {
+                projection: {
+                    id: 1,
+                    freeNestingUsed: 1,
+                    subscription: 1,
+                    grantedUntil: 1,
+                    emailVerified: 1,
+                    provider: 1,
+                    'promo.freeNestingLimit': 1,
+                },
+            }
         )
 
     if (!user) {
@@ -271,11 +300,13 @@ export async function assertCanNest(userId) {
 
     // Atomically consume a free nesting operation. The guard prevents two
     // concurrent requests from both spending the same remaining free slot.
+    // The limit is per-user (promo codes raise it) — resolved from the doc
+    // loaded above, so the atomic filter stays a plain comparison.
     await resetFreeQuotaIfNewPeriod(db, userId)
     const consumed = await db
         .collection('users')
         .findOneAndUpdate(
-            { id: userId, freeNestingUsed: { $lt: FREE_NESTING_LIMIT } },
+            { id: userId, freeNestingUsed: { $lt: effectiveFreeLimit(user) } },
             { $inc: { freeNestingUsed: 1 } },
         )
 
