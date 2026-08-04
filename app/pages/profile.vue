@@ -19,6 +19,7 @@
         </div>
         <UserStats class="profile__stats" />
         <Subscription />
+        <PromoCodeSettings />
         <NewsletterSettings />
         <VaultSettings v-if="isStripFeatureEnable" />
         <DeleteAccount />

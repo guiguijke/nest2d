@@ -360,6 +360,19 @@ const dict = {
         'account.error.generic': 'Deletion failed. Please try again.',
         'account.error.change': 'Plan change failed. Please try again.',
 
+        // ── Partner promo code (PromoCodeSettings.vue) ──
+        'account.promo.label': 'Promo code',
+        'account.promo.desc': 'Have a partner code? Activate it to raise your free monthly nesting quota.',
+        'account.promo.placeholder': 'e.g. JD20',
+        'account.promo.apply': 'Apply',
+        'account.promo.success': 'Code {code} activated: {n} free nestings per month.',
+        'account.promo.active': 'Code {code} active: {n} free nestings per month.',
+        'account.promo.already': 'A promo code is already active on your account (one code per account).',
+        'account.promo.invalid': 'This promo code is invalid.',
+        'account.promo.expired': 'This promo code has expired or is no longer active.',
+        'account.promo.maxed': 'This promo code has reached its maximum number of uses.',
+        'account.promo.generic': 'Could not apply the code. Please try again.',
+
         'auth.email': 'Email',
         'auth.password': 'Password',
         'auth.name': 'Name',
@@ -780,6 +793,19 @@ const dict = {
         'account.error.passwordRequired': "Veuillez saisir votre mot de passe.",
         'account.error.generic': "Échec de la suppression. Veuillez réessayer.",
         'account.error.change': "Échec du changement d'offre. Veuillez réessayer.",
+
+        // ── Code promo partenaire (PromoCodeSettings.vue) ──
+        'account.promo.label': "Code promo",
+        'account.promo.desc': "Vous avez un code partenaire ? Activez-le pour augmenter votre quota mensuel de nestings gratuits.",
+        'account.promo.placeholder': "ex. JD20",
+        'account.promo.apply': "Appliquer",
+        'account.promo.success': "Code {code} activé : {n} nestings gratuits par mois.",
+        'account.promo.active': "Code {code} actif : {n} nestings gratuits par mois.",
+        'account.promo.already': "Un code promo est déjà actif sur votre compte (un seul code par compte).",
+        'account.promo.invalid': "Ce code promo est invalide.",
+        'account.promo.expired': "Ce code promo a expiré ou n'est plus actif.",
+        'account.promo.maxed': "Ce code promo a atteint son nombre maximal d'utilisations.",
+        'account.promo.generic': "Impossible d'appliquer le code. Veuillez réessayer.",
 
         'auth.email': 'E-mail',
         'auth.password': 'Mot de passe',
