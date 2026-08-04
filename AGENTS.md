@@ -210,14 +210,16 @@ admin/                 (back-office Nuxt)
 
 34. **Toute limite user-specific passe par un resolver dans
     `entitlement.js`** — jamais de lecture directe de `FREE_NESTING_LIMIT`
-    hors resolver. `effectiveFreeLimit(user)` = snapshot
-    `user.promo.freeNestingLimit` ?? défaut ; les projections Mongo doivent
-    inclure `promo.freeNestingLimit` (sinon la limite majorée est
-    silencieusement ignorée). Le snapshot est figé au redeem : modifier ou
-    désactiver le code ne touche pas les bénéficiaires existants, et
-    l'ordre de charge (grant → abonnement → quota free) prime toujours sur
-    le quota promo. Verrous : `server/tests/entitlement.test.js`,
-    `server/tests/promo.test.js` (`npx vitest run`).
+    hors resolver. `effectiveFreeLimit(user)` = snapshot `user.promo` si
+    `isPromoActive(promo)` (limite entière > 0 ET campagne non expirée),
+    sinon défaut ; les projections Mongo doivent inclure `promo` en entier
+    (limit + expiresAt — sinon la majoration est silencieusement ignorée).
+    Le snapshot suit la **fin de campagne du code** : la reconduire côté
+    admin propage la nouvelle date à tous les bénéficiaires ; promo expiré
+    → retour à 10/mois et re-redeem d'un autre code possible. L'ordre de
+    charge (grant → abonnement → quota free) prime toujours. Verrous :
+    `server/tests/entitlement.test.js`, `server/tests/promo.test.js`
+    (`npx vitest run`).
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 
@@ -255,7 +257,7 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 ## 5. Avant de pousser
 
 ```bash
-npx vitest run                                             # server (23)
+npx vitest run                                             # server (33)
 cd workers/nesting/engine && cargo test --release          # 17 + 1 ignore
 cd workers/nesting && python -m pytest tests/ -q           # 36 (PYTHONPATH=workers/common)
 cd workers/common && python -m pytest tests/ -q            # 19

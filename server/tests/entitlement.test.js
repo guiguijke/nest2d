@@ -43,6 +43,13 @@ describe('effectiveFreeLimit', () => {
         expect(effectiveFreeLimit({ promo: { freeNestingLimit: 20 } })).toBe(20)
     })
 
+    it('follows the campaign end date: expired promo falls back to the default', () => {
+        const future = new Date(Date.now() + 180 * 24 * 3600 * 1000)
+        const past = new Date(Date.now() - 24 * 3600 * 1000)
+        expect(effectiveFreeLimit({ promo: { freeNestingLimit: 20, expiresAt: future } })).toBe(20)
+        expect(effectiveFreeLimit({ promo: { freeNestingLimit: 20, expiresAt: past } })).toBe(10)
+    })
+
     it('ignores corrupt snapshot values', () => {
         expect(effectiveFreeLimit({ promo: { freeNestingLimit: 0 } })).toBe(10)
         expect(effectiveFreeLimit({ promo: { freeNestingLimit: -5 } })).toBe(10)
@@ -65,6 +72,19 @@ describe('getEntitlement', () => {
         })
         const res = await getEntitlement('u1')
         expect(res.freeRemaining).toBe(17)
+    })
+
+    it('computes freeRemaining on the default limit once the campaign has ended', async () => {
+        state.db = fakeDb({
+            users: [
+                freeUser({
+                    freeNestingUsed: 3,
+                    promo: { code: 'JD20', freeNestingLimit: 20, expiresAt: new Date(Date.now() - 24 * 3600 * 1000) },
+                }),
+            ],
+        })
+        const res = await getEntitlement('u1')
+        expect(res.freeRemaining).toBe(7)
     })
 
     it('resets the monthly counter lazily, on the raised limit when promo', async () => {
@@ -111,6 +131,18 @@ describe('assertCanNest', () => {
         const user = freeUser({ freeNestingUsed: 10 })
         state.db = fakeDb({ users: [user] })
         await expect(assertCanNest('u1')).rejects.toMatchObject({ statusCode: 402 })
+    })
+
+    it('charges against the default limit once the promo campaign has ended', async () => {
+        const user = freeUser({
+            freeNestingUsed: 10,
+            promo: { code: 'JD20', freeNestingLimit: 20, expiresAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        })
+        const db = fakeDb({ users: [user] })
+        state.db = db
+        await expect(assertCanNest('u1')).rejects.toMatchObject({ statusCode: 402 })
+        const calls = db.collection('users').calls.findOneAndUpdate
+        expect(calls[0].filter.freeNestingUsed).toEqual({ $lt: 10 })
     })
 
     it('charge order unchanged: an admin grant still primes over the promo quota', async () => {

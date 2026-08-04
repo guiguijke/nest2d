@@ -7,10 +7,23 @@
 
 function evalExpr(doc, expr) {
     const [op, args] = Object.entries(expr)[0]
-    const resolve = (v) => (typeof v === 'string' && v.startsWith('$') ? doc[v.slice(1)] : v)
+    const resolve = (v) => (typeof v === 'string' && v.startsWith('$') ? getPath(doc, v.slice(1)) : v)
     const [a, b] = args.map(resolve)
     if (op === '$lt') return a < b
     throw new Error(`fakeMongo: unsupported $expr operator ${op}`)
+}
+
+// Dot-path resolution ('promo.expiresAt' → doc.promo.expiresAt); missing
+// intermediate segments yield undefined, matching Mongo's semantics.
+function getPath(doc, key) {
+    return key.split('.').reduce((o, k) => (o == null ? o : o[k]), doc)
+}
+
+function setPath(doc, key, value) {
+    const parts = key.split('.')
+    const last = parts.pop()
+    const target = parts.reduce((o, k) => (o[k] ??= {}), doc)
+    target[last] = value
 }
 
 export function matches(doc, filter) {
@@ -18,11 +31,12 @@ export function matches(doc, filter) {
         if (key === '$and') return cond.every((f) => matches(doc, f))
         if (key === '$or') return cond.some((f) => matches(doc, f))
         if (key === '$expr') return evalExpr(doc, cond)
-        const value = doc?.[key]
+        const value = getPath(doc, key)
         if (cond && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
             return Object.entries(cond).every(([op, arg]) => {
                 if (op === '$gt') return value != null && value > arg
                 if (op === '$lt') return value != null && value < arg
+                if (op === '$lte') return value != null && value <= arg
                 if (op === '$ne') return value !== arg
                 if (op === '$exists') return (arg ? value !== undefined : value === undefined)
                 throw new Error(`fakeMongo: unsupported operator ${op}`)
@@ -33,7 +47,11 @@ export function matches(doc, filter) {
 }
 
 function applyUpdate(doc, update) {
-    if (update.$set) Object.assign(doc, update.$set)
+    if (update.$set) {
+        for (const [k, v] of Object.entries(update.$set)) {
+            setPath(doc, k, v)
+        }
+    }
     if (update.$inc) {
         for (const [k, v] of Object.entries(update.$inc)) {
             doc[k] = (doc[k] || 0) + v
