@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizePromoCode, redeemPromoCode } from '~~/server/utils/promo'
+import { isPromoActive, normalizePromoCode, redeemPromoCode } from '~~/server/utils/promo'
 import { fakeDb } from './helpers/fakeMongo'
 
 const JD20 = () => ({
@@ -13,9 +13,32 @@ const JD20 = () => ({
     createdAt: new Date(),
 })
 
+const FUTURE = () => new Date(Date.now() + 180 * 24 * 3600 * 1000)
+const PAST = () => new Date(Date.now() - 24 * 3600 * 1000)
+
 async function expectErr(promise, statusCode, statusMessage) {
     await expect(promise).rejects.toMatchObject({ statusCode, statusMessage })
 }
+
+describe('isPromoActive', () => {
+    it('is false without a promo or with a corrupt limit', () => {
+        expect(isPromoActive(null)).toBe(false)
+        expect(isPromoActive(undefined)).toBe(false)
+        expect(isPromoActive({})).toBe(false)
+        expect(isPromoActive({ freeNestingLimit: 0 })).toBe(false)
+        expect(isPromoActive({ freeNestingLimit: '20' })).toBe(false)
+    })
+
+    it('is true for a valid limit without end date (unlimited)', () => {
+        expect(isPromoActive({ freeNestingLimit: 20 })).toBe(true)
+        expect(isPromoActive({ freeNestingLimit: 20, expiresAt: null })).toBe(true)
+    })
+
+    it('follows the campaign end date', () => {
+        expect(isPromoActive({ freeNestingLimit: 20, expiresAt: FUTURE() })).toBe(true)
+        expect(isPromoActive({ freeNestingLimit: 20, expiresAt: PAST() })).toBe(false)
+    })
+})
 
 describe('normalizePromoCode', () => {
     it('trims and uppercases', () => {
@@ -111,5 +134,53 @@ describe('redeemPromoCode', () => {
         })
         await expectErr(redeemPromoCode(db, { id: 'u1' }, 'JD20'), 409, 'promo_already')
         expect(codeDoc.redemptionCount).toBe(0) // compensating decrement applied
+    })
+
+    it('snapshots the campaign end date from the code onto the user', async () => {
+        const end = FUTURE()
+        const codeDoc = { ...JD20(), expiresAt: end }
+        const userDoc = { id: 'u1' }
+        const db = fakeDb({ promoCodes: [codeDoc], users: [userDoc] })
+
+        await redeemPromoCode(db, { id: 'u1' }, 'JD20')
+
+        expect(userDoc.promo.expiresAt).toEqual(end)
+    })
+
+    it('replaces an expired promo (one ACTIVE code per account, re-activation allowed)', async () => {
+        const codeDoc = JD20()
+        const expired = { code: 'OLD5', freeNestingLimit: 15, redeemedAt: PAST(), expiresAt: PAST() }
+        const userDoc = { id: 'u1', promo: { ...expired } }
+        const db = fakeDb({ promoCodes: [codeDoc], users: [userDoc] })
+
+        const res = await redeemPromoCode(db, { id: 'u1', promo: { ...expired } }, 'JD20')
+
+        expect(res).toEqual({ code: 'JD20', freeNestingLimit: 20 })
+        expect(userDoc.promo.code).toBe('JD20')
+        expect(codeDoc.redemptionCount).toBe(1)
+    })
+
+    it('redeems when the stored promo is expired even on a stale read (no promo on the caller)', async () => {
+        const codeDoc = JD20()
+        const userDoc = { id: 'u1', promo: { code: 'OLD5', freeNestingLimit: 15, redeemedAt: PAST(), expiresAt: PAST() } }
+        const db = fakeDb({ promoCodes: [codeDoc], users: [userDoc] })
+
+        const res = await redeemPromoCode(db, { id: 'u1' }, 'JD20')
+
+        expect(res.code).toBe('JD20')
+        expect(userDoc.promo.code).toBe('JD20')
+    })
+
+    it('409 + compensation when the stored promo was renewed concurrently (still active)', async () => {
+        // The caller read an expired promo, but the campaign was renewed
+        // since — the user-side guard must refuse the overwrite.
+        const codeDoc = JD20()
+        const userDoc = { id: 'u1', promo: { code: 'OTHER', freeNestingLimit: 15, redeemedAt: PAST(), expiresAt: FUTURE() } }
+        const db = fakeDb({ promoCodes: [codeDoc], users: [userDoc] })
+
+        const staleUser = { id: 'u1', promo: { code: 'OTHER', freeNestingLimit: 15, redeemedAt: PAST(), expiresAt: PAST() } }
+        await expectErr(redeemPromoCode(db, staleUser, 'JD20'), 409, 'promo_already')
+        expect(codeDoc.redemptionCount).toBe(0) // compensating decrement applied
+        expect(userDoc.promo.code).toBe('OTHER') // untouched
     })
 })
