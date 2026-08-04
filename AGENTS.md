@@ -184,7 +184,12 @@ admin/                 (back-office Nuxt)
     et un garde `initialized` empêche toute réinscription → enregistrer le
     watch dans un **plugin** (scope app, immortel, `app/plugins/*.client.js`)
     et sourcer `useNuxtData('user')` (cache hydraté, réactif) plutôt qu'un
-    store alimenté par middleware.
+    store alimenté par middleware. **La persistance aussi** : le PATCH de
+    préférence doit se conditionner à `useNuxtData('user').value?.id`, pas à
+    `authStore.userIsSet` — sur un chargement SSR frais le store client
+    démarre à `false` tant que le middleware n'a pas rejoué `setUser`, un
+    switch rapide perdait le PATCH et le watch DB ramenait l'unité à
+    l'ancienne valeur (flip-flop pouces→mm quelques secondes plus tard).
 
 ### Formats d'import (DXF + SVG + DWG)
 31. **Détection par signature de contenu, JAMAIS par extension** : les slugs
