@@ -1,7 +1,7 @@
 
 import { computed, reactive, readonly } from 'vue'
 import { processingType } from '~~/constants/files.constants'
-import { convertInputValue, displayToMm, DEFAULT_SHEET, DEFAULT_SPACE } from '~/utils/units'
+import { convertInputValue, displayToMm, DEFAULT_SHEET, equivalentSheetPreset } from '~/utils/units'
 import { getUnitState } from '~/composables/useUnit'
 
 const { actions } = globalStore
@@ -215,13 +215,6 @@ function addSheet() {
     state.params = { ...state.params, sheets: [...sheets, { ...last, count: '1' }] }
 }
 
-// Factory defaults per unit — used to snap pristine params on a unit switch
-// (a fresh inch session should offer 48×96, not a converted 39.37×78.74).
-const FACTORY_PARAMS = {
-    mm: { sheet: { ...DEFAULT_SHEET.mm, count: '100' }, space: DEFAULT_SPACE.mm },
-    inch: { sheet: { ...DEFAULT_SHEET.inch, count: '100' }, space: DEFAULT_SPACE.inch },
-}
-
 // The unit state.params is CURRENTLY expressed in. Starts at mm (factory
 // defaults); tracked so a unit sync is idempotent — re-applying the same
 // unit (SPA remount, DB re-sync) never double-converts user values.
@@ -230,31 +223,25 @@ let paramsUnit = 'mm'
 /**
  * Brings the in-progress form values to `toUnit` (called on unit switch AND
  * on init, when the cookie/DB preference differs from the mm factory
- * defaults). Params still matching the factory defaults snap to the other
- * unit's factory sheet; anything the user typed is converted numerically.
+ * defaults). Sheets exactly matching a standard preset snap to the
+ * equivalent REGIONAL standard (1000×2000 mm -> 48×96", never
+ * 39.37×78.74"); custom sizes and the spacing are converted numerically
+ * (0.1 mm <-> 0.004" round-trips exactly through the display trimming).
  */
 function syncParamsToUnit(toUnit) {
     if (!toUnit || paramsUnit === toUnit) return
     const fromUnit = paramsUnit
     const p = state.params
     const sheets = normalizedSheets(p)
-    const factory = FACTORY_PARAMS[fromUnit]
-    if (!factory) return
-    const pristine =
-        sheets.length === 1 &&
-        String(sheets[0].width) === factory.sheet.width &&
-        String(sheets[0].height) === factory.sheet.height &&
-        String(p.space) === factory.space
-    if (pristine) {
-        const next = FACTORY_PARAMS[toUnit]
-        state.params = { ...p, sheets: [{ ...next.sheet }], space: next.space }
-    } else {
-        const conv = (v) => convertInputValue(v, fromUnit, toUnit)
-        state.params = {
-            ...p,
-            sheets: sheets.map((s) => ({ ...s, width: conv(s.width), height: conv(s.height) })),
-            space: conv(p.space),
-        }
+    const conv = (v) => convertInputValue(v, fromUnit, toUnit)
+    const convSheet = (s) => {
+        const eq = equivalentSheetPreset(s.width, s.height, fromUnit, toUnit)
+        return eq ? { ...s, ...eq } : { ...s, width: conv(s.width), height: conv(s.height) }
+    }
+    state.params = {
+        ...p,
+        sheets: sheets.map(convSheet),
+        space: conv(p.space),
     }
     paramsUnit = toUnit
 }
