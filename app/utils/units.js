@@ -21,6 +21,7 @@ export const DEFAULT_UNIT = 'mm'
 /**
  * Standard sheet presets — a US user picks 48×96 from a list, never types
  * sheet dimensions by hand. Metric gets the standard metric plate sizes.
+ * (Stock research 2026-08-04: 48×120 is a very common US stock size.)
  */
 export const SHEET_PRESETS = {
     mm: [
@@ -30,9 +31,55 @@ export const SHEET_PRESETS = {
     ],
     inch: [
         { width: 48, height: 96 }, // 4×8 ft
+        { width: 48, height: 120 }, // 4×10 ft
         { width: 60, height: 120 }, // 5×10 ft
         { width: 72, height: 144 }, // 6×12 ft
     ],
+}
+
+/**
+ * Regional equivalents between metric and US standard sheets, used on a
+ * unit switch: a sheet EXACTLY matching a preset of the from-unit snaps to
+ * the equivalent standard of the target region — never a numeric
+ * conversion (a US shop thinks "4×8 ft", never 39.37×78.74).
+ *
+ * Source: stock research 2026-08-04 (Wexler HR sheet stock, EU plate
+ * standards). Only two CLEAN pairs exist — 4×8 ft ↔ 1250×2500 and
+ * 5×10 ft ↔ 1500×3000; the metric and US series do not overlap beyond
+ * that, so the other entries map to the closest standard of the target
+ * region (48×96 covers 1000×2000 in both dimensions).
+ * Keys are canonical (small×large); the user's orientation is preserved.
+ */
+const SHEET_EQUIVALENTS = {
+    mm: {
+        '1000x2000': { width: '48', height: '96' },
+        '1250x2500': { width: '48', height: '96' },
+        '1500x3000': { width: '60', height: '120' },
+    },
+    inch: {
+        '48x96': { width: '1250', height: '2500' },
+        '48x120': { width: '1250', height: '2500' },
+        '60x120': { width: '1500', height: '3000' },
+        '72x144': { width: '1500', height: '3000' },
+    },
+}
+
+/**
+ * Regional equivalent of a sheet given in `fromUnit` display values, when
+ * it exactly matches a known preset of that unit. Returns display strings
+ * for `toUnit`, preserving the sheet's orientation (landscape stays
+ * landscape), or null when the size is custom (caller falls back to a
+ * plain numeric conversion).
+ */
+export function equivalentSheetPreset(width, height, fromUnit, toUnit) {
+    if (fromUnit === toUnit) return null
+    const w = Number(String(width).replace(',', '.'))
+    const h = Number(String(height).replace(',', '.'))
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null
+    const key = `${Math.min(w, h)}x${Math.max(w, h)}`
+    const hit = (SHEET_EQUIVALENTS[fromUnit] || {})[key]
+    if (!hit) return null
+    return w <= h ? { ...hit } : { width: hit.height, height: hit.width }
 }
 
 // Defaults applied when params are pristine and the user switches unit.
@@ -94,8 +141,10 @@ export function fmtLength(mm, unit) {
 
 /**
  * Area for display (includes the unit suffix).
- * mm: localized mm². inch: in² plus ft² in parentheses — square footage is
- * the estimator number for material purchasing (used/free per sheet).
+ * mm: localized mm², switching to m² above 1 000 000 mm² (quoting-scale
+ * numbers stay readable). inch: in² plus ft² in parentheses — square
+ * footage is the estimator number for material purchasing (used/free per
+ * sheet).
  */
 export function fmtArea(mm2, unit) {
     const v = Number(mm2)
@@ -105,6 +154,7 @@ export function fmtArea(mm2, unit) {
         const ft2 = in2 / SQIN_PER_SQFT
         return `${Math.round(in2).toLocaleString()} in² (${ft2.toFixed(2)} ft²)`
     }
+    if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(2)} m²`
     return `${Math.round(v).toLocaleString()} mm²`
 }
 

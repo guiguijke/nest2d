@@ -42,7 +42,7 @@
 
 <script setup async>
 import { themeType } from "~~/constants/theme.constants";
-import { mmToDisplay } from "~/utils/units";
+import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
 import {
     DEMO_NESTING_LIMIT,
     DEMO_SHEETS,
@@ -120,15 +120,22 @@ const demoRemaining = computed(() => Number(user.value.demoRemaining ?? DEMO_LIM
 const demoDefaultsApplied = ref(false);
 const applyDemoDefaults = () => {
     // mm -> display unit, rounded for the input fields (the 0.001" precision
-    // is a UI matter; canonical geometry stays mm server-side).
+    // is a UI matter; canonical geometry stays mm server-side). The sheet is
+    // a metric standard (3000×1500): in inch mode, snap to the equivalent
+    // US standard (120×60, the 5×10 ft pair, orientation preserved) instead
+    // of an unreadable 118.11×59.055.
     const mmToDisp = (mm) => {
         const v = mmToDisplay(mm, unit.value);
         return unit.value === 'inch' ? String(Math.round(v * 1000) / 1000) : String(v);
     };
-    actions.updateParams({
-        sheets: DEMO_SHEETS.map((sheet) => ({
+    const sheetDims = (sheet) =>
+        equivalentSheetPreset(sheet.width, sheet.height, 'mm', unit.value) || {
             width: mmToDisp(sheet.width),
             height: mmToDisp(sheet.height),
+        };
+    actions.updateParams({
+        sheets: DEMO_SHEETS.map((sheet) => ({
+            ...sheetDims(sheet),
             count: String(sheet.count),
         })),
         space: mmToDisp(DEMO_SPACE_MM),
