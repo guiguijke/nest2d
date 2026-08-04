@@ -122,6 +122,14 @@ admin/                 (back-office Nuxt)
 19. **`docker rm -f` = SIGKILL** : le handler SIGTERM du worker_loop ne
     s'exécute pas → job orphelin « processing » + lease de jetons bloquée
     (reaper après 60 s). Préférer `docker stop`.
+19b. **Densité du rapport = aire vraie des pièces placées / aire tôle,
+    MESURÉE** (`per_sheet_metrics`, polygones placés trous soustraits) —
+    jamais la density déclarée par le moteur, jamais un bbox. Les champs de
+    rapport sont ADDITIFS (`report.sheets[]`, `report.totals{}`,
+    `report.offcut` enrichi) : aucun champ existant renommé/supprimé, les
+    anciens jobs gardent l'affichage legacy. Chute « réutilisable » si
+    min(w,h) ≥ `OFFCUT_REUSABLE_MIN_MM` (100 mm) — conservateur (« au
+    moins »), l'offcut est le plus grand rectangle vide GARANTI.
 
 ### Frontend
 20. **Apostrophes françaises dans i18n.js** : utiliser des doubles quotes
