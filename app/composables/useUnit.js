@@ -48,6 +48,13 @@ export function useUnit() {
     const enabled = computed(() => flagOn)
     enabledState = flagOn
     const cookie = useCookie('unit', { maxAge: 60 * 60 * 24 * 365, sameSite: 'lax' })
+    // Shared hydrated user cache — the SAME source the DB watcher below
+    // uses (trap #30). Also drives the persistence gate in the setter:
+    // authStore.userIsSet lags behind on a fresh SSR page load (the store
+    // is only populated once the client middleware re-runs setUser), so a
+    // quick unit switch would silently skip the PATCH — and the watcher
+    // would flip the unit back to the stale DB value seconds later.
+    const { data: userData } = useNuxtData('user')
 
     if (import.meta.client && !initialized) {
         initialized = true
@@ -59,7 +66,6 @@ export function useUnit() {
         // setUser on every navigation) with the auth store as fallback —
         // watching authStore alone misses updates tied to the cached
         // payload (SPA login never re-calls setUser on the same page).
-        const { data: userData } = useNuxtData('user')
         watch(
             () => userData.value?.preferredUnit ?? authStore.getters.user.value?.preferredUnit,
             (preferred) => {
@@ -80,8 +86,9 @@ export function useUnit() {
             unitState.value = val
             cookie.value = val
             // Persist per-user (fire and forget — the cookie already gives
-            // instant UX, the DB syncs other devices).
-            if (authStore.getters.userIsSet.value) {
+            // instant UX, the DB syncs other devices). Gate on the shared
+            // user cache, NOT authStore.userIsSet (see above).
+            if (userData.value?.id) {
                 $fetch('/api/user/preferences', {
                     method: 'PATCH',
                     body: { preferredUnit: val },
