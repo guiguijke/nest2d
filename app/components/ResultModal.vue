@@ -182,6 +182,7 @@
             </div>
             <div
                 v-if="!isHaveError && activeReport"
+                ref="reportEl"
                 class="modal__report report"
             >
                 <div class="report__row">
@@ -196,7 +197,71 @@
                 </div>
                 <div class="report__row report__row--detail">
                     <span>{{ t('report.areas', { parts: fmtArea(activeReport.partsAreaMm2), free: fmtArea(freeAreaMm2) }) }}</span>
-                    <span v-if="activeOffcut">{{ t('report.offcut', { w: fmtLengthValue(activeOffcut.width), h: fmtLengthValue(activeOffcut.height), unit: unitLabel }) }}</span>
+                    <span v-if="activeReportOffcut" class="report__offcut">
+                        {{ t('report.offcut', { w: fmtLengthValue(activeReportOffcut.widthMm), h: fmtLengthValue(activeReportOffcut.heightMm), unit: unitLabel }) }}
+                        · {{ fmtArea(activeReportOffcut.areaMm2) }}
+                        <span
+                            class="report__badge"
+                            :class="{ 'report__badge--scrap': !activeReportOffcut.reusable }"
+                        >
+                            {{ activeReportOffcut.reusable ? t('report.offcut.reusable') : t('report.offcut.scrap') }}
+                        </span>
+                        <span class="report__hint">&nbsp;({{ t('report.offcut.atLeast') }})</span>
+                    </span>
+                    <span v-else-if="activeOffcut">{{ t('report.offcut', { w: fmtLengthValue(activeOffcut.width), h: fmtLengthValue(activeOffcut.height), unit: unitLabel }) }}</span>
+                </div>
+                <div
+                    v-if="reportTotals"
+                    class="report__row report__row--detail report__material"
+                >
+                    <span class="report__label">{{ t('report.material') }}</span>
+                    <span class="report__value">{{ materialFormats }}</span>
+                </div>
+                <div
+                    v-if="reportSheets.length"
+                    class="report__table-wrap"
+                >
+                    <table class="report__table">
+                        <thead>
+                            <tr>
+                                <th>{{ t('report.sheet.num') }}</th>
+                                <th>{{ t('report.sheet.format') }}</th>
+                                <th>{{ t('report.sheet.parts') }}</th>
+                                <th>{{ t('report.sheet.used') }}</th>
+                                <th>{{ t('report.sheet.free') }}</th>
+                                <th>{{ t('report.sheet.density') }}</th>
+                                <th>{{ t('report.sheet.offcut') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="s in reportSheets" :key="s.index">
+                                <td>{{ s.index + 1 }}</td>
+                                <td>{{ fmtLength(s.widthMm) }} × {{ fmtLength(s.heightMm) }}</td>
+                                <td>{{ s.partCount }}</td>
+                                <td>
+                                    <span class="report__area">{{ fmtAreaStacked(s.partsAreaMm2).main }}</span>
+                                    <span v-if="fmtAreaStacked(s.partsAreaMm2).sub" class="report__area-sub">{{ fmtAreaStacked(s.partsAreaMm2).sub }}</span>
+                                </td>
+                                <td>
+                                    <span class="report__area">{{ fmtAreaStacked(s.freeAreaMm2).main }}</span>
+                                    <span v-if="fmtAreaStacked(s.freeAreaMm2).sub" class="report__area-sub">{{ fmtAreaStacked(s.freeAreaMm2).sub }}</span>
+                                </td>
+                                <td>{{ s.densityPct != null ? s.densityPct.toFixed(1) + '%' : '—' }}</td>
+                                <td>
+                                    <template v-if="s.offcut">
+                                        {{ fmtLengthValue(s.offcut.widthMm) }} × {{ fmtLengthValue(s.offcut.heightMm) }} {{ unitLabel }}
+                                        <span
+                                            class="report__badge"
+                                            :class="{ 'report__badge--scrap': !s.offcut.reusable }"
+                                        >
+                                            {{ s.offcut.reusable ? t('report.offcut.reusable') : t('report.offcut.scrap') }}
+                                        </span>
+                                    </template>
+                                    <span v-else>—</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
                 <div
                     v-if="activeReport.holesFilled > 0"
@@ -221,6 +286,22 @@
                 </div>
             </div>
             <div class="controls">
+                <MainButton
+                    v-if="reportSheets.length"
+                    :label="copied ? t('report.copied') : t('report.copy')"
+                    :size="sizeType.s"
+                    :theme="themeType.secondary"
+                    trackingTag="report_copy"
+                    @click="copyReport"
+                />
+                <MainButton
+                    v-if="reportSheets.length"
+                    :label="t('report.csv')"
+                    :size="sizeType.s"
+                    :theme="themeType.secondary"
+                    trackingTag="report_csv"
+                    @click="exportCsv"
+                />
                 <MainButton
                     v-if="resultModalData.isMultiSheet"
                     :href="resultModalData.zipDownloadUrl"
@@ -259,14 +340,20 @@ import { sizeType } from '~~/constants/size.constants'
 import { themeType } from '~~/constants/theme.constants'
 import { statusType } from '~~/constants/status.constants'
 import { trackEvent } from '~/utils/track'
-import { onMounted } from 'vue'
+import { SQMM_PER_SQIN } from '~/utils/units'
+import { onMounted, nextTick } from 'vue'
 
 const { getters } = globalStore
 const resultModalData = computed(() => getters.resultModalData)
 const { t } = useLocale()
-const { fmtArea, fmtLength, fmtLengthValue, unitLabel } = useUnit()
+const { unit, fmtArea, fmtLength, fmtLengthValue, unitLabel } = useUnit()
 
 const resultDialog = useResultDialog()
+
+// The "Nesting report" button on a result card opens this modal already
+// scrolled to the quoting report (the card click opens the sheet preview).
+const scrollToReportFlag = useResultScrollToReport()
+const reportEl = ref(null)
 
 const isHaveError = computed(() => {
     return unref(resultModalData).status === statusType.failed
@@ -285,11 +372,19 @@ onMounted(() => {
     isFullScreen.value = localStorage.getItem('isFullScreen') === 'true'
 })
 
-watch(resultDialog, (isOpen) => {
+watch(resultDialog, async (isOpen) => {
     if (isOpen) {
         activePart.value = 0
         activeAlt.value = 0
         viewMode.value = 'color'
+        if (scrollToReportFlag.value) {
+            scrollToReportFlag.value = false
+            await nextTick()
+            // Let the dialog transition settle before scrolling.
+            setTimeout(() => {
+                reportEl.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+            }, 120)
+        }
     }
 })
 
@@ -346,6 +441,153 @@ const activeOffcut = computed(() => {
     const off = unref(alternatives)[unref(activeAlt)]?.offcut
     return off && off.area > 1 ? off : null
 })
+
+// ---- quoting report (per-sheet measured metrics, ADDITIVE report fields) --
+// Legacy jobs have no report.sheets: only the classic block above is shown.
+const reportSheets = computed(() => {
+    const sheets = unref(activeReport)?.sheets
+    return Array.isArray(sheets) ? sheets : []
+})
+const reportTotals = computed(() => unref(activeReport)?.totals || null)
+// Enriched offcut ({widthMm, heightMm, areaMm2, reusable}) — the legacy
+// alternative.offcut {width, height, area} stays the fallback.
+const activeReportOffcut = computed(() => {
+    const off = unref(activeReport)?.offcut
+    return off && off.areaMm2 > 1 ? off : null
+})
+// "3 × 48\" × 96\"" per distinct sheet format (mixed-format jobs aggregated).
+const materialFormats = computed(() => {
+    const totals = unref(reportTotals)
+    if (!totals || !Array.isArray(totals.formats)) return ''
+    return totals.formats
+        .map((f) => `${f.count} × ${fmtLength(f.widthMm)} × ${fmtLength(f.heightMm)}`)
+        .join(' + ')
+})
+
+const offcutText = (off) => {
+    if (!off) return '—'
+    const label = off.reusable ? t('report.offcut.reusable') : t('report.offcut.scrap')
+    return `${fmtLength(off.widthMm)} × ${fmtLength(off.heightMm)} (${fmtArea(off.areaMm2)}, ${label}, ${t('report.offcut.atLeast')})`
+}
+
+// "3 376 in² (23.45 ft²)" stacked on two lines in the per-sheet table:
+// keeps both units (shop floor reads in², purchasing reads ft²) without
+// widening the table past the modal. mm mode: single line, sub is null.
+const fmtAreaStacked = (mm2) => {
+    const s = fmtArea(mm2)
+    const m = s.match(/^(.+?)\s*(\([^)]+\))$/)
+    return m ? { main: m[1], sub: m[2] } : { main: s, sub: null }
+}
+
+const buildReportText = () => {
+    const totals = unref(reportTotals)
+    const name = `${unref(resultModalData).slug} · ${t('result.option', { n: unref(activeAlt) + 1 })}`
+    const lines = [
+        t('report.text.title', { name }),
+        t('report.text.material', { formats: unref(materialFormats) }),
+        t('report.text.totals', {
+            sheets: totals.sheetCount,
+            parts: fmtArea(totals.partsAreaMm2),
+            free: fmtArea(totals.freeAreaMm2),
+            pct: totals.densityPct != null ? totals.densityPct.toFixed(1) : '—',
+        }),
+    ]
+    for (const s of unref(reportSheets)) {
+        lines.push(t('report.text.sheetLine', {
+            i: s.index + 1,
+            w: fmtLength(s.widthMm),
+            h: fmtLength(s.heightMm),
+            n: s.partCount,
+            used: fmtArea(s.partsAreaMm2),
+            free: fmtArea(s.freeAreaMm2),
+            pct: s.densityPct != null ? s.densityPct.toFixed(1) : '—',
+            offcut: offcutText(s.offcut),
+        }))
+    }
+    return lines.join('\n')
+}
+
+const copied = ref(false)
+let copiedTimer = null
+const copyReport = async () => {
+    const text = buildReportText()
+    try {
+        await navigator.clipboard.writeText(text)
+    } catch {
+        // Clipboard API unavailable (non-secure context): legacy fallback.
+        const ta = document.createElement('textarea')
+        ta.value = text
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        ta.remove()
+    }
+    copied.value = true
+    trackEvent('report_copied', { altId: unref(activeAlt) })
+    clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => { copied.value = false }, 2000)
+}
+
+// CSV v1: comma separator, dot decimals, i18n headers with the display unit
+// in the header name; values in the display unit (in / mm, in² / mm²).
+const csvCell = (v) => {
+    const s = String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+const exportCsv = () => {
+    const sheets = unref(reportSheets)
+    const totals = unref(reportTotals)
+    const isInch = unref(unit) === 'inch'
+    const lenUnit = isInch ? 'in' : 'mm'
+    const areaUnit = isInch ? 'in2' : 'mm2'
+    const csvLen = (mm) => fmtLengthValue(mm)
+    const csvArea = (mm2) => (isInch ? (mm2 / SQMM_PER_SQIN).toFixed(1) : String(Math.round(mm2)))
+    const reusableLabel = (off) => (off.reusable ? t('report.offcut.reusable') : t('report.offcut.scrap'))
+    const headers = [
+        t('report.sheet.num'),
+        `${t('report.sheet.format')} W (${lenUnit})`,
+        `${t('report.sheet.format')} H (${lenUnit})`,
+        t('report.sheet.parts'),
+        `${t('report.sheet.used')} (${areaUnit})`,
+        `${t('report.sheet.free')} (${areaUnit})`,
+        `${t('report.sheet.density')} (%)`,
+        `${t('report.sheet.offcut')} W (${lenUnit})`,
+        `${t('report.sheet.offcut')} H (${lenUnit})`,
+        `${t('report.sheet.offcut')} (${areaUnit})`,
+        t('report.offcut.reusable'),
+    ]
+    const rows = sheets.map((s) => [
+        s.index + 1,
+        csvLen(s.widthMm), csvLen(s.heightMm),
+        s.partCount,
+        csvArea(s.partsAreaMm2), csvArea(s.freeAreaMm2),
+        s.densityPct != null ? s.densityPct.toFixed(1) : '',
+        s.offcut ? csvLen(s.offcut.widthMm) : '',
+        s.offcut ? csvLen(s.offcut.heightMm) : '',
+        s.offcut ? csvArea(s.offcut.areaMm2) : '',
+        s.offcut ? reusableLabel(s.offcut) : '',
+    ])
+    if (totals) {
+        rows.push([
+            t('report.total'), '', '',
+            sheets.reduce((acc, s) => acc + s.partCount, 0),
+            csvArea(totals.partsAreaMm2), csvArea(totals.freeAreaMm2),
+            totals.densityPct != null ? totals.densityPct.toFixed(1) : '',
+            '', '', '', '',
+        ])
+    }
+    // BOM: Excel opens UTF-8 (French accents) correctly.
+    const csv = '\uFEFF' + [headers, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n')
+    const slug = String(unref(resultModalData).slug || 'job').replace(/[^a-zA-Z0-9_-]+/g, '-')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `nesting-report-${slug}-alt${unref(activeAlt) + 1}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    trackEvent('report_csv_exported', { altId: unref(activeAlt) })
+}
 const reportBadges = computed(() => {
     const r = unref(activeReport)
     if (!r) return []
@@ -415,7 +657,9 @@ const updatePartPage = (partIndex) => {
     @media (min-width: 567px) {
         max-width: initial;
         min-width: 368px;
-        width: min(720px, 92vw);
+        // Roomy enough for the per-sheet quoting table (7 columns with
+        // in² + ft² areas) without a horizontal scrollbar.
+        width: min(800px, 94vw);
     }
 
     &__wrapper {
@@ -608,12 +852,13 @@ const updatePartPage = (partIndex) => {
 }
 .report {
     margin-top: 12px;
-    padding: 12px 14px;
+    padding: 14px 16px;
     border: 1px solid var(--separator-secondary);
     border-radius: 12px;
     background-color: var(--background-primary);
     text-align: left;
-    font-size: 12px;
+    font-size: 14px;
+    line-height: 1.45;
     color: var(--label-secondary);
 
     &__row {
@@ -669,9 +914,9 @@ const updatePartPage = (partIndex) => {
     }
 
     &__badge {
-        padding: 2px 8px;
+        padding: 2px 9px;
         border-radius: 9px;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 700;
         background-color: color-mix(in srgb, var(--system-green, #2e7d32) 12%, transparent);
         color: var(--system-green, #2e7d32);
@@ -680,16 +925,80 @@ const updatePartPage = (partIndex) => {
             background-color: color-mix(in srgb, var(--error-border, #c62828) 12%, transparent);
             color: var(--error-border, #c62828);
         }
+
+        // Scrap offcut: informational, never alarming (not an error).
+        &--scrap {
+            background-color: color-mix(in srgb, var(--label-tertiary, #8a939f) 14%, transparent);
+            color: var(--label-tertiary, #8a939f);
+        }
+    }
+
+    &__hint {
+        font-size: 11px;
+        color: var(--label-tertiary);
+    }
+
+    // ft² under in² in the per-sheet table (both units, narrow columns).
+    &__area-sub {
+        display: block;
+        font-size: 11px;
+        color: var(--label-tertiary);
+    }
+
+    &__material {
+        padding-top: 10px;
+        margin-top: 2px;
+        border-top: 1px solid var(--separator-secondary);
+        font-size: 15px;
+    }
+
+    &__table-wrap {
+        overflow-x: auto;
+        margin-bottom: 8px;
+    }
+
+    &__table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+
+        th,
+        td {
+            padding: 5px 8px;
+            text-align: right;
+        }
+
+        // Sheet number and format read left-to-right.
+        th:first-child,
+        td:first-child,
+        th:nth-child(2),
+        td:nth-child(2) {
+            text-align: left;
+        }
+
+        thead th {
+            color: var(--label-tertiary);
+            font-weight: 600;
+            border-bottom: 1px solid var(--separator-secondary);
+        }
+
+        tbody tr:not(:last-child) td {
+            border-bottom: 1px solid var(--fill-tertiary);
+        }
     }
 
     &__engine {
-        font-size: 10px;
+        font-size: 11px;
         color: var(--label-tertiary);
         font-variant-numeric: tabular-nums;
     }
 }
 .controls {
     display: flex;
+    flex-wrap: wrap;
+    row-gap: 8px;
     align-items: center;
     justify-content: center;
 
