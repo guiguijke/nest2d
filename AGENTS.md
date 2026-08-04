@@ -206,6 +206,19 @@ admin/                 (back-office Nuxt)
     `docs/dwg-license.md`). R2013+ expérimental → rejet propre avec message
     actionnable, jamais d'import partiel silencieux.
 
+### Server (quotas & promo)
+
+34. **Toute limite user-specific passe par un resolver dans
+    `entitlement.js`** — jamais de lecture directe de `FREE_NESTING_LIMIT`
+    hors resolver. `effectiveFreeLimit(user)` = snapshot
+    `user.promo.freeNestingLimit` ?? défaut ; les projections Mongo doivent
+    inclure `promo.freeNestingLimit` (sinon la limite majorée est
+    silencieusement ignorée). Le snapshot est figé au redeem : modifier ou
+    désactiver le code ne touche pas les bénéficiaires existants, et
+    l'ordre de charge (grant → abonnement → quota free) prime toujours sur
+    le quota promo. Verrous : `server/tests/entitlement.test.js`,
+    `server/tests/promo.test.js` (`npx vitest run`).
+
 ## 3. Banc d'essai (workers/nesting/bench/)
 
 Boucle de test de bout en bout, sans UI :
@@ -242,6 +255,7 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 ## 5. Avant de pousser
 
 ```bash
+npx vitest run                                             # server (23)
 cd workers/nesting/engine && cargo test --release          # 17 + 1 ignore
 cd workers/nesting && python -m pytest tests/ -q           # 36 (PYTHONPATH=workers/common)
 cd workers/common && python -m pytest tests/ -q            # 19
