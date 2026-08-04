@@ -25,7 +25,12 @@ export function usePlans() {
             if (cachedPlans && Date.now() - lastFetch.value < PLANS_TTL_MS) {
                 return cachedPlans
             }
-            return null
+            // Nuxt 4 : SEUL `undefined` signifie « pas de cache → exécuter le
+            // fetch » (asyncData.js : `cachedData !== void 0`). Retourner
+            // `null` (convention Nuxt 3) est pris pour une donnée en cache
+            // valide : le fetch n'est JAMAIS exécuté, `plans` reste null et
+            // les CTA payants affichent « Bientôt disponible » en permanence.
+            return undefined
         },
         onResponse({ response }) {
             cachedPlans = response._data
