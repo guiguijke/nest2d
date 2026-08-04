@@ -62,6 +62,45 @@
         }
     }
 
+    // ── Campaign renewal: sets a new end date on the code AND propagates it
+    // to every existing beneficiary (server-side updateMany).
+    const renewDates = ref<Record<string, string>>({})
+
+    async function applyExpiry(c: any, isoDate: string) {
+        acting.value = true
+        lastMsg.value = ''
+        try {
+            const res: any = await $fetch(`/api/promo-codes/${encodeURIComponent(c.code)}`, {
+                method: 'PATCH',
+                body: { expiresAt: isoDate },
+                credentials: 'include',
+            })
+            lastMsg.value = `✓ ${c.code} reconduit jusqu'au ${fmtDate(isoDate)} (${res.propagated} bénéficiaire(s))`
+            renewDates.value[c.code] = ''
+            await refresh()
+        } catch (e: any) {
+            lastMsg.value = `✗ ${e?.data?.statusMessage || 'Erreur'}`
+        } finally {
+            acting.value = false
+        }
+    }
+
+    function renewCustom(c: any) {
+        const val = renewDates.value[c.code]
+        if (!val) {
+            lastMsg.value = '✗ Choisissez une date de fin'
+            return
+        }
+        applyExpiry(c, val)
+    }
+
+    function quickRenew(c: any, months: number) {
+        // Extend from the current end date when still running, else from now.
+        const base = c.expiresAt && new Date(c.expiresAt) > new Date() ? new Date(c.expiresAt) : new Date()
+        base.setMonth(base.getMonth() + months)
+        applyExpiry(c, base.toISOString().slice(0, 10))
+    }
+
     function fmtDate(d: any) {
         if (!d) return '—'
         return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -82,8 +121,9 @@
             <h1 class="text-xl">Codes promo</h1>
             <p class="text-xs text-ink-400">
                 Codes partenaires : majorent le quota gratuit mensuel des utilisateurs qui les
-                activent. La désactivation/expiration ne bloque que les nouvelles activations — les
-                bénéficiaires existants conservent leur quota.
+                activent. La date d'expiration vaut pour les nouvelles activations ET les
+                bénéficiaires existants — la reconduire la propage à tous. Sans expiration, le
+                code est illimité. La désactivation ne bloque que les nouvelles activations.
             </p>
         </div>
 
@@ -177,6 +217,7 @@
                             <th class="px-3 py-2 font-medium">Utilisations</th>
                             <th class="px-3 py-2 font-medium">Statut</th>
                             <th class="px-3 py-2 font-medium">Expiration</th>
+                            <th class="px-3 py-2 font-medium">Reconduire</th>
                             <th class="px-3 py-2 font-medium">Créé le</th>
                             <th class="px-3 py-2 font-medium"></th>
                         </tr>
@@ -202,6 +243,38 @@
                                 >
                             </td>
                             <td class="px-3 py-2 text-ink-300">{{ fmtDate(c.expiresAt) }}</td>
+                            <td class="px-3 py-2">
+                                <div class="flex items-center gap-1">
+                                    <input
+                                        v-model="renewDates[c.code]"
+                                        type="date"
+                                        class="input input-xs w-32"
+                                        @keyup.enter="renewCustom(c)"
+                                    />
+                                    <button
+                                        class="btn-secondary"
+                                        :disabled="acting"
+                                        title="Appliquer la date choisie"
+                                        @click="renewCustom(c)"
+                                    >
+                                        OK
+                                    </button>
+                                    <button
+                                        class="btn-secondary"
+                                        :disabled="acting"
+                                        @click="quickRenew(c, 3)"
+                                    >
+                                        +3 mois
+                                    </button>
+                                    <button
+                                        class="btn-secondary"
+                                        :disabled="acting"
+                                        @click="quickRenew(c, 6)"
+                                    >
+                                        +6 mois
+                                    </button>
+                                </div>
+                            </td>
                             <td class="px-3 py-2 text-ink-300">{{ fmtDate(c.createdAt) }}</td>
                             <td class="px-3 py-2 text-right">
                                 <button
@@ -215,7 +288,7 @@
                         </tr>
                         <tr v-if="!data.items.length">
                             <td
-                                colspan="8"
+                                colspan="9"
                                 class="px-3 py-6 text-center text-ink-400"
                             >
                                 Aucun code promo.

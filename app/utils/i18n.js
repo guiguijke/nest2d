@@ -367,6 +367,9 @@ const dict = {
         'account.promo.apply': 'Apply',
         'account.promo.success': 'Code {code} activated: {n} free nestings per month.',
         'account.promo.active': 'Code {code} active: {n} free nestings per month.',
+        'account.promo.until': 'Valid until {date}.',
+        'account.promo.ended':
+            'Code {code} ended on {date} — your quota is back to {n} free nestings per month. You can activate a new code below.',
         'account.promo.already': 'A promo code is already active on your account (one code per account).',
         'account.promo.invalid': 'This promo code is invalid.',
         'account.promo.expired': 'This promo code has expired or is no longer active.',
@@ -801,6 +804,9 @@ const dict = {
         'account.promo.apply': "Appliquer",
         'account.promo.success': "Code {code} activé : {n} nestings gratuits par mois.",
         'account.promo.active': "Code {code} actif : {n} nestings gratuits par mois.",
+        'account.promo.until': "Valable jusqu'au {date}.",
+        'account.promo.ended':
+            "Le code {code} a expiré le {date} — votre quota est revenu à {n} nestings gratuits par mois. Vous pouvez activer un nouveau code ci-dessous.",
         'account.promo.already': "Un code promo est déjà actif sur votre compte (un seul code par compte).",
         'account.promo.invalid': "Ce code promo est invalide.",
         'account.promo.expired': "Ce code promo a expiré ou n'est plus actif.",
