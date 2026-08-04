@@ -58,6 +58,14 @@
                 {{ result.slug }}.dxf
             </p>
             <div class="result__controls controls">
+                <MainButton
+                    v-if="hasReport"
+                    :label="t('result.nestingReport')"
+                    :size="sizeType.s"
+                    :theme="themeType.secondary"
+                    class="controls__report"
+                    @click="openReport"
+                />
                 <MainButton 
                     v-if="isResultCompleted" 
                     :href="downloadUrl" 
@@ -188,6 +196,23 @@ const isResultCompleted = computed(() => {
 });
 
 const openModal = () => {
+    emit('openModal');
+};
+
+// Quoting report (per-sheet measured metrics) available on this result?
+// Drives the dedicated "Nesting report" button: it opens the same result
+// modal but scrolled straight to the report block.
+const hasReport = computed(() => {
+    if (!isResultCompleted.value) return false;
+    return (props.result?.alternatives || []).some(
+        (alt) => Array.isArray(alt?.report?.sheets) && alt.report.sheets.length > 0
+    );
+});
+
+const scrollToReport = useResultScrollToReport();
+const openReport = () => {
+    scrollToReport.value = true;
+    trackEvent('click_nesting_report_button', { slug: props.result?.slug });
     emit('openModal');
 };
 
@@ -381,6 +406,10 @@ const onDownload = () => {
 
     &__download {
         margin-left: 5px;
+    }
+
+    &__report {
+        margin-right: 5px;
     }
 }
 </style>

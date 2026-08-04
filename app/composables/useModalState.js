@@ -1,6 +1,11 @@
 export const useResultDialog = () => {
     return useState("resultDialog", () => false);
 };
+// Set by the "Nesting report" button on a result card: the result modal
+// scrolls straight to the quoting report when it opens.
+export const useResultScrollToReport = () => {
+    return useState("resultScrollToReport", () => false);
+};
 export const useScreenshotDialog = () => {
     return useState("screenshotDialog", () => false);
 };
