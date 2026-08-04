@@ -15,7 +15,14 @@ from core.nesting_input_builder import (
 from core.engine import EngineCancelled, run_engine
 from core.holed_polygons import channel_width_for_space, channels_usable, open_holes_with_channels
 from core.placement import ResultContainer, Transform, parse_result_containers
-from core.metrics import compute_used_sheet_share, largest_empty_rectangle, verify_layout
+from core.metrics import (
+    compute_used_sheet_share,
+    enrich_offcut,
+    largest_empty_rectangle,
+    per_sheet_metrics,
+    report_totals,
+    verify_layout,
+)
 from dxf.dxf_utils import read_dxf
 from core.svg_colored import build_colored_sheet_svg
 from ezdxf.document import Drawing
@@ -958,6 +965,10 @@ def nesting_process(doc):
         sheet_area = sum(
             (c.bin_width or 0) * (c.bin_height or 0) for c in result_containers
         )
+        offcut = largest_empty_rectangle(result_containers, input_items)
+        # Per-sheet measured material accounting (quoting numbers) — ADDITIVE
+        # report fields, legacy jobs without them keep the old UI block.
+        sheets_metrics = per_sheet_metrics(result_containers, input_items)
         alternatives.append({
             "seed": engine_alt.get("seed"),
             "strategy": strategy,
@@ -965,7 +976,7 @@ def nesting_process(doc):
             # Share of sheet actually consumed (used bbox / sheet area,
             # lower = better): the score that rewards compaction.
             "usedSheetShare": compute_used_sheet_share(result_containers, input_items),
-            "offcut": largest_empty_rectangle(result_containers, input_items),
+            "offcut": offcut,
             "cost": cost,
             "layoutCount": len(result_containers),
             "dxf_files": dxf_files,
@@ -977,6 +988,11 @@ def nesting_process(doc):
                 "sheetAreaMm2": round(sheet_area, 1),
                 "iterations": engine_alt.get("evaluations") or engine_alt.get("iterations"),
                 "vcores": vcores or None,
+                # Quoting view: per-sheet measured metrics + totals (material
+                # to buy) + the enriched offcut (reusable vs scrap).
+                "sheets": sheets_metrics,
+                "totals": report_totals(sheets_metrics),
+                "offcut": enrich_offcut(offcut),
             },
         })
 

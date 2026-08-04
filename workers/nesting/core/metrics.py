@@ -209,6 +209,94 @@ def largest_empty_rectangle(containers, input_items):
     return best
 
 
+# An offcut whose SMALLEST dimension is below this (mm) is considered scrap:
+# no realistic part nests into a sliver narrower than 100 mm. The flag is
+# conservative by construction — the offcut is the largest GUARANTEED-free
+# rectangle, so the real free-form remnant can only be bigger ("at least").
+OFFCUT_REUSABLE_MIN_MM = 100.0
+
+
+def enrich_offcut(offcut):
+    """Enrich a {width, height, area} offcut rectangle for the nesting
+    report: explicit mm-suffixed keys + a reusability flag (see
+    OFFCUT_REUSABLE_MIN_MM). None stays None (no free rectangle found)."""
+    if not offcut:
+        return None
+    w, h = offcut["width"], offcut["height"]
+    return {
+        "widthMm": round(w, 3),
+        "heightMm": round(h, 3),
+        "areaMm2": round(offcut["area"], 1),
+        "reusable": min(w, h) >= OFFCUT_REUSABLE_MIN_MM,
+    }
+
+
+def per_sheet_metrics(containers, input_items):
+    """Per-sheet MEASURED material accounting for the nesting report
+    (the estimator's quoting numbers — never bbox, never engine-declared).
+
+    One entry per container:
+      {index, widthMm, heightMm, sheetAreaMm2, partsAreaMm2, freeAreaMm2,
+       densityPct, partCount, offcut}
+    partsAreaMm2 sums the TRUE areas of the placed polygons (outer ring
+    minus the holes) on that sheet; densityPct = partsArea/sheetArea x 100,
+    rounded to 0.1. The per-sheet offcut reuses the budgeted
+    largest-empty-rectangle helper on the single container.
+    """
+    sheets = []
+    items_by_id = {item["id"]: item for item in input_items}
+    for index, container in enumerate(containers):
+        sheet_w = container.bin_width or 0
+        sheet_h = container.bin_height or 0
+        sheet_area = sheet_w * sheet_h
+        parts_area = 0.0
+        part_count = 0
+        for transform in container.transforms:
+            item = items_by_id.get(getattr(transform, "item_id", None))
+            if item is None:
+                continue
+            parts_area += _placed_polygon(item, transform).area
+            part_count += 1
+        sheets.append({
+            "index": index,
+            "widthMm": round(sheet_w, 3),
+            "heightMm": round(sheet_h, 3),
+            "sheetAreaMm2": round(sheet_area, 1),
+            "partsAreaMm2": round(parts_area, 1),
+            "freeAreaMm2": round(max(0.0, sheet_area - parts_area), 1),
+            "densityPct": round(parts_area / sheet_area * 100, 1) if sheet_area > 0 else None,
+            "partCount": part_count,
+            "offcut": enrich_offcut(largest_empty_rectangle([container], input_items)),
+        })
+    return sheets
+
+
+def report_totals(sheets):
+    """Cross-sheet totals for the nesting report, incl. the material to
+    buy: distinct sheet formats aggregated with their counts (mixed-format
+    jobs), sorted by descending area. densityPct is the global MEASURED
+    density (placed parts area / total sheet area)."""
+    sheet_area = sum(s["sheetAreaMm2"] for s in sheets)
+    parts_area = sum(s["partsAreaMm2"] for s in sheets)
+    formats = {}
+    for s in sheets:
+        key = (s["widthMm"], s["heightMm"])
+        formats[key] = formats.get(key, 0) + 1
+    return {
+        "sheetCount": len(sheets),
+        "formats": [
+            {"widthMm": w, "heightMm": h, "count": n}
+            for (w, h), n in sorted(
+                formats.items(), key=lambda kv: kv[0][0] * kv[0][1], reverse=True
+            )
+        ],
+        "sheetAreaMm2": round(sheet_area, 1),
+        "partsAreaMm2": round(parts_area, 1),
+        "freeAreaMm2": round(max(0.0, sheet_area - parts_area), 1),
+        "densityPct": round(parts_area / sheet_area * 100, 1) if sheet_area > 0 else None,
+    }
+
+
 # Above this many placed parts per sheet, the pairwise verification pass is
 # skipped (None = unverified) — O(n^2) distances get too slow to be worth it.
 VERIFY_MAX_PARTS_PER_SHEET = 250
