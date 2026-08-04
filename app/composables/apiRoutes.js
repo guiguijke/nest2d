@@ -3,6 +3,7 @@ export const API_ROUTES = {
     LOGOUT: '/api/auth/logout',
     USER: '/api/user',
     USER_DELETE: '/api/user/delete',
+    USER_PROMO_REDEEM: '/api/user/promo/redeem',
     SUBSCRIPTION: '/api/payment/subscription',
     SUBSCRIPTION_CHANGE: '/api/payment/subscription/change',
     SUBSCRIBE: '/api/payment/subscribe',

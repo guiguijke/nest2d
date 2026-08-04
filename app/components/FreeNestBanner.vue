@@ -21,13 +21,13 @@
         <template v-else>
             <div class="free-nest__body">
                 <span class="free-nest__text">
-                    {{ t('banner.remaining', { n: freeRemaining, total: FREE_LIMIT }) }}
+                    {{ t('banner.remaining', { n: freeRemaining, total: freeLimit }) }}
                 </span>
                 <div
                     class="free-nest__bar"
                     role="progressbar"
                     :aria-valuemin="0"
-                    :aria-valuemax="FREE_LIMIT"
+                    :aria-valuemax="freeLimit"
                     :aria-valuenow="freeRemaining"
                 >
                     <div
@@ -51,9 +51,15 @@
     // re-enabled (NUXT_PUBLIC_PAID_PLANS_DISABLED).
     const paidDisabled = computed(() => useRuntimeConfig().public.paidPlansDisabled === true)
 
-    const FREE_LIMIT = FREE_NESTING_LIMIT
-
     const user = computed(() => unref(getters.user) || {})
+
+    // The monthly quota is per-user: a redeemed partner promo code raises it
+    // (snapshot on the user doc). Same resolution as effectiveFreeLimit()
+    // server-side — never show the bare default for a promo user.
+    const freeLimit = computed(() => {
+        const promoLimit = user.value.promo?.freeNestingLimit
+        return Number.isInteger(promoLimit) && promoLimit > 0 ? promoLimit : FREE_NESTING_LIMIT
+    })
 
     const isSubscribed = computed(() => {
         const status = user.value.subscriptionStatus
@@ -69,13 +75,13 @@
 
     // Width of the progress bar reflects how much of the monthly quota remains.
     const barStyle = computed(() => ({
-        width: `${(freeRemaining.value / FREE_LIMIT) * 100}%`,
+        width: `${(freeRemaining.value / freeLimit.value) * 100}%`,
     }))
 
     // Color shifts from green to amber to red as the allowance runs low, so the
     // user notices before hitting the paywall.
     const barLevel = computed(() => {
-        const ratio = freeRemaining.value / FREE_LIMIT
+        const ratio = freeRemaining.value / freeLimit.value
         if (ratio > 0.5) return 'free-nest__bar-fill--high'
         if (ratio > 0.2) return 'free-nest__bar-fill--mid'
         return 'free-nest__bar-fill--low'
