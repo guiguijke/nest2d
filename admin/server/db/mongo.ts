@@ -39,6 +39,7 @@ export const COL = {
   subscriptionCheckouts: 'subscription_checkouts',
   subscriptionPlan: 'subscription_plan',
   paywallProduct: 'paywallProduct',
+  promoCodes: 'promoCodes',
   tracking: 'tracking',
   http: 'http',
   supportMessages: 'supportMessages',
