@@ -199,6 +199,14 @@ export default defineNuxtConfig({
                     'cache-control': 'public,max-age=31536000,s-maxage=31536000,immutable'
                 }
             },
+            // Engine WASM artifact (Phase 2, flag-gated): regenerated in
+            // place by workers/nesting/engine/build-wasm.sh — a short cache
+            // lets updates through while avoiding a 900 KB refetch per visit.
+            '/engine/**': {
+                headers: {
+                    'cache-control': 'public,max-age=3600,must-revalidate'
+                }
+            },
             '/_nuxt/**': {
                 headers: {
                     'cache-control': 'public,max-age=31536000,immutable'

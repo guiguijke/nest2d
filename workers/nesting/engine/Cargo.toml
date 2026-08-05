@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/sparrow", "crates/nest-engine"]
+members = ["crates/sparrow", "crates/nest-engine", "crates/nest-wasm"]
 
 [workspace.dependencies]
 jagua-rs = { version = "0.7.2" }
@@ -12,6 +12,13 @@ anyhow = "1.0"
 log = "0.4"
 rayon = "1.10"
 clap = { version = "4.5", features = ["derive"] }
+wasm-bindgen = "0.2"
+libm = "0.2"
+
+# Vendored jagua-rs 0.7.2 (MPL-2.0, Jeroen Gardeyn) — mono-thread wasm32
+# import + libm transcendentals (see crates/jagua-rs/VENDORED.patch.md).
+[patch.crates-io]
+jagua-rs = { path = "crates/jagua-rs" }
 
 [profile.release]
 opt-level = 3

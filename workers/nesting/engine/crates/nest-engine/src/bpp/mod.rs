@@ -7,20 +7,19 @@ pub mod sa;
 
 use crate::config::EngineConfig;
 use crate::spp::derive_seed;
+use crate::{EngineOutput, map_workers};
 use anyhow::{Context, Result, bail};
 use constructive::DirBias;
 use jagua_rs::io::import::Importer;
 use jagua_rs::probs::bpp::io::ext_repr::{ExtBPInstance, ExtBPSolution};
 use rand::SeedableRng;
 use rand::rngs::Xoshiro256PlusPlus;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use sparrow::util::io::write_json;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
-use std::path::Path;
-use std::time::{Duration, Instant};
+use jagua_rs::Instant;
+use std::time::Duration;
 
 /// Samples evaluated per item during constructive placement.
 /// Hundreds of samples suffice for a good first-fit; SA drives the quality.
@@ -63,12 +62,8 @@ fn solution_fingerprint(solution: &ExtBPSolution) -> u64 {
     hasher.finish()
 }
 
-pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> Result<()> {
+pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result<EngineOutput> {
     let started = Instant::now();
-    let input_str = std::fs::read_to_string(instance_path)
-        .with_context(|| format!("reading BPP instance {}", instance_path.display()))?;
-    let ext_instance: ExtBPInstance =
-        serde_json::from_str(&input_str).context("parsing BPP instance")?;
 
     let sparrow_config = config.sparrow_config();
     let importer = Importer::new(
@@ -99,20 +94,20 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
     let warm_start = config.initial_sequence.clone();
     let biases = config.dir_biases();
     let plateau_patience = config.plateau_patience();
-    let mut runs: Vec<WorkerRun> = (0..n_workers)
-        .into_par_iter()
-        .map(|w| {
-            let seed = derive_seed(config.prng_seed, w);
-            let bias = biases[w % biases.len()];
-            let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
-            let report = sa::anneal(
-                instance,
-                N_SAMPLES_PER_ITEM,
-                deadline,
-                bias,
-                warm_start.clone(),
-                plateau_patience,
-                &mut rng,
+    let sa_max_iterations = config.sa_max_iterations;
+    let mut runs: Vec<WorkerRun> = map_workers(n_workers, |w| {
+        let seed = derive_seed(config.prng_seed, w);
+        let bias = biases[w % biases.len()];
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+        let report = sa::anneal(
+            instance,
+            N_SAMPLES_PER_ITEM,
+            deadline,
+            bias,
+            warm_start.clone(),
+            plateau_patience,
+            sa_max_iterations,
+            &mut rng,
                 |cost, solution| {
                     println!(
                         "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"elapsed_sec\":{},\"bias\":\"{}\"}}",
@@ -181,8 +176,7 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                 solution: report.best_solution,
                 iterations: report.iterations,
             }
-        })
-        .collect();
+        });
 
     // Rank: lexicographic cost, stable tie-break on seed.
     runs.sort_by(|a, b| a.cost.cmp_key().cmp(&b.cost.cmp_key()).then(a.seed.cmp(&b.seed)));
@@ -255,8 +249,6 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
     let best_cost = best.solution.cost;
     let best_density = best.solution.density;
     let n_exported = alternatives.len();
-    write_json(&best, &out_dir.join("sol_instance.json"))?;
-    write_json(&serde_json::Value::Array(alternatives), &out_dir.join("alternatives.json"))?;
 
     println!(
         "{{\"type\":\"done\",\"cost\":{},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
@@ -265,5 +257,8 @@ pub fn run_bpp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         n_exported,
         started.elapsed().as_secs()
     );
-    Ok(())
+    Ok(EngineOutput {
+        sol_instance: serde_json::to_value(&best)?,
+        alternatives,
+    })
 }

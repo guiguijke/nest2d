@@ -9,7 +9,8 @@ use jagua_rs::entities::Instance;
 use jagua_rs::entities::LayoutSnapshot;
 use jagua_rs::probs::bpp::entities::{BPInstance, BPSolution};
 use rand::{Rng, RngExt};
-use std::time::{Duration, Instant};
+use jagua_rs::Instant;
+use std::time::Duration;
 
 /// Scalarized cost for SA acceptance. Lexicographic comparisons use `cmp_key`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -167,6 +168,10 @@ pub struct SaReport {
 /// `plateau_patience`: stop early when the incumbent has not improved for
 /// this long (after MIN_ITERS_BEFORE_PLATEAU iterations) — "compute until
 /// convergence" instead of burning the full budget on easy instances.
+/// `max_iterations` (cross-target determinism harness): when set, the loop
+/// runs a fixed number of iterations and the temperature schedule is driven
+/// by the iteration fraction instead of wall clock — the walk becomes
+/// reproducible bit-for-bit across native and wasm builds.
 pub fn anneal(
     instance: &BPInstance,
     n_samples: usize,
@@ -174,6 +179,7 @@ pub fn anneal(
     bias: DirBias,
     initial_seq: Option<Vec<usize>>,
     plateau_patience: Option<Duration>,
+    max_iterations: Option<usize>,
     rng: &mut impl Rng,
     mut on_improvement: impl FnMut(&Cost, &BPSolution),
     mut on_heartbeat: impl FnMut(usize, &Cost),
@@ -207,7 +213,13 @@ pub fn anneal(
     let mut iterations = 0usize;
     let mut last_heartbeat = Instant::now();
 
-    while Instant::now() < end {
+    loop {
+        // Termination: fixed iteration count (deterministic mode) or deadline.
+        match max_iterations {
+            Some(mi) if iterations >= mi => break,
+            None if Instant::now() >= end => break,
+            _ => {}
+        }
         iterations += 1;
 
         // Plateau stop: no incumbent improvement for `patience`.
@@ -249,10 +261,15 @@ pub fn anneal(
         let candidate = construct(instance, &seq, n_samples, bias, rng);
         let candidate_cost = cost_of(&candidate.solution, instance, candidate.unplaced);
 
-        let elapsed_frac = (started.elapsed().as_secs_f64() / deadline.as_secs_f64()).min(1.0);
-        let temperature = T0 * (T_END / T0).powf(elapsed_frac);
+        let elapsed_frac = match max_iterations {
+            Some(mi) => (iterations as f64 / mi as f64).min(1.0),
+            None => (started.elapsed().as_secs_f64() / deadline.as_secs_f64()).min(1.0),
+        };
+        // libm pow/exp — identical on every target (platform libms diverge
+        // by ulps and break cross-target replay determinism, AGENTS.md).
+        let temperature = T0 * libm::pow(T_END / T0, elapsed_frac);
         let delta = candidate_cost.scalar() - current_cost.scalar();
-        let accept = delta <= 0.0 || rng.random::<f64>() < (-delta / temperature).exp();
+        let accept = delta <= 0.0 || rng.random::<f64>() < libm::exp(-delta / temperature);
 
         if accept {
             current_cost = candidate_cost;

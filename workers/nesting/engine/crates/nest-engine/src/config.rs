@@ -1,7 +1,11 @@
 use crate::bpp::constructive::DirBias;
 use jagua_rs::collision_detection::CDEConfig;
 use serde::Deserialize;
-use sparrow::config::{CompressionConfig, ExplorationConfig, SparrowConfig, DEFAULT_SPARROW_CONFIG};
+use sparrow::config::{
+    CompressionConfig, ExplorationConfig, ShrinkDecayStrategy, SparrowConfig,
+    DEFAULT_SPARROW_CONFIG,
+};
+use sparrow::optimizer::separator::SeparatorConfig;
 use std::time::Duration;
 
 /// Engine configuration, deserialized from the `-c config.json` file.
@@ -70,6 +74,24 @@ pub struct EngineConfig {
     /// always run to deadline.
     #[serde(default)]
     pub plateau_patience_sec: Option<f32>,
+    /// Override sparrow's inner separator parallelism (default 3).
+    /// Single-thread shapes (wasm, determinism locks) set 1.
+    #[serde(default)]
+    pub separator_workers: Option<usize>,
+    /// Cross-target determinism harness: work-bounded exploration stop. When
+    /// set, phase time limits degrade to a 24 h backstop and the run becomes
+    /// a pure function of (instance, seed, thread count) — reproducible
+    /// bit-for-bit across native and wasm builds.
+    #[serde(default)]
+    pub explore_max_conseq_failed_attempts: Option<usize>,
+    /// Determinism harness: failure-based compression shrink decay
+    /// (e.g. 0.7). Set together with the exploration bound.
+    #[serde(default)]
+    pub compress_failure_decay: Option<f32>,
+    /// Determinism harness, BPP: cap SA iterations; the temperature schedule
+    /// is then driven by the iteration fraction, not wall clock.
+    #[serde(default)]
+    pub sa_max_iterations: Option<usize>,
 }
 
 fn default_n_alternatives() -> usize {
@@ -140,8 +162,21 @@ impl EngineConfig {
 
     /// Builds the sparrow config for one worker run.
     pub fn sparrow_config(&self) -> SparrowConfig {
-        let explore = Duration::from_secs_f32(self.time_budget_sec as f32 * self.explore_ratio);
-        let compress = Duration::from_secs_f32(self.time_budget_sec as f32 * (1.0 - self.explore_ratio));
+        // Deterministic work-bounded mode: time limits degrade to a backstop
+        // so the trajectory is a pure function of (instance, seed).
+        let deterministic = self.explore_max_conseq_failed_attempts.is_some()
+            || self.compress_failure_decay.is_some();
+        let (explore, compress) = if deterministic {
+            (Duration::from_secs(24 * 3600), Duration::from_secs(24 * 3600))
+        } else {
+            (
+                Duration::from_secs_f32(self.time_budget_sec as f32 * self.explore_ratio),
+                Duration::from_secs_f32(self.time_budget_sec as f32 * (1.0 - self.explore_ratio)),
+            )
+        };
+        let sep_workers = self
+            .separator_workers
+            .unwrap_or(DEFAULT_SPARROW_CONFIG.expl_cfg.separator_config.n_workers);
         SparrowConfig {
             rng_seed: Some(self.prng_seed as usize),
             cde_config: CDEConfig {
@@ -153,10 +188,25 @@ impl EngineConfig {
             narrow_concavity_cutoff_ratio: self.narrow_concavity_cutoff,
             expl_cfg: ExplorationConfig {
                 time_limit: explore,
+                max_conseq_failed_attempts: self
+                    .explore_max_conseq_failed_attempts
+                    .or(DEFAULT_SPARROW_CONFIG.expl_cfg.max_conseq_failed_attempts),
+                separator_config: SeparatorConfig {
+                    n_workers: sep_workers,
+                    ..DEFAULT_SPARROW_CONFIG.expl_cfg.separator_config
+                },
                 ..DEFAULT_SPARROW_CONFIG.expl_cfg
             },
             cmpr_cfg: CompressionConfig {
                 time_limit: compress,
+                shrink_decay: match self.compress_failure_decay {
+                    Some(r) => ShrinkDecayStrategy::FailureBased(r),
+                    None => DEFAULT_SPARROW_CONFIG.cmpr_cfg.shrink_decay,
+                },
+                separator_config: SeparatorConfig {
+                    n_workers: sep_workers,
+                    ..DEFAULT_SPARROW_CONFIG.cmpr_cfg.separator_config
+                },
                 ..DEFAULT_SPARROW_CONFIG.cmpr_cfg
             },
         }

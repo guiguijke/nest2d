@@ -5,6 +5,10 @@ edition = "2024"
 license = "MIT"
 description = "Nest2D nesting engine: separation/compaction optimizer built on jagua-rs + sparrow"
 
+[lib]
+name = "nest_engine"
+path = "src/lib.rs"
+
 [[bin]]
 name = "nest-engine"
 path = "src/main.rs"
@@ -19,4 +23,5 @@ anyhow = { workspace = true }
 log = { workspace = true }
 rayon = { workspace = true }
 clap = { workspace = true }
+libm = { workspace = true }
 num_cpus = "1.17"
