@@ -41,6 +41,14 @@ clair en RAM pendant le traitement ; un administrateur ou une machine
 compromise pourrait y accéder. Le Vault ZK réduit cette exposition (au
 repos) sans l'éliminer pendant le job : seul le Mode Local l'élimine.
 
+**TODO (prérequis Phase 1, revue 2026-08-05)** : la purge 24 h est promise
+mais n'a **pas de spec d'exécution** — sans elle la promesse reste
+théorique. À rédiger avant tout code : mécanisme (cron ? lifecycle worker ?
+TTL Mongo ?), où le délai est affiché à l'utilisateur, périmètre des blobs
+purgés (sources, résultats, géométrie `polygonParts` ?), interaction avec
+le vault (fichiers conservés chiffrés au repos vs purgés) et avec
+l'historique des jobs/rapports.
+
 ### Vault ZK
 
 - Promesse (spec `doc/encryption-premium.spec.md` §1) : chiffré avec une

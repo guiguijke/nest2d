@@ -90,7 +90,9 @@ produit sans protéger l'utilisateur.
 - **Exports CSV / PDF / presse-papier = Unlimited+** [spéc] — les exports
   client existants (CSV, copie presse-papier, aujourd'hui libres) passent
   derrière un état verrouillé propre en free ; l'export PDF n'existe pas
-  encore.
+  encore. L'état verrouillé est un **message explicite** (du type
+  « L'export fait désormais partie d'Unlimited » + CTA) — jamais un bouton
+  qui disparaît : la frustration devient argument d'upgrade.
 - **Historique des rapports** et **coût matière** (prix/tôle → coût job) :
   candidats Pro futurs [spéc].
 - Rappel canonique : la densité du rapport est **mesurée** sur les
@@ -132,13 +134,22 @@ Références : `specs/55-promo-codes.md` (local), AGENTS #34, verrous
 
 ### Phase 1
 
-- Vault ZK **opt-in sur tous les plans** (retrait du gate `hasPrivacyTier`)
-  [spéc] ;
-- **Durcissement vault niveau 1** : DEK en RAM seule, livraison ECDH
-  éphémère, suppression du wrap master key — TODO détaillé dans
-  `docs/THREAT-MODEL.md` §4 [spéc] ;
-- Codes promo partenaires [prod] ;
-- Rapport matière [prod].
+Quatre chantiers **indépendants, à traiter en PR séparées** :
+
+1. **Vault ZK opt-in sur tous les plans** (retrait du gate
+   `hasPrivacyTier`) [spéc]. À la mise en prod : mettre à jour la copy qui
+   présente le ZK comme exclusivité Pro (app : `plans.pro.f2/desc` ; site :
+   `pricing.pro.f2/description`) — la copy suit la prod, jamais l'inverse.
+2. **Durcissement vault niveau 1** : DEK en RAM seule, livraison ECDH
+   éphémère, suppression du wrap master key — TODO détaillé dans
+   `docs/THREAT-MODEL.md` §4. **Design à arrêter avant tout code**
+   (D-PRV-7) [spéc].
+3. **Purge 24 h du Mode Serveur** : la promesse (§2) n'est pas codée —
+   prérequis : rédiger la spec d'exécution (mécanisme, délai affiché où,
+   interaction vault) — voir `docs/THREAT-MODEL.md` §2 [spéc].
+4. **Cap 2 tôles/job en free** [spéc].
+
+Déjà livrés : codes promo partenaires [prod], rapport matière [prod].
 
 ### Phase 2 — [conditionnelle]
 
@@ -146,6 +157,15 @@ Hybride WASM navigateur/serveur (Free = navigateur seul, Unlimited = choix
 navigateur/serveur, Pro = turbo hybride client+serveur). **Conditionnée au
 verdict du spike WASM** : GO/NO-GO documenté dans `spike/VERDICT.md` —
 aucun travail Phase 2 avant un GO écrit.
+
+Scope attendu du spike (revue 2026-08-05) : le verdict sera plutôt
+« GO, périmètre X » qu'un oui/non sec. Commencer par une **cartographie
+moteur/pipeline** : le cœur (recuit BPP, constructif `HoleFillEvaluator`,
+jagua/sparrow) est **Rust** — compilable WASM ; le pipeline **Python**
+(parse DXF/SVG/DWG, canaux capillaires `holed_polygons.py`, métriques du
+rapport) n'embarque pas et devra être porté ou réimplémenté côté client
+en mode navigateur. La logique trous doit donc vivre côté client — à
+chiffrer dans le verdict.
 
 ## Hors scope de ce document
 
