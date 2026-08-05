@@ -1,5 +1,4 @@
 import { getVaultStatus } from '~~/server/utils/vault'
-import { hasPrivacyTier } from '~~/server/utils/entitlement'
 
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId
@@ -8,6 +7,8 @@ export default defineEventHandler(async (event) => {
     }
 
     const status = await getVaultStatus(userId)
-    const eligible = await hasPrivacyTier(userId)
-    return { ...status, eligible }
+    // Opt-in on EVERY plan (D-PRV-5, J-049): privacy is never a paid feature.
+    // The `eligible` field is kept (stable API shape) but no longer gates
+    // anything — every authenticated user is eligible.
+    return { ...status, eligible: true }
 })

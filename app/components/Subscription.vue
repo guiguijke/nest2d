@@ -29,8 +29,8 @@
                 <span class="subscription__badge">{{ t('sub.proPrivacy') }}</span>
             </div>
             <p class="subscription__desc">
-                Zero-knowledge vault, maximum compute budget and priority
-                queue are enabled on your account.
+                Maximum compute budget and priority queue are enabled on your
+                account.
             </p>
         </div>
 
@@ -41,8 +41,7 @@
                 <span class="subscription__interval">/ {{ data.privacyPlan.interval }}</span>
             </div>
             <p class="subscription__desc">
-                Zero-knowledge encryption, maximum compute budget and
-                priority queue.
+                Maximum compute budget and priority queue.
             </p>
             <MainButton
                 v-if="!paidDisabled"

@@ -118,6 +118,7 @@ const tiers = computed(() => {
                 t('plans.free.f1', { n: FREE_NESTING_LIMIT }),
                 t('plans.free.f2'),
                 t('plans.free.f3'),
+                t('plans.free.f4'),
             ],
             cta: t('plans.cta.startFree'),
             trackingTag: 'plans_free',
@@ -136,6 +137,7 @@ const tiers = computed(() => {
                 t('plans.unlimited.f2'),
                 t('plans.unlimited.f3'),
                 t('plans.unlimited.f4'),
+                t('plans.unlimited.f5'),
             ],
             // When paid plans are disabled, the card stays visible (price +
             // features) but the CTA shows "Coming soon" and does nothing.
@@ -156,7 +158,6 @@ const tiers = computed(() => {
                 t('plans.pro.f1'),
                 t('plans.pro.f2'),
                 t('plans.pro.f3'),
-                t('plans.pro.f4'),
             ],
             cta: proAvailable && !paidDisabled.value ? t('plans.cta.getPro') : t('plans.cta.comingSoon'),
             comingSoon: !proAvailable || paidDisabled.value,
@@ -174,7 +175,8 @@ const comparisonRows = computed(() => [
     { label: t('plans.compare.heterogeneous'), values: [true, true, true] },
     { label: t('plans.compare.export'), values: [true, true, true] },
     { label: t('plans.compare.emailNotif'), values: [false, true, true] },
-    { label: t('plans.compare.zeroKnowledge'), values: [false, false, true] },
+    // Opt-in on every plan (D-PRV-5, J-049) — privacy is never a paid feature.
+    { label: t('plans.compare.zeroKnowledge'), values: [true, true, true] },
     { label: t('plans.compare.trial'), values: [false, true, true] },
 ])
 

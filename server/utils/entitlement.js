@@ -142,19 +142,12 @@ export async function getSubscriptionTier(user) {
 }
 
 /**
- * Whether the user may enable the zero-knowledge vault ("Confidentialité+"
- * tier).
- * @param {string} userId
- * @returns {Promise<boolean>}
- */
-export async function hasPrivacyTier(userId) {
-    const db = await connectDB()
-    const user = await db.collection('users').findOne({ id: userId }, { projection: { subscription: 1 } })
-    return (await getSubscriptionTier(user)) === 'privacy'
-}
-
-/**
- * Compute profiles by plan tier. EVERY tier gets a fully optimized result
+ * Compute profiles by plan tier. NOTE (D-PRV-5, J-049): the tier code
+ * `privacy` no longer gates ANY feature other than compute — the
+ * zero-knowledge vault is opt-in on every plan and the legacy
+ * hasPrivacyTier() resolver is removed (no code rename, D-PAY-8).
+ *
+ * EVERY tier gets a fully optimized result
  * (the engine computes until convergence, see plateau stop in nest-engine);
  * the plan only caps the compute THROUGHPUT (vcores = parallel SA walks /
  * threads) and therefore the delivery time, plus the number of layout
