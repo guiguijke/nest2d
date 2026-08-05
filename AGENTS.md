@@ -292,6 +292,11 @@ Harnais A/B warm-start : `cargo test --release warm_start_160_ab -- --ignored --
 
 ## 6. Conventions
 
+- **Branding : NestorCut = produit, APlasma = entité légale** (Guillaume
+  Jerke EI — encaissements Stripe, mentions légales, factures, fiscalité).
+  APlasma ne disparaît JAMAIS des contextes légaux/paiement ; la brandLine
+  officielle est « NestorCut by APlasma » (`data/siteConfig.js`). Le nom de
+  produit seul (NestorCut) s'emploie partout ailleurs.
 - Commits en français, conventional commits (`feat(nesting): …`), petits et
   par phase. Ne jamais committer le travail non sollicité des autres
   (vérifier `git status` avant `git add -A`; préférer des adds ciblés).
