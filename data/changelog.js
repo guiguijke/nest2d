@@ -1,12 +1,25 @@
 import { useSiteConfig } from '~~/data/siteConfig'
 
 /**
- * Changelog of the APlasma Nesting fork — only the changes made after the
+ * Changelog of the NestorCut fork — only the changes made after the
  * fork from VovaStelmashchuk/nest2d (step 0). Newest first.
  */
 export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
+        {
+            title: 'NestorCut rebrand',
+            datetime: '2026-08-05',
+            sections: [
+                {
+                    title: 'Branding',
+                    content: [
+                        'The project is renamed NestorCut — new logo, new home at nestorcut.com, same engine.',
+                        'Vault key files are now generated as nestorcut-vault-*.key.json — your existing key files keep working.',
+                    ],
+                },
+            ]
+        },
         {
             title: 'UI polish & Changelog page',
             datetime: '2026-07-28',

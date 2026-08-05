@@ -40,7 +40,7 @@ async function sendDigestEmail(to: string, users: any[]) {
     body: {
       from: config.resendFrom || 'onboarding@resend.dev',
       to,
-      subject: `APlasma — ${users.length} nouvelle(s) inscription(s)`,
+      subject: `NestorCut — ${users.length} nouvelle(s) inscription(s)`,
       html: `
         <h2 style="margin:0 0 8px">Nouvelles inscriptions (synthèse)</h2>
         <p style="font-size:13px;color:#666">Utilisateurs apparus depuis le dernier passage :</p>

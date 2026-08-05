@@ -56,11 +56,13 @@ Serveur (ne persiste QUE) :
 
 ### 2.1 Format du fichier-clé
 
-Nom : `nest2d-vault-<keyId>.key.json`
+Nom : `nestorcut-vault-<keyId>.key.json` (rebrand 2026-08-05 — les anciens
+types `aplasma-vault-key` et `nest2d-vault-key` restent acceptés à la
+lecture, cf. `validTypes` dans `app/utils/vault.js`)
 
 ```json
 {
-  "type": "nest2d-vault-key",
+  "type": "nestorcut-vault-key",
   "version": 1,
   "keyId": "a3f8c2e1",
   "key": "<base64 — 32 octets>",

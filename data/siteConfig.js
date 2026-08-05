@@ -14,19 +14,19 @@ export function useSiteConfig() {
     return {
         siteName: 'NestorCut',
         supportEmail: config.supportEmail || 'support@example.com',
-        githubRepo: config.githubRepo || 'https://github.com/guiguijke/nest2d',
-        githubIssues: (config.githubRepo || 'https://github.com/guiguijke/nest2d') + '/issues/new',
+        githubRepo: config.githubRepo || 'https://github.com/guiguijke/nestorcut',
+        githubIssues: (config.githubRepo || 'https://github.com/guiguijke/nestorcut') + '/issues/new',
         copyrightYear: config.copyrightYear || String(new Date().getFullYear()),
         // Legal entity (France) — used by the legal pages (mentions légales, CGU, privacy).
         legal: {
             entityName: 'Guillaume Jerke EI',
-            tradeName: 'APlasma',
+            tradeName: 'NestorCut',
             siren: '942 877 028',
             address: 'Saint Martin Lalande, 11400, France',
             phone: '+33 6 31 75 23 39',
             vatNote: 'TVA non applicable, art. 293 B du CGI',
-            // Product branding: "NestorCut by APlasma"
-            brandLine: 'NestorCut by APlasma',
+            // Product branding
+            brandLine: 'NestorCut',
         },
     }
 }

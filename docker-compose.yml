@@ -7,7 +7,7 @@
 #      Until the first CI build completes, set APP_BUILD_LOCAL=true below to
 #      build the app from source instead of pulling it.
 #   3. A reverse proxy in front (e.g. Nginx Proxy Manager) pointing to
-#      http://<host>:7100 with TLS for https://nesting.aplasma.fr
+#      http://<host>:7100 with TLS for https://app.nestorcut.com
 #
 # Usage:
 #   docker compose pull        # refresh images after a CI build
@@ -51,7 +51,7 @@ services:
       # Master switch for imperial units (inches) — ships dark.
       NUXT_PUBLIC_UNIT_SWITCH_ENABLED: ${NUXT_PUBLIC_UNIT_SWITCH_ENABLED:-false}
       NUXT_PUBLIC_SUPPORT_EMAIL: ${NUXT_PUBLIC_SUPPORT_EMAIL:-support@example.com}
-      NUXT_PUBLIC_GITHUB_REPO: ${NUXT_PUBLIC_GITHUB_REPO:-https://github.com/guiguijke/nest2d}
+      NUXT_PUBLIC_GITHUB_REPO: ${NUXT_PUBLIC_GITHUB_REPO:-https://github.com/guiguijke/nestorcut}
       NUXT_PUBLIC_COPYRIGHT_YEAR: ${NUXT_PUBLIC_COPYRIGHT_YEAR:-}
       NUXT_BLOCKED_COUNTRIES: ${NUXT_BLOCKED_COUNTRIES:-}
       NUXT_ENCRYPTION_MASTER_KEY: ${NUXT_ENCRYPTION_MASTER_KEY:-}

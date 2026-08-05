@@ -25,9 +25,9 @@
  * créé et passé en défaut (les prix Stripe sont immuables) ; l'ancien prix
  * est désactivé — les abonnés existants restent sur leur prix d'origine.
  *
- * TVA : aucune tax_behavior / automatic_tax n'est configuré — APlasma est en
- * franchise en base (TVA non applicable, art. 293 B du CGI). Si ça change
- * un jour, configurer Stripe Tax AVANT de toucher aux prix.
+ * TVA : aucune tax_behavior / automatic_tax n'est configuré — l'entreprise
+ * est en franchise en base (TVA non applicable, art. 293 B du CGI). Si ça
+ * change un jour, configurer Stripe Tax AVANT de toucher aux prix.
  */
 
 const STRIPE_BASE = 'https://api.stripe.com/v1'

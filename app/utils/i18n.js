@@ -283,7 +283,7 @@ const dict = {
             'Your files are encrypted with a key file only you hold. We never store it: if you lose the key file, your data is lost forever — even we cannot recover it.',
         'vault.unlockTitle': 'Unlock your vault',
         'vault.unlockText':
-            'Your files are encrypted with your personal key file (aplasma-vault-….key.json). Drop it here to unlock this work session.',
+            'Your files are encrypted with your personal key file (nestorcut-vault-….key.json). Drop it here to unlock this work session.',
         'vault.drop': 'Drop your key file here, or click to browse',
         'vault.remember': 'Remember the key in this browser',
         'vault.rememberHint': 'Anyone using this browser will be able to unlock the vault.',
@@ -718,7 +718,7 @@ const dict = {
             'Vos fichiers sont chiffrés avec un fichier-clé que vous seul détenez. Nous ne le stockons jamais : si vous perdez le fichier-clé, vos données sont perdues définitivement — même nous ne pouvons les récupérer.',
         'vault.unlockTitle': 'Déverrouiller votre coffre',
         'vault.unlockText':
-            'Vos fichiers sont chiffrés avec votre fichier-clé personnel (aplasma-vault-….key.json). Déposez-le ici pour déverrouiller cette session de travail.',
+            'Vos fichiers sont chiffrés avec votre fichier-clé personnel (nestorcut-vault-….key.json). Déposez-le ici pour déverrouiller cette session de travail.',
         'vault.drop': 'Déposez votre fichier-clé ici, ou cliquez pour le sélectionner',
         'vault.remember': 'Mémoriser la clé dans ce navigateur',
         'vault.rememberHint': 'Quiconque utilise ce navigateur pourra déverrouiller le coffre.',

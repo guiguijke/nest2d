@@ -1,4 +1,4 @@
-# APlasma Admin panel — separate Nuxt app sharing the same DB as the main app.
+# NestorCut Admin panel — separate Nuxt app sharing the same DB as the main app.
 #
 # Same multi-stage layout as the main app's Dockerfile, but builds from the
 # ./admin subdirectory. The built image is published as

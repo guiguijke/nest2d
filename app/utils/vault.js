@@ -29,10 +29,10 @@ export function base64ToKey(base64) {
 
 export function buildKeyFile(keyBytes, keyId) {
     return {
-        name: `aplasma-vault-${keyId}.key.json`,
+        name: `nestorcut-vault-${keyId}.key.json`,
         content: JSON.stringify(
             {
-                type: 'aplasma-vault-key',
+                type: 'nestorcut-vault-key',
                 version: 1,
                 keyId,
                 key: keyToBase64(keyBytes),
@@ -66,7 +66,7 @@ export async function parseKeyFile(file) {
     } catch {
         throw new Error('This file is not a valid NestorCut key file.')
     }
-    const validTypes = ['aplasma-vault-key', 'nest2d-vault-key'] // nest2d = legacy brand
+    const validTypes = ['nestorcut-vault-key', 'aplasma-vault-key', 'nest2d-vault-key'] // aplasma/nest2d = legacy brands
     if (!validTypes.includes(parsed?.type) || !parsed?.key) {
         throw new Error('This file is not a valid NestorCut key file.')
     }
