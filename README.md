@@ -63,15 +63,3 @@ MIT — Copyright (c) 2025 Volodymyr Stelmashchuk (original
 [nest2d](https://github.com/VovaStelmashchuk/nest2d) project) and
 Copyright (c) 2026 Guillaume Jke — NestorCut (modifications and additions).
 See [LICENSE](./LICENSE).
-
-## Brand & fonts license note
-
-The visual identity uses anthracite `#354046` / rust `#ab6715` on beige
-`#F5F0EB`, white/rust variants on dark `#232C30`. Display typeface is
-**Helios Stencil** (titles, logo) with **Montserrat** for body text.
-
-⚠️ Helios Stencil is a **commercial typeface** (W Foundry). The bundled
-`public/fonts/HeliosStencil/HeliosStencil-Bold.woff2/.woff` come from the
-webfont package kept in `.zcode/font/` — make sure its license covers
-web/production use, or replace it with a licensed alternative. Montserrat is
-OFL and safe to ship.
