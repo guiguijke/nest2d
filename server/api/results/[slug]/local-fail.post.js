@@ -23,7 +23,9 @@ export default defineEventHandler(async (event) => {
     const slug = getRouterParam(event, 'slug')
     const db = await connectDB()
     const job = await db.collection('nesting_jobs').findOne({ slug })
-    if (!job || (job.ownerId !== userId && job.projectSlug !== 'demo')) {
+    // Owner-only, demo included (same rule as local-result): refunding or
+    // failing someone else's job is never allowed.
+    if (!job || job.ownerId !== userId) {
         throw createError({ statusCode: 404, statusMessage: 'Job not found' })
     }
     if (job.status !== 'awaiting_local') {

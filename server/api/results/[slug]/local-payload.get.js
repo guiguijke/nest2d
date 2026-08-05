@@ -25,7 +25,8 @@ export default defineEventHandler(async (event) => {
         { slug },
         { projection: { ownerId: 1, projectSlug: 1, status: 1, localPayload: 1 } }
     )
-    if (!job || (job.ownerId !== userId && job.projectSlug !== 'demo')) {
+    // Owner-only, demo included (same rule as local-result/local-fail).
+    if (!job || job.ownerId !== userId) {
         throw createError({ statusCode: 404, statusMessage: 'Job not found' })
     }
     if (job.status !== 'awaiting_local' || !job.localPayload) {

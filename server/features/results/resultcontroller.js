@@ -40,7 +40,7 @@ export async function getResults(userId, projectSlug) {
             information: queueItem.information ?? null,
             downloadUrl: downloadUrl,
             zipDownloadUrl: zipDownloadUrl,
-            isInProgress: queueItem.status === 'processing' || queueItem.status === 'pending',
+            isInProgress: queueItem.status === 'processing' || queueItem.status === 'pending' || queueItem.status === 'awaiting_local',
             // Live progress written by the worker ({stage, label, done, total}),
             // null once the job finishes (field is unset on completion).
             progress: queueItem.progress ?? null,
