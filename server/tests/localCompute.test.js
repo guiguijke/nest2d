@@ -217,4 +217,14 @@ describe('local-payload / local-result / local-fail routes (flag-gated)', () => 
         await expect(payloadHandler(ev('u1', 'job-1', null, 'GET'))).rejects.toMatchObject({ statusCode: 404 })
         await expect(resultHandler(ev('u1', 'job-1', { alternatives: [{}] }))).rejects.toMatchObject({ statusCode: 404 })
     })
+
+    it('owner-only even for demo jobs: no writing to another user\u2019s demo job (review fix)', async () => {
+        state.config = { public: { localComputeEnabled: true } }
+        const someoneElsesDemoJob = localJob({ ownerId: 'someone-else', projectSlug: 'demo' })
+        state.db = fakeDb({ nesting_jobs: [someoneElsesDemoJob] })
+        await expect(payloadHandler(ev('u1', 'job-1', null, 'GET'))).rejects.toMatchObject({ statusCode: 404 })
+        await expect(resultHandler(ev('u1', 'job-1', { alternatives: [{}] }))).rejects.toMatchObject({ statusCode: 404 })
+        await expect(failHandler(ev('u1', 'job-1', { error: 'x' }))).rejects.toMatchObject({ statusCode: 404 })
+        expect(someoneElsesDemoJob.status).toBe('awaiting_local')
+    })
 })
