@@ -39,6 +39,7 @@ export function matches(doc, filter) {
                 if (op === '$lte') return value != null && value <= arg
                 if (op === '$ne') return value !== arg
                 if (op === '$exists') return (arg ? value !== undefined : value === undefined)
+                if (op === '$in') return Array.isArray(arg) && arg.includes(value)
                 throw new Error(`fakeMongo: unsupported operator ${op}`)
             })
         }
@@ -60,12 +61,26 @@ function applyUpdate(doc, update) {
 }
 
 function makeCollection(docs) {
-    const calls = { findOne: [], updateOne: [], findOneAndUpdate: [] }
+    const calls = { findOne: [], updateOne: [], findOneAndUpdate: [], find: [] }
     return {
         calls,
         async findOne(filter) {
             calls.findOne.push(filter)
             return docs.find((d) => matches(d, filter)) || null
+        },
+        find(filter) {
+            calls.find.push(filter)
+            const matched = docs.filter((d) => matches(d, filter))
+            return {
+                project(proj) {
+                    const included = Object.keys(proj || {}).filter((k) => proj[k])
+                    const projected = included.length
+                        ? matched.map((d) => Object.fromEntries(included.filter((k) => k in d).map((k) => [k, d[k]])))
+                        : matched
+                    return { toArray: async () => projected }
+                },
+                toArray: async () => matched,
+            }
         },
         async updateOne(filter, update) {
             calls.updateOne.push({ filter, update })
