@@ -157,6 +157,17 @@ navigateur/serveur, Pro = turbo hybride client+serveur). **Conditionnée au
 verdict du spike WASM** : GO/NO-GO documenté dans `spike/VERDICT.md` —
 aucun travail Phase 2 avant un GO écrit.
 
+**Verdict = GO** (spike/VERDICT.md : ratio 1,5-1,7×, bit-exact natif/wasm
+via libm des deux côtés, .wasm 349 Ko gz, mémoire < 36 Mo). **Fondations
+livrées derrière flag** [PR#20/B1, PR#21/B2 — QA interne, aucune com
+publique] : moteur compilé wasm32 (jagua vendored mono-thread, libm,
+`nest-wasm`, artefact `/engine/*` 352 Ko gz), verrou déterminisme SHA-256
+(natif ≡ wasm, tolérance 0), `computeLocation` écrit serveur (free/démo ⇒
+local, paid ⇒ opt-in projet), Web Worker, profil browser 13 s, refund à
+l'échec. **Reste pour le claim « files never leave your machine »** :
+pipeline DXF/SVG côté client (parsing + canaux + métriques rapport),
+multi-thread wasm (COOP/COEP), tests mobiles, copy publique.
+
 Scope attendu du spike (revue 2026-08-05) : le verdict sera plutôt
 « GO, périmètre X » qu'un oui/non sec. Commencer par une **cartographie
 moteur/pipeline** : le cœur (recuit BPP, constructif `HoleFillEvaluator`,

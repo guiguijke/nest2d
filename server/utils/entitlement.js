@@ -213,6 +213,50 @@ export function assertSheetCountWithinTier(totalSheets, tier) {
 }
 
 /**
+ * Browser compute profile (Phase 2, flag-gated QA): written SERVER-SIDE at
+ * enqueue when a job is routed to the browser WASM engine — the client can
+ * never inflate its own budget (P3). The engine is anytime: wall ≈ budget +
+ * overhead; 13 s lands a demo-size job under 15 s in the browser (spike
+ * VERDICT, critère 1). Mono-walk shape (like the demo profile): 1 vcore,
+ * 1 direction, plateau off (walks run to the explicit deadline — no hidden
+ * wall backstop anywhere, spike lesson).
+ */
+export const BROWSER_COMPUTE = {
+    timeBudgetSec: 13,
+    vcores: 1,
+    maxDirections: 1,
+    priority: 20,
+    level: 'browser',
+}
+
+/**
+ * Where a nesting job is computed (Phase 2, flag-gated internal QA — NOT a
+ * privacy feature: DXF/SVG parsing stays server-side, "local" only means the
+ * SOLVE happens in the browser on server-parsed geometry).
+ *
+ * Written SERVER-SIDE at enqueue (P3 — a client can never declare itself
+ * "local"). Flag OFF ⇒ null: nothing is written and the pipeline is
+ * strictly unchanged. Rules (J-059):
+ *   - demo ⇒ 'local' (QA vehicle for every account);
+ *   - free ⇒ 'local';
+ *   - paid ⇒ 'local' when the project opted in (projects.localCompute),
+ *     otherwise 'server'.
+ *
+ * @param {boolean} localComputeEnabled runtime flag (string-safe read)
+ * @param {boolean} isDemo shared demo project job
+ * @param {string} tier compute tier ('free'|'standard'|'privacy')
+ * @param {any} project project document (may carry localCompute)
+ * @returns {null|'local'|'server'}
+ */
+export function resolveComputeLocation(localComputeEnabled, isDemo, tier, project) {
+    const enabled = localComputeEnabled === true || localComputeEnabled === 'true'
+    if (!enabled) return null
+    if (isDemo) return 'local'
+    if (tier === 'free') return 'local'
+    return project?.localCompute ? 'local' : 'server'
+}
+
+/**
  * The user's compute tier: 'privacy' (Confidentialité+) > 'standard'
  * (subscription or admin grant) > 'free'.
  * @param {string} userId
