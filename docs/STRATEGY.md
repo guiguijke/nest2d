@@ -57,15 +57,14 @@ Correspondance des noms (le code n'est pas renommé à ce stade) :
   de calcul (vcores, budget mur, priorité de file), jamais la qualité de
   base — le moteur n'est dégradé pour personne (§5, règle 1). Profil
   compute du tier code `privacy` : 8 vcores / 180 s / priority 10 [prod] ;
-  repositionnement marketing « Pro = compute max », le vault ZK sort de
-  l'exclusivité Pro (§2) [spéc].
+  repositionnement marketing « Pro = compute max », le vault ZK est sorti
+  de l'exclusivité Pro (§2) [prod, PR#17].
 - Phase 2 : **turbo hybride** client + serveur [conditionnel].
 
 ## 2. Privacy — spectre à 3 modes
 
-La privacy n'est **jamais une feature payante** : le vault ZK devient
-opt-in sur TOUS les plans (retrait du gate `hasPrivacyTier` — Phase 1)
-[spéc]. Chaque promesse publique doit être **exactement vraie** — détail
+La privacy n'est **jamais une feature payante** : le vault ZK est opt-in
+sur TOUS les plans (gate `hasPrivacyTier` retiré, Phase 1) [prod, PR#17]. Chaque promesse publique doit être **exactement vraie** — détail
 des promesses et threat model dans `docs/THREAT-MODEL.md`.
 
 - **Mode Local** [conditionnel — Phase 2 WASM] : « files never leave your
@@ -75,7 +74,7 @@ des promesses et threat model dans `docs/THREAT-MODEL.md`.
   disque ; purge automatique des blobs après le délai affiché (24 h) ; la
   clé n'est jamais stockée. **Jamais** de « nous ne pouvons pas vous lire »
   en mode serveur (le serveur voit le clair en RAM pendant le job).
-- **Vault ZK** [vault prod / opt-in tous plans spéc] : chiffrement au repos
+- **Vault ZK** [prod, opt-in tous plans] : chiffrement au repos
   avec une clé détenue par l'utilisateur seul (fichier-clé) — spec
   d'implémentation : `doc/encryption-premium.spec.md`.
 
