@@ -63,6 +63,12 @@ export default defineNuxtConfig({
             // switcher and honors users.preferredUnit. Ships dark; set
             // NUXT_PUBLIC_UNIT_SWITCH_ENABLED=true to enable.
             unitSwitchEnabled: false,
+            // Phase 2 (internal QA, NOT a privacy feature yet): routes
+            // eligible nestings to the browser WASM engine. DXF/SVG parsing
+            // stays server-side — "local" = local SOLVE on server-parsed
+            // geometry, no privacy claim, no public UI mention. Ships dark;
+            // set NUXT_PUBLIC_LOCAL_COMPUTE_ENABLED=true to enable.
+            localComputeEnabled: false,
         },
     },
 

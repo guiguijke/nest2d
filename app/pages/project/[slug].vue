@@ -15,6 +15,12 @@
             <h3 class="live-panel__title">{{ t('live.title') }}</h3>
             <LiveNestingView :result="liveResult" />
         </section>
+        <section v-if="localComputeRunning" class="content__live live-panel">
+            <h3 class="live-panel__title">{{ t('localCompute.running') }}</h3>
+        </section>
+        <div v-if="localComputeError" class="content__error">
+            {{ t(localComputeError === 'memory' ? 'localCompute.memoryError' : 'localCompute.error') }}
+        </div>
         <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
         <MainSettings />
         <MainButton :theme="themeType.primary" :label="btnLabel" :isDisable="btnIsDisable" trackingTag="project_nest_start"
@@ -49,6 +55,7 @@
 <script setup async>
 import { themeType } from "~~/constants/theme.constants";
 import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
+import { isLocalComputeEnabled, runLocalJob } from "~/composables/localCompute";
 import {
     DEMO_NESTING_LIMIT,
     DEMO_SHEETS,
@@ -98,6 +105,36 @@ watch(
         await nextTick();
         liveSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+);
+
+// Phase 2 (flag-gated internal QA — NOT a privacy feature): when the Python
+// worker has PREPARED a local job (status awaiting_local on this project),
+// solve it in the browser Web Worker and post the result back. Failures
+// surface as a clean i18n message (never a page crash); the consumed quota
+// is refunded server-side on failure (same semantics as the worker refund).
+const localComputeRunning = ref(false);
+const localComputeError = ref(null);
+const attemptedLocalJobs = new Set();
+watch(
+    () => (unref(resultsList) || []).find((r) => r.status === 'awaiting_local'),
+    async (job) => {
+        if (!job || !isLocalComputeEnabled() || attemptedLocalJobs.has(job.slug)) return;
+        attemptedLocalJobs.add(job.slug);
+        localComputeError.value = null;
+        localComputeRunning.value = true;
+        try {
+            const res = await runLocalJob(job.slug);
+            if (!res.ok) {
+                localComputeError.value = res.error === 'memory_cap' ? 'memory' : 'generic';
+            }
+        } catch (e) {
+            localComputeError.value = 'generic';
+            console.error('local compute failed', e);
+        } finally {
+            localComputeRunning.value = false;
+        }
+    },
+    { immediate: true }
 );
 const { getters: filesGetters, actions } = filesStore;
 const params = computed(() => filesGetters.params);
