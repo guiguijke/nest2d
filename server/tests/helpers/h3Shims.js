@@ -5,3 +5,4 @@ import { createError } from 'h3'
 globalThis.defineEventHandler = globalThis.defineEventHandler || ((fn) => fn)
 globalThis.createError = globalThis.createError || createError
 globalThis.readBody = globalThis.readBody || (async (event) => event._body)
+globalThis.getRouterParam = globalThis.getRouterParam || ((event, name) => event._params?.[name])
