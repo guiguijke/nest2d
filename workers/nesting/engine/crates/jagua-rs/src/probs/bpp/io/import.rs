@@ -1,0 +1,78 @@
+use crate::entities::Item;
+use crate::io::import::Importer;
+use crate::probs::bpp::entities::{BPInstance, BPSolution, Bin};
+use crate::probs::bpp::io::ext_repr::ExtBPInstance;
+use itertools::Itertools;
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
+
+use anyhow::{Result, ensure};
+
+// SPIKE: rayon spawns OS threads — unavailable on wasm32-unknown-unknown.
+// Native keeps the parallel import; wasm falls back to sequential iteration.
+#[cfg(not(target_arch = "wasm32"))]
+fn maybe_par_iter<T: Sync>(slice: &[T]) -> impl rayon::iter::IndexedParallelIterator<Item = &T> {
+    slice.par_iter()
+}
+#[cfg(target_arch = "wasm32")]
+fn maybe_par_iter<T>(slice: &[T]) -> std::slice::Iter<'_, T> {
+    slice.iter()
+}
+
+/// Imports an instance into the library
+pub fn import_instance(importer: &Importer, ext_instance: &ExtBPInstance) -> Result<BPInstance> {
+    let items = {
+        let mut items = maybe_par_iter(&ext_instance.items)
+            .map(|ext_item| {
+                let item = importer.import_item(&ext_item.base)?;
+                let demand = ext_item.demand as usize;
+                Ok((item, demand))
+            })
+            .collect::<Result<Vec<(Item, usize)>>>()?;
+
+        items.sort_by_key(|(item, _)| item.id);
+        items.retain(|(_, demand)| *demand > 0);
+
+        ensure!(
+            items.iter().enumerate().all(|(i, (item, _))| item.id == i),
+            "All items should have consecutive IDs starting from 0. IDs: {:?}",
+            items.iter().map(|(item, _)| item.id).sorted().collect_vec()
+        );
+        ensure!(
+            !items.is_empty(),
+            "ExtBPInstance must have at least one item with positive demand"
+        );
+
+        items
+    };
+
+    let bins = {
+        let mut bins: Vec<Bin> = maybe_par_iter(&ext_instance.bins)
+            .map(|ext_bin| {
+                let container = importer.import_container(&ext_bin.base)?;
+                Ok(Bin::new(container, ext_bin.stock, ext_bin.cost))
+            })
+            .collect::<Result<Vec<Bin>>>()?;
+
+        bins.sort_by_key(|bin| bin.id);
+        bins.retain(|bin| bin.stock > 0);
+        ensure!(
+            bins.iter().enumerate().all(|(i, bin)| bin.id == i),
+            "All bins should have consecutive IDs starting from 0. IDs: {:?}",
+            bins.iter().map(|bin| bin.id).sorted().collect_vec()
+        );
+        ensure!(
+            !bins.is_empty(),
+            "ExtBPInstance must have at least one bin with positive stock"
+        );
+
+        bins
+    };
+
+    Ok(BPInstance::new(items, bins))
+}
+
+/// Imports a solution into the library.
+pub fn import_solution(_instance: &BPInstance, _ext_solution: &ExtBPInstance) -> BPSolution {
+    unimplemented!("not yet implemented")
+}

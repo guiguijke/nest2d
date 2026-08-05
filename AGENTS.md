@@ -116,6 +116,25 @@ admin/                 (back-office Nuxt)
     width / compression réussie). Les états de travail (ExplImproving /
     ExplInfeas pendant la séparation) ne doivent PAS réarmer l'horloge,
     sinon le plateau ne déclenche jamais.
+14b. **Reproductibilité cross-device ⇒ libm contrôlée** : les
+    transcendantales (`sin_cos`/`atan2`/`ln`/`exp`/`powf`) appellent la libm
+    plateforme — msvcrt ≠ glibc ≠ Rust libm (wasm32) à l'ulp près, et la
+    recherche est chaotique → trajectoires divergentes (mesuré : 7,9 M vs
+    4,9 M évals à seed égal). Toute transcendantale du chemin moteur passe
+    par le crate `libm` DES DEUX CÔTÉS (jagua `transformation.rs`,
+    Box-Muller explicite dans sparrow `explore.rs`, pow/exp du SA BPP).
+    `sqrt`/div/mul/add/round sont IEEE-exacts partout, ne pas y toucher.
+    Verrou : `workers/nesting/bench/determinism_lock.py` (SHA-256 natif vs
+    wasm, tolérance 0) — à rejouer après tout changement de ce périmètre.
+14c. **wasm32 : horloge et threads** — `web_time::Instant`
+    (jagua l'expose) sur `performance.now`, et **jamais** de soustraction
+    naïve `Instant::now() - d` (l'horloge démarre à 0 au chargement →
+    underflow/panic : `checked_sub` saturant, voir `progress.rs`). rayon =
+    panic au spawn : chemin séquentiel partagé natif-1T/wasm (jagua vendored
+    en import mono-thread, pool sparrow off si `n_workers<=1`, `map_workers`
+    dans nest-engine). La forme navigateur = **mono-walk**
+    (`n_workers=1`, `separator_workers=1`, 1 direction) — identique au
+    profil démo produit.
 
 ### Métriques & pipeline Python
 15. **largest_empty_rectangle : compter les sommets DES TROUS** dans le

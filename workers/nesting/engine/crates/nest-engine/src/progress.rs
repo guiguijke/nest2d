@@ -3,7 +3,8 @@ use sparrow::util::listener::{ReportType, SolutionListener};
 use sparrow::util::terminator::Terminator;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use jagua_rs::Instant;
+use std::time::{Duration};
 
 /// Wall-clock timeout + plateau patience for sparrow runs: kills the run
 /// when the incumbent has not improved for `patience`. The improvement clock
@@ -91,16 +92,23 @@ fn stage_of(report: &ReportType) -> &'static str {
 
 impl ProgressListener {
     pub fn new(worker: usize, started: Instant) -> Self {
+        // web-time's browser clock starts at page load — `now() - 2s`
+        // underflows and panics on wasm32. Saturate instead (the "-2s" only
+        // pre-arms the emit throttles so the first report goes through).
+        let now = Instant::now();
+        let armed = now
+            .checked_sub(std::time::Duration::from_secs(2))
+            .unwrap_or(now);
         Self {
             worker,
             started,
-            last_emit: Instant::now() - std::time::Duration::from_secs(2),
+            last_emit: armed,
             last_stage: "",
             live: false,
-            last_layout_emit: Instant::now() - std::time::Duration::from_secs(2),
+            last_layout_emit: armed,
             map_back_height: None,
             last_improvement: Arc::new(Mutex::new(Instant::now())),
-            last_evals_emit: Instant::now() - std::time::Duration::from_secs(2),
+            last_evals_emit: armed,
             bias: None,
         }
     }

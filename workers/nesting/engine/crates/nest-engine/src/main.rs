@@ -1,12 +1,6 @@
-mod bpp;
-mod config;
-mod gravity;
-mod progress;
-mod spp;
-
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::Parser;
-use config::EngineConfig;
+use nest_engine::run_json;
 use std::path::PathBuf;
 
 /// Nest2D nesting engine.
@@ -38,19 +32,25 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    let instance_str = std::fs::read_to_string(&cli.input)
+        .with_context(|| format!("reading instance {}", cli.input.display()))?;
     let config_str = std::fs::read_to_string(&cli.config)
         .with_context(|| format!("reading config {}", cli.config.display()))?;
-    let config: EngineConfig = serde_json::from_str(&config_str)
-        .with_context(|| format!("parsing config {}", cli.config.display()))?;
 
     std::fs::create_dir_all(&cli.output)
         .with_context(|| format!("creating output dir {}", cli.output.display()))?;
 
-    let result = match cli.problem.as_str() {
-        "spp" => spp::run_spp(&cli.input, &cli.output, &config),
-        "bpp" => bpp::run_bpp(&cli.input, &cli.output, &config),
-        other => bail!("unsupported problem type: {other}"),
-    };
+    let result = run_json(&cli.problem, &instance_str, &config_str).and_then(|out| {
+        std::fs::write(
+            cli.output.join("sol_instance.json"),
+            serde_json::to_string_pretty(&out.sol_instance)?,
+        )?;
+        std::fs::write(
+            cli.output.join("alternatives.json"),
+            serde_json::to_string_pretty(&out.alternatives)?,
+        )?;
+        Ok(())
+    });
 
     if let Err(e) = &result {
         // Machine-readable failure for the worker (in addition to the

@@ -49,8 +49,10 @@ impl Separator {
                 sample_config: config.sample_config,
             }).collect();
 
-        let pool = if cfg!(target_arch = "wasm32") {
-            // On wasm32, only the global thread pool is available
+        let pool = if cfg!(target_arch = "wasm32") || config.n_workers <= 1 {
+            // On wasm32 no OS threads exist; with a single worker a rayon
+            // pool only adds scheduling jitter — run inline everywhere (the
+            // mono-walk shape the browser uses, AGENTS.md moteur).
             None
         } else {
             // Create a local thread pool to keep using the same threads for the same optimization (helps the OS scheduler)
@@ -146,20 +148,23 @@ impl Separator {
     fn move_items_multi(&mut self) -> SepStats {
         let master_sol = self.prob.save();
 
-        // Define the parallel execution closure
-        let mut separate_multi = || -> SepStats {
-            self.workers.par_iter_mut().map(|worker| {
-                // Sync the workers with the master
+        // Each branch builds its own closure (borrowck) — parallel via the
+        // local pool when present, sequential otherwise (wasm / mono-walk).
+        let sep_report = if self.thread_pool.is_some() {
+            let mut separate_multi = || -> SepStats {
+                self.workers.par_iter_mut().map(|worker| {
+                    // Sync the workers with the master
+                    worker.load(&master_sol, &self.ct);
+                    // Let all of them run `move_items` with unique random orderings in which the items are moved
+                    worker.move_items()
+                }).sum()
+            };
+            self.thread_pool.as_mut().unwrap().install(&mut separate_multi)
+        } else {
+            self.workers.iter_mut().map(|worker| {
                 worker.load(&master_sol, &self.ct);
-                // Let all of them run `move_items` with unique random orderings in which the items are moved
                 worker.move_items()
             }).sum()
-        };
-
-        // Execute the parallel separation either using the local thread pool or the global one
-        let sep_report = match self.thread_pool.as_mut() {
-            Some(pool) => pool.install(&mut separate_multi),
-            None => separate_multi(),
         };
 
         debug!("[MOD] optimizers w_o's: {:?}",self.workers.iter().map(|opt| opt.ct.get_total_weighted_loss()).collect_vec());
