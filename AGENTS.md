@@ -12,6 +12,12 @@ toucher au moteur, au worker Python ou au visualizer.
 > d'une ancienne) y est ajoutée avec date et statut — jamais de retour en
 > arrière silencieux. AGENTS.md (ce fichier) reste la référence des pièges
 > techniques ; les specs restent la référence des décisions.
+>
+> **Stratégie produit (commitée) : `docs/STRATEGY.md`** — tiers
+> Free/Unlimited/Pro, spectre privacy, rapport matière, codes promo,
+> roadmap 2 phases, avec marqueurs `[prod]` / `[spéc]` / `[conditionnel]`
+> (jamais `[prod]` sur du non-livré). Promesses privacy exactes et threat
+> model : `docs/THREAT-MODEL.md` (interne, ne pas publier).
 
 ## 1. Architecture
 
@@ -36,6 +42,10 @@ admin/                 (back-office Nuxt)
   côté serveur dans `params.vcores` (jamais le client). Pool Mongo
   `compute_pool` (16 jetons par défaut, `NEST_COMPUTE_TOKENS`), acquire
   atomique (`$expr used+cost ≤ total`), leases avec heartbeat, reaper > 60 s.
+  Noms code ↔ marketing : `free`/`standard`/`privacy` = Free/Unlimited/
+  **Pro** (le tier code `privacy` est le Pro « budget moteur max » — le
+  vault ZK n'est plus son exclusivité : opt-in tous plans en Phase 1, voir
+  `docs/STRATEGY.md`).
 - **Même qualité pour tous** : arrêt sur plateau partout (BPP : patience
   par walk ; SPP : `PlateauTerminator` sparrow). Le tier ne change que la
   vitesse de délivrance.
@@ -220,6 +230,17 @@ admin/                 (back-office Nuxt)
     charge (grant → abonnement → quota free) prime toujours. Verrous :
     `server/tests/entitlement.test.js`, `server/tests/promo.test.js`
     (`npx vitest run`).
+35. **Stratégie & tiers : `docs/STRATEGY.md` fait foi** (marqueurs
+    `[prod]`/`[spéc]`/`[conditionnel]` — ne jamais marquer `[prod]` du
+    non-livré). La privacy n'est **jamais une feature payante** : le vault
+    ZK est opt-in sur TOUS les plans — le gate `hasPrivacyTier`
+    (tier `privacy` requis) est legacy, son retrait est un chantier Phase 1.
+    Pro 39 € = budget moteur max + file prioritaire ; le moteur n'est
+    dégradé pour personne (le budget temps est le luxe Pro, pas la qualité
+    de base). Toute revendication publique = feature flag vérifié en prod
+    avant publication ; les promesses privacy exactes par mode (Local /
+    Serveur / Vault ZK) sont dans `docs/THREAT-MODEL.md` — ne jamais
+    promettre « nous ne pouvons pas vous lire » en mode serveur.
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 

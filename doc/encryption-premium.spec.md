@@ -4,6 +4,15 @@
 > ⚠️ Pour éviter les conflits, un seul agent de codage modifie le code à la
 > fois. Ce document est la source de vérité ; toute divergence s'y résout.
 >
+> ⚠️ **Mise à jour 2026-08-05 — le §5 (gating commercial) est REMPLACÉ** :
+> le vault ZK devient **opt-in sur TOUS les plans** (la privacy n'est
+> jamais une feature payante) ; le retrait du gate `hasPrivacyTier` est un
+> chantier Phase 1. Le durcissement niveau 1 (DEK en RAM seule, livraison
+> ECDH éphémère, suppression du wrap master key décrit au §2) remettra à
+> jour le mécanisme de session — voir `docs/STRATEGY.md` et
+> `docs/THREAT-MODEL.md`. Le reste de cette spec (fichier-clé, crypto,
+> format chiffré, cycle de vie) reste la référence d'implémentation.
+>
 > **Changement v2** : abandon du mode passphrase (Argon2id) au profit d'un
 > **fichier-clé téléchargeable**. Le serveur ne stocke rien permettant de
 > déchiffrer. Sans le fichier, les données sont illisibles ; si le fichier
