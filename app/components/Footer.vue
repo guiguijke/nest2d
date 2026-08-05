@@ -5,7 +5,7 @@
             <ul class="list">
                 <li class="list__item">
                     <a
-                        href="https://github.com/guiguijke/nest2d"
+                        href="https://github.com/guiguijke/nestorcut"
                         target="_blank"
                         class="list__link"
                     >
