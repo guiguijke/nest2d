@@ -62,7 +62,7 @@
                 </li>
             </ul>
             <p class="footer__copyright">
-                © {{ copyrightYear }} NestorCut · APlasma. Inspired by Nest2D — forked from <a href="https://github.com/VovaStelmashchuk/nest2d" target="_blank" class="footer__link">VovaStelmashchuk/nest2d</a>. Built with ♥ and open source principles.
+                © {{ copyrightYear }} NestorCut. Forked from <a href="https://github.com/VovaStelmashchuk/nest2d" target="_blank" class="footer__link">VovaStelmashchuk/nest2d</a>. Built with ♥ and open source principles.
             </p>
         </div>
     </footer>

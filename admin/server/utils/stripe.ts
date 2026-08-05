@@ -51,7 +51,7 @@ export async function grantStripeFreeMonth(subscriptionId: string): Promise<{ co
       'id': couponId,
       'percent_off': '100',
       'duration': 'once',
-      'name': 'APlasma — Mois offert (admin)',
+      'name': 'NestorCut — Mois offert (admin)',
       'redeem_by': String(Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60), // usable for 90 days
     }),
   }).catch(() => {

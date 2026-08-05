@@ -21,7 +21,7 @@ export function printSetupTokenIfEmpty() {
       if (count === 0) {
         console.log('')
         console.log('========================================================')
-        console.log('  APLASMA ADMIN — FIRST-TIME SETUP')
+        console.log('  NESTORCUT ADMIN — FIRST-TIME SETUP')
         console.log('========================================================')
         console.log('  No admin account exists yet.')
         console.log('  Create one with:')

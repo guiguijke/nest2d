@@ -14,7 +14,7 @@
                 {{ file.name }}
             </p>
             <MainButton :size="sizeType.s" :theme="themeType.secondary"
-                href="https://github.com/guiguijke/nest2d/issues/new" target="_blank" :label="t('nav.reportProblem')"
+                href="https://github.com/guiguijke/nestorcut/issues/new" target="_blank" :label="t('nav.reportProblem')"
                 tag="a" trackingTag="report_problem" class="file__problem" />
         </template>
         <template v-else>
