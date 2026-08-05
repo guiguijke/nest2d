@@ -12,8 +12,9 @@ use jagua_rs::geometry::geo_traits::CollidesWith;
 use jagua_rs::probs::spp::entities::{SPInstance, SPSolution};
 use log::{debug, info, warn};
 use ordered_float::OrderedFloat;
-use rand::prelude::{Distribution, IteratorRandom};
-use rand_distr::Normal;
+use rand::prelude::IteratorRandom;
+use rand::{Rng, RngExt};
+
 use slotmap::SecondaryMap;
 use std::cmp::Reverse;
 
@@ -73,9 +74,19 @@ pub fn exploration_phase(instance: &SPInstance, sep: &mut Separator, sol_listene
 
             // Restore to a random solution from the pool, with better solutions having more chance to be selected
             let selected_sol = {
-                // Sample a value in range [0.0, 1.0[ from a normal distribution
-                let distribution = Normal::new(0.0, config.solution_pool_distribution_stddev).unwrap();
-                let sample = distribution.sample(&mut sep.rng).abs().min(0.999);
+                // Box-Muller via libm instead of rand_distr::Normal — the
+                // ziggurat tail path calls platform ln/exp, which differs by
+                // ulps between platform libms (msvcrt vs glibc vs Rust libm
+                // on wasm32) and breaks cross-target replay determinism.
+                // Box-Muller is exact-normal and consumes exactly 2 uniform
+                // draws per sample (AGENTS.md, moteur — libm).
+                let u1 = sep.rng.random::<f32>().max(f32::MIN_POSITIVE);
+                let u2 = sep.rng.random::<f32>();
+                let z = (-2.0 * libm::logf(u1)).sqrt()
+                    * libm::cosf(2.0 * std::f32::consts::PI * u2);
+                let sample = (z * config.solution_pool_distribution_stddev)
+                    .abs()
+                    .min(0.999);
                 // Map it to an index in the infeasible solution pool (better solutions are at the start of the pool)
                 let selected_idx = (sample * infeas_sol_pool.len() as f32) as usize;
 

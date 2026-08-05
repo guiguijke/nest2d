@@ -1,19 +1,19 @@
 use crate::bpp::constructive::DirBias;
 use crate::config::EngineConfig;
 use crate::progress::{PlateauTerminator, ProgressListener};
+use crate::{EngineOutput, map_workers};
 use anyhow::{Context, Result, bail};
 use jagua_rs::io::import::Importer;
 use jagua_rs::probs::spp::entities::{SPInstance, SPSolution};
 use jagua_rs::probs::spp::io::ext_repr::{ExtSPInstance, ExtSPSolution};
 use rand::SeedableRng;
 use rand::rngs::Xoshiro256PlusPlus;
-use rayon::prelude::*;
 use sparrow::optimizer::optimize;
-use sparrow::util::io::{ExtSPOutput, read_spp_input, write_json};
+use sparrow::util::io::ExtSPOutput;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
-use std::time::{Duration, Instant};
+use jagua_rs::Instant;
+use std::time::Duration;
 
 /// One finished multi-start worker run.
 struct WorkerRun {
@@ -147,27 +147,24 @@ fn optimize_multi(
     map_back_height: Option<f32>,
     plateau_patience: Option<Duration>,
 ) -> Vec<WorkerRun> {
-    (0..n_workers)
-        .into_par_iter()
-        .map(|w| {
-            let seed = derive_seed(master_seed, seed_offset + w);
-            let (solution, evals) = optimize_one(
-                instance,
-                sparrow_cfg,
-                budget,
-                explore_ratio,
-                seed,
-                w,
-                started,
-                gravity_enabled,
-                live,
-                map_back_height,
-                plateau_patience,
-                None,
-            );
-            WorkerRun { seed, solution, evals }
-        })
-        .collect()
+    map_workers(n_workers, |w| {
+        let seed = derive_seed(master_seed, seed_offset + w);
+        let (solution, evals) = optimize_one(
+            instance,
+            sparrow_cfg,
+            budget,
+            explore_ratio,
+            seed,
+            w,
+            started,
+            gravity_enabled,
+            live,
+            map_back_height,
+            plateau_patience,
+            None,
+        );
+        WorkerRun { seed, solution, evals }
+    })
 }
 
 /// Rotates an external instance -90° (x, y) -> (y, -x) and sets the strip
@@ -210,10 +207,8 @@ fn map_back_solution(
     jagua_rs::probs::spp::io::import_solution(orig_instance, &ext)
 }
 
-pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> Result<()> {
+pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result<EngineOutput> {
     let started = Instant::now();
-    let (ext_instance, _warm_start) = read_spp_input(instance_path)
-        .with_context(|| format!("reading SPP instance {}", instance_path.display()))?;
 
     let sparrow_config = config.sparrow_config();
     let importer = Importer::new(
@@ -226,7 +221,17 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         .context("importing SPP instance into jagua-rs")?;
 
     let n_workers = config.n_workers();
-    let budget = Duration::from_secs(config.time_budget_sec);
+    // In deterministic work-bounded mode the wall budget must NOT leak
+    // through — optimize_one re-derives phase time limits from `budget`, so
+    // a wall budget here would still kill slow (e.g. wasm) runs
+    // mid-trajectory and break the cross-target determinism lock.
+    let det_mode = config.explore_max_conseq_failed_attempts.is_some()
+        || config.compress_failure_decay.is_some();
+    let budget = if det_mode {
+        Duration::from_secs(24 * 3600)
+    } else {
+        Duration::from_secs(config.time_budget_sec)
+    };
     // Two-phase (transposed height compaction) is a SHEET objective: it
     // trades up to ~slack mm of width for hole filling and a smaller used
     // height. Meaningful only when a real sheet bound exists; unconstrained
@@ -275,10 +280,8 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
             mapped
         };
 
-        let runs: Vec<ClassRun> = (0..n_workers)
-            .into_par_iter()
-            .filter_map(|w| {
-                let bias = biases[w % biases.len()];
+        let runs: Vec<ClassRun> = map_workers(n_workers, |w| {
+            let bias = biases[w % biases.len()];
                 let seed = derive_seed(config.prng_seed, w);
                 match bias {
                     // Historical behaviour: width-min, then transposed height
@@ -431,6 +434,8 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
                     }
                 }
             })
+            .into_iter()
+            .flatten()
             .collect();
 
         if runs.is_empty() {
@@ -500,8 +505,6 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         let best_width = best.solution.strip_width;
         let best_density = best.solution.density;
         let n_exported = alternatives.len();
-        write_json(&best, &out_dir.join("sol_instance.json"))?;
-        write_json(&serde_json::Value::Array(alternatives), &out_dir.join("alternatives.json"))?;
         println!(
             "{{\"type\":\"done\",\"best_strip_width\":{:.3},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
             best_width,
@@ -509,7 +512,10 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
             n_exported,
             started.elapsed().as_secs()
         );
-        return Ok(());
+        return Ok(EngineOutput {
+            sol_instance: serde_json::to_value(&best)?,
+            alternatives,
+        });
     }
 
 
@@ -677,8 +683,6 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
     let best_width = best.solution.strip_width;
     let best_density = best.solution.density;
     let n_exported = alternatives.len();
-    write_json(&best, &out_dir.join("sol_instance.json"))?;
-    write_json(&serde_json::Value::Array(alternatives), &out_dir.join("alternatives.json"))?;
 
     println!(
         "{{\"type\":\"done\",\"best_strip_width\":{:.3},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
@@ -687,7 +691,10 @@ pub fn run_spp(instance_path: &Path, out_dir: &Path, config: &EngineConfig) -> R
         n_exported,
         started.elapsed().as_secs()
     );
-    Ok(())
+    Ok(EngineOutput {
+        sol_instance: serde_json::to_value(&best)?,
+        alternatives,
+    })
 }
 
 #[cfg(test)]

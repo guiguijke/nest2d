@@ -17,6 +17,7 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 rayon = { workspace = true }
+libm = { workspace = true }
 itertools = "0.15"
 tap = "1.0"
 slotmap = "1.0"
