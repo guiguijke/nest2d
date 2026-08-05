@@ -3,7 +3,7 @@ import { connectDB } from '~~/server/db/mongo'
 import { DOMAINS } from '~~/server/core/domains'
 import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
-import { assertCanNest, assertCanNestDemo, getComputeProfile, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
+import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, getComputeProfile, getComputeTier, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
 import {
     DEMO_MAX_DIRECTIONS,
     DEMO_MAX_PARTS,
@@ -195,6 +195,20 @@ export default defineEventHandler(async (event) => {
                   addOutShape: params.addOutShape,
                   fillHoles: params.fillHoles !== false,
               }
+
+        // Sheet cap by tier (D-PAY-9): free jobs are capped at 2 sheets
+        // TOTAL (sum of counts over every format, identical or different).
+        // Resolved from the stored account state and enforced BEFORE any
+        // quota is consumed (P3 — the client can never inflate its own
+        // allowance). Edge accepted: a stored-but-stale expired subscription
+        // resolves as free here; the next entitlement refresh fixes it.
+        // Demo nestings are exempt (dedicated quota, J-056) — they never
+        // reach this branch.
+        const tier = await getComputeTier(userId, null)
+        const totalSheets = sheets
+            ? sheets.reduce((sum, sheet) => sum + sheet.count, 0)
+            : Math.max(1, Math.floor(Number(params.sheetCount) || 1))
+        assertSheetCountWithinTier(totalSheets, tier)
 
         // Subscription / free-quota gate. Consumes a unit only once the request is
         // fully validated. The charge is stored on the job so the worker can refund

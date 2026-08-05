@@ -15,6 +15,10 @@ const state = reactive({
     // Set when a demo nesting hits the monthly demo quota — shown on the
     // project page instead of the paywall (demo 402s are reason=demo_quota).
     demoQuotaReached: false,
+    // Set when the server-side free sheet cap actually fired (403
+    // sheet_cap_exceeded) — defense-in-depth: the project page mirror
+    // normally disables the launch before this can happen.
+    sheetCapError: false,
     params: {
         sheets: [{ width: '1000', height: '2000', count: '100' }],
         space: '0.1',
@@ -300,6 +304,7 @@ async function nest(slug) {
     try {
         try {
             state.demoQuotaReached = false
+            state.sheetCapError = false
             const data = await $fetch(API_ROUTES.NEST(slug), {
                 method: 'POST',
                 headers: {
@@ -312,6 +317,11 @@ async function nest(slug) {
             // operation that was just consumed.
             await authStore.actions.setUser()
         } catch (error) {
+            if (error?.data?.statusMessage === 'sheet_cap_exceeded') {
+                // Server-side free sheet cap fired (client mirror bypassed).
+                state.sheetCapError = true
+                return
+            }
             if (error?.response?.status === 402) {
                 // Demo nestings draw from their own monthly quota — show the
                 // dedicated message, never the subscription paywall.
@@ -358,6 +368,7 @@ export const filesStore = readonly({
         ),
         isNewParams: computed(() => state.requestBody !== state.lastParams),
         demoQuotaReached: computed(() => state.demoQuotaReached),
+        sheetCapError: computed(() => state.sheetCapError),
         params: computed(() => state.params),
         nestRequestError: computed(() => {
             if (filesStore.getters.filesCount < 1) {

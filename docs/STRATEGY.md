@@ -41,7 +41,7 @@ Correspondance des noms (le code n'est pas renommé à ce stade) :
 - 10 nestings **réussis** / mois calendaire UTC — un job échoué ne consomme
   pas de quota (charge refundée par le worker, `worker_common/refund.py`)
   [prod].
-- Cap **2 tôles par job** (identiques ou différentes) [spéc].
+- Cap **2 tôles par job** (somme des counts, identiques ou différentes) [prod, PR#18].
 - Phase 2 : calcul **navigateur uniquement** [conditionnel].
 
 ### Unlimited — 19 €/mois
@@ -146,7 +146,7 @@ Quatre chantiers **indépendants, à traiter en PR séparées** :
 3. **Purge 24 h du Mode Serveur** : la promesse (§2) n'est pas codée —
    prérequis : rédiger la spec d'exécution (mécanisme, délai affiché où,
    interaction vault) — voir `docs/THREAT-MODEL.md` §2 [spéc].
-4. **Cap 2 tôles/job en free** [spéc].
+4. **Cap 2 tôles/job en free** [prod, PR#18] (démo exemptée, D-DEM-11).
 
 Déjà livrés : codes promo partenaires [prod], rapport matière [prod].
 
