@@ -86,7 +86,7 @@ produit sans protéger l'utilisateur.
 
 - **Contenu complet visible dans TOUS les plans** : métriques par tôle,
   ft², offcut (réutilisable ou ferraille), densité [prod].
-- **Exports CSV / PDF / presse-papier = Unlimited+** [spéc] — les exports
+- **Exports CSV / PDF / presse-papier = Unlimited+** [prod, PR#19] — les exports
   client existants (CSV, copie presse-papier, aujourd'hui libres) passent
   derrière un état verrouillé propre en free ; l'export PDF n'existe pas
   encore. L'état verrouillé est un **message explicite** (du type

@@ -288,19 +288,23 @@
             <div class="controls">
                 <MainButton
                     v-if="reportSheets.length"
-                    :label="copied ? t('report.copied') : t('report.copy')"
+                    :label="exportLocked ? t('report.exportLocked') : (copied ? t('report.copied') : t('report.copy'))"
+                    :icon="exportLocked ? iconType.lock : undefined"
+                    :isDisable="exportDisabled"
                     :size="sizeType.s"
                     :theme="themeType.secondary"
                     trackingTag="report_copy"
-                    @click="copyReport"
+                    @click="onExportClick(copyReport, 'report_copy_locked_click')"
                 />
                 <MainButton
                     v-if="reportSheets.length"
-                    :label="t('report.csv')"
+                    :label="exportLocked ? t('report.exportLocked') : t('report.csv')"
+                    :icon="exportLocked ? iconType.lock : undefined"
+                    :isDisable="exportDisabled"
                     :size="sizeType.s"
                     :theme="themeType.secondary"
                     trackingTag="report_csv"
-                    @click="exportCsv"
+                    @click="onExportClick(exportCsv, 'report_csv_locked_click')"
                 />
                 <MainButton
                     v-if="resultModalData.isMultiSheet"
@@ -342,11 +346,37 @@ import { statusType } from '~~/constants/status.constants'
 import { trackEvent } from '~/utils/track'
 import { SQMM_PER_SQIN } from '~/utils/units'
 import { onMounted, nextTick } from 'vue'
+import { reportExportState } from '~/utils/reportExport'
 
 const { getters } = globalStore
 const resultModalData = computed(() => getters.resultModalData)
 const { t } = useLocale()
 const { unit, fmtArea, fmtLength, fmtLengthValue, unitLabel } = useUnit()
+
+// Report export gating (D-RAP-11): content visible on every plan; exports
+// (copy / CSV) are Unlimited+. COMMERCIAL gate, 100% client-side — the
+// report is on screen anyway, a free user could retype the numbers (A3).
+// Plan from the already-loaded user payload (J-044), never a new endpoint.
+const userData = useNuxtData('user')
+const exportState = computed(() =>
+    reportExportState(
+        unref(userData)?.compute?.level ?? null,
+        useRuntimeConfig().public.paidPlansDisabled === true,
+    )
+)
+const exportLocked = computed(() => unref(exportState) === 'locked')
+const exportDisabled = computed(() => unref(exportState) === 'disabled')
+const buyCreditsDialog = useBuyCreditsDialog()
+// Locked state: the click opens the EXISTING paywall dialog (explicit label
+// + CTA, J-054) instead of running the export.
+const onExportClick = (action, trackingTag) => {
+    if (unref(exportLocked)) {
+        trackEvent(trackingTag)
+        buyCreditsDialog.value = true
+        return
+    }
+    action()
+}
 
 const resultDialog = useResultDialog()
 
