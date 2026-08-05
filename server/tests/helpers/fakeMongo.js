@@ -58,6 +58,11 @@ function applyUpdate(doc, update) {
             doc[k] = (doc[k] || 0) + v
         }
     }
+    if (update.$unset) {
+        for (const k of Object.keys(update.$unset)) {
+            delete doc[k]
+        }
+    }
 }
 
 function makeCollection(docs) {

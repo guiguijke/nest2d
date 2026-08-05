@@ -756,6 +756,32 @@ def nesting_process(doc):
     except Exception as e:
         logger.warning("Failed to write compute profile", extra={"error": str(e)})
 
+    # Phase 2 (flag-gated local compute): the worker only PREPARES the exact
+    # engine payload (same instance building, hole channels, SPP/BPP choice,
+    # deterministic seed as a server solve) and stops here — the browser runs
+    # the WASM engine on it and POSTs the result back (or reports failure,
+    # which refunds the consumed quota). run_engine is never called and no
+    # compute-pool token is acquired for a local job.
+    if params.get("computeLocation") == "local":
+        _heartbeat_stop.set()
+        db["nesting_jobs"].update_one(
+            {"_id": doc.get("_id")},
+            {
+                "$set": {
+                    "status": "awaiting_local",
+                    "localPayload": {
+                        "problem": problem_type,
+                        "instance": instance,
+                        "engineConfig": engine_config,
+                    },
+                    "update_ts": datetime.now(),
+                },
+                "$unset": {"progress": ""},
+            },
+        )
+        logger.info("Job routed to local (browser) compute", extra={"slug": slug, "problem_type": problem_type})
+        return
+
     # Live layout snapshots for the visualizer: the engine streams placed
     # item positions ~2Hz per worker; we persist the latest one (throttled)
     # on the job doc, the SSE stream pushes it to the browser.

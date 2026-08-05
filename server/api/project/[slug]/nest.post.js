@@ -3,7 +3,7 @@ import { connectDB } from '~~/server/db/mongo'
 import { DOMAINS } from '~~/server/core/domains'
 import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
-import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, getComputeProfile, getComputeTier, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
+import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, BROWSER_COMPUTE, getComputeProfile, getComputeTier, resolveComputeLocation, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
 import {
     DEMO_MAX_DIRECTIONS,
     DEMO_MAX_PARTS,
@@ -225,6 +225,31 @@ export default defineEventHandler(async (event) => {
         dbParams.computeLevel = compute.level
         dbParams.vcores = compute.vcores
         dbParams.directions = directions
+    }
+
+    // Phase 2 (flag-gated internal QA — NOT a privacy feature): route the job
+    // to the browser WASM engine. Written SERVER-SIDE (P3): flag OFF writes
+    // nothing (pipeline strictly unchanged); 'local' swaps the compute
+    // profile for the explicit browser budget (BROWSER_COMPUTE, 13 s) — the
+    // Python worker then only PREPARES the payload and the client solves.
+    const config = useRuntimeConfig(event)
+    const computeLocation = resolveComputeLocation(
+        config.public.localComputeEnabled,
+        isDemo,
+        isDemo ? 'demo' : compute.level,
+        project,
+    )
+    if (computeLocation) {
+        dbParams.computeLocation = computeLocation
+    }
+    if (computeLocation === 'local') {
+        const directions = validateDirections(params.directions, BROWSER_COMPUTE.maxDirections)
+        dbParams.timeBudgetSec = BROWSER_COMPUTE.timeBudgetSec
+        dbParams.alternativesCount = directions.length
+        dbParams.computeLevel = BROWSER_COMPUTE.level
+        dbParams.vcores = BROWSER_COMPUTE.vcores
+        dbParams.directions = directions
+        compute.priority = BROWSER_COMPUTE.priority
     }
     // Unit for the exported result DXF, taken from the server-side user
     // profile (never the client). Internal geometry stays mm — the worker
