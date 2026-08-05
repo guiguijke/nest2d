@@ -9,22 +9,7 @@
         <!-- Loading -->
         <p v-if="status === null" class="vault__muted">{{ t('common.loading') }}</p>
 
-        <!-- Not eligible -->
-        <div v-else-if="!status.eligible && !status.enabled" class="vault__card">
-            <p class="vault__muted">
-                {{ t('vault.notEligible') }}
-            </p>
-            <MainButton
-                :theme="themeType.secondary"
-                :label="t('vault.seePlans')"
-                tag="a"
-                href="/plans"
-                trackingTag="vault_see_plans"
-                class="vault__btn"
-            />
-        </div>
-
-        <!-- Activation flow -->
+        <!-- Activation flow (opt-in on every plan — D-PRV-5, J-049) -->
         <div v-else-if="!status.enabled" class="vault__card">
             <template v-if="!pendingKey">
                 <MainButton
