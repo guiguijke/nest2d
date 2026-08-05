@@ -202,6 +202,11 @@ const buttonClasses = computed(() => ({
             mask-image: url('/icons/svg/bell.svg')
         }
     }
+    &--icon-lock {
+        #{$self}__icon {
+            mask-image: url('/icons/svg/lock.svg')
+        }
+    }
     &--icon-arrow-next,
     &--icon-arrow-prev {
         #{$self}__icon {
