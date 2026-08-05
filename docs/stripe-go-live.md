@@ -1,13 +1,13 @@
 # Stripe — passage en production (NestorCut)
 
 Checklist de bascule test → live et de conformité de facturation.
-Entreprise vérifiée via annuaire-entreprises : **Guillaume Jerke EI**,
+Entreprise vérifiée via annuaire-entreprises : **Guillaume Jerke EI (APlasma)**,
 SIREN 942 877 028 · SIRET siège 94287702800012 · APE 25.50B · créée le
 03/04/2025 · Saint-Martin-Lalande (11400) · **franchise en base de TVA
 (art. 293 B du CGI)**. Un n° de TVA intracommunautaire existe : il sert pour
 l'autoliquidation des achats étrangers, le B2B UE et la DES — il ne remet
 PAS en cause la franchise tant qu'aucune TVA n'est facturée. Décision
-(2026-08) : **rester en franchise sur l'ensemble de l'activité**
+(2026-08) : **rester en franchise sur l'ensemble de l'activité APlasma**
 (découpe plasma + SaaS) — donc Stripe Tax OFF.
 
 ## 1. Fiches d'abonnement
@@ -59,13 +59,13 @@ de signature refuse de tourner non configurée — voulu).
 ## 4. Paramètres du compte Stripe (Dashboard, mode live)
 
 **Business / Paramètres publics**
-- Nom public : `NestorCut`
+- Nom public : `NestorCut (APlasma)`
 - **Descripteur de relevé bancaire** : `NESTORCUT` (≤ 22 caractères)
 - Adresse professionnelle = siège réel (reprise sur les factures)
 
 **Facturation → Factures et reçus**
 - **Pied de facture personnalisé** (mentions obligatoires) :
-  > NestorCut — Guillaume Jerke EI · SIREN 942 877 028 · 11400
+  > APlasma — Guillaume Jerke EI · SIREN 942 877 028 · 11400
   > Saint-Martin-Lalande, France · TVA non applicable, art. 293 B du CGI ·
   > N° TVA intracommunautaire : FRxx942877028 (remplacer xx par la clé)
 - **NE PAS activer Stripe Tax** : en franchise en base, aucune TVA n'est
@@ -95,7 +95,7 @@ de signature refuse de tourner non configurée — voulu).
 - ✅ Mentions légales du site : SIREN, forme (EI), adresse — conformes.
 - ⚠️ **Seuils 2025 (prestations de services)** : franchise tant que le CA
   annuel ≤ 37 500 € (conservée jusqu'à 41 250 €) — compteurs **communs à
-  toute l'activité** (découpe plasma + SaaS, même SIREN). Au-delà :
+  toute l'activité APlasma** (découpe plasma + SaaS, même SIREN). Au-delà :
   TVA à collecter, factures avec TVA. À surveiller et confirmer avec le SIE /
   un comptable.
 - 🌍 **Clients hors France** (franchise conservée, Stripe Tax OFF) :
