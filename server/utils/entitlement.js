@@ -173,6 +173,46 @@ export const COMPUTE_TIERS = {
 export const NEST_DIRECTIONS = ['left', 'bottom', 'balanced']
 
 /**
+ * Sheet cap per nesting job, by tier (D-PAY-9). The FREE plan is capped at
+ * FREE_SHEET_CAP sheets TOTAL — the sum of `count` over every sheet format
+ * defined for the job, identical or different. Paid tiers are uncapped.
+ *
+ * Demo nestings are EXEMPT (J-056): they live under their own dedicated
+ * monthly quota (D-DEM-3) and never reach this guard (demo path in
+ * nest.post.js).
+ *
+ * RULE: enforced SERVER-SIDE at enqueue (P3 — a client-side hint alone is
+ * never a guard), BEFORE any quota is consumed, via this resolver — never
+ * inline a literal cap elsewhere (AGENTS.md, Server / quotas).
+ */
+export const FREE_SHEET_CAP = 2
+
+/**
+ * @param {string} tier compute tier ('free'|'standard'|'privacy')
+ * @returns {number} max sheets per job (Infinity = uncapped)
+ */
+export function sheetCapForTier(tier) {
+    return tier === 'free' ? FREE_SHEET_CAP : Infinity
+}
+
+/**
+ * Throws a stable 403 `sheet_cap_exceeded` when the job's total sheet count
+ * exceeds the tier's cap.
+ * @param {number} totalSheets sum of counts over every defined sheet format
+ * @param {string} tier compute tier
+ */
+export function assertSheetCountWithinTier(totalSheets, tier) {
+    const cap = sheetCapForTier(tier)
+    if (Number(totalSheets) > cap) {
+        throw createError({
+            statusCode: 403,
+            statusMessage: 'sheet_cap_exceeded',
+            data: { reason: 'sheet_cap_exceeded', cap },
+        })
+    }
+}
+
+/**
  * The user's compute tier: 'privacy' (Confidentialité+) > 'standard'
  * (subscription or admin grant) > 'free'.
  * @param {string} userId

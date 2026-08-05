@@ -31,6 +31,12 @@
         <div v-if="nestRequestError" class="content__error">
             {{ nestRequestError }}
         </div>
+        <div v-if="sheetCapExceeded" class="content__error">
+            {{ t('nest.sheetCapHint') }}
+        </div>
+        <div v-else-if="sheetCapServerError" class="content__error">
+            {{ t('nest.error.sheetCap') }}
+        </div>
         <div v-if="!sizesIsAvailable && !nestRequestError" class="content__error">
             {{ t('project.minSheet', { w: fmtLengthValue(biggestPartSizes.width), h: fmtLengthValue(biggestPartSizes.height), unit: unitLabel }) }}
         </div>
@@ -204,8 +210,22 @@ onMounted(() => {
 const btnLabel = computed(() => {
     return t('settings.nestFiles', { n: unref(filesCount) })
 })
+// Sheet cap mirror (D-PAY-9): the Free plan is capped at 2 sheets TOTAL per
+// job (sum of counts over every format). The SERVER enforces the cap at
+// enqueue (403 sheet_cap_exceeded, before any quota is consumed) — this is
+// only the UX mirror so a free user gets a hint instead of a surprise 403.
+// The demo is exempt (dedicated quota, J-056).
+const sheetCapExceeded = computed(() => {
+    if (unref(isDemo)) return false
+    const level = unref(user)?.compute?.level
+    if (level !== 'free') return false
+    const total = unref(currentSheets).reduce((sum, sheet) => sum + (Number(sheet.count) || 0), 0)
+    return total > 2
+})
+// Server-side defense actually fired (client mirror bypassed) — from the store.
+const sheetCapServerError = computed(() => filesGetters.sheetCapError)
 const btnIsDisable = computed(() => {
-    return Boolean(unref(nestRequestError)) || !unref(isNewParams) || !unref(resultsList) || !unref(sizesIsAvailable)
+    return Boolean(unref(nestRequestError)) || !unref(isNewParams) || !unref(resultsList) || !unref(sizesIsAvailable) || unref(sheetCapExceeded)
 })
 const addFiles = (files) => {
     actions.addFiles(files, slug)
