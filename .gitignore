@@ -63,3 +63,7 @@ libredwg.tar.xz
 
 # Local product specs (decision memory) — intentionally NOT committed.
 specs/
+
+# Mission v2 — workspace géométrie Rust (workers/geometry)
+workers/geometry/target
+workers/geometry/parity/__pycache__

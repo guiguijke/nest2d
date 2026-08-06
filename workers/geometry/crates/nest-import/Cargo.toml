@@ -1,0 +1,22 @@
+[package]
+name = "nest-import"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "DXF import to polygon parts (canonical mm) — dual-target (native lib + wasm32), bit-exact against the Python pipeline (see docs/PIPELINE-MAP.md)"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+libm = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[features]
+wasm = ["dep:wasm-bindgen"]
+
+[[bin]]
+name = "nest-import-cli"
+path = "src/main.rs"
