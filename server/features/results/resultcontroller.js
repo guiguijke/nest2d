@@ -22,8 +22,13 @@ export async function getResults(userId, projectSlug) {
         let downloadUrl = ''
         let zipDownloadUrl = ''
         if (queueItem.status == 'done') {
-            zipDownloadUrl = `/api/files/result/zip/${queueItem.slug}`
-            downloadUrl = isMultiSheet ? zipDownloadUrl : `/api/files/result/dxf/${queueItem.dxf_files[0]}`
+            // Local-compute (Phase 2) and legacy jobs may be 'done' without
+            // exported files — the light local result shape has no
+            // dxf_files/svg_files by design. Guard before indexing: a missing
+            // array used to 500 the whole results stream.
+            const hasFiles = Array.isArray(queueItem.dxf_files) && queueItem.dxf_files.length > 0
+            zipDownloadUrl = hasFiles ? `/api/files/result/zip/${queueItem.slug}` : null
+            downloadUrl = !hasFiles ? null : isMultiSheet ? zipDownloadUrl : `/api/files/result/dxf/${queueItem.dxf_files[0]}`
         } else {
             downloadUrl = null
             zipDownloadUrl = null
