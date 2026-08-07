@@ -7,6 +7,8 @@
 
 pub mod assemble;
 pub mod dxf;
+#[cfg(feature = "svg")]
+pub mod svg;
 pub mod units;
 #[cfg(feature = "wasm")]
 mod wasm;
@@ -70,6 +72,37 @@ pub fn import_dxf(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, Import
     })
 }
 
+/// Import an SVG document (bytes) to polygon parts in canonical mm.
+/// Same output contract as import_dxf (y flipped, px→mm upstream).
+#[cfg(feature = "svg")]
+pub fn import_svg(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, ImportError> {
+    svg::import_svg(bytes, flatten_tol)
+}
+
+/// Format detection by CONTENT signature (AGENTS #31 — jamais l'extension) :
+/// BOM/whitespace then '<' = SVG (XML), anything else = DXF.
+#[cfg(feature = "svg")]
+pub fn import_file(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, ImportError> {
+    let head = &bytes[..bytes.len().min(1024)];
+    let mut i = 0;
+    // UTF-8 BOM
+    if head.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        i = 3;
+    }
+    while i < head.len() && (head[i] as char).is_whitespace() {
+        i += 1;
+    }
+    if i < head.len() && head[i] == b'<' {
+        return svg::import_svg(bytes, flatten_tol);
+    }
+    import_dxf(bytes, flatten_tol)
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn import_file(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, ImportError> {
+    import_dxf(bytes, flatten_tol)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,5 +130,24 @@ mod tests {
     #[test]
     fn corrupt_input_is_a_clean_error() {
         assert!(matches!(import_dxf(b"\x00\x01\x02", 0.01), Err(ImportError::Corrupt(_))));
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn end_to_end_minimal_svg() {
+        // Rectangle 96×48 px = 25.4×12.7 mm, y inversé (le signe disparaît
+        // dans width/height mais l'aire le prouve).
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 48"><rect x="0" y="0" width="96" height="48"/></svg>"#;
+        let r = import_svg(svg, 0.01).expect("parse");
+        assert_eq!(r.parts.len(), 1);
+        assert!((r.parts[0].width - 25.4).abs() < 1e-9, "w={}", r.parts[0].width);
+        assert!((r.parts[0].height - 12.7).abs() < 1e-9);
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn svg_without_geometry_is_a_clean_error() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg"><text>hi</text></svg>"#;
+        assert!(matches!(import_svg(svg, 0.01), Err(ImportError::Corrupt(_))));
     }
 }
