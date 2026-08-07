@@ -15,23 +15,23 @@ use std::collections::HashMap;
 /// (La forme ×1e-4 = 13.229200000000004 vue dans certains goldens vient du
 /// weld buffer(±0.1) de _merge_near_polygons, PAS de set_precision —
 /// vérifié : set_precision(Point(13.229200000000001)) = 13.2292 propre.)
-fn snap(v: f64) -> f64 {
+pub fn snap(v: f64) -> f64 {
     ((v * 1e4) + 0.5).floor() / 1e4
 }
 
-fn snap_pt(p: [f64; 2]) -> [f64; 2] {
+pub fn snap_pt(p: [f64; 2]) -> [f64; 2] {
     [snap(p[0]), snap(p[1])]
 }
 
-type Pt = [f64; 2];
+pub type Pt = [f64; 2];
 
-fn sub(a: Pt, b: Pt) -> Pt {
+pub fn sub(a: Pt, b: Pt) -> Pt {
     [a[0] - b[0], a[1] - b[1]]
 }
-fn cross(a: Pt, b: Pt) -> f64 {
+pub fn cross(a: Pt, b: Pt) -> f64 {
     a[0] * b[1] - a[1] * b[0]
 }
-fn dist2(a: Pt, b: Pt) -> f64 {
+pub fn dist2(a: Pt, b: Pt) -> f64 {
     let d = sub(a, b);
     d[0] * d[0] + d[1] * d[1]
 }
@@ -84,7 +84,7 @@ pub fn collect_linework(
 // ---------------------------------------------------------------- noding
 
 /// Segment intersection point (f64, exact for straight segments).
-fn seg_intersection(a1: Pt, a2: Pt, b1: Pt, b2: Pt) -> Option<Pt> {
+pub fn seg_intersection(a1: Pt, a2: Pt, b1: Pt, b2: Pt) -> Option<Pt> {
     let r = sub(a2, a1);
     let s = sub(b2, b1);
     let denom = cross(r, s);
@@ -101,7 +101,7 @@ fn seg_intersection(a1: Pt, a2: Pt, b1: Pt, b2: Pt) -> Option<Pt> {
 }
 
 /// Point strictly inside a segment (collinear + between), f64 exact.
-fn point_on_segment(p: Pt, a: Pt, b: Pt) -> bool {
+pub fn point_on_segment(p: Pt, a: Pt, b: Pt) -> bool {
     let ab = sub(b, a);
     let ap = sub(p, a);
     if cross(ab, ap) != 0.0 {
@@ -119,7 +119,7 @@ fn point_on_segment(p: Pt, a: Pt, b: Pt) -> bool {
 /// endpoint lying strictly inside another segment) — GEOS noding parity.
 /// O(n²); noded graph edges are then re-snapped so coincident vertices
 /// merge exactly.
-fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
+pub fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
     let mut out: Vec<(Pt, Pt)> = Vec::new();
     for (i, &(a1, a2)) in segments.iter().enumerate() {
         let mut ts: Vec<f64> = Vec::new();
@@ -169,7 +169,7 @@ fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
 
 /// Minimal faces of a planar segment set via the leftmost-face rule.
 /// Returns rings (closed cycles of vertices). Deterministic.
-fn polygonize(rings: &[Vec<Pt>], segments: &[(Pt, Pt)]) -> Vec<Vec<Pt>> {
+pub fn polygonize(rings: &[Vec<Pt>], segments: &[(Pt, Pt)]) -> Vec<Vec<Pt>> {
     // Build undirected edges from rings (consecutive pairs) + segments.
     let mut edges: Vec<(Pt, Pt)> = Vec::new();
     for ring in rings {
@@ -278,7 +278,7 @@ fn polygonize(rings: &[Vec<Pt>], segments: &[(Pt, Pt)]) -> Vec<Vec<Pt>> {
 
 // ------------------------------------------------------------- measures
 
-fn ring_signed_area(r: &[Pt]) -> f64 {
+pub fn ring_signed_area(r: &[Pt]) -> f64 {
     let mut a = 0.0;
     let n = r.len();
     for i in 0..n {
@@ -289,7 +289,7 @@ fn ring_signed_area(r: &[Pt]) -> f64 {
     a / 2.0
 }
 
-fn point_in_ring(p: Pt, ring: &[Pt]) -> bool {
+pub fn point_in_ring(p: Pt, ring: &[Pt]) -> bool {
     // Ray casting (+x), f64 — boundary cases are resolved by the 1e-4 grid.
     let mut inside = false;
     let n = ring.len();
@@ -310,7 +310,7 @@ fn point_in_ring(p: Pt, ring: &[Pt]) -> bool {
 /// vertex, a small step along the interior angle bisector. The ear-centroid
 /// shortcut is NOT safe (the diagonal can cross a notch) — the bisector step
 /// is local and always lands inside a simple CCW ring.
-fn interior_probe(ring: &[Pt]) -> Pt {
+pub fn interior_probe(ring: &[Pt]) -> Pt {
     let n = ring.len();
     // Orientation-agnostic: the convex-vertex turn sign follows the ring's
     // signed area (CW exterior in this pipeline).
@@ -349,13 +349,13 @@ fn interior_probe(ring: &[Pt]) -> Pt {
     [cx / n as f64, cy / n as f64]
 }
 
-fn ring_contains(outer: &[Pt], inner: &[Pt]) -> bool {
+pub fn ring_contains(outer: &[Pt], inner: &[Pt]) -> bool {
     inner.iter().any(|&p| point_in_ring(p, outer))
 }
 
 /// reduce_ring (build_geometry.to_mongo_dict twin): keep a point iff it
 /// moved > 0.01 from the last KEPT point (x or y).
-fn reduce_ring(ring: &[Pt]) -> Vec<Pt> {
+pub fn reduce_ring(ring: &[Pt]) -> Vec<Pt> {
     let mut out: Vec<Pt> = Vec::new();
     for &p in ring {
         match out.last() {
