@@ -71,9 +71,12 @@ jobs:
         run: |
           WB_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/"/, "", $3); print $3; exit}' Cargo.lock)
           echo "wasm-bindgen crate = $WB_VERSION"
-          cargo build --release -p nest-import --target wasm32-unknown-unknown --features wasm
+          cargo build --release -p nest-import -p nest-preprocess \
+            --target wasm32-unknown-unknown --features wasm,svg
           cargo install wasm-bindgen-cli --version "$WB_VERSION" --locked
           wasm-bindgen --target web --out-dir target/wasm-pkg \
             target/wasm32-unknown-unknown/release/nest_import.wasm
+          wasm-bindgen --target web --out-dir target/wasm-pkg-pp \
+            target/wasm32-unknown-unknown/release/nest_preprocess.wasm
       - name: Verrou déterminisme natif↔wasm (tolérance 0)
         run: node workers/geometry/parity/determinism_lock.mjs
