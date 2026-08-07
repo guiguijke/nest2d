@@ -357,7 +357,10 @@ const { unit, fmtArea, fmtLength, fmtLengthValue, unitLabel } = useUnit()
 // (copy / CSV) are Unlimited+. COMMERCIAL gate, 100% client-side — the
 // report is on screen anyway, a free user could retype the numbers (A3).
 // Plan from the already-loaded user payload (J-044), never a new endpoint.
-const userData = useNuxtData('user')
+// useNuxtData returns { data: Ref } — destructure it (same pattern as
+// useUnit.js); unref'ing the wrapper itself never sees .compute and locks
+// every tier, paid included.
+const { data: userData } = useNuxtData('user')
 const exportState = computed(() =>
     reportExportState(
         unref(userData)?.compute?.level ?? null,
