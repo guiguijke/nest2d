@@ -16,10 +16,12 @@
             <LiveNestingView :result="liveResult" />
         </section>
         <section v-if="localComputeRunning" class="content__live live-panel">
-            <h3 class="live-panel__title">{{ t('localCompute.running') }}</h3>
+            <h3 class="live-panel__title">{{ t('localMode.toggle.local') }} — {{ t('localCompute.running') }}
+                <span class="live-panel__elapsed">{{ localElapsed }}s {{ t('localMode.elapsed') }} / {{ localBudget }}s</span>
+            </h3>
         </section>
         <div v-if="localComputeError" class="content__error">
-            {{ t(localComputeError === 'memory' ? 'localCompute.memoryError' : 'localCompute.error') }}
+            {{ localErrorText }}
         </div>
         <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
         <MainSettings />
@@ -55,7 +57,9 @@
 <script setup async>
 import { themeType } from "~~/constants/theme.constants";
 import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
-import { isLocalComputeEnabled, runLocalJob } from "~/composables/localCompute";
+import { isLocalComputeEnabled } from "~/composables/localCompute";
+import { runLocalJobPrivate } from "~/composables/localJobPrivate";
+import { useLocalMode } from "~/composables/useLocalMode";
 import {
     DEMO_NESTING_LIMIT,
     DEMO_SHEETS,
@@ -112,8 +116,16 @@ watch(
 // solve it in the browser Web Worker and post the result back. Failures
 // surface as a clean i18n message (never a page crash); the consumed quota
 // is refunded server-side on failure (same semantics as the worker refund).
+// PR5 (Mode Local productisé) : le solve local stocke ses résultats 100 %
+// navigateur (IndexedDB) et ne transmet au serveur que la comptabilité
+// (local-quota) — aucune géométrie sortante (J-077). Erreurs i18n EN/FR
+// proposant le mode serveur ; budget temps affiché (J-079).
+const localModeCtl = useLocalMode(null);
 const localComputeRunning = ref(false);
 const localComputeError = ref(null);
+const localElapsed = localModeCtl.elapsed;
+const localBudget = localModeCtl.BROWSER_BUDGET_SEC;
+const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value));
 const attemptedLocalJobs = new Set();
 watch(
     () => (unref(resultsList) || []).find((r) => r.status === 'awaiting_local'),
@@ -122,15 +134,20 @@ watch(
         attemptedLocalJobs.add(job.slug);
         localComputeError.value = null;
         localComputeRunning.value = true;
+        localModeCtl.startTimer();
         try {
-            const res = await runLocalJob(job.slug);
+            const res = await runLocalJobPrivate(job.slug, { projectSlug: job.projectSlug });
             if (!res.ok) {
-                localComputeError.value = res.error === 'memory_cap' ? 'memory' : 'generic';
+                localComputeError.value =
+                    res.error === 'memory_cap' ? 'memory_cap'
+                    : res.error === 'entity_limit' ? 'entity_limit'
+                    : 'crash';
             }
         } catch (e) {
-            localComputeError.value = 'generic';
+            localComputeError.value = 'crash';
             console.error('local compute failed', e);
         } finally {
+            localModeCtl.stopTimer();
             localComputeRunning.value = false;
         }
     },
