@@ -40,7 +40,7 @@ function getWorker() {
     return engineWorker
 }
 
-function runInWorker(jobSlug, payload) {
+export function runInWorker(jobSlug, payload) {
     return new Promise((resolve) => {
         pending.set(jobSlug, resolve)
         getWorker().postMessage({
@@ -66,9 +66,19 @@ export async function runLocalJob(jobSlug) {
         })
         return { ok: false, error: outcome.error, memory: outcome.memory }
     }
-    await $fetch(`/api/results/${jobSlug}/local-result`, {
-        method: 'POST',
-        body: { alternatives: outcome.result.alternatives },
-    })
+    const body = { alternatives: outcome.result.alternatives }
+    // PR4 (QA, flag-gaté) : le navigateur calcule aussi les artefacts
+    // (SVG/rapport) via le bundle géométrie, en champs additifs — le contrat
+    // local-result reste inchangé (le serveur ignore l'inconnu).
+    if (isLocalComputeEnabled()) {
+        try {
+            const geo = await import('./geometryClient')
+            const arts = await geo.computeClientArtifacts(outcome.result)
+            if (arts) body.clientArtifacts = arts
+        } catch {
+            // jamais une rupture du flux de solve
+        }
+    }
+    await $fetch(`/api/results/${jobSlug}/local-result`, { method: 'POST', body })
     return { ok: true }
 }

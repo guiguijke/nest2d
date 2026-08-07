@@ -9,7 +9,7 @@ pub mod svg;
 pub mod transform;
 
 #[cfg(feature = "wasm")]
-mod wasm;
+pub mod wasm;
 
 pub use dxf_writer::build_part_dxf;
 pub use transform::Placement;

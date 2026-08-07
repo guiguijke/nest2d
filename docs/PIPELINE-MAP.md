@@ -144,6 +144,7 @@ premier/dernier < tol → Polygon sinon LineString.
 | **Exports DXF** (`nest-export`, PR3) | writer DXF ASCII sémantique build_part (J-069/070) : entités source préservées (bulges/couleur/closed), BIN_BOUNDARY(5)/OUT_SHAPE(1), scale unité + headers AC1027 | Parité **sémantique** : ezdxf parse les 2 sorties, canonise, 1e-9 mm (OUT_SHAPE exclus = bbox ezdxf approx). Lisible par ezdxf ET dxf_parser app. |
 | **Exports SVG** (`nest-export`, PR3) | tôle colorée + preview, réplique formatage Python (pyfloat) | Parité **byte-level** SHA-256 tol. 0 (J-071). |
 | **Rapport** (`nest-report`, PR3) | réplique metrics.py (per_sheet/totals/used_share/offcut/verify_layout) | Parité **valeurs** 1e-6 ; offcut exact-scan comparé en régime band (J-072). |
+| **Bundle navigateur** (`nest-geometry-wasm`, PR4) | une instantiation wasm (import+preprocess+export+report) servie à `/geometry/*`, lazy + worker réutilisé (J-073) | Diff **client/serveur** bloquant en CI (`client_server_diff.py`, J-074) : SVG byte-level, rapport 1e-6, import = golden. Flag OFF en prod. |
 | WASM glue | wasm-bindgen + wasm-opt | Reproduit spike (349 Ko moteur). |
 | ZIP client | fflate (JS) | Acté hors Rust. |
 
