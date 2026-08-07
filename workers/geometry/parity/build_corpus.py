@@ -97,6 +97,26 @@ def main():
     doc.modelspace().add_lwpolyline([(20, 20), (30, 20), (30, 30), (20, 30)], close=True)
     save(doc, "two_parts.dxf")
 
+    # --- cas limites CANAUX (PR2) : trou proche du bord, micro-trou,
+    # hôte ornemental (concavités sur le chemin du canal)
+    doc = new_doc()
+    doc.modelspace().add_lwpolyline([(0, 0), (100, 0), (100, 80), (0, 80)], close=True)
+    doc.modelspace().add_circle((50, 42), 20)  # pont de 2 mm vers le bord bas
+    save(doc, "chan_edge_close.dxf")
+
+    doc = new_doc()
+    doc.modelspace().add_lwpolyline([(0, 0), (100, 0), (100, 80), (0, 80)], close=True)
+    doc.modelspace().add_circle((50, 40), 1.2)  # trou plus étroit qu'un canal large
+    save(doc, "chan_tiny_hole.dxf")
+
+    doc = new_doc()
+    # hôte en peigne : le canal le plus court peut croiser des doigts
+    doc.modelspace().add_lwpolyline(
+        [(0, 0), (100, 0), (100, 20), (70, 20), (70, 35), (100, 35), (100, 55),
+         (70, 55), (70, 70), (100, 70), (100, 90), (0, 90)], close=True)
+    doc.modelspace().add_circle((35, 45), 15)
+    save(doc, "chan_ornate.dxf")
+
     print(f"extended corpus -> {OUT} ({len(os.listdir(OUT))} files)")
 
 

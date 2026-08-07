@@ -120,18 +120,40 @@ pub fn point_on_segment(p: Pt, a: Pt, b: Pt) -> bool {
 /// O(n²); noded graph edges are then re-snapped so coincident vertices
 /// merge exactly.
 pub fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
+    // Intersections canoniques par PAIRE (i<j) : le point croisé est calculé
+    // UNE fois et partagé par les deux segments — sinon chaque côté le
+    // reconstruit avec sa propre formule (ulp différent) et l'adjacence du
+    // polygonize ne fusionne plus (arêtes pendantes, faces perdues). Sans
+    // snap en aval (chemin canaux nest-preprocess), c'était fatal.
+    let n = segments.len();
+    let mut pair_pts: std::collections::HashMap<(usize, usize), Pt> =
+        std::collections::HashMap::new();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let (a1, a2) = segments[i];
+            let (b1, b2) = segments[j];
+            if let Some(p) = seg_intersection(a1, a2, b1, b2) {
+                pair_pts.insert((i, j), p);
+            }
+        }
+    }
     let mut out: Vec<(Pt, Pt)> = Vec::new();
     for (i, &(a1, a2)) in segments.iter().enumerate() {
-        let mut ts: Vec<f64> = Vec::new();
+        let mut ts: Vec<(f64, Pt)> = Vec::new();
         for (j, &(b1, b2)) in segments.iter().enumerate() {
             if i == j {
                 continue;
             }
-            if let Some(p) = seg_intersection(a1, a2, b1, b2) {
+            let canon = if i < j {
+                pair_pts.get(&(i, j)).copied()
+            } else {
+                pair_pts.get(&(j, i)).copied()
+            };
+            if let Some(p) = canon {
                 let d = dist2(a1, a2);
                 if d > 0.0 {
                     let t = (sub(p, a1)[0] * (a2[0] - a1[0]) + sub(p, a1)[1] * (a2[1] - a1[1])) / d;
-                    ts.push(t);
+                    ts.push((t, p));
                 }
             }
             // T-junction: an endpoint of (b1,b2) strictly inside (a1,a2).
@@ -139,7 +161,7 @@ pub fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
                 if point_on_segment(p, a1, a2) {
                     let d = dist2(a1, a2);
                     let t = (sub(p, a1)[0] * (a2[0] - a1[0]) + sub(p, a1)[1] * (a2[1] - a1[1])) / d;
-                    ts.push(t);
+                    ts.push((t, p));
                 }
             }
         }
@@ -147,15 +169,14 @@ pub fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
             out.push((a1, a2));
             continue;
         }
-        ts.sort_by(|x, y| x.total_cmp(y));
-        ts.dedup_by(|x, y| (*x - *y).abs() < 1e-12);
+        ts.sort_by(|x, y| x.0.total_cmp(&y.0));
+        ts.dedup_by(|x, y| (x.0 - y.0).abs() < 1e-12);
         let mut prev = a1;
         let mut prev_t = 0.0;
-        for &t in &ts {
+        for &(t, p) in &ts {
             if t <= prev_t || t >= 1.0 {
                 continue;
             }
-            let p = [a1[0] + t * (a2[0] - a1[0]), a1[1] + t * (a2[1] - a1[1])];
             out.push((prev, p));
             prev = p;
             prev_t = t;
