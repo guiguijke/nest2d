@@ -1,0 +1,23 @@
+[package]
+name = "nest-preprocess"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Hole channels (capillary cut) for the nesting engine — dual-target, GEOS-semantics replica (docs/PIPELINE-MAP.md §1.5)"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+nest-import = { path = "../nest-import" }
+libm = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[features]
+wasm = ["dep:wasm-bindgen"]
+
+[[bin]]
+name = "nest-channels-cli"
+path = "src/main.rs"

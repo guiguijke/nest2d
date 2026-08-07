@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/nest-import"]
+members = ["crates/nest-import", "crates/nest-preprocess"]
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

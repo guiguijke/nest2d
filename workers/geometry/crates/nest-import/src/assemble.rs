@@ -12,23 +12,26 @@ use crate::Part;
 use std::collections::HashMap;
 
 /// GEOS set_precision rounding: floor(v*1e4 + 0.5)/1e4 (round-half-up).
-fn snap(v: f64) -> f64 {
+/// (La forme ×1e-4 = 13.229200000000004 vue dans certains goldens vient du
+/// weld buffer(±0.1) de _merge_near_polygons, PAS de set_precision —
+/// vérifié : set_precision(Point(13.229200000000001)) = 13.2292 propre.)
+pub fn snap(v: f64) -> f64 {
     ((v * 1e4) + 0.5).floor() / 1e4
 }
 
-fn snap_pt(p: [f64; 2]) -> [f64; 2] {
+pub fn snap_pt(p: [f64; 2]) -> [f64; 2] {
     [snap(p[0]), snap(p[1])]
 }
 
-type Pt = [f64; 2];
+pub type Pt = [f64; 2];
 
-fn sub(a: Pt, b: Pt) -> Pt {
+pub fn sub(a: Pt, b: Pt) -> Pt {
     [a[0] - b[0], a[1] - b[1]]
 }
-fn cross(a: Pt, b: Pt) -> f64 {
+pub fn cross(a: Pt, b: Pt) -> f64 {
     a[0] * b[1] - a[1] * b[0]
 }
-fn dist2(a: Pt, b: Pt) -> f64 {
+pub fn dist2(a: Pt, b: Pt) -> f64 {
     let d = sub(a, b);
     d[0] * d[0] + d[1] * d[1]
 }
@@ -81,7 +84,7 @@ pub fn collect_linework(
 // ---------------------------------------------------------------- noding
 
 /// Segment intersection point (f64, exact for straight segments).
-fn seg_intersection(a1: Pt, a2: Pt, b1: Pt, b2: Pt) -> Option<Pt> {
+pub fn seg_intersection(a1: Pt, a2: Pt, b1: Pt, b2: Pt) -> Option<Pt> {
     let r = sub(a2, a1);
     let s = sub(b2, b1);
     let denom = cross(r, s);
@@ -98,7 +101,7 @@ fn seg_intersection(a1: Pt, a2: Pt, b1: Pt, b2: Pt) -> Option<Pt> {
 }
 
 /// Point strictly inside a segment (collinear + between), f64 exact.
-fn point_on_segment(p: Pt, a: Pt, b: Pt) -> bool {
+pub fn point_on_segment(p: Pt, a: Pt, b: Pt) -> bool {
     let ab = sub(b, a);
     let ap = sub(p, a);
     if cross(ab, ap) != 0.0 {
@@ -116,19 +119,41 @@ fn point_on_segment(p: Pt, a: Pt, b: Pt) -> bool {
 /// endpoint lying strictly inside another segment) — GEOS noding parity.
 /// O(n²); noded graph edges are then re-snapped so coincident vertices
 /// merge exactly.
-fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
+pub fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
+    // Intersections canoniques par PAIRE (i<j) : le point croisé est calculé
+    // UNE fois et partagé par les deux segments — sinon chaque côté le
+    // reconstruit avec sa propre formule (ulp différent) et l'adjacence du
+    // polygonize ne fusionne plus (arêtes pendantes, faces perdues). Sans
+    // snap en aval (chemin canaux nest-preprocess), c'était fatal.
+    let n = segments.len();
+    let mut pair_pts: std::collections::HashMap<(usize, usize), Pt> =
+        std::collections::HashMap::new();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let (a1, a2) = segments[i];
+            let (b1, b2) = segments[j];
+            if let Some(p) = seg_intersection(a1, a2, b1, b2) {
+                pair_pts.insert((i, j), p);
+            }
+        }
+    }
     let mut out: Vec<(Pt, Pt)> = Vec::new();
     for (i, &(a1, a2)) in segments.iter().enumerate() {
-        let mut ts: Vec<f64> = Vec::new();
+        let mut ts: Vec<(f64, Pt)> = Vec::new();
         for (j, &(b1, b2)) in segments.iter().enumerate() {
             if i == j {
                 continue;
             }
-            if let Some(p) = seg_intersection(a1, a2, b1, b2) {
+            let canon = if i < j {
+                pair_pts.get(&(i, j)).copied()
+            } else {
+                pair_pts.get(&(j, i)).copied()
+            };
+            if let Some(p) = canon {
                 let d = dist2(a1, a2);
                 if d > 0.0 {
                     let t = (sub(p, a1)[0] * (a2[0] - a1[0]) + sub(p, a1)[1] * (a2[1] - a1[1])) / d;
-                    ts.push(t);
+                    ts.push((t, p));
                 }
             }
             // T-junction: an endpoint of (b1,b2) strictly inside (a1,a2).
@@ -136,7 +161,7 @@ fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
                 if point_on_segment(p, a1, a2) {
                     let d = dist2(a1, a2);
                     let t = (sub(p, a1)[0] * (a2[0] - a1[0]) + sub(p, a1)[1] * (a2[1] - a1[1])) / d;
-                    ts.push(t);
+                    ts.push((t, p));
                 }
             }
         }
@@ -144,15 +169,14 @@ fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
             out.push((a1, a2));
             continue;
         }
-        ts.sort_by(|x, y| x.total_cmp(y));
-        ts.dedup_by(|x, y| (*x - *y).abs() < 1e-12);
+        ts.sort_by(|x, y| x.0.total_cmp(&y.0));
+        ts.dedup_by(|x, y| (x.0 - y.0).abs() < 1e-12);
         let mut prev = a1;
         let mut prev_t = 0.0;
-        for &t in &ts {
+        for &(t, p) in &ts {
             if t <= prev_t || t >= 1.0 {
                 continue;
             }
-            let p = [a1[0] + t * (a2[0] - a1[0]), a1[1] + t * (a2[1] - a1[1])];
             out.push((prev, p));
             prev = p;
             prev_t = t;
@@ -166,7 +190,7 @@ fn node_segments(segments: &[(Pt, Pt)]) -> Vec<(Pt, Pt)> {
 
 /// Minimal faces of a planar segment set via the leftmost-face rule.
 /// Returns rings (closed cycles of vertices). Deterministic.
-fn polygonize(rings: &[Vec<Pt>], segments: &[(Pt, Pt)]) -> Vec<Vec<Pt>> {
+pub fn polygonize(rings: &[Vec<Pt>], segments: &[(Pt, Pt)]) -> Vec<Vec<Pt>> {
     // Build undirected edges from rings (consecutive pairs) + segments.
     let mut edges: Vec<(Pt, Pt)> = Vec::new();
     for ring in rings {
@@ -245,7 +269,10 @@ fn polygonize(rings: &[Vec<Pt>], segments: &[(Pt, Pt)]) -> Vec<Vec<Pt>> {
                 face.push(verts[cur_from]);
                 // Leftmost-face rule: at cur_to, take the neighbor just
                 // BEFORE the incoming edge in CCW order (= next in clockwise
-                // order) — the face on the left of the walk.
+                // order) — the face on the left of the walk. (No special
+                // pinch handling: walking BOTH directions of every edge
+                // already yields the union outline as the negative-side
+                // cycle at pinches — the dissolve pass selects on area sign.)
                 let nbrs = &adj_sorted[cur_to];
                 let Some(pos) = nbrs.iter().position(|&x| x == cur_from) else {
                     ok = false;
@@ -272,7 +299,7 @@ fn polygonize(rings: &[Vec<Pt>], segments: &[(Pt, Pt)]) -> Vec<Vec<Pt>> {
 
 // ------------------------------------------------------------- measures
 
-fn ring_signed_area(r: &[Pt]) -> f64 {
+pub fn ring_signed_area(r: &[Pt]) -> f64 {
     let mut a = 0.0;
     let n = r.len();
     for i in 0..n {
@@ -283,7 +310,7 @@ fn ring_signed_area(r: &[Pt]) -> f64 {
     a / 2.0
 }
 
-fn point_in_ring(p: Pt, ring: &[Pt]) -> bool {
+pub fn point_in_ring(p: Pt, ring: &[Pt]) -> bool {
     // Ray casting (+x), f64 — boundary cases are resolved by the 1e-4 grid.
     let mut inside = false;
     let n = ring.len();
@@ -304,7 +331,7 @@ fn point_in_ring(p: Pt, ring: &[Pt]) -> bool {
 /// vertex, a small step along the interior angle bisector. The ear-centroid
 /// shortcut is NOT safe (the diagonal can cross a notch) — the bisector step
 /// is local and always lands inside a simple CCW ring.
-fn interior_probe(ring: &[Pt]) -> Pt {
+pub fn interior_probe(ring: &[Pt]) -> Pt {
     let n = ring.len();
     // Orientation-agnostic: the convex-vertex turn sign follows the ring's
     // signed area (CW exterior in this pipeline).
@@ -343,13 +370,13 @@ fn interior_probe(ring: &[Pt]) -> Pt {
     [cx / n as f64, cy / n as f64]
 }
 
-fn ring_contains(outer: &[Pt], inner: &[Pt]) -> bool {
+pub fn ring_contains(outer: &[Pt], inner: &[Pt]) -> bool {
     inner.iter().any(|&p| point_in_ring(p, outer))
 }
 
 /// reduce_ring (build_geometry.to_mongo_dict twin): keep a point iff it
 /// moved > 0.01 from the last KEPT point (x or y).
-fn reduce_ring(ring: &[Pt]) -> Vec<Pt> {
+pub fn reduce_ring(ring: &[Pt]) -> Vec<Pt> {
     let mut out: Vec<Pt> = Vec::new();
     for &p in ring {
         match out.last() {
@@ -364,17 +391,23 @@ fn reduce_ring(ring: &[Pt]) -> Vec<Pt> {
     out
 }
 
-/// Boundary of the union of material faces: edges (undirected, snapped)
-/// appearing in exactly one material face. Returns None when nothing merges
-/// (single body or fully disjoint parts — no second pass needed).
-fn dissolve_boundary(unique: &[Vec<Pt>], material: &[usize]) -> Option<Vec<(Pt, Pt)>> {
+/// Boundary of the union of material BODIES: edges (undirected, snapped)
+/// appearing in exactly one body — a body = a material face PLUS its hole
+/// rings (a hole edge borders exactly one body → kept; a shared outer edge
+/// borders two → dissolved). Returns None when nothing merges (single body
+/// or fully disjoint parts — no second pass needed).
+fn dissolve_boundary(
+    unique: &[Vec<Pt>],
+    depths: &[usize],
+    probes: &[Pt],
+    material: &[usize],
+) -> Option<Vec<(Pt, Pt)>> {
     if material.len() <= 1 {
         return None;
     }
     let mut counts: HashMap<((u64, u64), (u64, u64)), (Pt, Pt)> = HashMap::new();
     let mut multi: std::collections::HashSet<((u64, u64), (u64, u64))> = std::collections::HashSet::new();
-    for &mi in material {
-        let ring = &unique[mi];
+    let mut account = |ring: &[Pt]| {
         let n = ring.len();
         for i in 0..n {
             let a = ring[i];
@@ -384,6 +417,18 @@ fn dissolve_boundary(unique: &[Vec<Pt>], material: &[usize]) -> Option<Vec<(Pt, 
             let key = if ka <= kb { (ka, kb) } else { (kb, ka) };
             if counts.insert(key, (a, b)).is_some() {
                 multi.insert(key);
+            }
+        }
+    };
+    for &mi in material {
+        account(&unique[mi]);
+        // Holes of this body: cycles one level deeper contained in it.
+        for (j, u) in unique.iter().enumerate() {
+            if j == mi || depths[j] != depths[mi] + 1 {
+                continue;
+            }
+            if ring_contains(&unique[mi], &[probes[j]]) {
+                account(u);
             }
         }
     }
@@ -479,17 +524,17 @@ pub fn build_parts(lw: Linework, tol: f64) -> Vec<Part> {
     //     merge into one body. The union boundary = edges appearing in
     //     EXACTLY ONE material face; re-walking that boundary yields the
     //     bodies (voids become holes naturally).
-    let boundary = dissolve_boundary(&unique, &material);
+    let boundary = dissolve_boundary(&unique, &depths, &probes, &material);
 
-    // 4) Bodies from the boundary (same walk), then holes by containment depth.
+    // 4) Bodies from the boundary: the union outlines are the NEGATIVE-area
+    //    cycles of the boundary walk (a body's exterior outline is the
+    //    "exterior side" of its minimal faces — GEOS unary_union orientation
+    //    CW). At a pinch vertex (figure-8) the walk switches lobes and
+    //    produces ONE self-touching ring, which reproduces the Python weld
+    //    (_merge_near_polygons buffer ±0.1) vertex-for-vertex.
     let (unique, depths, probes, material) = if boundary.is_some() {
         let mut faces2 = polygonize(&[], &boundary.unwrap());
-        faces2.retain(|f| ring_signed_area(f) > 1e-10);
-        for f in faces2.iter_mut() {
-            if ring_signed_area(f) > 0.0 {
-                f.reverse(); // CW parity
-            }
-        }
+        faces2.retain(|f| ring_signed_area(f) < -1e-10);
         let mut uniq2: Vec<Vec<Pt>> = Vec::new();
         let mut seen2: std::collections::HashSet<Vec<(u64, u64)>> = std::collections::HashSet::new();
         for f in &faces2 {
@@ -505,6 +550,12 @@ pub fn build_parts(lw: Linework, tol: f64) -> Vec<Part> {
             .map(|i| uniq2.iter().filter(|u| ring_contains(u, &[probes2[i]])).count())
             .collect();
         let mat2: Vec<usize> = (0..uniq2.len()).filter(|&i| depths2[i] % 2 == 1).collect();
+        if std::env::var("NI_DEBUG").is_ok() {
+            eprintln!("[dbg] pass2 uniq2={} depths2={:?} mat2={:?}", uniq2.len(), depths2, mat2);
+            for (i, u) in uniq2.iter().enumerate() {
+                eprintln!("[dbg] p2 face{} n={} area={:.4} probe={:?}", i, u.len(), ring_signed_area(u), probes2[i]);
+            }
+        }
         (uniq2, depths2, probes2, mat2)
     } else {
         (unique, depths, probes, material)
@@ -526,12 +577,13 @@ pub fn build_parts(lw: Linework, tol: f64) -> Vec<Part> {
     }
 
     // 5) Emit parts (reduce_ring, bbox filter, orientation), ordered by
-    //    bbox-min (x then y) — the GEOS unary_union collection order measured
-    //    on the golden corpus.
+    //    (y-min, x-min) ascending — GEOS unary_union collection order
+    //    (re-mesuré 2026-08-07 sur corpus SVG : probes disjoints, tie-break
+    //    x ; l'ordre x-d'abord de PR1 était une coïncidence du corpus DXF).
     let mut ordered = parts;
     ordered.sort_by(|(a, _), (b, _)| {
-        let amin = a.iter().fold((f64::INFINITY, f64::INFINITY), |acc, p| (acc.0.min(p[0]), acc.1.min(p[1])));
-        let bmin = b.iter().fold((f64::INFINITY, f64::INFINITY), |acc, p| (acc.0.min(p[0]), acc.1.min(p[1])));
+        let amin = a.iter().fold((f64::INFINITY, f64::INFINITY), |acc, p| (acc.0.min(p[1]), acc.1.min(p[0])));
+        let bmin = b.iter().fold((f64::INFINITY, f64::INFINITY), |acc, p| (acc.0.min(p[1]), acc.1.min(p[0])));
         amin.partial_cmp(&bmin).unwrap_or(std::cmp::Ordering::Equal)
     });
     let parts = ordered;
@@ -634,7 +686,7 @@ mod tests {
 
     #[test]
     fn disjoint_parts_sort_by_bbox_min() {
-        // Inséré dans le désordre : l'émission suit bbox-min (x puis y).
+        // Inséré dans le désordre : l'émission suit (y-min, x-min) — ordre GEOS.
         let (lw, _, _) = collect_linework(
             &[rect(30.0, 30.0, 40.0, 40.0), rect(0.0, 0.0, 10.0, 10.0)],
             0.01,

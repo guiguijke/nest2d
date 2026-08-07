@@ -1,6 +1,11 @@
-"""Golden generator: runs the REAL Python pipeline (read_dxf_file +
-build_geometry + to_mongo_dict) on a DXF corpus and writes golden JSON per
-file. Reference side of the parity harness (docs/PIPELINE-MAP.md §5).
+"""Golden generator: runs the REAL Python pipeline (read_dxf_file /
+svg_bytes_to_drawing + build_geometry + to_mongo_dict) on a corpus and
+writes golden JSON per file. Reference side of the parity harness
+(docs/PIPELINE-MAP.md §5).
+
+scipy is BLOCKED before svgelements loads: the prod worker image has no
+scipy, so svgelements' length() fall back to the recursive chord bisector —
+the goldens must come from that code path (verified in the image).
 
 Run from repo root:
     python workers/geometry/parity/golden.py <out_dir> [corpus_dir...]
@@ -8,6 +13,11 @@ Run from repo root:
 import json
 import os
 import sys
+
+# Prod parity: no scipy in the worker image → force the fallback paths.
+sys.modules["scipy"] = None
+sys.modules["scipy.integrate"] = None
+sys.modules["scipy.special"] = None
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "workers", "common"))
@@ -17,12 +27,22 @@ TOLERANCE = 0.01  # demo flattening (server/seed/demo uses flattening=0.01)
 
 
 def process(path):
-    from dxf_utils import read_dxf_file
     from core.geometry.build_geometry import build_geometry
 
-    drawing = read_dxf_file(path)
-    if drawing is None:
-        return {"error": "unreadable"}
+    if path.lower().endswith(".svg"):
+        from core.svg_to_drawing import svg_bytes_to_drawing
+
+        with open(path, "rb") as f:
+            try:
+                drawing = svg_bytes_to_drawing(f.read())
+            except ValueError as e:
+                return {"error": str(e)}
+    else:
+        from dxf_utils import read_dxf_file
+
+        drawing = read_dxf_file(path)
+        if drawing is None:
+            return {"error": "unreadable"}
     parts = []
     for cp in build_geometry(drawing, TOLERANCE):
         d = cp.to_mongo_dict()
@@ -51,7 +71,7 @@ def main():
     n = 0
     for d in corpus_dirs:
         for name in sorted(os.listdir(d)):
-            if not name.lower().endswith(".dxf"):
+            if not name.lower().endswith((".dxf", ".svg")):
                 continue
             path = os.path.join(d, name)
             try:
