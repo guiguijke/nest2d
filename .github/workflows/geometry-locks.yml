@@ -1,0 +1,79 @@
+# Verrous de la géométrie Rust partagée (workers/geometry — mission v2).
+# Déclenché sur toute PR touchant le workspace : tests unitaires, parité
+# Python↔Rust sur le corpus commité (seuil ≥ 99 % post-snap, PIPELINE-MAP
+# §4.1), déterminisme natif↔wasm (SHA-256, tolérance 0). Échec = merge bloqué.
+name: geometry-locks
+
+on:
+  pull_request:
+    paths:
+      - "workers/geometry/**"
+      - ".github/workflows/geometry-locks.yml"
+  push:
+    branches: [main]
+    paths:
+      - "workers/geometry/**"
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: workers/geometry
+      - name: cargo test
+        working-directory: workers/geometry
+        run: cargo test --release
+
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: workers/geometry
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build CLI natif
+        working-directory: workers/geometry
+        run: cargo build --release
+      - name: Harnais de parité (goldens commités, stdlib only)
+        # compare.py ne lit que les goldens JSON commités + le CLI Rust :
+        # pas besoin d'ezdxf/shapely en CI (la régénération des goldens
+        # reste un acte local, relu en review).
+        run: python workers/geometry/parity/compare.py workers/geometry/parity/golden workers/geometry/parity/corpus_extra
+
+  determinism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: workers/geometry
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build CLI natif
+        working-directory: workers/geometry
+        run: cargo build --release
+      - name: Build wasm + glue wasm-bindgen (version épinglée au Cargo.lock, J-063)
+        working-directory: workers/geometry
+        run: |
+          WB_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/"/, "", $3); print $3; exit}' Cargo.lock)
+          echo "wasm-bindgen crate = $WB_VERSION"
+          cargo build --release -p nest-import --target wasm32-unknown-unknown --features wasm
+          cargo install wasm-bindgen-cli --version "$WB_VERSION" --locked
+          wasm-bindgen --target web --out-dir target/wasm-pkg \
+            target/wasm32-unknown-unknown/release/nest_import.wasm
+      - name: Verrou déterminisme natif↔wasm (tolérance 0)
+        run: node workers/geometry/parity/determinism_lock.mjs
