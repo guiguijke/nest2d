@@ -213,6 +213,22 @@ def run_worker(config: WorkerConfig) -> None:
                     {"$set": {config.status_field: "pending"}},
                 )
             else:
+                # process() may have rerouted the job out of "processing"
+                # (Phase 2 local compute: status is now "awaiting_local" and
+                # the browser owns completion). Clobbering that transition
+                # with the done write loses the job: the browser never sees
+                # awaiting_local, no result is ever produced and the quota is
+                # gone. Only finalize when the job is still in-flight.
+                current_status = collection.find_one(
+                    {"_id": current_doc_id}, {config.status_field: 1}
+                ).get(config.status_field)
+                if current_status != "processing":
+                    logger.info(
+                        f"Job rerouted by process() (status={current_status}), "
+                        "skipping the done transition",
+                        extra={"slug": doc.get("slug")},
+                    )
+                    continue
                 done_update = {config.status_field: config.done_status}
                 if config.track_timing:
                     finished_at = datetime.now()
