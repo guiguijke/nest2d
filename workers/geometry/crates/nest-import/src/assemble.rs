@@ -12,6 +12,9 @@ use crate::Part;
 use std::collections::HashMap;
 
 /// GEOS set_precision rounding: floor(v*1e4 + 0.5)/1e4 (round-half-up).
+/// (La forme ×1e-4 = 13.229200000000004 vue dans certains goldens vient du
+/// weld buffer(±0.1) de _merge_near_polygons, PAS de set_precision —
+/// vérifié : set_precision(Point(13.229200000000001)) = 13.2292 propre.)
 fn snap(v: f64) -> f64 {
     ((v * 1e4) + 0.5).floor() / 1e4
 }
@@ -245,7 +248,10 @@ fn polygonize(rings: &[Vec<Pt>], segments: &[(Pt, Pt)]) -> Vec<Vec<Pt>> {
                 face.push(verts[cur_from]);
                 // Leftmost-face rule: at cur_to, take the neighbor just
                 // BEFORE the incoming edge in CCW order (= next in clockwise
-                // order) — the face on the left of the walk.
+                // order) — the face on the left of the walk. (No special
+                // pinch handling: walking BOTH directions of every edge
+                // already yields the union outline as the negative-side
+                // cycle at pinches — the dissolve pass selects on area sign.)
                 let nbrs = &adj_sorted[cur_to];
                 let Some(pos) = nbrs.iter().position(|&x| x == cur_from) else {
                     ok = false;
@@ -364,17 +370,23 @@ fn reduce_ring(ring: &[Pt]) -> Vec<Pt> {
     out
 }
 
-/// Boundary of the union of material faces: edges (undirected, snapped)
-/// appearing in exactly one material face. Returns None when nothing merges
-/// (single body or fully disjoint parts — no second pass needed).
-fn dissolve_boundary(unique: &[Vec<Pt>], material: &[usize]) -> Option<Vec<(Pt, Pt)>> {
+/// Boundary of the union of material BODIES: edges (undirected, snapped)
+/// appearing in exactly one body — a body = a material face PLUS its hole
+/// rings (a hole edge borders exactly one body → kept; a shared outer edge
+/// borders two → dissolved). Returns None when nothing merges (single body
+/// or fully disjoint parts — no second pass needed).
+fn dissolve_boundary(
+    unique: &[Vec<Pt>],
+    depths: &[usize],
+    probes: &[Pt],
+    material: &[usize],
+) -> Option<Vec<(Pt, Pt)>> {
     if material.len() <= 1 {
         return None;
     }
     let mut counts: HashMap<((u64, u64), (u64, u64)), (Pt, Pt)> = HashMap::new();
     let mut multi: std::collections::HashSet<((u64, u64), (u64, u64))> = std::collections::HashSet::new();
-    for &mi in material {
-        let ring = &unique[mi];
+    let mut account = |ring: &[Pt]| {
         let n = ring.len();
         for i in 0..n {
             let a = ring[i];
@@ -384,6 +396,18 @@ fn dissolve_boundary(unique: &[Vec<Pt>], material: &[usize]) -> Option<Vec<(Pt, 
             let key = if ka <= kb { (ka, kb) } else { (kb, ka) };
             if counts.insert(key, (a, b)).is_some() {
                 multi.insert(key);
+            }
+        }
+    };
+    for &mi in material {
+        account(&unique[mi]);
+        // Holes of this body: cycles one level deeper contained in it.
+        for (j, u) in unique.iter().enumerate() {
+            if j == mi || depths[j] != depths[mi] + 1 {
+                continue;
+            }
+            if ring_contains(&unique[mi], &[probes[j]]) {
+                account(u);
             }
         }
     }
@@ -479,17 +503,17 @@ pub fn build_parts(lw: Linework, tol: f64) -> Vec<Part> {
     //     merge into one body. The union boundary = edges appearing in
     //     EXACTLY ONE material face; re-walking that boundary yields the
     //     bodies (voids become holes naturally).
-    let boundary = dissolve_boundary(&unique, &material);
+    let boundary = dissolve_boundary(&unique, &depths, &probes, &material);
 
-    // 4) Bodies from the boundary (same walk), then holes by containment depth.
+    // 4) Bodies from the boundary: the union outlines are the NEGATIVE-area
+    //    cycles of the boundary walk (a body's exterior outline is the
+    //    "exterior side" of its minimal faces — GEOS unary_union orientation
+    //    CW). At a pinch vertex (figure-8) the walk switches lobes and
+    //    produces ONE self-touching ring, which reproduces the Python weld
+    //    (_merge_near_polygons buffer ±0.1) vertex-for-vertex.
     let (unique, depths, probes, material) = if boundary.is_some() {
         let mut faces2 = polygonize(&[], &boundary.unwrap());
-        faces2.retain(|f| ring_signed_area(f) > 1e-10);
-        for f in faces2.iter_mut() {
-            if ring_signed_area(f) > 0.0 {
-                f.reverse(); // CW parity
-            }
-        }
+        faces2.retain(|f| ring_signed_area(f) < -1e-10);
         let mut uniq2: Vec<Vec<Pt>> = Vec::new();
         let mut seen2: std::collections::HashSet<Vec<(u64, u64)>> = std::collections::HashSet::new();
         for f in &faces2 {
@@ -505,6 +529,12 @@ pub fn build_parts(lw: Linework, tol: f64) -> Vec<Part> {
             .map(|i| uniq2.iter().filter(|u| ring_contains(u, &[probes2[i]])).count())
             .collect();
         let mat2: Vec<usize> = (0..uniq2.len()).filter(|&i| depths2[i] % 2 == 1).collect();
+        if std::env::var("NI_DEBUG").is_ok() {
+            eprintln!("[dbg] pass2 uniq2={} depths2={:?} mat2={:?}", uniq2.len(), depths2, mat2);
+            for (i, u) in uniq2.iter().enumerate() {
+                eprintln!("[dbg] p2 face{} n={} area={:.4} probe={:?}", i, u.len(), ring_signed_area(u), probes2[i]);
+            }
+        }
         (uniq2, depths2, probes2, mat2)
     } else {
         (unique, depths, probes, material)
@@ -526,12 +556,13 @@ pub fn build_parts(lw: Linework, tol: f64) -> Vec<Part> {
     }
 
     // 5) Emit parts (reduce_ring, bbox filter, orientation), ordered by
-    //    bbox-min (x then y) — the GEOS unary_union collection order measured
-    //    on the golden corpus.
+    //    (y-min, x-min) ascending — GEOS unary_union collection order
+    //    (re-mesuré 2026-08-07 sur corpus SVG : probes disjoints, tie-break
+    //    x ; l'ordre x-d'abord de PR1 était une coïncidence du corpus DXF).
     let mut ordered = parts;
     ordered.sort_by(|(a, _), (b, _)| {
-        let amin = a.iter().fold((f64::INFINITY, f64::INFINITY), |acc, p| (acc.0.min(p[0]), acc.1.min(p[1])));
-        let bmin = b.iter().fold((f64::INFINITY, f64::INFINITY), |acc, p| (acc.0.min(p[0]), acc.1.min(p[1])));
+        let amin = a.iter().fold((f64::INFINITY, f64::INFINITY), |acc, p| (acc.0.min(p[1]), acc.1.min(p[0])));
+        let bmin = b.iter().fold((f64::INFINITY, f64::INFINITY), |acc, p| (acc.0.min(p[1]), acc.1.min(p[0])));
         amin.partial_cmp(&bmin).unwrap_or(std::cmp::Ordering::Equal)
     });
     let parts = ordered;
@@ -634,7 +665,7 @@ mod tests {
 
     #[test]
     fn disjoint_parts_sort_by_bbox_min() {
-        // Inséré dans le désordre : l'émission suit bbox-min (x puis y).
+        // Inséré dans le désordre : l'émission suit (y-min, x-min) — ordre GEOS.
         let (lw, _, _) = collect_linework(
             &[rect(30.0, 30.0, 40.0, 40.0), rect(0.0, 0.0, 10.0, 10.0)],
             0.01,

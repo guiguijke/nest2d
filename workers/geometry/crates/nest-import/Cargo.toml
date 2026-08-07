@@ -13,9 +13,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 libm = { workspace = true }
 wasm-bindgen = { workspace = true, optional = true }
+roxmltree = { version = "0.20", optional = true }
 
 [features]
+default = ["svg"]
 wasm = ["dep:wasm-bindgen"]
+# SVG import (réplique svgelements maison — PAS usvg : les arcs doivent
+# rester des arcs pour la parité bit-exacte, cf. journal J-064).
+# Natif/CLI : défaut. wasm : opt-in (--features wasm,svg) pour garder le
+# bundle DXF-only léger (mission v2 PR2 — poids mesurés au rapport).
+svg = ["dep:roxmltree"]
 
 [[bin]]
 name = "nest-import-cli"
