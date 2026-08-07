@@ -101,3 +101,33 @@ jobs:
         run: cargo build --release -p nest-export -p nest-report
       - name: Harnais de parité exports (3 régimes)
         run: python workers/geometry/parity/exports_check.py
+
+  client-server-diff:
+    # PR4 : le bundle WASM (chemin navigateur) doit produire les mêmes
+    # artefacts que le serveur Python — SVG byte-level, rapport 1e-6,
+    # import identique au golden. Échec = merge bloqué (risque n°1 mission).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: workers/geometry
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Dépendances Python
+        run: pip install ezdxf==1.4.4 shapely==2.0.7 svgelements==1.9.6 numpy
+      - name: Build bundle géométrie wasm (wasm-bindgen épinglé J-063)
+        working-directory: workers/geometry
+        run: |
+          WB_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/"/, "", $3); print $3; exit}' Cargo.lock)
+          cargo install wasm-bindgen-cli --version "$WB_VERSION" --locked
+          bash build-wasm.sh
+      - name: Diff client/serveur (wasm vs Python)
+        run: python workers/geometry/parity/client_server_diff.py

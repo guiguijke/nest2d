@@ -4,7 +4,7 @@
 
 pub mod geom;
 #[cfg(feature = "wasm")]
-mod wasm;
+pub mod wasm;
 
 use geom::Pt;
 use serde::{Deserialize, Serialize};

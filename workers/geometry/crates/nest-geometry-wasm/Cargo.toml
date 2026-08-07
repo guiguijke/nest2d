@@ -1,0 +1,18 @@
+[package]
+name = "nest-geometry-wasm"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Bundle WASM unique de la géométrie (import+preprocess+export+report) pour le chemin navigateur flag-gaté (mission v2 PR4)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+nest-import = { path = "../nest-import" }
+nest-preprocess = { path = "../nest-preprocess" }
+nest-export = { path = "../nest-export" }
+nest-report = { path = "../nest-report" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true }
