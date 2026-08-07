@@ -67,4 +67,5 @@ specs/
 # Mission v2 — workspace géométrie Rust (workers/geometry)
 workers/geometry/target
 workers/geometry/parity/__pycache__
-parity/SVGELEMENTS-REFERENCE.txt  # dump de référence local, jamais commité
+# dump de référence local (notes de reverse-engineering), jamais commité
+workers/geometry/parity/SVGELEMENTS-REFERENCE.txt
