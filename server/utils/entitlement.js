@@ -257,6 +257,24 @@ export function resolveComputeLocation(localComputeEnabled, isDemo, tier, projec
 }
 
 /**
+ * PR5 (Mode Local productisé, J-078) : où un job est calculé, côté UI.
+ *   - DWG dans le job ⇒ serveur (Mode Local = DXF+SVG uniquement, acté) ;
+ *   - Free ⇒ local forcé (pas de toggle ; cap 2 tôles déjà en prod) ;
+ *   - Unlimited/Pro ⇒ au choix, **défaut serveur** (comportement actuel
+ *     inchangé — un payant qui veut ses habitudes ne voit rien changer).
+ *
+ * @param {string} tier 'free'|'standard'|'privacy'
+ * @param {boolean} hasDwg le job contient-il un DWG ?
+ * @param {string} [userChoice] 'local'|'server' choix explicite (payants)
+ * @returns {{mode: 'local'|'server', canToggle: boolean, reason: string}}
+ */
+export function resolveLocalMode(tier, hasDwg, userChoice) {
+    if (hasDwg) return { mode: 'server', canToggle: false, reason: 'dwg' }
+    if (tier === 'free') return { mode: 'local', canToggle: false, reason: 'free' }
+    return { mode: userChoice === 'local' ? 'local' : 'server', canToggle: true, reason: 'choice' }
+}
+
+/**
  * The user's compute tier: 'privacy' (Confidentialité+) > 'standard'
  * (subscription or admin grant) > 'free'.
  * @param {string} userId

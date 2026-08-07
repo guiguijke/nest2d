@@ -17,6 +17,7 @@
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
     "dxf-viewer": "^1.0.46",
+    "fflate": "^0.8.3",
     "mongodb": "6.8",
     "nuxt": "^4.5.1",
     "standard-slugify": "^4.0.0",
