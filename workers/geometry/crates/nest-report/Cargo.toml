@@ -1,0 +1,23 @@
+[package]
+name = "nest-report"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Nesting report metrics (per-sheet material accounting, offcut, verify_layout) — replica of workers/nesting/core/metrics.py, dual-target"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+nest-import = { path = "../nest-import" }
+libm = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[features]
+wasm = ["dep:wasm-bindgen"]
+
+[[bin]]
+name = "nest-report-cli"
+path = "src/main.rs"
