@@ -46,11 +46,17 @@ def canon_part(part):
     }
 
 
-def compare_file(rust_path, golden_path):
-    rust = json.load(open(rust_path))
+def compare_file(rust_path, golden_path, rust_error=None):
+    rust = json.load(open(rust_path)) if rust_path else None
     golden = json.load(open(golden_path))
     if "error" in golden:
-        return ("GOLDEN-ERROR", golden["error"])
+        # Error-parity: the golden failed (unreadable / no geometry) — the
+        # Rust side must fail too (clean ImportError), same behavior.
+        if rust_error:
+            return ("ERROR-PARITY", golden["error"][:80])
+        return ("DIVERGENT", f"golden errored ({golden['error'][:60]}) but rust succeeded")
+    if rust_error:
+        return ("DIVERGENT", f"rust errored ({rust_error[:80]}) but golden succeeded")
     rp, gp = rust.get("parts", []), golden.get("parts", [])
     if len(rp) != len(gp):
         return ("DIVERGENT", f"part count {len(rp)} vs {len(gp)}")
@@ -83,9 +89,46 @@ def compare_file(rust_path, golden_path):
                         divergent_bits += 1
     if divergent_bits == 0:
         return ("IDENTICAL", f"{total_pts} pts bit-exact")
+    # §4.1 divergent path (both DELTA and DIVERGENT): structural + metrics
+    # at 1e-3 — the weld buffer roundtrip noise lives here.
+    metrics = metrics_compare(rp, gp)
+    if metrics is None:
+        return ("METRICS-OK", f"max {max_delta:.2e} on {divergent_bits}/{total_pts} pts, "
+                              f"metrics<=1e-3")
     if max_delta <= 1e-9:
-        return ("DELTA<=1e-9", f"max {max_delta:.2e} on {divergent_bits}/{total_pts} pts")
-    return ("DIVERGENT", f"max {max_delta:.2e} on {divergent_bits}/{total_pts} pts")
+        return ("DELTA<=1e-9", f"max {max_delta:.2e} on {divergent_bits}/{total_pts} pts — {metrics}")
+    return ("DIVERGENT", f"max {max_delta:.2e} on {divergent_bits}/{total_pts} pts — {metrics}")
+
+
+def ring_area(ring):
+    return abs(sum(ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]
+                   for i in range(len(ring) - 1))) / 2
+
+
+def metrics_compare(rp, gp):
+    """§4.1 divergent-file path: structural + area/bbox at 1e-3 relative.
+    Returns None when metrics match, else the failing reason."""
+    if len(rp) != len(gp):
+        return f"part count {len(rp)} vs {len(gp)}"
+    for i, (ra, ga) in enumerate(zip(rp, gp)):
+        ra = canon_part(ra)
+        ga = canon_part(ga)
+        if len(ra.get("holes", [])) != len(ga.get("holes", [])):
+            return f"part {i}: hole count differs"
+        for kind in ("coordinates", "holes"):
+            rr_all = [ra["coordinates"]] if kind == "coordinates" else ra.get("holes", [])
+            gg_all = [ga["coordinates"]] if kind == "coordinates" else ga.get("holes", [])
+            for k, (rr, gr) in enumerate(zip(rr_all, gg_all)):
+                rc, gc = canon_ring(rr), canon_ring(gr)
+                a_r, a_g = ring_area(rc), ring_area(gc)
+                if a_g > 0 and abs(a_r - a_g) / a_g > 1e-3:
+                    return f"part {i} {kind}{k}: area rel {abs(a_r - a_g) / a_g:.2e}"
+                for dim in ("width", "height"):
+                    dv = abs(ra.get(dim, 0) - ga.get(dim, 0))
+                    base = abs(ga.get(dim, 0))
+                    if base > 0 and dv / base > 1e-3:
+                        return f"part {i}: {dim} rel {dv / base:.2e}"
+    return None
 
 
 def main():
@@ -99,6 +142,8 @@ def main():
         for d in [
             os.path.join(REPO, "workers", "fileprocessing", "tests", "fixtures"),
             os.path.join(REPO, "server", "seed", "demo"),
+            os.path.join(REPO, "workers", "geometry", "parity", "corpus_extra"),
+            os.path.join(REPO, "workers", "geometry", "parity", "corpus_svg"),
         ] + sys.argv[2:]:
             p = os.path.join(d, dxf_name)
             if os.path.exists(p):
@@ -108,10 +153,11 @@ def main():
             results[dxf_name] = ("MISSING-CORPUS", "")
             continue
         r = subprocess.run([CLI, corpus_hit], capture_output=True, text=True)
-        if r.returncode != 0:
-            results[dxf_name] = ("RUST-ERROR", r.stderr.strip()[:200])
-            continue
         tmp = os.path.join(golden_dir, "_rust_out.json")
+        if r.returncode != 0:
+            results[dxf_name] = compare_file(None, os.path.join(golden_dir, name),
+                                             rust_error=r.stderr.strip()[:200])
+            continue
         with open(tmp, "w") as f:
             f.write(r.stdout)
         results[dxf_name] = compare_file(tmp, os.path.join(golden_dir, name))
@@ -121,14 +167,20 @@ def main():
     counts = {}
     for name, (verdict, detail) in results.items():
         counts[verdict] = counts.get(verdict, 0) + 1
-        if verdict not in ("IDENTICAL",):
+        if verdict not in ("IDENTICAL", "ERROR-PARITY", "METRICS-OK"):
             print(f"  {verdict}: {name} — {detail}")
     total = len(results)
     identical = counts.get("IDENTICAL", 0)
-    print(f"\n=== PARITY: {identical}/{total} bit-identical "
-          f"({(identical / total * 100 if total else 0):.1f} %) — gate: >= 99 % ===")
+    error_parity = counts.get("ERROR-PARITY", 0)
+    metrics_ok = counts.get("METRICS-OK", 0)
+    ok = identical + error_parity + metrics_ok
+    print(f"\n=== PARITY: {identical}/{total} bit-identical + {error_parity} error-parity "
+          f"+ {metrics_ok} metrics-ok ({(ok / total * 100 if total else 0):.1f} %) — gate: >= 99 % ===")
     for v, c in sorted(counts.items()):
         print(f"  {v}: {c}")
+    # Gate CI : échec si sous le seuil.
+    if total and ok / total < 0.99:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
