@@ -132,6 +132,35 @@ mod tests {
         assert!(matches!(import_dxf(b"\x00\x01\x02", 0.01), Err(ImportError::Corrupt(_))));
     }
 
+    /// Preservation channel (PR3): bulges + color + closed are kept for the
+    /// export DXF, while the NESTING rings stay straight-chorded (D-IMP-8).
+    #[test]
+    fn preservation_keeps_bulges_color_closed_without_touching_rings() {
+        let dxf = "0\nSECTION\n2\nENTITIES\n\
+            0\nLWPOLYLINE\n5\nAA\n8\nCUT\n62\n3\n70\n1\n\
+            10\n0.0\n20\n0.0\n42\n0.5\n\
+            10\n100.0\n20\n0.0\n42\n0.0\n\
+            10\n100.0\n20\n50.0\n42\n0.0\n\
+            10\n0.0\n20\n50.0\n42\n0.0\n\
+            0\nENDSEC\n0\nEOF\n";
+        let doc = dxf::Document::parse(dxf.as_bytes()).expect("parse");
+        let e = &doc.entities[0];
+        match e {
+            dxf::entities::Entity::LwPolyline(p) => {
+                assert!(p.closed);
+                assert_eq!(p.common.layer, "CUT");
+                assert_eq!(p.common.color, 3);
+                assert_eq!(p.bulges, vec![0.5, 0.0, 0.0, 0.0]);
+            }
+            other => panic!("expected LwPolyline, got {other:?}"),
+        }
+        // The nesting rings ignore bulges: same part bbox as the chorded rect.
+        let r = import_dxf(dxf.as_bytes(), 0.01).expect("import");
+        assert_eq!(r.parts.len(), 1);
+        assert_eq!(r.parts[0].width, 100.0);
+        assert_eq!(r.parts[0].height, 50.0);
+    }
+
     #[cfg(feature = "svg")]
     #[test]
     fn end_to_end_minimal_svg() {

@@ -20,3 +20,14 @@ lazy-loading de usvg n'est plus le sujet qu'il était : usvg est écarté
 Note : nest-preprocess embarque nest-import (dépendance d'arrangement) — le
 chiffre n'est pas additif à nest-import dans un même bundle ; en chunk
 séparé le partage de code déduplique à l'intégration.
+
+## PR3 — exports / rapport (mesures 2026-08-07, raw+gz, sans wasm-opt)
+
+| Binaire | raw | gzip |
+|---|---|---|
+| nest-export (DXF+SVG) | 179 Ko | 70 Ko |
+| nest-report (metrics) | 316 Ko | 112 Ko |
+
+Les exports et le rapport sont des chunks séparés (appelés au moment du
+résultat, pas au chargement) : leur poids s'ajoute au budget +2 Mo gz, très
+largement respecté (total des 5 crates ≈ 0,6 Mo gz).

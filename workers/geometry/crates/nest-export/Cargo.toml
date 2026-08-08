@@ -1,0 +1,23 @@
+[package]
+name = "nest-export"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Production result exports (DXF sheet, colored/preview SVG) — dual-target, semantic/byte parity with the Python workers (docs/PIPELINE-MAP.md §1.6)"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+nest-import = { path = "../nest-import" }
+libm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[features]
+wasm = ["dep:wasm-bindgen"]
+
+[[bin]]
+name = "nest-export-cli"
+path = "src/main.rs"

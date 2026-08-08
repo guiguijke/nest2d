@@ -25,10 +25,19 @@ pub enum Entity {
     Unsupported(String),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Common {
     pub handle: String,
     pub layer: String,
+    /// ACI color code (group 62). 256 = BYLAYER (absent in the source).
+    /// Preservation channel for the export DXF — never used for nesting.
+    pub color: i32,
+}
+
+impl Default for Common {
+    fn default() -> Self {
+        Self { handle: String::new(), layer: String::new(), color: 256 }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -41,6 +50,9 @@ pub struct Line {
 #[derive(Debug, Clone, Default)]
 pub struct LwPolyline {
     pub points: Vec<[f64; 2]>,
+    /// Bulge per vertex (group 42), parallel to `points`, default 0.
+    /// Preservation-only: the nesting rings stay straight-chorded (D-IMP-8).
+    pub bulges: Vec<f64>,
     pub closed: bool,
     pub common: Common,
 }
@@ -115,6 +127,8 @@ fn common_apply(common: &mut Common, code: i32, value: &str) {
     match code {
         5 => common.handle = value.trim().to_string(),
         8 => common.layer = value.trim().to_string(),
+        // Preservation-only (export DXF): ACI color. Absent = BYLAYER (256).
+        62 => common.color = value.trim().parse::<i32>().unwrap_or(256),
         _ => {}
     }
 }
@@ -164,10 +178,17 @@ pub fn read_entity<'a>(
                     20 => {
                         if let Some(x) = pending_x.take() {
                             e.points.push([x, f(v)]);
+                            e.bulges.push(0.0); // parallèle à points
                         }
                     }
-                    // 42 (bulge) deliberately ignored — D-IMP-8: straight
-                    // chords, identical to Python's get_points(format="xy").
+                    // 42 (bulge) PRESERVED for the export DXF, but NEVER used
+                    // for the nesting rings — those stay straight-chorded
+                    // (D-IMP-8), identical to Python's get_points(format="xy").
+                    42 => {
+                        if let Some(b) = e.bulges.last_mut() {
+                            *b = f(v);
+                        }
+                    }
                     70 => e.closed = (v.trim().parse::<i32>().unwrap_or(0) & 1) != 0,
                     _ => common_apply(&mut common, c, v),
                 }
