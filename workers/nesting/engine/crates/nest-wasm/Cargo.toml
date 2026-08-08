@@ -13,3 +13,5 @@ nest-engine = { path = "../nest-engine" }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
 console_error_panic_hook = "0.1"
+# run_nesting_live (J-084) : callback JS comme sink d'événements.
+js-sys = "=0.3.103"

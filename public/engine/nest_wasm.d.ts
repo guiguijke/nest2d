@@ -15,6 +15,16 @@
 export function run_nesting(instance_json: string, params_json: string, seed: bigint): string;
 
 /**
+ * run_nesting_live(instance_json, params_json, seed, on_event) — idem
+ * run_nesting mais chaque événement moteur (progress/layout/evals, déjà
+ * throttlés côté Rust à ~2 Hz) est transmis SYNCHRONE à `on_event(line)`
+ * (J-084, vue live navigateur). Force `live_events` : sans snapshots le
+ * streaming n'a aucun intérêt. Le solve reste bloquant et déterministe —
+ * la callback n'influence jamais la recherche.
+ */
+export function run_nesting_live(instance_json: string, params_json: string, seed: bigint, on_event: Function): string;
+
+/**
  * Current wasm linear-memory size, in 64 KiB pages (exact, unlike
  * performance.memory which excludes wasm memory) — the UI guardrail.
  */
@@ -25,12 +35,14 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly run_nesting: (a: number, b: number, c: number, d: number, e: bigint) => [number, number, number, number];
+    readonly run_nesting_live: (a: number, b: number, c: number, d: number, e: bigint, f: any) => [number, number, number, number];
     readonly wasm_memory_pages: () => number;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
+    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __externref_table_alloc: () => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }

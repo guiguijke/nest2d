@@ -67,13 +67,13 @@ function buildLiveLayout(result, payload, bestAlt) {
     }
 }
 
-export async function runLocalJobPrivate(jobSlug, { projectSlug } = {}) {
+export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) {
     const payload = await $fetch(`/api/results/${jobSlug}/local-payload`)
     // Avant le solve : tout ce dont les téléchargements ont besoin doit être
     // dans le navigateur (test d'acceptation : réseau coupé après payload).
     const sources = await fetchSources(payload)
 
-    const outcome = await runInWorker(jobSlug, payload)
+    const outcome = await runInWorker(jobSlug, payload, { onLive })
     if (!outcome.ok) {
         // Échec (engine, memory_cap, crash) = refund, pas de quota consommé.
         await $fetch(`/api/results/${jobSlug}/local-fail`, {
