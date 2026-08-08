@@ -57,8 +57,7 @@
 <script setup async>
 import { themeType } from "~~/constants/theme.constants";
 import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
-import { isLocalComputeEnabled } from "~/composables/localCompute";
-import { runLocalJobPrivate } from "~/composables/localJobPrivate";
+import { isLocalComputeEnabled, runLocalJob } from "~/composables/localCompute";
 import { useLocalMode } from "~/composables/useLocalMode";
 import {
     DEMO_NESTING_LIMIT,
@@ -116,10 +115,15 @@ watch(
 // solve it in the browser Web Worker and post the result back. Failures
 // surface as a clean i18n message (never a page crash); the consumed quota
 // is refunded server-side on failure (same semantics as the worker refund).
-// PR5 (Mode Local productisé) : le solve local stocke ses résultats 100 %
-// navigateur (IndexedDB) et ne transmet au serveur que la comptabilité
-// (local-quota) — aucune géométrie sortante (J-077). Erreurs i18n EN/FR
-// proposant le mode serveur ; budget temps affiché (J-079).
+// CORRECTIF PROD (2026-08-08) : le chemin « 100 % client » de PR5
+// (runLocalJobPrivate → local-quota, rien côté serveur) cassait l'affichage :
+// le modal/la vue live/les couleurs lisent le job SERVEUR, qui ne porte plus
+// les alternatives ⇒ résultat vide (0 pièces, aperçu gris) alors que le solve
+// tourne. En attendant l'UI qui rend les résultats depuis IndexedDB, on
+// réutilise runLocalJob (poste les alternatives → server → l'UI fonctionne),
+// comportement QA éprouvé pré-#26. Le claim privacy n'est pas actif tant que
+// le flag n'est pas destiné au public ; cette réversion sera remplacée par le
+// rendu client (travail futur, J-080).
 const localModeCtl = useLocalMode(null);
 const localComputeRunning = ref(false);
 const localComputeError = ref(null);
@@ -136,7 +140,7 @@ watch(
         localComputeRunning.value = true;
         localModeCtl.startTimer();
         try {
-            const res = await runLocalJobPrivate(job.slug, { projectSlug: job.projectSlug });
+            const res = await runLocalJob(job.slug);
             if (!res.ok) {
                 localComputeError.value =
                     res.error === 'memory_cap' ? 'memory_cap'
