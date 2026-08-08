@@ -3,8 +3,14 @@
  * 100 % navigateur (IndexedDB, par projet). La géométrie ne quitte JAMAIS le
  * navigateur : le serveur ne reçoit que la comptabilité (local-quota).
  *
- * Schéma : store `results` keyPath `slug` :
- *   { slug, projectSlug, createdAt, alternatives, artifacts, meta }
+ * Schéma : store `results` keyPath `slug` (v2, J-082 — record riche pour le
+ * rendu et les téléchargements hors-ligne) :
+ *   { slug, projectSlug, createdAt, problem, isSpp, sheets, requested,
+ *     placed, alternatives: [{altId, seed, strategy, density, layoutCount,
+ *     offcut, report, svgs: [SVG texte], dxfs: [{fileName, content}]}],
+ *     liveLayout, meta }
+ * Les records v1 (sans artefacts exploitables) sont simplement ignorés par
+ * l'hydratation — aucune migration de contenu nécessaire.
  * Purge alignée sur la rétention serveur : `purgeProject` appelé à la
  * suppression d'un projet ; `prune` borne le nombre de résultats conservés.
  *
@@ -12,7 +18,7 @@
  */
 
 const DB_NAME = 'nestorcut-local'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE = 'results'
 const MAX_RESULTS_PER_PROJECT = 20
 
@@ -32,6 +38,9 @@ function openDb() {
         req.onsuccess = () => resolve(req.result)
         req.onerror = () => reject(req.error)
     })
+    // Un échec (navigation privée, quota) ne doit pas être caché pour
+    // toujours : remettre à null permet de retenter au prochain appel.
+    dbPromise.catch(() => { dbPromise = null })
     return dbPromise
 }
 
@@ -61,7 +70,9 @@ export async function getLocalResult(slug) {
 export async function listLocalResults(projectSlug) {
     const db = await openDb()
     return new Promise((resolve, reject) => {
-        const r = tx(db, 'readonly').index('projectSlug').getAll(projectSlug)
+        const r = projectSlug == null
+            ? tx(db, 'readonly').getAll()
+            : tx(db, 'readonly').index('projectSlug').getAll(projectSlug)
         r.onsuccess = () => resolve(r.result || [])
         r.onerror = () => reject(r.error)
     })
@@ -69,7 +80,7 @@ export async function listLocalResults(projectSlug) {
 
 export async function purgeProject(projectSlug) {
     const db = await openDb()
-    const all = await listLocalResults(projectSlug)
+    const all = projectSlug == null ? [] : await listLocalResults(projectSlug)
     await Promise.all(all.map((rec) => new Promise((resolve) => {
         const r = tx(db, 'readwrite').delete(rec.slug)
         r.onsuccess = () => resolve()
