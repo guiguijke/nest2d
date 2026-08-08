@@ -68,6 +68,15 @@ export async function geoExportDxf(sourceBytes, spec) {
     const r = await call('export_dxf', { source: Array.from(sourceBytes), json: JSON.stringify(spec) })
     return r.ok ? r.result : r
 }
+/** J-082 : DXF combiné d'une tôle (multi-sources, jumeau de build_part). */
+export async function geoExportDxfSheet(slugs, sourcesBytes, spec) {
+    const r = await call('export_dxf_sheet', {
+        slugs,
+        sources: sourcesBytes.map((b) => Array.from(b)),
+        json: JSON.stringify(spec),
+    })
+    return r.ok ? r.result : r
+}
 export async function geoMemoryPages() {
     const r = await call('memory_pages', {})
     return r.ok ? parseInt(r.result, 10) : 0
@@ -75,37 +84,24 @@ export async function geoMemoryPages() {
 
 /**
  * QA (PR3) : calcule côté navigateur les artefacts d'un résultat résolu
- * (SVG coloré par alternative + rapport), pour comparaison client/serveur.
- * Best-effort : renvoie null si le résultat ne porte pas les données voulues
- * (jamais une rupture du flux). Champs additifs — contrat local-result intact.
+ * (SVG coloré par tôle + rapport) via le PONT localBridge (J-082), pour
+ * comparaison client/serveur. `payload` = le localPayload enrichi (parts,
+ * engineConfig…) rapporté par local-payload. Best-effort : renvoie null si
+ * les données manquent (jamais une rupture du flux).
  */
-export async function computeClientArtifacts(result) {
+export async function computeClientArtifacts(result, payload) {
     try {
-        const alternatives = result?.alternatives
-        if (!Array.isArray(alternatives) || alternatives.length === 0) return null
-        const out = []
-        for (const alt of alternatives) {
-            const containers = alt.containers || []
-            const items = alt.items || {}
-            if (!containers.length) continue
-            const sheets = []
-            for (const c of containers) {
-                const svg = await geoExportSvgSheet({
-                    transforms: c.transforms || [],
-                    items,
-                    bin_width: c.bin_width,
-                    bin_height: c.bin_height,
-                })
-                sheets.push(typeof svg === 'string' ? svg : null)
-            }
-            const report = await geoComputeReport({
-                items: Object.values(items),
-                containers,
-                space: alt.space ?? 0,
-            })
-            out.push({ sheets, report: report && !report.error ? report : null })
-        }
-        return out.length ? out : null
+        const { buildAlternativeArtifacts, toServerShapeAlternatives } = await import('./localBridge')
+        const arts = await buildAlternativeArtifacts(result, payload)
+        if (!arts) return null
+        const alts = toServerShapeAlternatives(result, payload, arts)
+        if (!alts.length) return null
+        // Forme historique attendue par local-result : sheets + report par alt.
+        return alts.map((alt, i) => ({
+            sheets: alt.svgs || [],
+            report: alt.report || null,
+            containers: arts[i]?.containers || [],
+        }))
     } catch {
         return null
     }
