@@ -80,3 +80,24 @@ jobs:
             target/wasm32-unknown-unknown/release/nest_preprocess.wasm
       - name: Verrou déterminisme natif↔wasm (tolérance 0)
         run: node workers/geometry/parity/determinism_lock.mjs
+
+  exports-parity:
+    # PR3 : DXF sémantique (parse ezdxf des 2 sorties), SVG coloré
+    # byte-level (SHA-256), rapport valeurs — goldens depuis le Python réel.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: workers/geometry
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dépendances Python (ezdxf, shapely, svgelements)
+        run: pip install ezdxf==1.4.4 shapely==2.0.7 svgelements==1.9.6 numpy
+      - name: Build CLI natifs
+        working-directory: workers/geometry
+        run: cargo build --release -p nest-export -p nest-report
+      - name: Harnais de parité exports (3 régimes)
+        run: python workers/geometry/parity/exports_check.py
