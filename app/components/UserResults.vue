@@ -26,6 +26,9 @@ const { t } = useLocale()
 const { getters, actions } = globalStore;
 const { setResults, setModalResultData, updateNotification } = actions;
 const eventSource = ref(null)
+// J-082 : hydratation asynchrone (IndexedDB) — chaîner pour préserver
+// l'ordre des frames SSE même si une hydratation est encore en cours.
+let hydrateChain = Promise.resolve()
 
 const slug = computed(() => route.params.slug);
 
@@ -45,8 +48,15 @@ const updateResults = () => {
         try {
             const parsed = JSON.parse(event.data)
             if (parsed.type === 'initial' || parsed.type === 'update') {
-                setResults(parsed.data.items) 
-                
+                const items = parsed.data.items
+                // J-082 : les jobs locaux (localOnly) n'ont AUCUN artefact
+                // côté serveur — alternatives/SVG/DXF/rapport viennent
+                // d'IndexedDB (hydratation, zéro géométrie servie).
+                hydrateChain = hydrateChain
+                    .then(() => hydrateLocalItems(items))
+                    .then((hydrated) => setResults(hydrated))
+                    .catch(() => setResults(items))
+
                 if (parsed.data.needNotification) {
                     updateNotification(parsed.data.needNotification)
                 }

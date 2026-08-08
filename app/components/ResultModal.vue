@@ -104,7 +104,7 @@
                     />
                     <MainButton
                         class="modal__part-download"
-                        v-if="resultModalData.isMultiSheet"
+                        v-if="resultModalData.isMultiSheet && !isLocal"
                         :href="currentDxfs[activePart]"
                         :label="t('result.downloadSheet', { n: activePart + 1 })"
                         tag="a"
@@ -112,6 +112,16 @@
                         :size="sizeType.s"
                         :theme="themeType.primary"
                         trackingTag="result_part_download"
+                    />
+                    <MainButton
+                        class="modal__part-download"
+                        v-if="resultModalData.isMultiSheet && isLocal"
+                        :label="t('result.downloadSheet', { n: activePart + 1 })"
+                        :isDisable="isHaveError"
+                        :size="sizeType.s"
+                        :theme="themeType.primary"
+                        trackingTag="result_part_download"
+                        @click="downloadLocalSheet"
                     />
                 </template>
                 <img
@@ -307,7 +317,7 @@
                     @click="onExportClick(exportCsv, 'report_csv_locked_click')"
                 />
                 <MainButton
-                    v-if="resultModalData.isMultiSheet"
+                    v-if="resultModalData.isMultiSheet && !isLocal"
                     :href="resultModalData.zipDownloadUrl"
                     :label="t('results.downloadAll')"
                     tag="a"
@@ -317,7 +327,16 @@
                     trackingTag="result_download_all"
                 />
                 <MainButton
-                    v-if="!resultModalData.isMultiSheet"
+                    v-if="resultModalData.isMultiSheet && isLocal"
+                    :label="t('results.downloadAll')"
+                    :isDisable="isHaveError"
+                    :size="sizeType.s"
+                    :theme="themeType.primary"
+                    trackingTag="result_download_all"
+                    @click="downloadLocalAll"
+                />
+                <MainButton
+                    v-if="!resultModalData.isMultiSheet && !isLocal"
                     :href="currentDxfs[0]"
                     :label="t('results.download')"
                     tag="a"
@@ -325,6 +344,14 @@
                     :size="sizeType.s"
                     :theme="themeType.primary"
                     trackingTag="result_download"
+                />
+                <MainButton
+                    v-if="!resultModalData.isMultiSheet && isLocal"
+                    :label="t('results.download')"
+                    :size="sizeType.s"
+                    :theme="themeType.primary"
+                    trackingTag="result_download"
+                    @click="downloadLocalSingle"
                 />
                 <MainButton
                     :label="t('result.tryAgain')"
@@ -352,6 +379,33 @@ const { getters } = globalStore
 const resultModalData = computed(() => getters.resultModalData)
 const { t } = useLocale()
 const { unit, fmtArea, fmtLength, fmtLengthValue, unitLabel } = useUnit()
+
+// J-082 : job Mode Local hydraté depuis IndexedDB — les téléchargements
+// passent par les contenus persistés (localDownloads), jamais par une URL
+// serveur (il n'y a pas de fichiers GridFS pour ces jobs).
+const isLocal = computed(() => Boolean(unref(resultModalData)?.isLocal))
+const localRecord = computed(() => unref(resultModalData)?.localRecord || null)
+const downloadLocalSingle = () => {
+    try {
+        downloadLocalDxf(unref(localRecord), unref(activeAlt), 0)
+    } catch (e) {
+        console.warn('local download failed', e)
+    }
+}
+const downloadLocalSheet = () => {
+    try {
+        downloadLocalDxf(unref(localRecord), unref(activeAlt), unref(activePart))
+    } catch (e) {
+        console.warn('local download failed', e)
+    }
+}
+const downloadLocalAll = () => {
+    try {
+        downloadLocalZip(unref(localRecord))
+    } catch (e) {
+        console.warn('local download failed', e)
+    }
+}
 
 // Report export gating (D-RAP-11): content visible on every plan; exports
 // (copy / CSV) are Unlimited+. COMMERCIAL gate, 100% client-side — the

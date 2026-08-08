@@ -73,7 +73,7 @@ export async function runLocalJob(jobSlug) {
     if (isLocalComputeEnabled()) {
         try {
             const geo = await import('./geometryClient')
-            const arts = await geo.computeClientArtifacts(outcome.result)
+            const arts = await geo.computeClientArtifacts(outcome.result, payload)
             if (arts) body.clientArtifacts = arts
         } catch {
             // jamais une rupture du flux de solve

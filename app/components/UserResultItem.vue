@@ -57,6 +57,9 @@
             <p class="result__name">
                 {{ result.slug }}.dxf
             </p>
+            <p v-if="isLocal" class="result__local" :title="t('localMode.done')">
+                {{ t('localMode.done') }}
+            </p>
             <div class="result__controls controls">
                 <MainButton
                     v-if="hasReport"
@@ -66,15 +69,25 @@
                     class="controls__report"
                     @click="openReport"
                 />
-                <MainButton 
-                    v-if="isResultCompleted" 
-                    :href="downloadUrl" 
-                    :label="downloadButtonText" 
+                <!-- Job serveur : href GridFS. Job local (J-082) : contenus
+                     persistés en IndexedDB, téléchargement 100 % navigateur. -->
+                <MainButton
+                    v-if="isResultCompleted && !isLocal"
+                    :href="downloadUrl"
+                    :label="downloadButtonText"
                     tag="a"
-                    :size="sizeType.s" 
-                    :theme="themeType.primary" 
-                    class="controls__download" 
-                    @click="onDownload" 
+                    :size="sizeType.s"
+                    :theme="themeType.primary"
+                    class="controls__download"
+                    @click="onDownload"
+                />
+                <MainButton
+                    v-if="isResultCompleted && isLocal"
+                    :label="downloadButtonText"
+                    :size="sizeType.s"
+                    :theme="themeType.primary"
+                    class="controls__download"
+                    @click="downloadLocal"
                 />
             </div>
             <button 
@@ -123,6 +136,25 @@ const cancelNesting = async () => {
 const isMultiSheet = computed(() => {
     return props.result?.isMultiSheet ?? false;
 });
+
+// J-082 : résultat hydraté depuis IndexedDB (Mode Local productisé) — les
+// artefacts ne viennent JAMAIS du serveur pour ces jobs.
+const isLocal = computed(() => Boolean(props.result?.isLocal));
+
+const downloadLocal = () => {
+    const record = props.result?.localRecord;
+    if (!record) return;
+    trackEvent('click_download_button', {
+        slug: props.result?.slug,
+        isMultiSheet: isMultiSheet.value,
+        isLocal: true,
+    });
+    try {
+        downloadLocalResult(record);
+    } catch (e) {
+        console.warn('local download failed', e);
+    }
+};
 
 const downloadUrl = computed(() => {
     return props.result?.downloadUrl ?? '';
@@ -289,6 +321,13 @@ const onDownload = () => {
     &__name {
         max-width: 240px;
         word-break: break-all;
+    }
+
+    // J-082 : mention « calculé localement » des jobs Mode Local.
+    &__local {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--label-tertiary);
     }
 
     &__name,

@@ -159,9 +159,103 @@ def import_diff():
     return (f"import[{n}]", ok)
 
 
+def dxf_sheet_diff():
+    """J-082 : tôle combinée MULTI-SOURCES du navigateur (export_dxf_sheet,
+    jumeau de build_part) vs la réplique ezdxf du chemin serveur — le
+    téléchargement DXF Mode Local doit être sémantiquement identique.
+    Deux fichiers sources pour exercer le regroupement par file_slug."""
+    import tempfile
+    import ezdxf
+    from ezdxf.math import Matrix44
+    from exports_check import _canon, _cmp_canon
+
+    # Source A : ligne + cercle ; Source B : polyligne + arc (tous writers).
+    src_a = ezdxf.new()
+    msp_a = src_a.modelspace()
+    msp_a.add_line((0, 0), (50, 0), dxfattribs={"layer": "CUT"})
+    msp_a.add_circle((60, 30), 8, dxfattribs={"layer": "CUT"})
+    tmp_a = tempfile.NamedTemporaryFile(suffix=".dxf", delete=False)
+    src_a.saveas(tmp_a.name)
+
+    src_b = ezdxf.new()
+    msp_b = src_b.modelspace()
+    msp_b.add_lwpolyline([(0, 0), (40, 0), (40, 20), (0, 20)], close=True,
+                         dxfattribs={"layer": "CUT"})
+    msp_b.add_arc((25, 25), 10, 0, 120, dxfattribs={"layer": "CUT"})
+    tmp_b = tempfile.NamedTemporaryFile(suffix=".dxf", delete=False)
+    src_b.saveas(tmp_b.name)
+
+    doc_a = ezdxf.readfile(tmp_a.name)
+    doc_b = ezdxf.readfile(tmp_b.name)
+    handles_a = [e.dxf.handle for e in doc_a.modelspace()]
+    handles_b = [e.dxf.handle for e in doc_b.modelspace()]
+
+    # Placements alternant les deux sources (comme un vrai job multi-fichiers).
+    placements = [
+        {"item_id": "i0", "file_slug": "fa", "handles": handles_a,
+         "angle": 0.0, "x": 20.0, "y": 10.0, "color": None},
+        {"item_id": "i1", "file_slug": "fb", "handles": handles_b,
+         "angle": math.radians(90), "x": 100.0, "y": 40.0, "color": None},
+        {"item_id": "i2", "file_slug": "fa", "handles": handles_a,
+         "angle": math.radians(37), "x": 180.0, "y": 70.0, "color": None},
+    ]
+    bw, bh, space = 300.0, 150.0, 2.0
+
+    # --- Serveur : réplique fidèle de build_part (groupement par fichier,
+    # copie par handle, BIN_BOUNDARY, OUT_SHAPE, en-têtes mm).
+    py_doc = ezdxf.new()
+    py_msp = py_doc.modelspace()
+    added = []
+    by_file = {}
+    for p in placements:
+        by_file.setdefault(p["file_slug"], []).append(p)
+    docs = {"fa": doc_a, "fb": doc_b}
+    for slug, ps in by_file.items():
+        by_handle = {e.dxf.handle: e for e in docs[slug].modelspace()}
+        for p in ps:
+            M = Matrix44.z_rotate(p["angle"]) * Matrix44.translate(p["x"], p["y"], 0)
+            for h in p["handles"]:
+                e = by_handle.get(h)
+                if e is None:
+                    continue
+                ne = e.copy()
+                ne.transform(M)
+                py_msp.add_entity(ne)
+                added.append(ne)
+    py_doc.layers.new(name="BIN_BOUNDARY", dxfattribs={"color": 5})
+    py_msp.add_lwpolyline([(0, 0), (bw, 0), (bw, bh), (0, bh)], close=True,
+                          dxfattribs={"layer": "BIN_BOUNDARY"})
+    from ezdxf import bbox as ezbbox
+    bb = ezbbox.extents(added)
+    py_doc.layers.new(name="OUT_SHAPE", dxfattribs={"color": 1})
+    py_msp.add_lwpolyline([
+        (bb.extmin.x - space, bb.extmin.y - space), (bb.extmax.x + space, bb.extmin.y - space),
+        (bb.extmax.x + space, bb.extmax.y + space), (bb.extmin.x - space, bb.extmax.y + space)],
+        close=True, dxfattribs={"layer": "OUT_SHAPE"})
+    py_doc.header["$INSUNITS"] = 4
+    py_doc.header["$MEASUREMENT"] = 1
+    py_tmp = tempfile.NamedTemporaryFile(suffix=".dxf", delete=False)
+    py_doc.saveas(py_tmp.name)
+
+    # --- Client : le bundle WASM navigateur (export_dxf_sheet).
+    spec = {"sources": {"fa": tmp_a.name, "fb": tmp_b.name},
+            "transforms": placements, "bin_width": bw, "bin_height": bh,
+            "space": space, "add_out_shape": True, "output_unit": "mm"}
+    rs_text = wasm("dxf_sheet", spec)
+    rs_tmp = tempfile.NamedTemporaryFile(suffix=".dxf", delete=False, mode="w")
+    rs_tmp.write(rs_text)
+    rs_tmp.close()
+
+    err = _cmp_canon(_canon(ezdxf.readfile(py_tmp.name)),
+                     _canon(ezdxf.readfile(rs_tmp.name)))
+    if err:
+        print(f"  dxf_sheet: {err}")
+    return ("dxf_sheet", err is None)
+
+
 def main():
     ok = True
-    for name, same in [colored_diff(), report_diff(), import_diff()]:
+    for name, same in [colored_diff(), report_diff(), import_diff(), dxf_sheet_diff()]:
         print(f"[{name}] client==serveur: {same}")
         ok = ok and same
     print("\n=== CLIENT/SERVEUR DIFF:", "OK" if ok else "FAIL", "===")

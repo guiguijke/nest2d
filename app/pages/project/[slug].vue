@@ -11,9 +11,9 @@
             </p>
             <p class="demo-banner__remaining">{{ t('demo.remaining', { n: demoRemaining, total: DEMO_LIMIT }) }}</p>
         </div>
-        <section v-if="liveResult" ref="liveSection" class="content__live live-panel">
+        <section v-if="liveResult || localReveal" ref="liveSection" class="content__live live-panel">
             <h3 class="live-panel__title">{{ t('live.title') }}</h3>
-            <LiveNestingView :result="liveResult" />
+            <LiveNestingView :result="liveResult || localReveal" />
         </section>
         <section v-if="localComputeRunning" class="content__live live-panel">
             <h3 class="live-panel__title">{{ t('localMode.toggle.local') }} — {{ t('localCompute.running') }}
@@ -57,7 +57,9 @@
 <script setup async>
 import { themeType } from "~~/constants/theme.constants";
 import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
-import { isLocalComputeEnabled, runLocalJob } from "~/composables/localCompute";
+import { isLocalComputeEnabled } from "~/composables/localCompute";
+import { runLocalJobPrivate } from "~/composables/localJobPrivate";
+import { invalidateLocalRecords } from "~/composables/localHydrate";
 import { useLocalMode } from "~/composables/useLocalMode";
 import {
     DEMO_NESTING_LIMIT,
@@ -110,23 +112,21 @@ watch(
     }
 );
 
-// Phase 2 (flag-gated internal QA — NOT a privacy feature): when the Python
-// worker has PREPARED a local job (status awaiting_local on this project),
-// solve it in the browser Web Worker and post the result back. Failures
-// surface as a clean i18n message (never a page crash); the consumed quota
-// is refunded server-side on failure (same semantics as the worker refund).
-// CORRECTIF PROD (2026-08-08) : le chemin « 100 % client » de PR5
-// (runLocalJobPrivate → local-quota, rien côté serveur) cassait l'affichage :
-// le modal/la vue live/les couleurs lisent le job SERVEUR, qui ne porte plus
-// les alternatives ⇒ résultat vide (0 pièces, aperçu gris) alors que le solve
-// tourne. En attendant l'UI qui rend les résultats depuis IndexedDB, on
-// réutilise runLocalJob (poste les alternatives → server → l'UI fonctionne),
-// comportement QA éprouvé pré-#26. Le claim privacy n'est pas actif tant que
-// le flag n'est pas destiné au public ; cette réversion sera remplacée par le
-// rendu client (travail futur, J-080).
+// Mode Local productisé (J-077/J-082) : quand le worker Python a PRÉPARÉ un
+// job local (status awaiting_local), on le résout dans le navigateur et les
+// RÉSULTATS restent 100 % navigateur (IndexedDB) — le serveur ne reçoit que
+// la comptabilité (local-quota) ou le refund (local-fail). Le rendu (modal,
+// couleurs, rapport, téléchargements) est hydraté depuis IndexedDB par
+// localHydrate ; rien ne dépend des artefacts serveur pour ces jobs.
+// Échec ⇒ message i18n propre + refund (jamais de crash de page).
+const route = useRoute();
 const localModeCtl = useLocalMode(null);
 const localComputeRunning = ref(false);
 const localComputeError = ref(null);
+// Reveal final pour la vue live : le moteur navigateur ne streame pas de
+// frames intermédiaires (solve bloquant dans le worker) — on affiche le
+// layout final au retour du solve (J-082, décision D2).
+const localReveal = ref(null);
 const localElapsed = localModeCtl.elapsed;
 const localBudget = localModeCtl.BROWSER_BUDGET_SEC;
 const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value));
@@ -140,12 +140,24 @@ watch(
         localComputeRunning.value = true;
         localModeCtl.startTimer();
         try {
-            const res = await runLocalJob(job.slug);
+            const res = await runLocalJobPrivate(job.slug, { projectSlug: route.params.slug });
             if (!res.ok) {
                 localComputeError.value =
                     res.error === 'memory_cap' ? 'memory_cap'
                     : res.error === 'entity_limit' ? 'entity_limit'
                     : 'crash';
+            } else {
+                // Les records ont changé : forcer la prochaine hydratation.
+                invalidateLocalRecords();
+                if (res.liveLayout) {
+                    localReveal.value = {
+                        slug: job.slug,
+                        itemMap: job.itemMap || [],
+                        liveLayout: res.liveLayout,
+                        compute: null,
+                        progress: null,
+                    };
+                }
             }
         } catch (e) {
             localComputeError.value = 'crash';
@@ -164,7 +176,6 @@ const filesCount = computed(() => filesGetters.filesCount);
 const isNewParams = computed(() => filesGetters.isNewParams);
 const nestRequestError = computed(() => filesGetters.nestRequestError);
 const demoQuotaReached = computed(() => filesGetters.demoQuotaReached);
-const route = useRoute();
 const slug = route.params.slug;
 const apiPath = API_ROUTES.PROJECT(slug);
 const data = filesGetters.projectFiles || await $apiFetch(apiPath);
