@@ -38,15 +38,20 @@ pub fn gravity_order_for(bias: Option<&str>) -> Vec<Axis> {
     match bias {
         Some("left") => vec![Axis::Left, Axis::Down, Axis::Left],
         Some("bottom") => vec![Axis::Down, Axis::Left, Axis::Down],
-        _ => vec![Axis::Down, Axis::Left],
+        // balanced : coin bas-gauche (la largeur est pilotée par le corridor
+        // de la phase 2, spp.rs, pour égaliser chute droite / haut).
+        Some("balanced") => vec![Axis::Down, Axis::Left],
+        // J-088 : gravité par DÉFAUT = gauche (placement libre → colonne qui
+        // hug x=0, grosse chute à droite).
+        _ => vec![Axis::Left, Axis::Down, Axis::Left],
     }
 }
 
-/// Gravité orientée par classe (J-086). Chaque classe compacte vers son bord
-/// pour laisser UNE grosse chute rectangulaire : left → droite libre,
-/// bottom → haut libre, balanced → coin bas-gauche (chute en L).
-/// L'égalisation exacte S1≈S2 du balanced est un raffinement futur (le
-/// corridor de la phase 2 donne déjà un coin, distinct de left/bottom).
+/// Gravité orientée par classe (J-086/J-088).
+/// - left / défaut : colonne hug x=0, chute à droite.
+/// - bottom : rangées hug y=0, chute en haut.
+/// - balanced : coin bas-gauche ; la largeur est pilotée par le corridor de la
+///   phase 2 (spp.rs, J-088) pour que la chute droite ≈ chute haut.
 pub fn gravity_for_bias(prob: &mut SPProblem, bias: Option<&str>, _strip_h: f32) {
     gravity_compact_dir(prob, &gravity_order_for(bias));
 }
@@ -209,16 +214,16 @@ mod tests {
             .values()
             .map(|pi| pi.shape.bbox)
             .collect();
-        boxes.sort_by(|a, b| a.x_min.total_cmp(&b.x_min));
+        boxes.sort_by(|a, b| a.y_min.total_cmp(&b.y_min));
         for (i, b) in boxes.iter().enumerate() {
             eprintln!("box {i}: x[{:.3},{:.3}] y[{:.3},{:.3}]", b.x_min, b.x_max, b.y_min, b.y_max);
         }
 
-        // Clustered at the origin (modulo the contact epsilon): first square
-        // at ~(0,0), second right beside it.
-        assert!(boxes[0].x_min < 0.5 && boxes[0].y_min < 0.5);
-        assert!(boxes[1].x_min < 100.5);
-        assert!(boxes[1].y_min < 100.5);
+        // Gravité par défaut = gauche (J-088) : les deux carrés forment une
+        // colonne qui hug x=0, posée au sol. Ordre-independent.
+        assert!(boxes.iter().all(|b| b.x_min < 0.5), "colonne à gauche");
+        assert!(boxes[0].y_min < 0.5, "posé au sol");
+        assert!(boxes.iter().all(|b| b.y_min < 100.5), "colonne d'une hauteur");
         // No overlap.
         for (i, a) in boxes.iter().enumerate() {
             for b in &boxes[i + 1..] {
