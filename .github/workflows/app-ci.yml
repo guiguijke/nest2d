@@ -1,0 +1,38 @@
+# CI du code applicatif JS/Nuxt (complète geometry-locks.yml qui ne couvre que
+# workers/geometry). Pas de secret requis : vitest (tests server mockés) puis
+# build Nuxt (les artefacts wasm/public sont commités, aucune variable d'env
+# n'est nécessaire pour compiler).
+name: app-ci
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "server/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/app-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "server/**"
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+      - name: Install
+        run: npm ci
+      - name: Tests server (vitest, db mockée)
+        run: npx vitest run
+      - name: Build Nuxt
+        run: npm run build
