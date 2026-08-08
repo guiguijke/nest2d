@@ -19,6 +19,10 @@
             <h3 class="live-panel__title">{{ t('localMode.toggle.local') }} — {{ t('localCompute.running') }}
                 <span class="live-panel__elapsed">{{ localElapsed }}s {{ t('localMode.elapsed') }} / {{ localBudget }}s</span>
             </h3>
+            <!-- J-084 : vue live du solve navigateur — les frames layout
+                 streamées par le moteur WASM alimentent LiveNestingView,
+                 exactement comme le flux SSE côté serveur. -->
+            <LiveNestingView v-if="localLive" :result="localLive" />
         </section>
         <div v-if="localComputeError" class="content__error">
             {{ localErrorText }}
@@ -123,10 +127,13 @@ const route = useRoute();
 const localModeCtl = useLocalMode(null);
 const localComputeRunning = ref(false);
 const localComputeError = ref(null);
-// Reveal final pour la vue live : le moteur navigateur ne streame pas de
-// frames intermédiaires (solve bloquant dans le worker) — on affiche le
-// layout final au retour du solve (J-082, décision D2).
+// Reveal final pour la vue live au retour du solve (J-082) — et pendant le
+// solve, les frames layout streamées par le moteur WASM (J-084) alimentent
+// `localLive`, consommé par LiveNestingView exactement comme le flux SSE
+// serveur (mêmes champs : worker/stage/feasible/strip_width/items/bias +
+// sheets/isSpp ajoutés par runInWorker).
 const localReveal = ref(null);
+const localLive = ref(null);
 const localElapsed = localModeCtl.elapsed;
 const localBudget = localModeCtl.BROWSER_BUDGET_SEC;
 const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value));
@@ -138,9 +145,21 @@ watch(
         attemptedLocalJobs.add(job.slug);
         localComputeError.value = null;
         localComputeRunning.value = true;
+        localLive.value = null;
         localModeCtl.startTimer();
         try {
-            const res = await runLocalJobPrivate(job.slug, { projectSlug: route.params.slug });
+            const res = await runLocalJobPrivate(job.slug, {
+                projectSlug: route.params.slug,
+                onLive: (evt) => {
+                    localLive.value = {
+                        slug: job.slug,
+                        itemMap: job.itemMap || [],
+                        liveLayout: evt,
+                        compute: null,
+                        progress: null,
+                    };
+                },
+            });
             if (!res.ok) {
                 localComputeError.value =
                     res.error === 'memory_cap' ? 'memory_cap'

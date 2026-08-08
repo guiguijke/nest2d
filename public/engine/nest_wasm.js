@@ -39,6 +39,42 @@ export function run_nesting(instance_json, params_json, seed) {
 }
 
 /**
+ * run_nesting_live(instance_json, params_json, seed, on_event) — idem
+ * run_nesting mais chaque événement moteur (progress/layout/evals, déjà
+ * throttlés côté Rust à ~2 Hz) est transmis SYNCHRONE à `on_event(line)`
+ * (J-084, vue live navigateur). Force `live_events` : sans snapshots le
+ * streaming n'a aucun intérêt. Le solve reste bloquant et déterministe —
+ * la callback n'influence jamais la recherche.
+ * @param {string} instance_json
+ * @param {string} params_json
+ * @param {bigint} seed
+ * @param {Function} on_event
+ * @returns {string}
+ */
+export function run_nesting_live(instance_json, params_json, seed, on_event) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(instance_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.run_nesting_live(ptr0, len0, ptr1, len1, seed, on_event);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * Current wasm linear-memory size, in 64 KiB pages (exact, unlike
  * performance.memory which excludes wasm memory) — the UI guardrail.
  * @returns {number}
@@ -61,6 +97,10 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_344f42d3211c4765: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_call_a6e5c5dce5018821: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = arg0.call(arg1, arg2);
+            return ret;
+        }, arguments); },
         __wbg_error_a6fa202b58aa1cd3: function(arg0, arg1) {
             let deferred0_0;
             let deferred0_1;
@@ -107,6 +147,11 @@ function __wbg_get_imports() {
             const ret = typeof window === 'undefined' ? null : window;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
+        __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(String) -> Externref`.
+            const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
+        },
         __wbindgen_init_externref_table: function() {
             const table = wasm.__wbindgen_externrefs;
             const offset = table.grow(4);
@@ -147,6 +192,15 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
 }
 
 function isLikeNone(x) {

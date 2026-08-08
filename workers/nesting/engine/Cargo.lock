@@ -511,6 +511,7 @@ name = "nest-wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "js-sys",
  "nest-engine",
  "serde_json",
  "wasm-bindgen",

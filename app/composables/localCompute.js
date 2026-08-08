@@ -18,12 +18,21 @@ export function isLocalComputeEnabled() {
 // stays loaded — the spike measured ~1.6 ms compile, the reuse is free).
 let engineWorker = null
 const pending = new Map()
+// J-084 : callbacks de frames live (vue live navigateur), par job.
+const liveHandlers = new Map()
 
 function getWorker() {
     if (engineWorker) return engineWorker
     engineWorker = new Worker('/workers/engine.worker.js', { type: 'module' })
     engineWorker.onmessage = (event) => {
-        const { jobSlug, ...rest } = event.data || {}
+        const { jobSlug, live, ...rest } = event.data || {}
+        // Frame intermédiaire (J-084) : routée au handler live SANS régler
+        // la promesse — le solve n'est pas terminé.
+        if (live) {
+            liveHandlers.get(jobSlug)?.(live)
+            return
+        }
+        liveHandlers.delete(jobSlug)
         const settle = pending.get(jobSlug)
         if (settle) {
             pending.delete(jobSlug)
@@ -34,20 +43,48 @@ function getWorker() {
         // A worker-level crash rejects every pending job (no page crash).
         for (const [, settle] of pending) settle({ ok: false, error: event.message || 'worker error' })
         pending.clear()
+        liveHandlers.clear()
         engineWorker?.terminate()
         engineWorker = null
     }
     return engineWorker
 }
 
-export function runInWorker(jobSlug, payload) {
+/** Frames de la tôle pour la vue live : SPP = bande unique, BPP = bboxes
+ * des bins. LiveNestingView dessine `sheets[0]` et filtre via fitsSheet. */
+function liveSheets(payload) {
+    const instance = payload?.instance || {}
+    if (Array.isArray(instance.bins) && instance.bins.length) {
+        return instance.bins.map((b) => {
+            let w = 0
+            let h = 0
+            for (const [x, y] of b?.shape?.data?.outer || []) {
+                w = Math.max(w, x)
+                h = Math.max(h, y)
+            }
+            return [w, h]
+        })
+    }
+    return [[
+        Number(payload?.engineConfig?.max_strip_width) || 0,
+        Number(instance.strip_height) || 0,
+    ]]
+}
+
+export function runInWorker(jobSlug, payload, { onLive } = {}) {
     return new Promise((resolve) => {
         pending.set(jobSlug, resolve)
+        const sheets = liveSheets(payload)
+        const isSpp = !Array.isArray(payload?.instance?.bins)
+        if (onLive) {
+            liveHandlers.set(jobSlug, (evt) => onLive({ ...evt, sheets, isSpp }))
+        }
         getWorker().postMessage({
             jobSlug,
             instance: payload.instance,
             engineConfig: payload.engineConfig,
             seed: payload.engineConfig?.prng_seed ?? '0',
+            live: Boolean(onLive),
         })
     })
 }

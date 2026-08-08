@@ -6,6 +6,7 @@ pub mod constructive;
 pub mod sa;
 
 use crate::config::EngineConfig;
+use crate::progress::EventSink;
 use crate::spp::derive_seed;
 use crate::{EngineOutput, map_workers};
 use anyhow::{Context, Result, bail};
@@ -17,7 +18,6 @@ use rand::rngs::Xoshiro256PlusPlus;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::io::Write;
 use jagua_rs::Instant;
 use std::time::Duration;
 
@@ -62,7 +62,11 @@ fn solution_fingerprint(solution: &ExtBPSolution) -> u64 {
     hasher.finish()
 }
 
-pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result<EngineOutput> {
+pub fn run_bpp_mem(
+    ext_instance: ExtBPInstance,
+    config: &EngineConfig,
+    sink: &EventSink,
+) -> Result<EngineOutput> {
     let started = Instant::now();
 
     let sparrow_config = config.sparrow_config();
@@ -76,14 +80,13 @@ pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result
         .context("importing BPP instance into jagua-rs")?;
 
     let n_workers = config.n_workers();
-    println!(
+    sink(&format!(
         "{{\"type\":\"start\",\"problem\":\"bpp\",\"name\":\"{}\",\"items\":{},\"workers\":{},\"budget_sec\":{}}}",
         ext_instance.name,
         instance.total_item_qty(),
         n_workers,
         config.time_budget_sec
-    );
-    let _ = std::io::stdout().flush();
+    ));
 
     let instance = &instance;
     let deadline = Duration::from_secs(config.time_budget_sec);
@@ -109,7 +112,7 @@ pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result
             sa_max_iterations,
             &mut rng,
                 |cost, solution| {
-                    println!(
+                    sink(&format!(
                         "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"elapsed_sec\":{},\"bias\":\"{}\"}}",
                         w,
                         cost.unplaced == 0,
@@ -117,7 +120,7 @@ pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result
                         cost.unplaced,
                         started.elapsed().as_secs(),
                         bias.as_str()
-                    );
+                    ));
                     if live {
                         // Full layout snapshot of the new incumbent for the
                         // visualizer: [[item_id, bin, rotation_deg, x, y]].
@@ -143,7 +146,7 @@ pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result
                             }
                         }
                         items.push(']');
-                        println!(
+                        sink(&format!(
                             "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"remnant\":{:.4},\"elapsed_ms\":{},\"items\":{},\"bias\":\"{}\"}}",
                             w,
                             cost.unplaced == 0,
@@ -153,20 +156,18 @@ pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result
                             started.elapsed().as_millis(),
                             items,
                             bias.as_str()
-                        );
+                        ));
                     }
-                    let _ = std::io::stdout().flush();
                 },
                 |iterations, cost| {
-                    println!(
+                    sink(&format!(
                         "{{\"type\":\"heartbeat\",\"worker\":{},\"stage\":\"bpp-search\",\"iterations\":{},\"bins\":{},\"unplaced\":{},\"elapsed_sec\":{}}}",
                         w,
                         iterations,
                         cost.bin_cost,
                         cost.unplaced,
                         started.elapsed().as_secs()
-                    );
-                    let _ = std::io::stdout().flush();
+                    ));
                 },
             );
             WorkerRun {
@@ -184,11 +185,11 @@ pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result
     let feasible: Vec<&WorkerRun> = runs.iter().filter(|r| r.cost.unplaced == 0).collect();
     if feasible.is_empty() {
         let best_unplaced = runs.first().map(|r| r.cost.unplaced).unwrap_or(0);
-        println!(
+        sink(&format!(
             "{{\"type\":\"error\",\"reason\":\"infeasible\",\"unplaced\":{},\"elapsed_sec\":{}}}",
             best_unplaced,
             started.elapsed().as_secs()
-        );
+        ));
         bail!("no feasible solution: {best_unplaced} items could not be placed");
     }
 
@@ -250,13 +251,13 @@ pub fn run_bpp_mem(ext_instance: ExtBPInstance, config: &EngineConfig) -> Result
     let best_density = best.solution.density;
     let n_exported = alternatives.len();
 
-    println!(
+    sink(&format!(
         "{{\"type\":\"done\",\"cost\":{},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
         best_cost,
         best_density,
         n_exported,
         started.elapsed().as_secs()
-    );
+    ));
     Ok(EngineOutput {
         sol_instance: serde_json::to_value(&best)?,
         alternatives,
