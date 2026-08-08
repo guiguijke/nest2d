@@ -110,6 +110,13 @@ def test_local_job_is_prepared_not_solved(monkeypatch):
     cfg = payload["engineConfig"]
     assert cfg["time_budget_sec"] == 13
     assert isinstance(cfg["prng_seed"], int) and cfg["prng_seed"] > 0
+    # J-083 : instance triviale (1 pièce ×4, 20 sommets) ⇒ patience courte,
+    # pas le plancher historique de 12 s qui brûlait tout le budget navigateur.
+    assert cfg["plateau_patience_sec"] <= 3.0
+    # J-083/#14c : profil navigateur mono-walk — wasm n'a pas de threads OS,
+    # le multi-start y serait séquentiel (temps mur multiplié sans gain).
+    assert cfg["n_workers"] == 1
+    assert cfg["separator_workers"] == 1
     # J-082: the browser builds its own artifacts (SVG/report/DXF) — it needs
     # the same per-item data the server finalization uses: clean coords+holes,
     # display color, source file slug and DXF entity handles (copy by handle).
@@ -122,6 +129,25 @@ def test_local_job_is_prepared_not_solved(monkeypatch):
     assert "progress" in jobs.unsets
     # itemMap is still written during prep (the modal/live view needs it).
     assert any("itemMap" in s for s in jobs.sets)
+
+
+def test_adaptive_plateau_patience():
+    """J-083 : la patience suit la taille de l'instance, pas un plancher fixe."""
+    p = m.adaptive_plateau_patience_sec
+    # Job trivial navigateur (4 pièces, ~20 sommets, sans trous) : ~2 s,
+    # surtout PAS le plancher historique de 12 s.
+    assert p(13, 4, 20, False) <= 2.5
+    # Plancher : même vide, on confirme le plateau (>= 2 s).
+    assert p(13, 0, 0, False) == 2.0
+    # Trous : prime proportionnelle — quasi nulle sur un petit job (qui
+    # converge vite quand même), pleine dès qu'il y a de la matière.
+    assert p(13, 4, 20, True) < p(13, 4, 20, False) + 1.0
+    assert p(300, 60, 5000, True) - p(300, 60, 5000, False) == 3.0
+    # Instance dense : la patience monte avec les sommets placés…
+    assert p(300, 200, 30000, True) > p(300, 10, 500, True)
+    # …plafonnée à 30 s, et jamais au-delà du budget mur.
+    assert p(300, 10000, 10_000_000, True) == 30.0
+    assert p(3, 100, 100000, True) == 3.0
 
 
 def test_server_job_runs_normally(monkeypatch):
