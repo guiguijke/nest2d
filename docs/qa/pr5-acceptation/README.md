@@ -61,6 +61,15 @@ buildés depuis les sources, flag ON, compte Free `qa-local@example.com`) :
   (60 s), la carte affiche l'aperçu GridFS (`/api/files/result/svg`), aucun
   badge local — chemin serveur intact.
 
+### 2.1 Adaptive patience + mono-walk (J-083) — mesuré
+« 14 s pour 4 pièces » corrigé : patience du plateau stop adaptative
+(`adaptive_plateau_patience_sec`, plancher 2 s, prime trous proportionnelle)
++ profil navigateur mono-walk (`n_workers=1`, `separator_workers=1`, cf.
+#14c — le multi-start était séquentiel en wasm). Même job 5 pièces/1 tôle :
+- Navigateur : 32,8 s → **5,7 s** (solve + artefacts), qualité identique
+  (4/4 trous remplis, overlap-free, 5/5).
+- Serveur : 60 s → **6 s** (engine elapsed), job done 5/5.
+
 Note §3 : le serveur Nuxt **docker** (image buildée) démarre et tourne
 correctement sur cette machine ; seule l'exécution `nuxt dev`/build `.output`
 en natif Windows restait instable. Les captures ci-dessus proviennent donc de
