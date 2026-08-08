@@ -84,17 +84,22 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug } = {}) {
     }
 
     const result = outcome.result
-    const requested = (payload?.instance?.items || []).reduce((n, it) => n + (it.demand || 0), 0)
+    // Total réel demandé = somme des quantités d'origine (payload.parts porte
+    // les counts complets, indépendamment de l'instance réduite meta).
+    const requested = (payload?.parts || []).reduce((n, p) => n + (p.count || 0), 0)
     const rawAlts = result?.alternatives || []
     const bestRaw = rawAlts[0]
-    const placed = normalizeLayouts(bestRaw?.solution)
-        .reduce((n, l) => n + (l.placed_items?.length || 0), 0)
 
     // Artefacts calculés navigateur (SVG/rapport/DXF), forme serveur.
+    // buildAlternativeArtifacts applique l'expansion meta + post-pass et
+    // MUTATE les layouts — `placed` est donc recalculé APRÈS.
     let alternatives = []
     let liveLayout = null
+    let placed = 0
     try {
         const arts = await buildAlternativeArtifacts(result, payload)
+        placed = normalizeLayouts(bestRaw?.solution)
+            .reduce((n, l) => n + (l.placed_items?.length || 0), 0)
         alternatives = toServerShapeAlternatives(result, payload, arts) || []
         // DXF combiné par tôle (nommage serveur : {slug}_alt{r}_part_{n}.dxf).
         for (let rank = 0; rank < alternatives.length; rank++) {
