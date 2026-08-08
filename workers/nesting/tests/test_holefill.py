@@ -3,7 +3,7 @@ déterministe et validé (dans le trou, spacing, placed inchangé).
 
 Run: PYTHONPATH=workers/common python -m pytest workers/nesting/tests/test_holefill.py -q
 """
-import json
+import math
 import sys
 from pathlib import Path
 
@@ -12,9 +12,31 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "common"))
 
 from core.holefill import apply_hole_fill
 
-PARTS = json.load(open(Path(__file__).resolve().parents[3] / ".zcode" / "parts50.json"))
-HOST = {"id": 0, "coords": PARTS["trou"]["coords"], "holes": PARTS["trou"]["holes"], "count": 1}
-FILL = {"id": 1, "coords": PARTS["fill"]["coords"], "holes": [], "count": 4}
+
+def _circle(cx, cy, r, n=64):
+    pts = [(cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
+    pts.append(pts[0])
+    return pts
+
+
+def _sector():
+    # quartier de disque r=28 rétréci (arc 5°..85°) pour que 4 secteurs en
+    # pinwheel laissent un espacement (~4mm) entre eux ; le disque r=28 tient
+    # dans le trou r=35 avec marge >= 2mm.
+    a0, a1 = math.radians(5), math.radians(85)
+    pts = [(2.83, 2.83)]
+    for i in range(9):
+        a = a0 + (a1 - a0) * (i / 8.0)
+        pts.append((28.0 * math.cos(a), 28.0 * math.sin(a)))
+    pts.append((2.83, 2.83))
+    return pts
+
+
+# Géométrie auto-portée (pas de fixture externe) : hôte 100x100 + trou Ø70,
+# filler secteur r=28 => capacité pinwheel 4 par trou.
+HOST = {"id": 0, "coords": [(-50, -50), (-50, 50), (50, 50), (50, -50), (-50, -50)],
+        "holes": [_circle(0, 0, 35.0)], "count": 1}
+FILL = {"id": 1, "coords": _sector(), "holes": [], "count": 4}
 
 
 def _t(item_id, rot, x, y):
