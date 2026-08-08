@@ -44,6 +44,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nest-geometry-wasm"
+version = "0.1.0"
+dependencies = [
+ "nest-export",
+ "nest-import",
+ "nest-preprocess",
+ "nest-report",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "nest-import"
 version = "0.1.0"
 dependencies = [
