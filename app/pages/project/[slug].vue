@@ -16,9 +16,10 @@
             <LiveNestingView :result="liveResult || localReveal" />
         </section>
         <section v-if="localComputeRunning" class="content__live live-panel">
-            <h3 class="live-panel__title">{{ t('localMode.toggle.local') }} — {{ t('localCompute.running') }}
-                <span class="live-panel__elapsed">{{ localElapsed }}s {{ t('localMode.elapsed') }} / {{ localBudget }}s</span>
+            <h3 class="live-panel__title">{{ t('localCompute.title') }}
+                <span class="live-panel__elapsed">{{ localElapsed }}s / {{ localBudget }}s</span>
             </h3>
+            <p class="live-panel__status">{{ t('localCompute.running') }}</p>
             <!-- J-084 : vue live du solve navigateur — les frames layout
                  streamées par le moteur WASM alimentent LiveNestingView,
                  exactement comme le flux SSE côté serveur. -->
@@ -381,6 +382,23 @@ const startsNest = () => {
         // The live panel sits on a dark background in this theme — force a
         // readable light tone (label-primary is blue-on-navy here).
         color: #eef2f7;
+        text-align: left;
+    }
+
+    // Compteur de temps : chiffres tabulaires pour éviter le tremblement.
+    &__elapsed {
+        margin-left: 8px;
+        font-size: 12px;
+        font-weight: 500;
+        color: #6ea8ff;
+        font-variant-numeric: tabular-nums;
+    }
+
+    // Sous-titre d'état (texte secondaire lisible sur fond sombre, #24).
+    &__status {
+        margin: -6px 0 12px;
+        font-size: 13px;
+        color: #b8c2d0;
         text-align: left;
     }
 
