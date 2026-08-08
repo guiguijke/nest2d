@@ -13,6 +13,15 @@ export function compute_report(json: string): string;
 export function export_dxf(source: Uint8Array, json: string): string;
 
 /**
+ * export_dxf_sheet(slugs, sources, json) -> DXF texte d'une TÔLE COMBINÉE,
+ * jumeau navigateur de build_part (core/main.py) : plusieurs fichiers
+ * source (un par slug, bytes DXF canoniques mm), transforms portant leur
+ * file_slug — les entités sont copiées PAR HANDLE depuis chaque source.
+ * J-082 : parité byte-level des téléchargements Mode Local multi-fichiers.
+ */
+export function export_dxf_sheet(slugs: string[], sources: Uint8Array[], json: string): string;
+
+/**
  * export_svg_sheet(json spec) -> SVG coloré de la tôle.
  */
 export function export_svg_sheet(json: string): string;
@@ -44,16 +53,18 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly compute_report: (a: number, b: number) => [number, number, number, number];
     readonly export_dxf: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly export_dxf_sheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly export_svg_sheet: (a: number, b: number) => [number, number, number, number];
     readonly import_file: (a: number, b: number, c: number) => [number, number, number, number];
     readonly import_svg: (a: number, b: number, c: number) => [number, number, number, number];
     readonly open_holes: (a: number, b: number) => [number, number, number, number];
     readonly wasm_memory_pages: () => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_start: () => void;
 }
 

@@ -128,6 +128,33 @@ def convert_files_to_input_items(files, dek=None):
     return input_items
 
 
+def adaptive_plateau_patience_sec(time_budget_sec, n_parts, n_vertices, has_holes):
+    """J-083 — patience adaptative : on arrête dès que la recherche converge.
+
+    Le plancher historique de 12 s faisait tourner un job trivial (quelques
+    pièces, dizaines de sommets) jusqu'au budget mur entier alors qu'il
+    converge en ~1 s (« 14 s pour 4 pièces »). La patience est le temps
+    d'attente toléré SANS amélioration globale avant de déclarer la
+    convergence — le budget mur reste le filet de sécurité anytime :
+      - plancher 2 s : même le job le plus simple doit confirmer son plateau
+        (ne pas couper sur un creux isolé) ;
+      - + charge de sommets placés : les instances denses voient des
+        améliorations plus tardives ;
+      - + prime trous PROPORTIONNELLE : le remplissage de trous (phase 2)
+        améliore tard, mais seulement quand il y a de la matière à remplir —
+        un job à 1 trou converge aussi vite qu'un job sans trou ;
+      - + densité de pièces, plafonnée ;
+      - plafond 30 s, et jamais au-delà du budget mur.
+    """
+    base = (
+        2.0
+        + n_vertices / 1500.0
+        + (min(3.0, n_parts / 15.0) if has_holes else 0.0)
+        + min(6.0, n_parts / 20.0)
+    )
+    return max(2.0, min(base, 30.0, float(time_budget_sec)))
+
+
 def save_dxf_result(owner_id, file_name, drawing, dek=None):
     dxf_copy_text_stream = io.StringIO()
     drawing.write(dxf_copy_text_stream)
@@ -720,12 +747,28 @@ def nesting_process(doc):
         n_workers = max(3, vcores) if not is_spp else max(3, vcores // 3)
     else:
         n_workers = None
-    # Plateau stop: end walks once converged instead of burning the whole
-    # wall cap. Flat regions on hard instances (swim-like) can run ~10-20s
-    # before a late improvement, so patience needs a real floor — but a
-    # fraction of the wall cap overshoots badly on easy jobs that converge
-    # in seconds (75s of dead time at the standard 300s cap).
-    plateau_patience_sec = max(12.0, min(30.0, time_budget_sec / 8.0))
+    separator_workers = None
+    if params.get("computeLocation") == "local":
+        # J-083 (profil navigateur mono-walk, cf. #14c) : wasm n'a AUCUN
+        # thread OS — le multi-start et le parallélisme du separator y sont
+        # SÉQUENTIELS : chaque walk ajouté multiplie le temps mur sans gain
+        # de qualité sur un budget de 13 s. Le solve navigateur = 1 walk,
+        # 1 separator, comme le profil démo.
+        n_workers = 1
+        separator_workers = 1
+    # Plateau stop (J-083, adaptatif) : on arrête les walks dès que la
+    # recherche converge au lieu de brûler le budget mur. La patience suit la
+    # taille de l'instance (sommets placés, trous, pièces) — un job trivial
+    # confirme son plateau en 2-4 s, une instance dense garde de la marge
+    # pour les améliorations tardives ; le budget mur reste le plafond.
+    placed_vertices = sum(
+        (len(item.get("coords") or []) + sum(len(h) for h in (item.get("holes") or [])))
+        * (item.get("count") or 1)
+        for item in input_items
+    )
+    plateau_patience_sec = adaptive_plateau_patience_sec(
+        time_budget_sec, total_requested_count, placed_vertices, has_holes
+    )
 
     engine_config = build_engine_config(
         time_budget_sec,
@@ -737,6 +780,7 @@ def nesting_process(doc):
         n_workers=n_workers,
         biases=directions,
         plateau_patience_sec=plateau_patience_sec,
+        separator_workers=separator_workers,
     )
 
     # Surface the effective compute profile on the job doc: the frontend
@@ -764,6 +808,26 @@ def nesting_process(doc):
     # compute-pool token is acquired for a local job.
     if params.get("computeLocation") == "local":
         _heartbeat_stop.set()
+        # J-082: the browser builds the colored SVG / report / DXF exports
+        # ITSELF (geometry bundle) and must produce byte-identical artifacts
+        # to the server path. It therefore needs the SAME per-item data the
+        # server finalization uses (parse_result_containers -> transforms +
+        # input_items -> geometry): clean coords+holes (the engine instance
+        # only carries the channel-opened rings), display color, source file
+        # slug and DXF entity handles (exports copy entities BY HANDLE).
+        # Input data only (server -> client, already uploaded by the owner):
+        # the J-077 claim is about OUTGOING geometry, unchanged.
+        payload_parts = [
+            {
+                "id": item["id"],
+                "file_slug": item.get("file_slug"),
+                "handles": item.get("handles") or [],
+                "color": item.get("color"),
+                "coords": item.get("coords"),
+                "holes": item.get("holes") or [],
+            }
+            for item in input_items
+        ]
         db["nesting_jobs"].update_one(
             {"_id": doc.get("_id")},
             {
@@ -773,6 +837,12 @@ def nesting_process(doc):
                         "problem": problem_type,
                         "instance": instance,
                         "engineConfig": engine_config,
+                        "parts": payload_parts,
+                        # J-082: the client's DXF export must match the server
+                        # byte-for-byte — same unit headers, same sheet outline
+                        # option (both come from the job params server-side).
+                        "outputUnit": output_unit,
+                        "addOutShape": add_out_shape,
                     },
                     "update_ts": datetime.now(),
                 },

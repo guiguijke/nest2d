@@ -38,7 +38,7 @@ pub fn ring_bounds(ring: &[Pt]) -> [f64; 4] {
     [x0, y0, x1, y1]
 }
 
-fn seg_seg_intersects(a: Pt, b: Pt, c: Pt, d: Pt) -> bool {
+pub fn seg_seg_intersects(a: Pt, b: Pt, c: Pt, d: Pt) -> bool {
     let d1 = cross(sub(d, c), sub(a, c));
     let d2 = cross(sub(d, c), sub(b, c));
     let d3 = cross(sub(b, a), sub(c, a));
@@ -79,6 +79,13 @@ pub fn ring_distance(a: &[Pt], b: &[Pt]) -> f64 {
     if rings_overlap(a, b) {
         return 0.0;
     }
+    ring_gap(a, b)
+}
+
+/// Distance min sommet↔segment croisées SANS le raccourci containment de
+/// ring_distance : un anneau niché dans un autre (pièce dans un trou) doit
+/// mesurer l'écart à la paroi, pas 0.
+pub fn ring_gap(a: &[Pt], b: &[Pt]) -> f64 {
     let mut best = f64::INFINITY;
     for p in a {
         for i in 0..b.len() - 1 {

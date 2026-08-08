@@ -40,25 +40,29 @@ def build_engine_config(
     n_workers=None,
     biases=None,
     plateau_patience_sec=None,
+    separator_workers=None,
 ):
     """Engine configuration (consumed by nest-engine's `-c config.json`).
 
     min_separation is the exact minimum distance between any two placed items
     (and between items and the bin edge). jagua-rs enforces it natively by
     inflating items / deflating containers by half the value, so the geometry
-    stays untouched and the gap is exactly `min_separation` — do NOT pre-buffer
+    stays untouched and the gap is exactly `min_item_separation` — do NOT pre-buffer
     the polygons on the Python side.
 
-    has_holes disables narrow-concavity closing: holed items are opened to
-    the exterior by a hairline channel (core/holed_polygons.py) and the
-    closing heuristic would seal that channel shut, silently re-filling the
-    holes. Without holed items, the heuristic stays on (faster collision
-    checks on noisy contours).
+    has_holes disables narrow-concavity closing: holed items are opened to the
+    exterior by a hairline channel (core/holed_polygons.py) and the closing
+    heuristic would seal that channel shut, silently re-filling the holes.
+    Without holed items, the heuristic stays on (faster collision checks on
+    noisy contours).
 
     n_workers caps the engine's parallelism (BPP: SA walks; SPP: multi-start
     runs at 3 threads each) — derived from the owner's tier vcores. biases
     lists the directional alternatives to explore (BPP only). plateau_patience_sec
     lets walks stop once converged instead of burning the full wall budget.
+    separator_workers overrides sparrow's inner separator parallelism; the
+    browser (wasm, mono-walk, AGENTS #14c) forces it to 1 since wasm has no
+    OS threads and extra workers would only run sequentially.
     """
     config = {
         "time_budget_sec": int(time_budget_sec),
@@ -78,6 +82,8 @@ def build_engine_config(
         config["biases"] = list(biases)
     if plateau_patience_sec is not None:
         config["plateau_patience_sec"] = float(plateau_patience_sec)
+    if separator_workers is not None:
+        config["separator_workers"] = int(separator_workers)
     return config
 
 
