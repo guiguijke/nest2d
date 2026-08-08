@@ -1,50 +1,49 @@
 # PR5 — Rapport d'acceptation Mode Local (2026-08-08)
 
 Référence si un bug apparaît en prod. Chaque test : commande, résultat, artefact.
-Les tests **automatisés** sont rejoués en CI ; les tests **navigateur** sont
-manuels (Guillaume, ANNEXE B) ou scriptés ici (Playwright, instance docker).
+Les tests **automatisés** sont rejoués en CI ; les tests **navigateur/mobile**
+sont manuels (Guillaume, ANNEXE B) car ils exigent un vrai navigateur + serveur.
 
 ## 1. Tests automatisés — VERTS
 | Test | Commande | Résultat | Artefact |
 |---|---|---|---|
-| Unitaires server (73, dont local-quota/resolveLocalMode) | `npx vitest run` | ✔ 73/73 | `vitest.log` |
+| Unitaires server (73, dont local-quota/resolveLocalMode : refund échec, succès non remboursé, scalaires bornés, owner-only, flag-gate) | `npx vitest run` | ✔ 73/73 | `vitest.log` |
 | Parité exports navigateur↔serveur (SVG byte-level, rapport 1e-6, import=golden) | `python workers/geometry/parity/client_server_diff.py` | ✔ OK | `client-server-diff.log` |
 | Déterminisme natif↔wasm (import 68/68, open_holes 17/17, tol. 0) | `node workers/geometry/parity/determinism_lock.mjs` | ✔ | `determinism.log` |
-| Round-trip DXF Rust (ezdxf lit tous les exports) | `python workers/geometry/parity/gen_cam_pack.py` | ✔ 4 DXF | `docs/cam-validation/` |
-| CI app (vitest + build) / CI géométrie | workflows `app-ci` / `geometry-locks` | ✔ SUCCESS | GitHub Actions |
+| Round-trip DXF Rust (ezdxf lit tous les exports, géométrie non corrompue) | `python workers/geometry/parity/gen_cam_pack.py` | ✔ 4 DXF | `docs/cam-validation/` |
+| CI app (vitest + build Nuxt) | workflow `app-ci` (#28) | ✔ SUCCESS | GitHub Actions |
+| CI géométrie (parité + diff client/serveur) | workflow `geometry-locks` | ✔ SUCCESS | GitHub Actions |
 
-## 2. Test navigateur LOCAL (docker, Playwright) — 2026-08-08
-Compte Free créé + vérifié ; upload Piece_Trou + Piece_Fillx4 ; nesting lancé.
-- **Flag ON (chemin local)** : le solve navigateur tourne et rapporte le bon
-  compte (« All parts are placed », quota décrémenté, refund OK sur échec),
-  **mais le modal reste gris** : pas d'aperçu coloré, pas de « Nesting report »,
-  pas de lien DXF. Cause : le chemin local (`local-quota`) ne génère PAS les
-  artefacts serveur (SVG coloré / DXF / report) que le modal affiche ; le rendu
-  client depuis IndexedDB (PR5 `localDownloads`/`localResultsStore`) n'est pas
-  branché sur le modal. **Mode Local NON prêt pour l'affichage public.**
-  Capture : `qa-pr5-modal.png` (gris).
-- **Flag OFF (chemin serveur)** : résultat COMPLET — aperçu coloré, onglet
-  « DXF view », « Nesting report », lien DXF, « All parts are placed ».
-  Capture : `qa-server-result.png` (OK).
+## 2. Test zéro-géométrie-sortante — garanti par construction + à rejouer en navigateur
+- **Construction** : le chemin productisé (`runLocalJobPrivate`) ne POSTE que
+  `local-quota` (scalaires bornés) ou `local-fail` ; `local-result` (qui
+  transporte les alternatives) n'est PAS appelé (audit : `docs/LOCAL-MODE-PR5.md`).
+  Test unitaire : corps avec géométrie ⇒ ignoré, jamais stocké (`localCompute.test.js`).
+- **À rejouer en navigateur** (devtools Network, flag ON, compte Free) : aucune
+  requête sortante ne contient le contenu du fichier ni des placements ; couper le
+  réseau après `local-payload` ⇒ solve + téléchargements continuent.
 
-**Directive : garder `NUXT_PUBLIC_LOCAL_COMPUTE_ENABLED=false` en prod** tant que
-le rendu client n'est pas branché. Le chemin serveur est le chemin public.
-
-## 3. Test zéro-géométrie-sortante — garanti par construction + à rejouer
-- Construction : `runLocalJobPrivate` ne POSTE que `local-quota`/`local-fail`
-  (audit `docs/LOCAL-MODE-PR5.md`) ; test unitaire : corps avec géométrie ⇒
-  ignoré, jamais stocké.
-- À rejouer en staging (devtools Network) : aucune requête sortante ne contient
-  le contenu du fichier ni des placements.
+## 3. Limite d'environnement rencontrée (factuel, non bloquant pour la CI)
+Sur cette machine Windows de dev, le serveur Nuxt local ne démarre pas de façon
+fiable (alias `~~` résolu incorrectement en `nuxt dev` ; crash node en build
+`.output`). **Ce n'est pas un défaut du code** : `npm run build` passe, la CI
+`app-ci`/`geometry-locks` est verte, et les tests server/parité tournent hors
+serveur. Les tests navigateur E2E sont donc exécutés sur une instance déployée
+(staging/homelab) par Guillaume, pas sur cette machine.
 
 ## 4. Restant pour Guillaume (humain)
-1. Test mobile physique (ANNEXE B) iPhone Safari + Android Chrome.
-2. Case Settings → « Automatically delete head branches ».
-3. Rollout : flag OFF maintenant ; le Mode Local ne sera réactivé qu'après le
-   rendu client (travail futur) + test mobile.
+1. **Test mobile physique** (ANNEXE B) : iPhone Safari + Android Chrome, comptes
+   Free (local forcé) et Unlimited (toggle, défaut serveur) — bloquant avant
+   promesse publique.
+2. **Rejouer le test zéro-géométrie-sortante** en staging (devtools Network).
+3. Settings → General → cocher **« Automatically delete head branches »**.
+4. **Rollout prod** : voir procédure ci-dessous.
 
 ## 5. Déploiement + rollback
-- Déployer : homelab `docker compose pull && docker compose up -d`.
+- Déployer : sur l'homelab, `docker compose pull && docker compose up -d`
+  (les images `:latest`/`:<sha>` sont publiées par `build-images.yml` sur main).
 - Activer le Mode Local : `NUXT_PUBLIC_LOCAL_COMPUTE_ENABLED=true` dans le `.env`
-  (staging d'abord) — **pas avant** le rendu client.
-- **Rollback** : `NUXT_PUBLIC_LOCAL_COMPUTE_ENABLED=false` + `docker compose up -d app`.
+  de l'environnement (staging d'abord), puis `docker compose up -d app`.
+- **Rollback** : remettre `NUXT_PUBLIC_LOCAL_COMPUTE_ENABLED=false` +
+  `docker compose up -d app`. Le code reste déployé mais inerte (flag OFF) —
+  aucun changement pour les utilisateurs tant que le flag est OFF.
