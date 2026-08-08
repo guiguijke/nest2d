@@ -8,7 +8,7 @@
  */
 import init, {
     import_file, import_svg, open_holes, export_svg_sheet, compute_report,
-    export_dxf, wasm_memory_pages,
+    export_dxf, export_dxf_sheet, wasm_memory_pages,
 } from '/geometry/nest_geometry.js'
 
 let ready = null
@@ -37,6 +37,14 @@ self.onmessage = async (event) => {
                 break
             case 'export_dxf':
                 result = export_dxf(new Uint8Array(args.source), args.json)
+                break
+            case 'export_dxf_sheet':
+                // slugs: string[] ; sources: bytes[][] (une entrée par slug)
+                result = export_dxf_sheet(
+                    args.slugs,
+                    (args.sources || []).map((b) => new Uint8Array(b)),
+                    args.json,
+                )
                 break
             case 'memory_pages':
                 result = String(wasm_memory_pages())

@@ -109,26 +109,29 @@ pub fn compute_report(json: &str) -> Result<String, JsError> {
     .map_err(|e| JsError::new(&format!("{e}")))
 }
 
+/// Spec commune aux exports DXF (une source ou tôle combinée multi-sources).
+#[derive(serde::Deserialize)]
+struct DxfSheetSpec {
+    transforms: Vec<nest_export::Placement>,
+    #[serde(default)]
+    space: f64,
+    #[serde(default)]
+    add_out_shape: bool,
+    bin_width: Option<f64>,
+    bin_height: Option<f64>,
+    #[serde(default = "mm_default")]
+    output_unit: String,
+}
+
+fn mm_default() -> String {
+    "mm".into()
+}
+
 /// export_dxf(dxf_bytes_source, json {transforms, space, add_out_shape,
 /// bin_width, bin_height, output_unit}) -> DXF texte (une source).
 #[wasm_bindgen]
 pub fn export_dxf(source: &[u8], json: &str) -> Result<String, JsError> {
-    #[derive(serde::Deserialize)]
-    struct In {
-        transforms: Vec<nest_export::Placement>,
-        #[serde(default)]
-        space: f64,
-        #[serde(default)]
-        add_out_shape: bool,
-        bin_width: Option<f64>,
-        bin_height: Option<f64>,
-        #[serde(default = "mm")]
-        output_unit: String,
-    }
-    fn mm() -> String {
-        "mm".into()
-    }
-    let i: In = serde_json::from_str(json).map_err(|e| JsError::new(&format!("{e}")))?;
+    let i: DxfSheetSpec = serde_json::from_str(json).map_err(|e| JsError::new(&format!("{e}")))?;
     let doc = nest_import::dxf::Document::parse(source).map_err(|e| JsError::new(&format!("{e}")))?;
     let mut sources = std::collections::HashMap::new();
     sources.insert("src".to_string(), (doc.entities, doc.blocks));
@@ -139,6 +142,38 @@ pub fn export_dxf(source: &[u8], json: &str) -> Result<String, JsError> {
     Ok(nest_export::build_part_dxf(
         &sources,
         &t,
+        i.add_out_shape,
+        i.space,
+        i.bin_width,
+        i.bin_height,
+        &i.output_unit,
+    ))
+}
+
+/// export_dxf_sheet(slugs, sources, json) -> DXF texte d'une TÔLE COMBINÉE,
+/// jumeau navigateur de build_part (core/main.py) : plusieurs fichiers
+/// source (un par slug, bytes DXF canoniques mm), transforms portant leur
+/// file_slug — les entités sont copiées PAR HANDLE depuis chaque source.
+/// J-082 : parité byte-level des téléchargements Mode Local multi-fichiers.
+#[wasm_bindgen]
+pub fn export_dxf_sheet(
+    slugs: Box<[String]>,
+    sources: Box<[js_sys::Uint8Array]>,
+    json: &str,
+) -> Result<String, JsError> {
+    let i: DxfSheetSpec = serde_json::from_str(json).map_err(|e| JsError::new(&format!("{e}")))?;
+    if slugs.len() != sources.len() {
+        return Err(JsError::new("slugs/sources length mismatch"));
+    }
+    let mut map = std::collections::HashMap::new();
+    for (slug, bytes) in slugs.iter().zip(sources.iter()) {
+        let doc = nest_import::dxf::Document::parse(&bytes.to_vec())
+            .map_err(|e| JsError::new(&format!("parsing source {slug}: {e}")))?;
+        map.insert(slug.clone(), (doc.entities, doc.blocks));
+    }
+    Ok(nest_export::build_part_dxf(
+        &map,
+        &i.transforms,
         i.add_out_shape,
         i.space,
         i.bin_width,

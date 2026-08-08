@@ -16,3 +16,6 @@ nest-report = { path = "../nest-report" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
+# export_dxf_sheet (J-082) : passe les bytes des sources en tableaux typés.
+# Épinglé sur la paire wasm-bindgen 0.2.126 du lock (CLI installé, J-063).
+js-sys = "=0.3.103"
