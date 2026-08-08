@@ -27,7 +27,8 @@ import nestHandler from '~~/server/api/project/[slug]/nest.post.js'
 import payloadHandler from '~~/server/api/results/[slug]/local-payload.get.js'
 import resultHandler from '~~/server/api/results/[slug]/local-result.post.js'
 import failHandler from '~~/server/api/results/[slug]/local-fail.post.js'
-import { BROWSER_COMPUTE, resolveComputeLocation } from '~~/server/utils/entitlement'
+import quotaHandler from '~~/server/api/results/[slug]/local-quota.post.js'
+import { BROWSER_COMPUTE, resolveComputeLocation, resolveLocalMode } from '~~/server/utils/entitlement'
 import { fakeDb } from './helpers/fakeMongo'
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7)
@@ -226,5 +227,70 @@ describe('local-payload / local-result / local-fail routes (flag-gated)', () => 
         await expect(resultHandler(ev('u1', 'job-1', { alternatives: [{}] }))).rejects.toMatchObject({ statusCode: 404 })
         await expect(failHandler(ev('u1', 'job-1', { error: 'x' }))).rejects.toMatchObject({ statusCode: 404 })
         expect(someoneElsesDemoJob.status).toBe('awaiting_local')
+    })
+})
+
+describe('resolveLocalMode (PR5, J-078)', () => {
+    it('DWG => serveur, non négociable', () => {
+        expect(resolveLocalMode('free', true, 'local')).toEqual({ mode: 'server', canToggle: false, reason: 'dwg' })
+        expect(resolveLocalMode('privacy', true, 'local')).toEqual({ mode: 'server', canToggle: false, reason: 'dwg' })
+    })
+    it('Free => local forcé (pas de toggle)', () => {
+        expect(resolveLocalMode('free', false, 'server')).toEqual({ mode: 'local', canToggle: false, reason: 'free' })
+    })
+    it('payants => choix, défaut serveur', () => {
+        expect(resolveLocalMode('standard', false)).toEqual({ mode: 'server', canToggle: true, reason: 'choice' })
+        expect(resolveLocalMode('privacy', false, 'local')).toEqual({ mode: 'local', canToggle: true, reason: 'choice' })
+    })
+})
+
+describe('POST local-quota — comptabilité seule, zéro géométrie (PR5, J-077)', () => {
+    const localJob = (overrides = {}) => ({
+        slug: 'job-1',
+        ownerId: 'u1',
+        projectSlug: 'p1',
+        status: 'awaiting_local',
+        requested: 10,
+        charge: { type: 'free' },
+        ...overrides,
+    })
+
+    it('succès: done avec scalaires bornés, quota NON remboursé, aucune géométrie stockée', async () => {
+        const userDoc = freeUser({ freeNestingUsed: 2 })
+        const jobDoc = localJob()
+        state.config = { public: { localComputeEnabled: true } }
+        state.db = fakeDb({ nesting_jobs: [jobDoc], users: [userDoc] })
+        const res = await quotaHandler(ev('u1', 'job-1', { placed: 10, layoutCount: 2, density: 0.4 }))
+        expect(res.ok).toBe(true)
+        expect(jobDoc.status).toBe('done')
+        expect(jobDoc.placed).toBe(10)
+        expect(jobDoc.layoutCount).toBe(2)
+        expect(jobDoc.density).toBe(0.4)
+        expect(jobDoc.localOnly).toBe(true)
+        expect(userDoc.freeNestingUsed).toBe(2) // succès = quota consommé, pas de refund
+        expect(jobDoc.alternatives).toBeUndefined() // aucune géométrie côté serveur
+    })
+
+    it('borne les scalaires et ignore le reste du corps', async () => {
+        const jobDoc = localJob()
+        state.config = { public: { localComputeEnabled: true } }
+        state.db = fakeDb({ nesting_jobs: [jobDoc], users: [freeUser()] })
+        await quotaHandler(ev('u1', 'job-1', { placed: 99999999, density: 7, junk: 'x', alternatives: [{}] }))
+        expect(jobDoc.placed).toBe(10_000_000) // borné
+        expect(jobDoc.density).toBe(1) // clampé [0,1]
+        expect(jobDoc.alternatives).toBeUndefined() // corps ignoré
+    })
+
+    it('409 si pas awaiting_local, 404 pour un autre utilisateur, 404 flag OFF', async () => {
+        state.config = { public: { localComputeEnabled: true } }
+        state.db = fakeDb({ nesting_jobs: [localJob({ status: 'done' })], users: [freeUser()] })
+        await expect(quotaHandler(ev('u1', 'job-1', {}))).rejects.toMatchObject({ statusCode: 409 })
+
+        state.db = fakeDb({ nesting_jobs: [localJob({ ownerId: 'other' })], users: [freeUser()] })
+        await expect(quotaHandler(ev('u1', 'job-1', {}))).rejects.toMatchObject({ statusCode: 404 })
+
+        state.config = { public: { localComputeEnabled: false } }
+        state.db = fakeDb({ nesting_jobs: [localJob()], users: [freeUser()] })
+        await expect(quotaHandler(ev('u1', 'job-1', {}))).rejects.toMatchObject({ statusCode: 404 })
     })
 })

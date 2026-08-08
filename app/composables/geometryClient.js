@@ -9,8 +9,6 @@
  */
 import { isLocalComputeEnabled } from './localCompute'
 
-export { isLocalComputeEnabled }
-
 let worker = null
 let seq = 0
 const pending = new Map()
