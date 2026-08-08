@@ -764,6 +764,26 @@ def nesting_process(doc):
     # compute-pool token is acquired for a local job.
     if params.get("computeLocation") == "local":
         _heartbeat_stop.set()
+        # J-082: the browser builds the colored SVG / report / DXF exports
+        # ITSELF (geometry bundle) and must produce byte-identical artifacts
+        # to the server path. It therefore needs the SAME per-item data the
+        # server finalization uses (parse_result_containers -> transforms +
+        # input_items -> geometry): clean coords+holes (the engine instance
+        # only carries the channel-opened rings), display color, source file
+        # slug and DXF entity handles (exports copy entities BY HANDLE).
+        # Input data only (server -> client, already uploaded by the owner):
+        # the J-077 claim is about OUTGOING geometry, unchanged.
+        payload_parts = [
+            {
+                "id": item["id"],
+                "file_slug": item.get("file_slug"),
+                "handles": item.get("handles") or [],
+                "color": item.get("color"),
+                "coords": item.get("coords"),
+                "holes": item.get("holes") or [],
+            }
+            for item in input_items
+        ]
         db["nesting_jobs"].update_one(
             {"_id": doc.get("_id")},
             {
@@ -773,6 +793,12 @@ def nesting_process(doc):
                         "problem": problem_type,
                         "instance": instance,
                         "engineConfig": engine_config,
+                        "parts": payload_parts,
+                        # J-082: the client's DXF export must match the server
+                        # byte-for-byte — same unit headers, same sheet outline
+                        # option (both come from the job params server-side).
+                        "outputUnit": output_unit,
+                        "addOutShape": add_out_shape,
                     },
                     "update_ts": datetime.now(),
                 },

@@ -88,7 +88,9 @@ def test_local_job_is_prepared_not_solved(monkeypatch):
         m,
         "convert_files_to_input_items",
         lambda files, dek: [
-            {"id": 0, "file_slug": "f1", "coords": _square(0, 0, 40), "holes": [], "count": 4, "rotations": [0.0, 90.0, 180.0, 270.0]}
+            {"id": 0, "file_slug": "f1", "coords": _square(0, 0, 40), "holes": [],
+             "handles": ["A1", "B2"], "color": "#123456",
+             "count": 4, "rotations": [0.0, 90.0, 180.0, 270.0]}
         ],
     )
 
@@ -108,6 +110,14 @@ def test_local_job_is_prepared_not_solved(monkeypatch):
     cfg = payload["engineConfig"]
     assert cfg["time_budget_sec"] == 13
     assert isinstance(cfg["prng_seed"], int) and cfg["prng_seed"] > 0
+    # J-082: the browser builds its own artifacts (SVG/report/DXF) — it needs
+    # the same per-item data the server finalization uses: clean coords+holes,
+    # display color, source file slug and DXF entity handles (copy by handle).
+    parts = payload["parts"]
+    assert parts == [{
+        "id": 0, "file_slug": "f1", "handles": ["A1", "B2"],
+        "color": "#123456", "coords": _square(0, 0, 40), "holes": [],
+    }]
     # Live progress was cleaned for the handoff.
     assert "progress" in jobs.unsets
     # itemMap is still written during prep (the modal/live view needs it).
