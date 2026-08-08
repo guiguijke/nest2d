@@ -352,12 +352,57 @@ pub fn verify_layout(containers: &[Container], items: &[Item], space: f64) -> se
                 smallest_gap = gap_edge;
             }
             for j in (i + 1)..n {
-                let d = geom::ring_distance(&placed_polys[i].0, &placed_polys[j].0);
-                if d < smallest_gap {
-                    smallest_gap = d;
-                }
-                if d <= 0.0 && overlap_area(&placed_polys[i], &placed_polys[j]) > OVERLAP_EPS_MM2 {
-                    overlap_free = false;
+                // AGENTS #4 : le polygone placé = anneau externe MOINS les
+                // trous. Une pièce nichée dans le trou d'un hôte ne chevauche
+                // PAS le matériau de l'hôte : son espacement se mesure contre
+                // la paroi du trou, pas contre l'anneau externe (matériau
+                // fantôme → faux badge overlap / gap 0 côté Python si on ne
+                // soustrait pas les trous ; ici on traite le cas explicitement).
+                let cc_i = ring_centroid(&placed_polys[i].0);
+                let cc_j = ring_centroid(&placed_polys[j].0);
+                let hole_of_j = placed_polys[j].1.iter().find(|h| geom::point_in_ring(cc_i, h));
+                let hole_of_i = placed_polys[i].1.iter().find(|h| geom::point_in_ring(cc_j, h));
+                match (hole_of_i, hole_of_j) {
+                    (None, None) => {
+                        let d = geom::ring_distance(&placed_polys[i].0, &placed_polys[j].0);
+                        if d < smallest_gap {
+                            smallest_gap = d;
+                        }
+                        if d <= 0.0 && overlap_area(&placed_polys[i], &placed_polys[j]) > OVERLAP_EPS_MM2 {
+                            overlap_free = false;
+                        }
+                    }
+                    (Some(h), None) => {
+                        // j nichée dans un trou de i.
+                        let g = geom::ring_gap(&placed_polys[j].0, h);
+                        if g < smallest_gap {
+                            smallest_gap = g;
+                        }
+                        if !ring_inside_ring(&placed_polys[j].0, h) {
+                            overlap_free = false;
+                        }
+                    }
+                    (None, Some(h)) => {
+                        // i nichée dans un trou de j.
+                        let g = geom::ring_gap(&placed_polys[i].0, h);
+                        if g < smallest_gap {
+                            smallest_gap = g;
+                        }
+                        if !ring_inside_ring(&placed_polys[i].0, h) {
+                            overlap_free = false;
+                        }
+                    }
+                    (Some(_), Some(_)) => {
+                        // Double imbrication impossible pour des anneaux
+                        // simples disjoints — garde générique.
+                        let d = geom::ring_distance(&placed_polys[i].0, &placed_polys[j].0);
+                        if d < smallest_gap {
+                            smallest_gap = d;
+                        }
+                        if d <= 0.0 && overlap_area(&placed_polys[i], &placed_polys[j]) > OVERLAP_EPS_MM2 {
+                            overlap_free = false;
+                        }
+                    }
                 }
             }
         }
@@ -399,6 +444,29 @@ fn ring_centroid(ring: &[Pt]) -> Pt {
 fn ring_to_sheet_edge_dist(ring: &[Pt], sw: f64, sh: f64) -> f64 {
     let b = geom::ring_bounds(ring);
     b[0].min(b[1]).min(sw - b[2]).min(sh - b[3])
+}
+
+/// Croisement d'arêtes seulement (sans le test de containment de
+/// rings_overlap) : deux anneaux dont les bords ne se coupent pas.
+fn rings_cross(a: &[Pt], b: &[Pt]) -> bool {
+    for i in 0..a.len() - 1 {
+        for j in 0..b.len() - 1 {
+            if geom::seg_seg_intersects(a[i], a[i + 1], b[j], b[j + 1]) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// `inner` entièrement contenu dans `hole` (tous les sommets à l'intérieur
+/// et aucun croisement de bord) — la condition pour qu'une pièce nichée dans
+/// un trou ne chevauche PAS le matériau de l'hôte (AGENTS #4).
+fn ring_inside_ring(inner: &[Pt], hole: &[Pt]) -> bool {
+    if rings_cross(inner, hole) {
+        return false;
+    }
+    inner.iter().all(|p| geom::point_in_ring(*p, hole))
 }
 
 /// Sommets de l'espace libre (sheet − placed) via l'arrangement partagé
@@ -523,5 +591,74 @@ mod tests {
         let sheets = per_sheet_metrics(&[c], &items);
         let totals = report_totals(&sheets);
         assert_eq!(totals["sheetCount"], serde_json::json!(1));
+    }
+
+    // AGENTS #4 : une pièce nichée dans le trou d'un hôte ne chevauche PAS
+    // le matériau de l'hôte (l'anneau externe seul la ferait « intersecter »
+    // le matériau fantôme → faux badges overlap/gap 0).
+    #[test]
+    fn verify_filler_in_hole_is_not_an_overlap() {
+        // Hôte 100×100 avec un trou 40×40 centré ; filler 20×20 au centre
+        // du trou (écart 10 mm avec chaque paroi).
+        let items = vec![
+            Item {
+                id: "host".into(),
+                coords: vec![[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0], [0.0, 0.0]],
+                holes: vec![vec![
+                    [30.0, 30.0], [70.0, 30.0], [70.0, 70.0], [30.0, 70.0], [30.0, 30.0],
+                ]],
+            },
+            Item {
+                id: "filler".into(),
+                coords: vec![[0.0, 0.0], [20.0, 0.0], [20.0, 20.0], [0.0, 20.0], [0.0, 0.0]],
+                holes: vec![],
+            },
+        ];
+        let c = Container {
+            bin_width: 200.0,
+            bin_height: 200.0,
+            transforms: vec![
+                // À 10 mm des bords pour que le plus petit écart mesuré soit
+                // celui filler↔paroi du trou (pas filler/paroi ↔ bord tôle).
+                Transform { item_id: "host".into(), angle: 0.0, x: 10.0, y: 10.0 },
+                Transform { item_id: "filler".into(), angle: 0.0, x: 50.0, y: 50.0 },
+            ],
+        };
+        let r = verify_layout(&[c], &items, 2.0);
+        assert_eq!(r["overlapFree"], serde_json::json!(true), "{r}");
+        assert_eq!(r["holesFilled"], serde_json::json!(1), "{r}");
+        // Écart filler ↔ paroi du trou = 10 mm (pas 0).
+        assert_eq!(r["smallestGapMm"], serde_json::json!(10.0), "{r}");
+        assert_eq!(r["spacingOk"], serde_json::json!(true), "{r}");
+    }
+
+    // Le filler qui DÉBORDE du trou reste un vrai chevauchement.
+    #[test]
+    fn verify_filler_spilling_out_of_hole_is_an_overlap() {
+        let items = vec![
+            Item {
+                id: "host".into(),
+                coords: vec![[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0], [0.0, 0.0]],
+                holes: vec![vec![
+                    [30.0, 30.0], [70.0, 30.0], [70.0, 70.0], [30.0, 70.0], [30.0, 30.0],
+                ]],
+            },
+            Item {
+                id: "big".into(),
+                coords: vec![[0.0, 0.0], [60.0, 0.0], [60.0, 60.0], [0.0, 60.0], [0.0, 0.0]],
+                holes: vec![],
+            },
+        ];
+        let c = Container {
+            bin_width: 200.0,
+            bin_height: 200.0,
+            transforms: vec![
+                Transform { item_id: "host".into(), angle: 0.0, x: 0.0, y: 0.0 },
+                // Centré dans le trou mais plus grand que lui → déborde.
+                Transform { item_id: "big".into(), angle: 0.0, x: 20.0, y: 20.0 },
+            ],
+        };
+        let r = verify_layout(&[c], &items, 2.0);
+        assert_eq!(r["overlapFree"], serde_json::json!(false), "{r}");
     }
 }
