@@ -1,6 +1,6 @@
 use crate::bpp::constructive::DirBias;
 use crate::config::EngineConfig;
-use crate::progress::{PlateauTerminator, ProgressListener};
+use crate::progress::{EventSink, PlateauTerminator, ProgressListener};
 use crate::{EngineOutput, map_workers};
 use anyhow::{Context, Result, bail};
 use jagua_rs::io::import::Importer;
@@ -94,6 +94,7 @@ fn optimize_one(
     map_back_height: Option<f32>,
     plateau_patience: Option<Duration>,
     bias_tag: Option<&'static str>,
+    sink: &EventSink,
 ) -> (SPSolution, usize) {
     let mut cfg = *sparrow_cfg;
     cfg.expl_cfg.time_limit = budget.mul_f32(explore_ratio);
@@ -102,7 +103,8 @@ fn optimize_one(
     let mut listener = ProgressListener::new(worker, started)
         .with_live(live)
         .with_map_back(map_back_height)
-        .with_bias(bias_tag);
+        .with_bias(bias_tag)
+        .with_sink(sink.clone());
     let mut terminator = PlateauTerminator::new(listener.improvement_clock(), plateau_patience);
     let (solution, evals) = optimize(
         instance.clone(),
@@ -146,6 +148,7 @@ fn optimize_multi(
     live: bool,
     map_back_height: Option<f32>,
     plateau_patience: Option<Duration>,
+    sink: &EventSink,
 ) -> Vec<WorkerRun> {
     map_workers(n_workers, |w| {
         let seed = derive_seed(master_seed, seed_offset + w);
@@ -162,6 +165,7 @@ fn optimize_multi(
             map_back_height,
             plateau_patience,
             None,
+            sink,
         );
         WorkerRun { seed, solution, evals }
     })
@@ -207,7 +211,11 @@ fn map_back_solution(
     jagua_rs::probs::spp::io::import_solution(orig_instance, &ext)
 }
 
-pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result<EngineOutput> {
+pub fn run_spp_mem(
+    ext_instance: ExtSPInstance,
+    config: &EngineConfig,
+    sink: &EventSink,
+) -> Result<EngineOutput> {
     let started = Instant::now();
 
     let sparrow_config = config.sparrow_config();
@@ -237,14 +245,14 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
     // height. Meaningful only when a real sheet bound exists; unconstrained
     // strip packing (benchmarks) keeps the full budget on width alone.
     let two_phase = config.two_phase() && config.max_strip_width.is_some();
-    println!(
+    sink(&format!(
         "{{\"type\":\"start\",\"problem\":\"spp\",\"name\":\"{}\",\"items\":{},\"workers\":{},\"budget_sec\":{},\"two_phase\":{}}}",
         ext_instance.name,
         instance.total_item_qty(),
         n_workers,
         config.time_budget_sec,
         two_phase
-    );
+    ));
 
     let max_width = config.max_strip_width;
     let (b1, b2) = if two_phase {
@@ -292,6 +300,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                             if two_phase { b1 } else { budget },
                             explore, seed, w, started, gravity_on, live, None, plateau,
                             Some(bias.as_str()),
+sink,
                         );
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
@@ -313,6 +322,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
                             Some(corridor), plateau,
                             Some(bias.as_str()),
+                            sink,
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
                             // Phase 2 overshot the sheet height: fall back to
@@ -340,6 +350,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                                 &instance, &sparrow_config, budget, explore,
                                 seed, w, started, gravity_on, live, None, plateau,
                                 Some(bias.as_str()),
+sink,
                             );
                             return Some(ClassRun { seed, bias, solution: s, evals });
                         };
@@ -352,6 +363,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                             explore, seed, w, started, gravity_on, live,
                             Some(mw), plateau,
                             Some(bias.as_str()),
+                            sink,
                         );
                         if s1.strip_width() > ext_instance.strip_height + 1e-4 {
                             return None; // taller than the sheet: unusable
@@ -374,6 +386,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
                             None, plateau,
                             Some(bias.as_str()),
+sink,
                         );
                         if s2.strip_width() > mw + 1e-4 {
                             // Width overshot the sheet: keep the phase-1
@@ -397,6 +410,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                                 &instance, &sparrow_config, budget, explore,
                                 seed, w, started, gravity_on, live, None, plateau,
                                 Some(bias.as_str()),
+sink,
                             );
                             return Some(ClassRun { seed, bias, solution: s, evals });
                         };
@@ -405,6 +419,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                             if two_phase { b1 } else { budget },
                             explore, seed, w, started, gravity_on, live, None, plateau,
                             Some(bias.as_str()),
+sink,
                         );
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
@@ -418,6 +433,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
                             Some(corridor), plateau,
                             Some(bias.as_str()),
+                            sink,
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
                             // Corridor overshot the sheet height: fall back to
@@ -439,10 +455,10 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
             .collect();
 
         if runs.is_empty() {
-            println!(
+            sink(&format!(
                 "{{\"type\":\"error\",\"reason\":\"infeasible\",\"elapsed_sec\":{}}}",
                 started.elapsed().as_secs()
-            );
+            ));
             bail!("no feasible solution in directions mode");
         }
 
@@ -505,13 +521,13 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
         let best_width = best.solution.strip_width;
         let best_density = best.solution.density;
         let n_exported = alternatives.len();
-        println!(
+        sink(&format!(
             "{{\"type\":\"done\",\"best_strip_width\":{:.3},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
             best_width,
             best_density,
             n_exported,
             started.elapsed().as_secs()
-        );
+        ));
         return Ok(EngineOutput {
             sol_instance: serde_json::to_value(&best)?,
             alternatives,
@@ -533,6 +549,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
         config.live_events(),
         None,
         config.plateau_patience(),
+        sink,
     );
     let feasible1: Vec<&WorkerRun> = runs1
         .iter()
@@ -543,12 +560,12 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
             .iter()
             .map(|r| r.solution.strip_width())
             .fold(f32::INFINITY, f32::min);
-        println!(
+        sink(&format!(
             "{{\"type\":\"error\",\"reason\":\"infeasible\",\"best_strip_width\":{:.3},\"max_strip_width\":{},\"elapsed_sec\":{}}}",
             best,
             max_width.unwrap_or(f32::NAN),
             started.elapsed().as_secs()
-        );
+        ));
         bail!(
             "no feasible solution: narrowest strip {:.3} exceeds limit {}",
             best,
@@ -596,6 +613,7 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
                     config.live_events(),
                     Some(corridor),
                     config.plateau_patience(),
+                    sink,
                 );
                 let max_length = ext_instance.strip_height;
                 for run in runs2 {
@@ -684,13 +702,13 @@ pub fn run_spp_mem(ext_instance: ExtSPInstance, config: &EngineConfig) -> Result
     let best_density = best.solution.density;
     let n_exported = alternatives.len();
 
-    println!(
+    sink(&format!(
         "{{\"type\":\"done\",\"best_strip_width\":{:.3},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
         best_width,
         best_density,
         n_exported,
         started.elapsed().as_secs()
-    );
+    ));
     Ok(EngineOutput {
         sol_instance: serde_json::to_value(&best)?,
         alternatives,

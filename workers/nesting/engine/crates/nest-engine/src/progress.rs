@@ -6,6 +6,21 @@ use std::sync::{Arc, Mutex};
 use jagua_rs::Instant;
 use std::time::{Duration};
 
+/// Puits des événements moteur (progress/layout/evals). Le CLI natif écrit
+/// sur stdout (le worker Python parse ces lignes) ; le wrapper wasm transmet
+/// à une callback JS (vue live navigateur, J-084). PUREMENT observationnel :
+/// un sink ne doit JAMAIS influencer la recherche (déterminisme, AGENTS #14b).
+/// Send+Sync : les runs multi-start natifs partagent le sink sous rayon.
+pub type EventSink = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// Sink par défaut : stdout + flush, comportement historique du CLI.
+pub fn stdout_sink() -> EventSink {
+    Arc::new(|line: &str| {
+        println!("{line}");
+        let _ = std::io::stdout().flush();
+    })
+}
+
 /// Wall-clock timeout + plateau patience for sparrow runs: kills the run
 /// when the incumbent has not improved for `patience`. The improvement clock
 /// is shared with the ProgressListener, which bumps it on GENUINE global
@@ -80,6 +95,8 @@ pub struct ProgressListener {
     /// Directional class of this run (directions mode), tagged on every
     /// event so the frontend can show one track per strategy.
     bias: Option<&'static str>,
+    /// Destination of the emitted JSON lines (stdout natif, callback JS wasm).
+    sink: EventSink,
 }
 
 fn stage_of(report: &ReportType) -> &'static str {
@@ -110,6 +127,7 @@ impl ProgressListener {
             last_improvement: Arc::new(Mutex::new(Instant::now())),
             last_evals_emit: armed,
             bias: None,
+            sink: stdout_sink(),
         }
     }
 
@@ -133,6 +151,11 @@ impl ProgressListener {
         self
     }
 
+    pub fn with_sink(mut self, sink: EventSink) -> Self {
+        self.sink = sink;
+        self
+    }
+
     fn bias_json(&self) -> String {
         match self.bias {
             Some(b) => format!(",\"bias\":\"{b}\""),
@@ -150,7 +173,7 @@ impl ProgressListener {
     }
 
     fn emit(&mut self, stage: &'static str, feasible: bool, strip_width: f32) {
-        println!(
+        (self.sink)(&format!(
             "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"elapsed_sec\":{}{}}}",
             self.worker,
             stage,
@@ -158,8 +181,7 @@ impl ProgressListener {
             strip_width,
             self.started.elapsed().as_secs(),
             self.bias_json()
-        );
-        let _ = std::io::stdout().flush();
+        ));
     }
 
     /// Full layout snapshot for the visualizer: every placed item with its
@@ -191,7 +213,7 @@ impl ProgressListener {
         items.push(']');
         let strip_width = solution.strip_width();
         let density = solution.density(instance);
-        println!(
+        (self.sink)(&format!(
             "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"density\":{:.4},\"elapsed_ms\":{},\"items\":{}{}}}",
             self.worker,
             stage,
@@ -201,8 +223,7 @@ impl ProgressListener {
             self.started.elapsed().as_millis(),
             items,
             self.bias_json()
-        );
-        let _ = std::io::stdout().flush();
+        ));
     }
 }
 
@@ -212,14 +233,13 @@ impl SolutionListener for ProgressListener {
         // Python side sums the latest value of every worker.
         if self.last_evals_emit.elapsed().as_millis() >= 1000 {
             self.last_evals_emit = Instant::now();
-            println!(
+            (self.sink)(&format!(
                 "{{\"type\":\"evals\",\"worker\":{},\"evals\":{},\"elapsed_sec\":{}{}}}",
                 self.worker,
                 evals,
                 self.started.elapsed().as_secs(),
                 self.bias_json()
-            );
-            let _ = std::io::stdout().flush();
+            ));
         }
     }
 
