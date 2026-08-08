@@ -70,6 +70,16 @@ buildés depuis les sources, flag ON, compte Free `qa-local@example.com`) :
   (4/4 trous remplis, overlap-free, 5/5).
 - Serveur : 60 s → **6 s** (engine elapsed), job done 5/5.
 
+### 2.2 Vue live du solve navigateur (J-084) — vérifié
+Pendant le solve local, le moteur WASM streame ses layouts intermédiaires
+(~2 Hz) vers la même LiveNestingView que le flux SSE serveur : le panneau
+« On my machine — Computing locally… » montre les pièces se placer/compacter
+en direct (stage « Exploring layouts », badge Feasible), puis le reveal final
+J-082 prend le relais. Captures : `live-frame-1.png` / `live-frame-2.png`
+(timer 0 s → 2 s, layouts différents). Qualité finale inchangée (11/11 pièces,
+4/4 trous remplis, overlap-free). Verrou déterminisme rejoué après le refactor
+du sink : natif == wasm bit-à-bit.
+
 Note §3 : le serveur Nuxt **docker** (image buildée) démarre et tourne
 correctement sur cette machine ; seule l'exécution `nuxt dev`/build `.output`
 en natif Windows restait instable. Les captures ci-dessus proviennent donc de
