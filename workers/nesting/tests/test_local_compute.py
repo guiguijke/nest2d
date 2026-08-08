@@ -124,6 +124,7 @@ def test_local_job_is_prepared_not_solved(monkeypatch):
     assert parts == [{
         "id": 0, "file_slug": "f1", "handles": ["A1", "B2"],
         "color": "#123456", "coords": _square(0, 0, 40), "holes": [],
+        "count": 4,
     }]
     # Live progress was cleaned for the handoff.
     assert "progress" in jobs.unsets

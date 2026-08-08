@@ -73,6 +73,140 @@ export function layoutTransforms(layout, partsById) {
  * Renvoie [{ sheets: [svg…], report, containers }] dans l'ordre des
  * alternatives ; null si le résultat est inutilisable (jamais de throw).
  */
+// ---- J-085 post-pass hole-fill (miroir de workers/nesting/core/holefill.py) ----
+const _pin = (p, ring) => {
+    let inside = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i]; const [xj, yj] = ring[j]
+        if ((yi > p[1]) !== (yj > p[1]) && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside
+    }
+    return inside
+}
+const _placedPoly = (coords, rotDeg, tx, ty) => {
+    const r = (rotDeg * Math.PI) / 180; const c = Math.cos(r); const s = Math.sin(r)
+    return coords.map(([x, y]) => [c * x - s * y + tx, s * x + c * y + ty])
+}
+const _centroid = (ring) => {
+    let sx = 0; let sy = 0
+    for (const [x, y] of ring) { sx += x; sy += y }
+    return [sx / ring.length, sy / ring.length]
+}
+const _ptSeg = (p, a, b) => {
+    const abx = b[0] - a[0]; const aby = b[1] - a[1]
+    const l2 = abx * abx + aby * aby
+    let t = l2 ? ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / l2 : 0
+    t = Math.max(0, Math.min(1, t))
+    const qx = a[0] + t * abx; const qy = a[1] + t * aby
+    return Math.hypot(p[0] - qx, p[1] - qy)
+}
+// distance min poly→anneau (sommet↔segment croisés)
+const _polyRingDist = (poly, ring) => {
+    let best = Infinity
+    for (const p of poly) {
+        for (let i = 0; i < ring.length - 1; i++) best = Math.min(best, _ptSeg(p, ring[i], ring[i + 1]))
+    }
+    return best
+}
+const PINWHEEL = [0, 90, 180, 270]
+const CAPACITY = 4
+const WALL_MARGIN = 1.0
+const FILLER_GAP = 2.0
+
+/** Recomplète chaque trou en pinwheel après le solve (rien ne le défait).
+ * Mutate les transforms des layouts ; déterministe. Miroir de holefill.py. */
+export function applyHoleFill(parts, layouts, space) {
+    const byId = new Map(parts.map((p) => [String(p.id), p]))
+    const entries = [] // {item, pi, poly}
+    for (const layout of layouts) {
+        for (const pi of layout.placed_items || []) {
+            const item = byId.get(String(pi.item_id))
+            if (!item) continue
+            const t = pi.transformation || {}
+            entries.push({ item, pi, poly: _placedPoly(item.coords, t.rotation ?? 0, ...(t.translation || [0, 0])) })
+        }
+    }
+    const holes = [] // {holeRing(world), members[], }
+    for (const e of entries) {
+        if (!(e.item.holes || []).length) continue
+        const t = e.pi.transformation || {}
+        for (const h of e.item.holes) {
+            holes.push({ ring: _placedPoly(h, t.rotation ?? 0, ...(t.translation || [0, 0])), members: [] })
+        }
+    }
+    const nestedHole = (poly) => {
+        const c = _centroid(poly)
+        return holes.findIndex((h) => _pin(c, h.ring))
+    }
+    const free = []
+    for (const e of entries) {
+        if ((e.item.holes || []).length) continue
+        const hi = nestedHole(e.poly)
+        if (hi < 0) free.push(e)
+        else holes[hi].members.push(e)
+    }
+    let recovered = 0
+    for (const h of holes) {
+        const cur = h.members
+        if (cur.length >= CAPACITY || free.length < CAPACITY - cur.length) continue
+        const c = _centroid(h.ring)
+        const pool = [...cur, ...free.slice(0, CAPACITY - cur.length)]
+        const polys = []
+        let ok = true
+        for (let i = 0; i < pool.length; i++) {
+            const cand = _placedPoly(pool[i].item.coords, PINWHEEL[i], c[0], c[1])
+            // dans le trou érodé + spacing entre fillers du trou
+            if (!cand.every((v) => _pin(v, h.ring)) || _polyRingDist(cand, h.ring) < WALL_MARGIN) { ok = false; break }
+            if (polys.some((q) => _polyPolyDist(cand, q) < FILLER_GAP)) { ok = false; break }
+            polys.push(cand)
+        }
+        if (!ok) continue
+        pool.forEach((e, i) => {
+            e.pi.transformation.rotation = PINWHEEL[i]
+            e.pi.transformation.translation = [c[0], c[1]]
+            e.poly = polys[i]
+            const fi = free.indexOf(e)
+            if (fi >= 0) { free.splice(fi, 1); recovered++ }
+        })
+    }
+    return recovered
+}
+const _polyPolyDist = (a, b) => {
+    let best = Infinity
+    for (const p of a) for (let i = 0; i < b.length - 1; i++) best = Math.min(best, _ptSeg(p, b[i], b[i + 1]))
+    for (const p of b) for (let i = 0; i < a.length - 1; i++) best = Math.min(best, _ptSeg(p, a[i], a[i + 1]))
+    return best
+}
+
+/** J-085 expansion meta-pièces (miroir de core/holefill.py expand_meta) :
+ * rattache les fillers figés (pinwheel) aux hôtes posés par le solve réduit.
+ * world_f = R(hrot+frot)·x + (R(hrot)·C + ht). Déterministe. */
+export function expandMeta(parts, hostId, fillId, slots, layouts) {
+    const host = parts.find((p) => String(p.id) === String(hostId))
+    if (!host || !(host.holes || []).length) return layouts
+    let hi = 0
+    for (const layout of layouts) {
+        const added = []
+        for (const pi of layout.placed_items || []) {
+            if (String(pi.item_id) !== String(hostId)) continue
+            const t = pi.transformation || {}
+            const hrot = t.rotation ?? 0
+            const k = slots?.[hi] ?? 0
+            hi++
+            for (let s = 0; s < k; s++) {
+                const hole = host.holes[Math.floor(s / PINWHEEL.length)] || host.holes[0]
+                const c = _centroid(hole)
+                const frot = PINWHEEL[s % PINWHEEL.length]
+                const r = (hrot * Math.PI) / 180
+                const rx = Math.cos(r) * c[0] - Math.sin(r) * c[1] + (t.translation?.[0] ?? 0)
+                const ry = Math.sin(r) * c[0] + Math.cos(r) * c[1] + (t.translation?.[1] ?? 0)
+                added.push({ item_id: Number(fillId), transformation: { rotation: hrot + frot, translation: [rx, ry] } })
+            }
+        }
+        layout.placed_items = [...(layout.placed_items || []), ...added]
+    }
+    return layouts
+}
+
 export async function buildAlternativeArtifacts(result, payload) {
     try {
         const alternatives = result?.alternatives || []
@@ -99,6 +233,13 @@ export async function buildAlternativeArtifacts(result, payload) {
                 out.push(null)
                 continue
             }
+            // J-085 : si le solve était réduit (meta-pièces), rattache les
+            // fillers figés aux hôtes ; puis post-pass de sécurité (no-op si
+            // trous déjà pleins) — parité serveur.
+            if (payload?.meta) {
+                expandMeta(parts, payload.meta.host, payload.meta.fill, payload.meta.slots, layouts)
+            }
+            applyHoleFill(parts, layouts, space)
             const containers = []
             const sheets = []
             for (const layout of layouts) {
