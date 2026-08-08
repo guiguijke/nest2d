@@ -213,12 +213,43 @@ fn map_back_solution(
     jagua_rs::probs::spp::io::import_solution(orig_instance, &ext)
 }
 
+fn ring_area(pts: &[(f32, f32)]) -> f32 {
+    let mut s = 0.0;
+    for i in 0..pts.len().saturating_sub(1) {
+        s += pts[i].0 * pts[i + 1].1 - pts[i + 1].0 * pts[i].1;
+    }
+    (s / 2.0).abs()
+}
+
+/// J-088 (balanced) : largeur cible de la région utilisée pour que la chute
+/// droite (W−uw) ≈ chute haut (H−uh), avec uh ≈ A/uw. Résout
+/// uw² + (H−W)·uw − A = 0, majorée ~15 % (spacing/pertes).
+fn balanced_width(area: f32, sheet_h: f32, sheet_w: f32) -> f32 {
+    let a = area * 1.15;
+    let dh = sheet_h - sheet_w;
+    let disc = (dh * dh + 4.0 * a).max(0.0);
+    (-dh + disc.sqrt()) / 2.0
+}
+
 pub fn run_spp_mem(
     ext_instance: ExtSPInstance,
     config: &EngineConfig,
     sink: &EventSink,
 ) -> Result<EngineOutput> {
     let started = Instant::now();
+
+    // Aire totale des pièces (× demande) — corridor équilibré (J-088).
+    let total_part_area: f32 = ext_instance
+        .items
+        .iter()
+        .map(|it| {
+            let a = match &it.base.shape {
+                jagua_rs::io::ext_repr::ExtShape::SimplePolygon(p) => ring_area(&p.0),
+                _ => 0.0,
+            };
+            a * it.demand as f32
+        })
+        .sum();
 
     let sparrow_config = config.sparrow_config();
     let importer = Importer::new(
@@ -432,7 +463,14 @@ sink,
                         // droite ≈ chute haut. On résout uw² + (H-W)·uw - A = 0
                         // (uh = A/uw), ce qui donne une région utilisée plus
                         // haute que large sur une tôle portrait → bras égaux.
-                        let corridor = (s1.strip_width() * 2.0).min(mw);
+                        // J-088 : corridor = largeur cible équilibrée (chute
+                        // droite ≈ chute haut), bornée sur [min_width, mw].
+                        let corridor = balanced_width(
+                            total_part_area,
+                            ext_instance.strip_height,
+                            mw,
+                        )
+                        .clamp(s1.strip_width(), mw);
                         let t_ext = transpose_instance(&ext_instance, corridor);
                         let t_instance =
                             jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
