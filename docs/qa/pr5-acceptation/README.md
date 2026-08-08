@@ -84,6 +84,16 @@ cette stack docker locale.
   requête sortante ne contient le contenu du fichier ni des placements ; couper le
   réseau après `local-payload` ⇒ solve + téléchargements continuent.
 
+### 2.3 Trou-filling à l'échelle — meta-pièces (J-085) — vérifié
+Cas utilisateur 50 hôtes à trou + 200 fillers, spacing 2 mm. Avant : ~140-160
+fillers nichés, colonne espacée (« moche »). Après (pre-pass meta-pièces :
+remplir les trous AVANT le nesting, résoudre des blocs déjà pleins) :
+**200/200 fillers nichés, colonne dense** (hauteur 1734 = optimum),
+`overlapFree`/`spacingOk` vrais, un seul solve (moins de CPU). Capture :
+`qa-j085-meta-dense.png`. A/B documenté dans `specs/90-decisions.md` (J-085) :
+pre-pass séquence LBF battue (139, l'exploration défait le nesting), post-pass
+repack 200/200 mais étalé + CPU gaspillé → meta-pièces retenu.
+
 ## 3. Limite d'environnement rencontrée (factuel, non bloquant pour la CI)
 Sur cette machine Windows de dev, le serveur Nuxt local ne démarre pas de façon
 fiable (alias `~~` résolu incorrectement en `nuxt dev` ; crash node en build
