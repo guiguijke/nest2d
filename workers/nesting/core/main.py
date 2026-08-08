@@ -731,8 +731,34 @@ def nesting_process(doc):
         instance = build_bpp_instance(jaguar_items, bins, name=slug)
         max_strip_width = None
 
+    # J-085 (pre-pass meta-pièces) : pour un job SPP à trous « 1 type d'hôte +
+    # 1 type de filler », on résout UNE fois des blocs déjà pleins (hôtes +
+    # fillers figés en pinwheel dans le trou) plutôt que de disperser les
+    # fillers puis re-compacter (CPU gaspillé, colonne espacée). L'instance
+    # résolue ne porte que les hôtes (+ fillers restants) ; l'expansion
+    # rattache les fillers après le solve. Compact ET trous pleins, un seul
+    # passe de solve.
+    meta = None
+    solve_instance = instance
+    if is_spp and has_holes:
+        host_ids = [i["id"] for i in input_items if i.get("holes")]
+        fill_ids = [i["id"] for i in input_items if not i.get("holes")]
+        if len(host_ids) == 1 and len(fill_ids) == 1:
+            from core.holefill import meta_slots
+            slots, remaining = meta_slots(input_items, host_ids[0], fill_ids[0])
+            reduced = []
+            for it, ji_ in zip(input_items, jaguar_items):
+                d = ji_["demand"]
+                if it["id"] == fill_ids[0]:
+                    d = remaining
+                reduced.append({**ji_, "demand": d})
+            meta = {"host": host_ids[0], "fill": fill_ids[0], "slots": slots}
+            solve_instance = build_spp_instance(
+                reduced, bin_dims[0][0], bin_dims[0][1], name=slug
+            )
+
     seed = deterministic_seed({
-        "instance": instance,
+        "instance": solve_instance,
         "space": space,
         "budget": time_budget_sec,
     })
@@ -825,6 +851,7 @@ def nesting_process(doc):
                 "color": item.get("color"),
                 "coords": item.get("coords"),
                 "holes": item.get("holes") or [],
+                "count": item.get("count") or 0,
             }
             for item in input_items
         ]
@@ -835,7 +862,10 @@ def nesting_process(doc):
                     "status": "awaiting_local",
                     "localPayload": {
                         "problem": problem_type,
-                        "instance": instance,
+                        "instance": solve_instance,
+                        # J-085 : le navigateur résout l'instance réduite puis
+                        # rattache les fillers en pinwheel (miroir du serveur).
+                        "meta": meta,
                         "engineConfig": engine_config,
                         "parts": payload_parts,
                         # J-082: the client's DXF export must match the server
@@ -925,7 +955,7 @@ def nesting_process(doc):
 
     try:
         engine_alternatives = run_engine(
-            instance, engine_config, problem_type, on_event=_on_engine_event,
+            solve_instance, engine_config, problem_type, on_event=_on_engine_event,
             should_cancel=should_cancel,
         )
     except EngineCancelled:
@@ -969,6 +999,19 @@ def nesting_process(doc):
             },
         )
         raise Exception(information) from e
+
+    # J-085 : expansion meta-pièces — rattache les fillers figés (pinwheel)
+    # aux hôtes posés par le solve réduit, avant reveal + finalisation.
+    if meta:
+        from core.holefill import expand_meta
+        for engine_alt in engine_alternatives:
+            sol = engine_alt.get("solution") or {}
+            if "layouts" not in sol and "layout" in sol:
+                sol = {**sol, "layouts": [sol["layout"]]}
+                engine_alt["solution"] = sol
+            sol["layouts"] = expand_meta(
+                input_items, meta["host"], meta["fill"], meta["slots"], sol["layouts"]
+            )
 
     # Strategy-labelled alternatives — the engine already returns its best
     # distinct layouts, ranked. SPP layouts are inherently max-offcut (used
@@ -1103,6 +1146,22 @@ def nesting_process(doc):
         if rank == 0:
             return "max offcut" if is_spp else "compact"
         return "balanced"
+
+    # J-085 (post-pass hole-fill) : à l'échelle, l'exploration laisse des
+    # fillers empilés hors des trous alors que la capacité existe (la hauteur
+    # est dominée par la colonne d'hôtes → aucune incitation à finir). Après
+    # le solve (rien ne peut le défaire), on complète chaque trou en pinwheel.
+    # Déterministe, validé (overlap/spacing), SPP à trous uniquement.
+    if is_spp and has_holes:
+        from core.holefill import apply_hole_fill
+        for engine_alt in engine_alternatives:
+            sol = engine_alt.get("solution") or {}
+            if "layouts" not in sol and "layout" in sol:
+                sol = {**sol, "layouts": [sol["layout"]]}
+                engine_alt["solution"] = sol
+            n = apply_hole_fill(input_items, sol.get("layouts", []), space)
+            if n:
+                logger.info("hole-fill post-pass relocated fillers", extra={"n": n})
 
     for rank, engine_alt in enumerate(engine_alternatives):
         _finalize_alternative(engine_alt, _strategy_for(engine_alt, rank), rank)
