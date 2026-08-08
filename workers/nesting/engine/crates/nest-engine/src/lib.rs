@@ -1,7 +1,8 @@
 //! nest-engine as a library — the optimization logic, decoupled from the
 //! filesystem. The native CLI (main.rs) and the wasm-bindgen wrapper
-//! (nest-wasm) both call [`run_json`]; stdout still carries the JSON event
-//! stream (a silent sink on wasm32).
+//! (nest-wasm) both call [`run_json`]; the JSON event stream (progress /
+//! layout / evals) goes to an [`progress::EventSink`] — stdout for the CLI,
+//! une callback JS pour le wrapper wasm (vue live navigateur, J-084).
 
 pub mod bpp;
 pub mod config;
@@ -12,6 +13,7 @@ pub mod spp;
 use anyhow::{Context, Result, bail};
 use config::EngineConfig;
 use jagua_rs::probs::spp::io::ext_repr::{ExtSPInstance, ExtSPSolution};
+use progress::{EventSink, stdout_sink};
 use sparrow::util::io::ExtSPOutput;
 
 /// The two documents the file-based CLI writes, as in-memory values.
@@ -21,18 +23,32 @@ pub struct EngineOutput {
 }
 
 /// Runs the engine on JSON strings, returns JSON values. No filesystem.
+/// Events go to stdout — comportement historique du CLI natif (le worker
+/// Python parse ces lignes).
 pub fn run_json(problem: &str, instance_json: &str, config_json: &str) -> Result<EngineOutput> {
+    run_json_with_sink(problem, instance_json, config_json, stdout_sink())
+}
+
+/// Idem avec un sink d'événements custom (J-084) : le wrapper wasm y branche
+/// une callback JS pour la vue live navigateur. Le sink est purement
+/// observationnel — jamais d'effet sur la recherche (déterminisme #14b).
+pub fn run_json_with_sink(
+    problem: &str,
+    instance_json: &str,
+    config_json: &str,
+    sink: EventSink,
+) -> Result<EngineOutput> {
     let config: EngineConfig =
         serde_json::from_str(config_json).context("parsing engine config")?;
     match problem {
         "spp" => {
             let (ext_instance, _warm_start) = parse_spp_input(instance_json)?;
-            spp::run_spp_mem(ext_instance, &config)
+            spp::run_spp_mem(ext_instance, &config, &sink)
         }
         "bpp" => {
             let ext_instance = serde_json::from_str(instance_json)
                 .context("parsing BPP instance")?;
-            bpp::run_bpp_mem(ext_instance, &config)
+            bpp::run_bpp_mem(ext_instance, &config, &sink)
         }
         other => bail!("unsupported problem type: {other}"),
     }
