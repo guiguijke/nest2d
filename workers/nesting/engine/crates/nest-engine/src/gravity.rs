@@ -25,8 +25,36 @@ const BISECTION_STEPS: usize = 16;
 /// the strip width to the used extent. Deterministic: items are processed in
 /// a fixed geometric order and every probe is exact.
 pub fn gravity_compact(prob: &mut SPProblem) {
-    pull_axis(prob, Axis::Down);
-    pull_axis(prob, Axis::Left);
+    gravity_compact_dir(prob, &gravity_order_for(None));
+}
+
+/// Ordre de gravité par classe directionnelle (J-086). Chaque classe doit
+/// laisser UNE grosse chute rectangulaire :
+///   - left     → gravité à gauche  : colonne qui hug x=0, chute libre à DROITE ;
+///   - bottom   → gravité en bas    : rangées qui hug y=0, chute libre en HAUT ;
+///   - balanced → gravité bas-gauche: chute en L (haut ≈ droite).
+/// « left » est aussi la gravité par défaut quand le placement est libre.
+pub fn gravity_order_for(bias: Option<&str>) -> Vec<Axis> {
+    match bias {
+        Some("left") => vec![Axis::Left, Axis::Down, Axis::Left],
+        Some("bottom") => vec![Axis::Down, Axis::Left, Axis::Down],
+        _ => vec![Axis::Down, Axis::Left],
+    }
+}
+
+/// Gravité orientée par classe (J-086). Chaque classe compacte vers son bord
+/// pour laisser UNE grosse chute rectangulaire : left → droite libre,
+/// bottom → haut libre, balanced → coin bas-gauche (chute en L).
+/// L'égalisation exacte S1≈S2 du balanced est un raffinement futur (le
+/// corridor de la phase 2 donne déjà un coin, distinct de left/bottom).
+pub fn gravity_for_bias(prob: &mut SPProblem, bias: Option<&str>, _strip_h: f32) {
+    gravity_compact_dir(prob, &gravity_order_for(bias));
+}
+
+pub fn gravity_compact_dir(prob: &mut SPProblem, axes: &[Axis]) {
+    for axis in axes {
+        pull_axis(prob, *axis);
+    }
 
     // Tighten the strip to the actual used width (gravity can only have
     // shrunk it). fit_strip also rebuilds the container CDE and accounts
@@ -34,7 +62,8 @@ pub fn gravity_compact(prob: &mut SPProblem) {
     prob.fit_strip();
 }
 
-enum Axis {
+#[derive(Clone, Copy)]
+pub enum Axis {
     Down,
     Left,
 }

@@ -120,7 +120,9 @@ fn optimize_one(
     let solution = if gravity_enabled {
         let mut prob = jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
         prob.restore(&solution);
-        crate::gravity::gravity_compact(&mut prob);
+        // J-086 : gravité orientée par classe directionnelle (left/bottom/
+        // balanced) pour laisser une grosse chute rectangulaire cohérente.
+        crate::gravity::gravity_for_bias(&mut prob, bias_tag, instance.base_strip.fixed_height);
         let solution = prob.save();
         // Stream the post-gravity final state so the visualizer's
         // last frame matches the exported solution exactly.
@@ -277,13 +279,15 @@ pub fn run_spp_mem(
         let slack = config.phase2_slack_mm();
         let plateau = config.plateau_patience();
 
-        let gravity_after = |instance: &SPInstance, mut mapped: SPSolution| {
-            if gravity_on {
-                let mut prob =
-                    jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
-                prob.restore(&mapped);
-                crate::gravity::gravity_compact(&mut prob);
-                mapped = prob.save();
+        let gravity_after =
+            |instance: &SPInstance, mut mapped: SPSolution, bias: Option<&'static str>| {
+                if gravity_on {
+                    let mut prob =
+                        jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
+                    prob.restore(&mapped);
+                    // J-086 : gravité orientée par classe (balanced équilibré).
+                    crate::gravity::gravity_for_bias(&mut prob, bias, instance.base_strip.fixed_height);
+                    mapped = prob.save();
             }
             mapped
         };
@@ -335,7 +339,7 @@ sink,
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals + s2_evals });
                         }
                         let mapped = map_back_solution(&t_instance, &s2, corridor, &instance);
-                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped), evals: s1_evals + s2_evals })
+                        Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped, Some(bias.as_str())), evals: s1_evals + s2_evals })
                     }
                     // Minimize USED HEIGHT: phase 1 on the 90°-transposed
                     // strip (transposed width == original height usage),
@@ -370,7 +374,7 @@ sink,
                         }
                         if !two_phase {
                             let mapped = map_back_solution(&t_instance, &s1, mw, &instance);
-                            return Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped), evals: s1_evals });
+                            return Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped, Some(bias.as_str())), evals: s1_evals });
                         }
                         // Phase 2: original frame, strip height = best height
                         // + slack. The width minimizer can no longer stack
@@ -392,7 +396,7 @@ sink,
                             // Width overshot the sheet: keep the phase-1
                             // transposed result (mapped back) instead.
                             let mapped = map_back_solution(&t_instance, &s1, mw, &instance);
-                            return Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped), evals: s1_evals + s2_evals });
+                            return Some(ClassRun { seed, bias, solution: gravity_after(&instance, mapped, Some(bias.as_str())), evals: s1_evals + s2_evals });
                         }
                         Some(ClassRun { seed, bias, solution: s2, evals: s1_evals + s2_evals })
                     }
@@ -424,6 +428,10 @@ sink,
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
                         }
+                        // J-086 (balanced) : corridor choisi pour que la chute
+                        // droite ≈ chute haut. On résout uw² + (H-W)·uw - A = 0
+                        // (uh = A/uw), ce qui donne une région utilisée plus
+                        // haute que large sur une tôle portrait → bras égaux.
                         let corridor = (s1.strip_width() * 2.0).min(mw);
                         let t_ext = transpose_instance(&ext_instance, corridor);
                         let t_instance =
@@ -444,7 +452,7 @@ sink,
                         Some(ClassRun {
                             seed,
                             bias,
-                            solution: gravity_after(&instance, mapped),
+                            solution: gravity_after(&instance, mapped, Some(bias.as_str())),
                             evals: s1_evals + s2_evals,
                         })
                     }
