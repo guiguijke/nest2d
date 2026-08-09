@@ -12,9 +12,9 @@
 
 | Mode | Où va le fichier | Qui peut lire le clair | Statut |
 |---|---|---|---|
-| **Local** | Ne quitte jamais la machine (calcul WASM navigateur) | L'utilisateur uniquement | [conditionnel — Phase 2] |
+| **Local** | Fichier source **uploadé et parsé côté serveur** (copie mm) ; solve WASM navigateur ; **les résultats ne quittent jamais le navigateur** (IndexedDB, quota = scalaires bornés) | Le serveur voit la géométrie d'entrée au parsing ; la géométrie résultat ne sort jamais | [prod — flag ON 2026-08-08] ; import 100 % client = [spéc] |
 | **Serveur** | Serveur NestorCut, chiffré avec la clé utilisateur | Le serveur, en RAM volatile, uniquement pendant le job | [spéc] |
-| **Vault ZK** | Serveur, chiffré au repos (AES-256-GCM, clé détenue par l'utilisateur) | Le serveur en RAM pendant une session déverrouillée ; personne au repos | [prod — gate tier à retirer, Phase 1] |
+| **Vault ZK** | Serveur, chiffré au repos (AES-256-GCM, clé détenue par l'utilisateur) | Le serveur en RAM pendant une session déverrouillée ; personne au repos | [prod — gate tier retiré, Phase 1 livrée J-055] |
 
 **Écarté** : DXF simplifié/anonymisé — la densité exige la géométrie exacte
 et le contour de la pièce EST le secret.
@@ -23,8 +23,20 @@ et le contour de la pièce EST le secret.
 
 ### Mode Local
 
-- ✅ « Files never leave your machine. » — vrai par construction.
-- TODO Phase 2 : vérifier qu'aucune télémétrie ne fuit de géométrie.
+Livré (flag ON 2026-08-08) :
+
+- ✅ « Le calcul tourne sur votre appareil » (solve WASM navigateur,
+  mono-walk).
+- ✅ « Les résultats ne quittent jamais votre navigateur » (artefacts
+  construits côté client, IndexedDB ; le serveur ne reçoit que des
+  scalaires de quota bornés — verrou : docs/LOCAL-MODE-PR5.md, test
+  d'acceptation « zéro géométrie sortante »).
+- ❌ INTERDIT aujourd'hui : « files never leave your machine / vos fichiers
+  ne quittent pas le navigateur » — les fichiers sources sont uploadés pour
+  le parsing serveur. Autorisé seulement quand l'import 100 % client
+  (nest-import wasm câblé dans l'upload) sera en prod ET vérifié (règle
+  « flag vérifié en prod avant publication »).
+- TODO : vérifier qu'aucune télémétrie ne fuit de géométrie en Mode Local.
 
 ### Mode Serveur
 
