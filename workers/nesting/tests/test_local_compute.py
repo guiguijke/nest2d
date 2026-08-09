@@ -5,6 +5,7 @@ exact engine payload (instance + config, deterministic seed) and mark the job
 
 Run: PYTHONPATH=workers/common:workers/nesting python -m pytest workers/nesting/tests/test_local_compute.py -q
 """
+import math
 import sys
 import types
 from pathlib import Path
@@ -79,6 +80,12 @@ def _square(cx, cy, s):
     return [[cx - s, cy - s], [cx + s, cy - s], [cx + s, cy + s], [cx - s, cy + s], [cx - s, cy - s]]
 
 
+def _ring(r, n=32):
+    pts = [[r * math.cos(2 * math.pi * i / n), r * math.sin(2 * math.pi * i / n)] for i in range(n)]
+    pts.append(pts[0])
+    return pts
+
+
 def test_local_job_is_prepared_not_solved(monkeypatch):
     jobs = FakeCollection([_job_doc()])
     fake_db = FakeDb(nesting_jobs=jobs)
@@ -130,6 +137,56 @@ def test_local_job_is_prepared_not_solved(monkeypatch):
     assert "progress" in jobs.unsets
     # itemMap is still written during prep (the modal/live view needs it).
     assert any("itemMap" in s for s in jobs.sets)
+
+
+def test_local_holes_meta_prepass_keeps_instance_importable(monkeypatch):
+    """Prod regression 2026-08-09 (J-085) : filler uploadé EN PREMIER (id 0)
+    et tous les fillers tiennent dans les meta-slots (remaining=0). jagua
+    droppe les items à demande 0 puis exige des ids consécutifs depuis 0 —
+    sans réindexation, l'import casse (« consecutive IDs ») et le job échoue,
+    serveur comme navigateur. Le verrou : l'instance réduite ne porte que
+    l'hôte, réindexé 0, trous fermés, avec l'idMap de re-mapping."""
+    jobs = FakeCollection([_job_doc()])
+    fake_db = FakeDb(nesting_jobs=jobs)
+    monkeypatch.setattr(m, "db", fake_db)
+    monkeypatch.setattr(m, "get_dek", lambda db, owner: None)
+    monkeypatch.setattr(
+        m,
+        "convert_files_to_input_items",
+        lambda files, dek: [
+            # carré 10×10 posé dans un quadrant (coin en (1.5,1.5)) : les 4
+            # rotations pinwheel laissent ~3 mm d'espacement → capacité 4.
+            {"id": 0, "file_slug": "fill", "coords": _square(6.5, 6.5, 5), "holes": [],
+             "handles": [], "color": None, "count": 1,
+             "rotations": [0.0, 90.0, 180.0, 270.0]},
+            {"id": 1, "file_slug": "host", "coords": _square(0, 0, 50), "holes": [_ring(35.0)],
+             "handles": [], "color": None, "count": 1,
+             "rotations": [0.0, 90.0, 180.0, 270.0]},
+        ],
+    )
+
+    def forbidden_run_engine(*a, **kw):
+        raise AssertionError("run_engine must never run for a local job")
+
+    monkeypatch.setattr(m, "run_engine", forbidden_run_engine)
+
+    m.nesting_process(jobs.docs[0])
+
+    payload = jobs.docs[0]["localPayload"]
+    items = payload["instance"]["items"]
+    # Un seul item résolu : l'hôte, réindexé 0 (jagua l'exige), demande pleine.
+    assert [i["id"] for i in items] == [0]
+    assert items[0]["demand"] == 1
+    # Hôte résolu trous FERMÉS : shape = anneau externe propre, sans canal —
+    # sinon le moteur placerait les fillers restants dans des trous que
+    # l'expansion remplit ensuite (double-remplissage = overlaps réels).
+    assert items[0]["shape"]["data"] == _square(0, 0, 50)
+    meta = payload["meta"]
+    assert meta["idMap"] == [1]  # id réduit 0 → id d'origine 1
+    assert meta["host"] == 1 and meta["fill"] == 0
+    assert meta["slots"] == [1]
+    # Petit carré dans un trou Ø70 à space 2 : pinwheel plein validé.
+    assert len(meta["ringRotations"][0]) == 4
 
 
 def test_adaptive_plateau_patience():
