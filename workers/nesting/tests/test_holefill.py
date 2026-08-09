@@ -89,3 +89,37 @@ def test_meta_expand_attaches_fillers_to_hosts():
     # rotations = pinwheel + rotation de l'hôte (0 et 90)
     rots = sorted(pi["transformation"]["rotation"] % 360 for pi in expanded[0]["placed_items"][2:])
     assert rots == sorted([0, 90, 180, 270] + [90, 180, 270, 0])
+
+
+def test_pinwheel_capacity_fixture_sector_full():
+    from core.holefill import pinwheel_capacity
+    # secteur 5°..85° r=28 dans trou Ø70 à space 2 : les 4 rotations valident.
+    assert pinwheel_capacity(HOST["holes"][0], FILL["coords"], 2.0) == [0.0, 90.0, 180.0, 270.0]
+
+
+def test_pinwheel_capacity_rejects_oversized_filler():
+    from core.holefill import pinwheel_capacity
+    big = [(-40, -40), (40, -40), (40, 40), (-40, 40), (-40, -40)]
+    assert pinwheel_capacity(HOST["holes"][0], big, 2.0) == []
+
+
+def test_pinwheel_capacity_partial_when_siblings_overlap():
+    from core.holefill import pinwheel_capacity
+    # rectangle 60×10 : chaque rotation tient seule dans le trou, mais deux
+    # copies pivotées se chevauchent au centre → une seule retenue.
+    rect = [(-30, -5), (30, -5), (30, 5), (-30, 5), (-30, -5)]
+    assert pinwheel_capacity(HOST["holes"][0], rect, 2.0) == [0.0]
+
+
+def test_pinwheel_capacity_respects_allowed_orientations():
+    from core.holefill import pinwheel_capacity
+    rots = pinwheel_capacity(HOST["holes"][0], FILL["coords"], 2.0, allowed={0.0, 180.0})
+    assert rots == [0.0, 180.0]
+
+
+def test_meta_expand_uses_validated_rotations_only():
+    from core.holefill import expand_meta
+    layouts = [{"placed_items": [_t(0, 0, 0, 0)]}]
+    expanded = expand_meta([HOST, FILL], 0, 1, [2], layouts, [[0.0, 180.0]])
+    rots = sorted(pi["transformation"]["rotation"] for pi in expanded[0]["placed_items"][1:])
+    assert rots == [0.0, 180.0]
