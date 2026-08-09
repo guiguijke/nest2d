@@ -733,29 +733,69 @@ def nesting_process(doc):
 
     # J-085 (pre-pass meta-pièces) : pour un job SPP à trous « 1 type d'hôte +
     # 1 type de filler », on résout UNE fois des blocs déjà pleins (hôtes +
-    # fillers figés en pinwheel dans le trou) plutôt que de disperser les
-    # fillers puis re-compacter (CPU gaspillé, colonne espacée). L'instance
+    # fillers figés en pinwheel validé dans le trou) plutôt que de disperser
+    # les fillers puis re-compacter (CPU gaspillé, colonne espacée). L'instance
     # résolue ne porte que les hôtes (+ fillers restants) ; l'expansion
     # rattache les fillers après le solve. Compact ET trous pleins, un seul
-    # passe de solve.
+    # passage de solve. Trois invariants, tous verrouillés au banc
+    # (seed_holes) et par test_holefill/test_local_compute :
+    #  - capacité pinwheel VALIDÉE (pinwheel_capacity, sémantique exacte du
+    #    moteur, piège #3) — jamais de filler attaché en chevauchement ;
+    #  - hôte résolu TROUS FERMÉS : les trous sont pré-remplis par l'expansion,
+    #    les laisser ouverts dans l'instance réduite laisserait le moteur y
+    #    placer les fillers restants (double-remplissage = overlaps réels) ;
+    #    corollaire : le pre-pass ne s'engage que si le pinwheel validé remplit
+    #    TOUT le trou (toutes les rotations permises, tous les anneaux) — une
+    #    capacité partielle relèverait du solve à trous ouverts + post-pass
+    #    (sinon les slots non pré-remplis restent vides : trou sous-rempli) ;
+    #  - ids RÉINDEXÉS consécutifs : jagua droppe les items à demande 0 puis
+    #    exige des ids 0..n-1 (import error « consecutive IDs » quand le filler
+    #    droppé n'est pas le dernier id — panne prod 2026-08-09). meta["idMap"]
+    #    (index = id réduit → id d'origine) re-mappe solutions et live frames.
     meta = None
     solve_instance = instance
     if is_spp and has_holes:
         host_ids = [i["id"] for i in input_items if i.get("holes")]
         fill_ids = [i["id"] for i in input_items if not i.get("holes")]
         if len(host_ids) == 1 and len(fill_ids) == 1:
-            from core.holefill import meta_slots
-            slots, remaining = meta_slots(input_items, host_ids[0], fill_ids[0])
-            reduced = []
-            for it, ji_ in zip(input_items, jaguar_items):
-                d = ji_["demand"]
-                if it["id"] == fill_ids[0]:
-                    d = remaining
-                reduced.append({**ji_, "demand": d})
-            meta = {"host": host_ids[0], "fill": fill_ids[0], "slots": slots}
-            solve_instance = build_spp_instance(
-                reduced, bin_dims[0][0], bin_dims[0][1], name=slug
-            )
+            from core.holefill import PINWHEEL, meta_slots, pinwheel_capacity
+            host_item = next(i for i in input_items if i["id"] == host_ids[0])
+            fill_item = next(i for i in input_items if i["id"] == fill_ids[0])
+            fill_rotations = set(fill_item.get("rotations") or PINWHEEL)
+            allowed_rots = [r for r in PINWHEEL if r in fill_rotations]
+            ring_rotations = [
+                pinwheel_capacity(ring, fill_item["coords"], space, allowed=fill_rotations)
+                for ring in (host_item["holes"] or [])
+            ]
+            capacity = sum(len(rr) for rr in ring_rotations)
+            full = bool(ring_rotations) and all(len(rr) == len(allowed_rots) for rr in ring_rotations)
+            if capacity and full:
+                slots, remaining = meta_slots(
+                    input_items, host_ids[0], fill_ids[0], capacity
+                )
+                reduced = []
+                id_map = []  # index = id dans l'instance réduite → id d'origine
+                for it, ji_ in zip(input_items, jaguar_items):
+                    d = remaining if it["id"] == fill_ids[0] else ji_["demand"]
+                    if d <= 0:
+                        continue  # jagua dropperait l'item : ne jamais l'émettre
+                    entry = {**ji_, "demand": d, "id": len(reduced)}
+                    if it["id"] == host_ids[0]:
+                        # Hôte fermé : anneau externe propre, sans canal — le
+                        # trou est pré-rempli par l'expansion.
+                        entry["shape"] = {"type": "simple_polygon", "data": it["coords"]}
+                    reduced.append(entry)
+                    id_map.append(it["id"])
+                meta = {
+                    "host": host_ids[0],
+                    "fill": fill_ids[0],
+                    "slots": slots,
+                    "ringRotations": ring_rotations,
+                    "idMap": id_map,
+                }
+                solve_instance = build_spp_instance(
+                    reduced, bin_dims[0][0], bin_dims[0][1], name=slug
+                )
 
     seed = deterministic_seed({
         "instance": solve_instance,
@@ -896,6 +936,15 @@ def nesting_process(doc):
             return
         _last_live_write[0] = now
         try:
+            items = event.get("items", [])
+            if meta and items:
+                # J-085 : l'instance résolue est réindexée — la vue live
+                # (itemMap, ids d'origine) ne connaît que les ids d'origine.
+                id_map = meta["idMap"]
+                items = [
+                    [id_map[i[0]] if isinstance(i[0], int) and 0 <= i[0] < len(id_map) else i[0], *i[1:]]
+                    for i in items
+                ]
             live = {
                 "stage": stage,
                 "worker": event.get("worker"),
@@ -910,7 +959,7 @@ def nesting_process(doc):
                 # Sheet frame(s) so the browser can draw the sheet(s).
                 "sheets": [[float(s.get("width")), float(s.get("height"))] for s in sheets],
                 "isSpp": is_spp,
-                "items": event.get("items", []),
+                "items": items,
             }
             db["nesting_jobs"].update_one(
                 {"_id": doc.get("_id")},
@@ -1000,17 +1049,27 @@ def nesting_process(doc):
         )
         raise Exception(information) from e
 
-    # J-085 : expansion meta-pièces — rattache les fillers figés (pinwheel)
-    # aux hôtes posés par le solve réduit, avant reveal + finalisation.
+    # J-085 : expansion meta-pièces — rattache les fillers figés (pinwheel
+    # validé) aux hôtes posés par le solve réduit, avant reveal + finalisation.
     if meta:
         from core.holefill import expand_meta
+        id_map = meta["idMap"]
         for engine_alt in engine_alternatives:
             sol = engine_alt.get("solution") or {}
             if "layouts" not in sol and "layout" in sol:
                 sol = {**sol, "layouts": [sol["layout"]]}
                 engine_alt["solution"] = sol
+            layouts = sol.get("layouts") or []
+            # ids réduits → ids d'origine : tout l'aval (expansion, vérifs,
+            # métriques, exports) ne connaît que les ids d'input_items.
+            for layout in layouts:
+                for pi in layout.get("placed_items", []):
+                    pid = pi.get("item_id")
+                    if isinstance(pid, int) and 0 <= pid < len(id_map):
+                        pi["item_id"] = id_map[pid]
             sol["layouts"] = expand_meta(
-                input_items, meta["host"], meta["fill"], meta["slots"], sol["layouts"]
+                input_items, meta["host"], meta["fill"], meta["slots"],
+                layouts, meta["ringRotations"],
             )
 
     # Strategy-labelled alternatives — the engine already returns its best

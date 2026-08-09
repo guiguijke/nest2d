@@ -1,16 +1,26 @@
-"""J-085 — post-pass « hole-fill » déterministe (partagée serveur + client).
+"""J-085 — trou-filling à l'échelle (partagée serveur + client).
 
-À l'échelle, le solve laisse des fillers empilés hors des trous alors que la
-capacité existe (4 secteurs/trou) : l'exploration n'a aucune incitation à
-finir de remplir (la hauteur est dominée par la colonne d'hôtes). Ce pass,
-appliqué APRÈS le solve (rien ne peut le défaire), complète chaque trou en
-pinwheel (rotations 0/90/180/270 autour du centre monde du trou), avec
-validation exacte (dans le trou avec marge, spacing entre fillers, dans la
-tôle). La convention de transform est celle de parse_result_containers :
+Deux passes complémentaires :
+- **pre-pass meta-pièces** (`pinwheel_capacity` / `meta_slots` / `expand_meta`) :
+  le solve ne porte que les hôtes (trous FERMÉS) + les fillers restants ; les
+  fillers figés sont rattachés après le solve. La capacité du pinwheel est
+  VALIDÉE géométriquement une fois en coords locales (invariante par
+  rotation/translation de l'hôte posé) avec la sémantique exacte du moteur —
+  jamais de filler attaché en chevauchement ;
+- **post-pass** (`apply_hole_fill`) : après le solve (rien ne peut le
+  défaire), recomplète en pinwheel les trous restés vides — filet de
+  sécurité validé pour les jobs hors périmètre meta.
+
+Validation d'ajustement (piège #3) : l'inflation jagua ±space/2 des DEUX
+côtés impose filler ⊆ trou ⊖ space et distance ≥ space entre fillers. Toute
+validation érode donc le trou de `space` en entier (pas space/2 : le
+candidat est testé non-inflaté).
+
+La convention de transform est celle de parse_result_containers :
 monde = R(rot)·local + translation, appliquée AS-IS au repère d'origine —
 le secteur a son centre d'arc en (0,0), donc translation = centre du trou.
 
-Miroir navigateur : app/composables/localBridge.js (applyHoleFillPostPass).
+Miroir navigateur : app/composables/localBridge.js (applyHoleFill/expandMeta).
 """
 import math
 
@@ -19,8 +29,9 @@ from shapely.affinity import rotate, translate
 
 PINWHEEL = (0.0, 90.0, 180.0, 270.0)
 CAPACITY = 4
-WALL_MARGIN = 1.0   # marge paroi du trou (mm)
-FILLER_GAP = 2.0    # spacing entre fillers d'un même trou (mm)
+# Bruit de mesure overlap (mm²) — en dessous c'est du contact, pas un
+# chevauchement (aligné sur metrics.OVERLAP_EPS_MM2).
+OVERLAP_EPS = 0.01
 
 
 def _placed(item, rot_deg, tx, ty):
@@ -33,11 +44,52 @@ def _centroid(ring):
     return (sum(xs) / len(xs), sum(ys) / len(ys))
 
 
+def _violates_spacing(cand, placed, space):
+    """True si cand est à moins de `space` d'un placement (ou le chevauche
+    quand space == 0 — le contact y est permis)."""
+    for q in placed:
+        if space > 0:
+            if cand.buffer(space / 2).intersects(q.buffer(space / 2)):
+                return True
+        elif cand.intersection(q).area > OVERLAP_EPS:
+            return True
+    return False
+
+
+def pinwheel_capacity(hole_ring, filler_coords, space, allowed=None):
+    """Rotations du pinwheel VALIDÉES pour un filler dans un trou, calculées
+    une fois en coords LOCALES (la validité est invariante par la transform
+    de l'hôte posé). Sémantique exacte du moteur : trou érodé de `space`,
+    espacement ≥ `space` entre fillers (piège #3). `allowed` restreint aux
+    orientations permises de l'item (défaut : les 4). Ordre pinwheel
+    conservé ; [] si aucune rotation ne valide (trou trop petit, forme
+    inadaptée) — l'appelant doit alors renoncer au pre-pass meta."""
+    rots = [r for r in PINWHEEL if allowed is None or r in allowed]
+    hole = Polygon(hole_ring)
+    inner = hole.buffer(-float(space)) if space > 0 else hole
+    if inner.is_empty:
+        return []
+    cx, cy = _centroid(hole_ring)
+    filler = Polygon(filler_coords)
+    valid, placed = [], []
+    for rot in rots:
+        cand = translate(rotate(filler, rot, origin=(0, 0)), cx, cy)
+        if not inner.contains(cand):
+            continue
+        if _violates_spacing(cand, placed, space):
+            continue
+        valid.append(rot)
+        placed.append(cand)
+    return valid
+
+
 def apply_hole_fill(input_items, layouts, space):
     """Rewrite in-place les transforms des fillers libres replacés en
     pinwheel dans un trou ayant de la place. Renvoie le nb de fillers
-    relocalisés. Déterministe : ordre de parcours des layouts/placements. """
+    relocalisés. Déterministe : ordre de parcours des layouts/placements.
+    Validation exacte : trou érodé de `space`, spacing ≥ `space`."""
     by_id = {i["id"]: i for i in input_items}
+    space = float(space or 0)
     placed = []  # [layout][k] = (item, rot, tx, ty, poly)
     for layout in layouts:
         row = []
@@ -82,7 +134,9 @@ def apply_hole_fill(input_items, layouts, space):
         cur = hole_members[hi]
         if len(cur) >= CAPACITY or len(free) < CAPACITY - len(cur):
             continue  # déjà plein, ou pas assez de fillers libres
-        inner = hw.buffer(-WALL_MARGIN)
+        inner = hw.buffer(-space) if space > 0 else hw
+        if inner.is_empty:
+            continue
         cx, cy = hw.centroid.x, hw.centroid.y
         pool = cur + free[: CAPACITY - len(cur)]
         new_polys = []
@@ -92,7 +146,7 @@ def apply_hole_fill(input_items, layouts, space):
             if not inner.contains(cand):
                 ok = False
                 break
-            if any(cand.buffer(FILLER_GAP / 2).intersects(q.buffer(FILLER_GAP / 2)) for q in new_polys):
+            if _violates_spacing(cand, new_polys, space):
                 ok = False
                 break
             new_polys.append(cand)
@@ -111,8 +165,10 @@ def apply_hole_fill(input_items, layouts, space):
 
 def meta_slots(input_items, host_id, fill_id, capacity=CAPACITY):
     """Répartition des fillers en meta-pièces : chaque hôte reçoit jusqu'à
-    `capacity` fillers figés dans son trou. Renvoie (liste des k par position
-    d'hôte, fillers restants) — liste pour être BSON/JSON-serialisable."""
+    `capacity` fillers figés dans son trou — la capacité VALIDÉE
+    (pinwheel_capacity), jamais la capacité théorique. Renvoie (liste des k
+    par position d'hôte, fillers restants) — liste pour être
+    BSON/JSON-serialisable."""
     host_qty = next(i["count"] for i in input_items if i["id"] == host_id)
     fill_qty = next(i["count"] for i in input_items if i["id"] == fill_id)
     per = []
@@ -124,13 +180,18 @@ def meta_slots(input_items, host_id, fill_id, capacity=CAPACITY):
     return per, remaining
 
 
-def expand_meta(items, host_id, fill_id, slots, layouts):
-    """Attache les fillers figés (pinwheel) aux hôtes posés. Convention AS-IS :
-    monde = R(rot)·local + t. La rotation/translation de l'hôte entraîne les
-    fillers : world_f = R(hrot+frot)·x + (R(hrot)·C + ht). Déterministe."""
+def expand_meta(items, host_id, fill_id, slots, layouts, ring_rotations=None):
+    """Attache les fillers figés (pinwheel validé) aux hôtes posés.
+    Convention AS-IS : monde = R(rot)·local + t. La rotation/translation de
+    l'hôte entraîne les fillers : world_f = R(hrot+frot)·x + (R(hrot)·C + ht).
+    `ring_rotations[r]` = rotations validées pour l'anneau r
+    (pinwheel_capacity) ; None = pinwheel plein (legacy/tests). Les slots
+    d'un hôte sont distribués anneau par anneau dans l'ordre. Déterministe."""
     by_id = {i["id"]: i for i in items}
     host = by_id[host_id]
     hole_rings = host["holes"] or []
+    if ring_rotations is None:
+        ring_rotations = [list(PINWHEEL) for _ in hole_rings]
     out_layouts = []
     hi = 0
     for layout in layouts:
@@ -140,23 +201,25 @@ def expand_meta(items, host_id, fill_id, slots, layouts):
                 continue
             tr = pi["transformation"]
             hrot, hx, hy = tr["rotation"], tr["translation"][0], tr["translation"][1]
-            k = slots[hi] if hi < len(slots) else 0
+            budget = slots[hi] if hi < len(slots) else 0
             hi += 1
-            for s in range(k):
-                # répartition des slots par trou (4 pinwheel par trou max)
-                ring = hole_rings[s // len(PINWHEEL)] if hole_rings else None
-                if ring is None:
-                    continue
+            r = math.radians(hrot)
+            cos_r, sin_r = math.cos(r), math.sin(r)
+            for ring, rots in zip(hole_rings, ring_rotations):
+                if budget <= 0:
+                    break
                 c = _centroid(ring)
-                frot = PINWHEEL[s % len(PINWHEEL)]
-                # R(hrot)·C + (hx,hy)
-                r = math.radians(hrot)
-                rx = math.cos(r) * c[0] - math.sin(r) * c[1] + hx
-                ry = math.sin(r) * c[0] + math.cos(r) * c[1] + hy
-                new_items.append({
-                    "item_id": fill_id,
-                    "transformation": {"rotation": hrot + frot, "translation": [rx, ry]},
-                })
+                # R(hrot)·C + (hx,hy) — centre du trou en monde
+                rx = cos_r * c[0] - sin_r * c[1] + hx
+                ry = sin_r * c[0] + cos_r * c[1] + hy
+                for frot in rots:
+                    if budget <= 0:
+                        break
+                    new_items.append({
+                        "item_id": fill_id,
+                        "transformation": {"rotation": hrot + frot, "translation": [rx, ry]},
+                    })
+                    budget -= 1
         out_layouts.append({**layout, "placed_items": new_items})
     return out_layouts
 
