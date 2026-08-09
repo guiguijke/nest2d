@@ -4,6 +4,7 @@ import {
     sheetDims,
     layoutTransforms,
     toServerShapeAlternatives,
+    expandMeta,
 } from '../composables/localBridge'
 
 // Sortie moteur brute (forme jagua) : SPP = solution.layout (singulier),
@@ -140,5 +141,40 @@ describe('toServerShapeAlternatives (forme consommée par ResultModal)', () => {
     it('artefact manquant ⇒ alternative sautée (jamais de throw)', () => {
         const alts = toServerShapeAlternatives(bppResult, payload, [null])
         expect(alts).toEqual([])
+    })
+})
+
+describe('expandMeta (miroir holefill.py, J-085)', () => {
+    // Hôte 100×100 avec trou circulaire approché, posé en (100, 100) rot 0.
+    const ring = Array.from({ length: 8 }, (_, i) => {
+        const a = (2 * Math.PI * i) / 8
+        return [35 * Math.cos(a), 35 * Math.sin(a)]
+    })
+    const parts = [
+        { id: 0, coords: [[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]], holes: [] },
+        { id: 1, coords: [[-50, -50], [50, -50], [50, 50], [-50, 50], [-50, -50]], holes: [ring] },
+    ]
+    const layouts = [{
+        placed_items: [{ item_id: 1, transformation: { rotation: 90, translation: [100, 100] } }],
+    }]
+
+    it('ringRotations validées seulement, entraînées par la rotation de l’hôte', () => {
+        const out = expandMeta(parts, 1, 0, [2], layouts, [[0, 180]])
+        expect(out[0].placed_items).toHaveLength(3)
+        const added = out[0].placed_items.slice(1)
+        // rotations = hrot + frot ; centre du trou entraîné par R(90)·(0,0)+(100,100)
+        expect(added.map((p) => p.transformation.rotation)).toEqual([90, 270])
+        expect(added[0].transformation.translation[0]).toBeCloseTo(100, 10)
+        expect(added[0].transformation.translation[1]).toBeCloseTo(100, 10)
+        // item_id du filler = id d'origine (number)
+        expect(added[0].item_id).toBe(0)
+    })
+
+    it('sans ringRotations (legacy) : pinwheel plein', () => {
+        const out = expandMeta(parts, 1, 0, [4], [{
+            placed_items: [{ item_id: 1, transformation: { rotation: 0, translation: [0, 0] } }],
+        }])
+        expect(out[0].placed_items).toHaveLength(5)
+        expect(out[0].placed_items.slice(1).map((p) => p.transformation.rotation)).toEqual([0, 90, 180, 270])
     })
 })

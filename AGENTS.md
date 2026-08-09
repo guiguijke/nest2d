@@ -71,9 +71,23 @@ admin/                 (back-office Nuxt)
    et le moteur panique dans un thread rayon (« Offset resulted in an empty
    polygon », opaque). Garde côté Python avant `run_engine` (exception
    explicite : réduire l'espacement ou ajouter pièces/stock).
-3. **`min_item_separation` = inflation jagua** (exacte, ±space/2). Toute
-   validation d'ajustement (filler dans trou) doit éroder le trou de
-   space/2, sinon promesses non tenables.
+3. **`min_item_separation` = inflation jagua** (exacte, ±space/2 de chaque
+   côté → séparation totale `space`). Toute validation d'ajustement (filler
+   dans trou) doit garantir **distance ≥ `space` à la paroi** : candidat NON
+   inflaté ⇒ éroder le trou de `space` en entier (adjonction dilation/
+   érosion : filler ⊕ space/2 ⊆ trou ⊖ space/2 ⟺ filler ⊆ trou ⊖ space) ;
+   candidat inflaté de space/2 ⇒ éroder de space/2. Sinon promesses non
+   tenables (spacingOk=False au rapport).
+3b. **jagua droppe les items à demande 0 puis exige des ids consécutifs** :
+   l'importeur SPP fait `retain(demand > 0)` PUIS `ensure!(id == index)` —
+   une instance réduite (pre-pass meta-pièces J-085) doit être **réindexée
+   0..n-1** après suppression d'un item, et `meta["idMap"]` re-mappe
+   solutions et live frames vers les ids d'origine. Sinon « importing SPP
+   instance … consecutive IDs » → job en échec, serveur ET navigateur
+   (panne prod 2026-08-09, filler uploadé avant l'hôte). Corollaire J-085 :
+   l'hôte de l'instance réduite est résolu **trous fermés** (anneau externe
+   propre) — ouverts, le moteur y placerait les fillers restants que
+   l'expansion y rattache ensuite (double-remplissage = overlaps réels).
 4. **Polygones placés = anneau externe MOINS les trous.** Avec l'anneau
    externe seul, un filler niché « intersecte » le matériau fantôme du hôte
    (faux badges overlap/gap 0). `_placed_polygon` inclut les trous.

@@ -73,7 +73,19 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     // dans le navigateur (test d'acceptation : réseau coupé après payload).
     const sources = await fetchSources(payload)
 
-    const outcome = await runInWorker(jobSlug, payload, { onLive })
+    // J-085 : l'instance réduite est réindexée — les frames live du moteur
+    // portent les ids réduits, la vue live (itemMap) les ids d'origine.
+    const idMap = payload?.meta?.idMap
+    const liveHandler = !onLive
+        ? undefined
+        : Array.isArray(idMap)
+            ? (evt) => onLive({
+                ...evt,
+                items: (evt?.items || []).map((it) => [idMap[it[0]] ?? it[0], ...it.slice(1)]),
+              })
+            : onLive
+
+    const outcome = await runInWorker(jobSlug, payload, { onLive: liveHandler })
     if (!outcome.ok) {
         // Échec (engine, memory_cap, crash) = refund, pas de quota consommé.
         await $fetch(`/api/results/${jobSlug}/local-fail`, {
