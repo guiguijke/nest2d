@@ -4,6 +4,12 @@
  *   in : { instance, engineConfig, seed, live? }  (engine payload from server)
  *   out: { ok: true, result, memory } | { ok: false, error, memory }
  *        + frames intermédiaires (J-084, vue live) : { live: <event> }
+ *   in : { id, op: 'merge', merge } (J-093, pool multi-walks) — fusion des
+ *        alternatives de N walks par le moteur lui-même (export wasm
+ *        merge_alternatives ; AUCUN rang n'est recalculé en JS).
+ *   out: { id, ok: true, result: <string JSON brute> } — le parse est côté
+ *        appelant — | { id, ok: false, error }
+ * Sans `op`, le comportement est strictement celui d'origine (runInWorker).
  * The module is loaded once and reused across jobs.
  */
 import init, { run_nesting, run_nesting_live, wasm_memory_pages } from '/engine/nest_wasm.js'
@@ -15,7 +21,27 @@ let ready = null
 const MEMORY_CAP_PAGES = (1024 * 1024 * 1024) / 65536
 
 self.onmessage = async (event) => {
-    const { jobSlug, instance, engineConfig, seed, live } = event.data || {}
+    const { id, jobSlug, op, merge, instance, engineConfig, seed, live } = event.data || {}
+    // J-093 : fusion des alternatives du pool de walks. Import dynamique
+    // volontaire : un bundle wasm antérieur à J-093 ne déclare pas l'export
+    // — un import statique casserait le LINK du module et donc le chemin de
+    // solve existant ; ici l'absence devient une erreur propre côté appelant.
+    if (op === 'merge') {
+        try {
+            ready = ready || init()
+            await ready
+            const mod = await import('/engine/nest_wasm.js')
+            if (typeof mod.merge_alternatives !== 'function') {
+                self.postMessage({ id, jobSlug, ok: false, error: 'merge_alternatives_unavailable' })
+                return
+            }
+            const merged = mod.merge_alternatives(JSON.stringify(merge || {}))
+            self.postMessage({ id, jobSlug, ok: true, result: merged })
+        } catch (err) {
+            self.postMessage({ id, jobSlug, ok: false, error: String(err && err.message ? err.message : err) })
+        }
+        return
+    }
     try {
         ready = ready || init()
         await ready

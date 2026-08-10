@@ -18,6 +18,9 @@
         <section v-if="localComputeRunning" class="content__live live-panel">
             <h3 class="live-panel__title">{{ t('localCompute.title') }}
                 <span class="live-panel__elapsed">{{ localElapsed }}s / {{ localBudget }}s</span>
+                <!-- J-093 : taille du pool (stat libellée, #24) — injectée
+                     dans les frames live par runLocalJobPrivate. -->
+                <span v-if="localWalks > 1" class="live-panel__elapsed"> · ×{{ localWalks }} walks</span>
             </h3>
             <p class="live-panel__status">{{ t('localCompute.running') }}</p>
             <!-- J-084 : vue live du solve navigateur — les frames layout
@@ -158,6 +161,8 @@ const localComputeError = ref(null);
 // sheets/isSpp ajoutés par runInWorker).
 const localReveal = ref(null);
 const localLive = ref(null);
+// J-093 : taille effective du pool de walks (injectée dans les frames live).
+const localWalks = ref(1);
 const localElapsed = localModeCtl.elapsed;
 const localBudget = localModeCtl.BROWSER_BUDGET_SEC;
 const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value));
@@ -175,6 +180,7 @@ watch(
             const res = await runLocalJobPrivate(job.slug, {
                 projectSlug: route.params.slug,
                 onLive: (evt) => {
+                    if (evt.walks) localWalks.value = evt.walks;
                     localLive.value = {
                         slug: job.slug,
                         // J-090 : la frame porte l'itemMap pour les projets
@@ -191,6 +197,9 @@ watch(
                     res.error === 'memory_cap' ? 'memory_cap'
                     : res.error === 'entity_limit' ? 'entity_limit'
                     : res.error === 'geometry_missing' ? 'geometry_missing'
+                    // J-093 : annulation — la carte montre déjà l'état
+                    // « cancelled » via le flux, pas de bandeau d'erreur.
+                    : res.error === 'cancelled' ? null
                     : 'crash';
             } else {
                 // Les records ont changé : forcer la prochaine hydratation.

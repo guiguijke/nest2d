@@ -6,6 +6,7 @@ pub mod constructive;
 pub mod sa;
 
 use crate::config::EngineConfig;
+use crate::merge::{BpMergeError, BpRun, merge_bp_runs};
 use crate::progress::EventSink;
 use crate::spp::derive_seed;
 use crate::{EngineOutput, map_workers};
@@ -16,8 +17,6 @@ use jagua_rs::probs::bpp::io::ext_repr::{ExtBPInstance, ExtBPSolution};
 use rand::SeedableRng;
 use rand::rngs::Xoshiro256PlusPlus;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use jagua_rs::Instant;
 use std::time::Duration;
 
@@ -38,28 +37,6 @@ struct WorkerRun {
     cost: sa::Cost,
     solution: jagua_rs::probs::bpp::entities::BPSolution,
     iterations: usize,
-}
-
-fn solution_fingerprint(solution: &ExtBPSolution) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for layout in &solution.layouts {
-        layout.container_id.hash(&mut hasher);
-        let mut items: Vec<(u64, i64, i64, i64)> = layout
-            .placed_items
-            .iter()
-            .map(|pi| {
-                (
-                    pi.item_id,
-                    (pi.transformation.rotation * 10.0).round() as i64,
-                    (pi.transformation.translation.0 * 10.0).round() as i64,
-                    (pi.transformation.translation.1 * 10.0).round() as i64,
-                )
-            })
-            .collect();
-        items.sort_unstable();
-        items.hash(&mut hasher);
-    }
-    hasher.finish()
 }
 
 pub fn run_bpp_mem(
@@ -98,7 +75,7 @@ pub fn run_bpp_mem(
     let biases = config.dir_biases();
     let plateau_patience = config.plateau_patience();
     let sa_max_iterations = config.sa_max_iterations;
-    let mut runs: Vec<WorkerRun> = map_workers(n_workers, |w| {
+    let runs: Vec<WorkerRun> = map_workers(n_workers, |w| {
         let seed = derive_seed(config.prng_seed, w);
         let bias = biases[w % biases.len()];
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
@@ -179,87 +156,42 @@ pub fn run_bpp_mem(
             }
         });
 
-    // Rank: lexicographic cost, stable tie-break on seed.
-    runs.sort_by(|a, b| a.cost.cmp_key().cmp(&b.cost.cmp_key()).then(a.seed.cmp(&b.seed)));
-
-    let feasible: Vec<&WorkerRun> = runs.iter().filter(|r| r.cost.unplaced == 0).collect();
-    if feasible.is_empty() {
-        let best_unplaced = runs.first().map(|r| r.cost.unplaced).unwrap_or(0);
-        sink(&format!(
-            "{{\"type\":\"error\",\"reason\":\"infeasible\",\"unplaced\":{},\"elapsed_sec\":{}}}",
-            best_unplaced,
-            started.elapsed().as_secs()
-        ));
-        bail!("no feasible solution: {best_unplaced} items could not be placed");
-    }
-
-    // Alternatives are grouped by directional bias class so the exported
-    // options are structurally distinct: best run of each ACTIVE class,
-    // classes in fixed order (left / bottom / balanced — the contract asked
-    // by users), then the remaining runs by cost as fallback when a class
-    // has no feasible run or more alternatives are requested than there are
-    // active classes.
-    let mut ordered: Vec<&WorkerRun> = DirBias::ALL
-        .into_iter()
-        .filter(|b| biases.contains(b))
-        .filter_map(|b| {
-            feasible
-                .iter()
-                .copied()
-                .filter(|r| r.bias == b)
-                .min_by(|a, b| a.cost.cmp_key().cmp(&b.cost.cmp_key()).then(a.seed.cmp(&b.seed)))
+    // Rank: lexicographic cost, stable tie-break on seed. Alternatives are
+    // grouped by directional bias class so the exported options are
+    // structurally distinct: best run of each ACTIVE class, classes in fixed
+    // order (left / bottom / balanced — the contract asked by users), then
+    // the remaining runs by cost as fallback when a class has no feasible run
+    // or more alternatives are requested than there are active classes.
+    // La fusion est partagée avec l'entrée wasm `merge_alternatives` (J-093).
+    let epoch = *sparrow::EPOCH;
+    let exported: Vec<BpRun> = runs
+        .iter()
+        .map(|r| BpRun {
+            seed: r.seed,
+            bias: r.bias,
+            cost: r.cost,
+            iterations: r.iterations,
+            solution: jagua_rs::probs::bpp::io::export(instance, &r.solution, epoch),
         })
         .collect();
-    ordered.extend(feasible.iter().copied());
-
-    // Export incumbent + distinct alternatives.
-    let epoch = *sparrow::EPOCH;
-    let mut seen = std::collections::HashSet::new();
-    let mut alternatives = Vec::new();
-    let mut best_json: Option<ExtBPOutput> = None;
-
-    for run in ordered {
-        let ext_sol = jagua_rs::probs::bpp::io::export(instance, &run.solution, epoch);
-        let fp = solution_fingerprint(&ext_sol);
-        if !seen.insert(fp) {
-            continue;
+    match merge_bp_runs(&ext_instance, &exported, &biases, config.n_alternatives) {
+        Ok(merged) => {
+            sink(&format!(
+                "{{\"type\":\"done\",\"cost\":{},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
+                merged.best_cost,
+                merged.best_density,
+                merged.output.alternatives.len(),
+                started.elapsed().as_secs()
+            ));
+            Ok(merged.output)
         }
-        let output = ExtBPOutput {
-            instance: ext_instance.clone(),
-            solution: ext_sol,
-        };
-        if best_json.is_none() {
-            best_json = Some(output.clone());
-        }
-        alternatives.push(serde_json::json!({
-            "rank": alternatives.len(),
-            "seed": run.seed,
-            "bias": run.bias.as_str(),
-            "cost": output.solution.cost,
-            "density": output.solution.density,
-            "layout_count": output.solution.layouts.len(),
-            "iterations": run.iterations,
-            "solution": output.solution,
-        }));
-        if alternatives.len() >= config.n_alternatives {
-            break;
+        Err(BpMergeError::Infeasible { best_unplaced }) => {
+            sink(&format!(
+                "{{\"type\":\"error\",\"reason\":\"infeasible\",\"unplaced\":{},\"elapsed_sec\":{}}}",
+                best_unplaced,
+                started.elapsed().as_secs()
+            ));
+            bail!("no feasible solution: {best_unplaced} items could not be placed")
         }
     }
-
-    let best = best_json.expect("feasible solutions exist but none exported");
-    let best_cost = best.solution.cost;
-    let best_density = best.solution.density;
-    let n_exported = alternatives.len();
-
-    sink(&format!(
-        "{{\"type\":\"done\",\"cost\":{},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
-        best_cost,
-        best_density,
-        n_exported,
-        started.elapsed().as_secs()
-    ));
-    Ok(EngineOutput {
-        sol_instance: serde_json::to_value(&best)?,
-        alternatives,
-    })
 }

@@ -77,6 +77,45 @@ pub fn run_nesting(
     .map_err(|e| JsError::new(&format!("serializing output: {e}")))
 }
 
+/// merge_alternatives(json) -> result_json (J-093 — pool de Web Workers).
+///
+/// Fusionne des runs mono-walk DÉJÀ EXPORTÉS (un champion par worker du pool
+/// navigateur) en alternatives, avec la sémantique EXACTE du multi-start
+/// serveur : champions par classe directionnelle active (ordre canonique
+/// left/bottom/balanced), repli qualité, dédup fingerprint, cap
+/// n_alternatives, ranks ré-assignés. Entrée JSON :
+///
+/// ```json
+/// {
+///   "problem": "spp" | "bpp",
+///   "instance": { "...instance externe (comme run_nesting)..." },
+///   "engineConfig": { "...config moteur complète ou partielle..." },
+///   "runs": [ { "seed": 12345, "bias": "left", "evaluations": 12,
+///               "iterations": 34, "used_height": 40.0,
+///               "cost_detail": {"unplaced":0,"bin_cost":2,"remnant":0.4,"falkenauer":0.8},
+///               "solution": { "...solution externe du walk..." } } ],
+///   "biases": ["left"],
+///   "n_alternatives": 3
+/// }
+/// ```
+///
+/// `seed` accepte number ou string (BigInt). Pour la parité exacte serveur,
+/// reprendre par pass-through les champs additifs exportés par chaque walk
+/// (`used_height` SPP, `cost_detail` BPP) — replis documentés sinon (voir
+/// nest_engine::merge). Retour : la forme exacte de run_nesting
+/// `{ "problem", "sol_instance", "alternatives" }`.
+#[wasm_bindgen]
+pub fn merge_alternatives(json: &str) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+
+    let input: serde_json::Value = serde_json::from_str(json)
+        .map_err(|e| JsError::new(&format!("parsing merge input: {e}")))?;
+    let out = nest_engine::merge::merge_alternatives_json(&input)
+        .map_err(|e| JsError::new(&format!("{e:#}")))?;
+    serde_json::to_string(&out)
+        .map_err(|e| JsError::new(&format!("serializing output: {e}")))
+}
+
 /// run_nesting_live(instance_json, params_json, seed, on_event) — idem
 /// run_nesting mais chaque événement moteur (progress/layout/evals, déjà
 /// throttlés côté Rust à ~2 Hz) est transmis SYNCHRONE à `on_event(line)`
