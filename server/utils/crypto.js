@@ -95,41 +95,6 @@ export function fingerprintsEqual(a, b) {
     return crypto.timingSafeEqual(bufA, bufB)
 }
 
-function getMasterKey() {
-    const hex = useRuntimeConfig().encryptionMasterKey
-    if (!hex || hex.length !== 64) {
-        throw createError({
-            statusCode: 500,
-            statusMessage: 'Encryption master key is not configured (NUXT_ENCRYPTION_MASTER_KEY)',
-        })
-    }
-    return Buffer.from(hex, 'hex')
-}
-
-/**
- * Wrap a DEK for the ephemeral session_keys cache. Without the wrap, a Mongo
- * dump during an active session would expose raw DEKs.
- * Output: base64( nonce || ciphertext || tag ), AAD is constant on purpose.
- */
-export function wrapDek(dekBuffer) {
-    const nonce = crypto.randomBytes(NONCE_SIZE)
-    const cipher = crypto.createCipheriv('aes-256-gcm', getMasterKey(), nonce, { authTagLength: TAG_SIZE })
-    cipher.setAAD(Buffer.from('nest2d-session-key-wrap', 'utf8'))
-    const ct = Buffer.concat([cipher.update(dekBuffer), cipher.final()])
-    return Buffer.concat([nonce, ct, cipher.getAuthTag()]).toString('base64')
-}
-
-export function unwrapDek(wrappedB64) {
-    const raw = Buffer.from(wrappedB64, 'base64')
-    const nonce = raw.subarray(0, NONCE_SIZE)
-    const tag = raw.subarray(raw.length - TAG_SIZE)
-    const ct = raw.subarray(NONCE_SIZE, raw.length - TAG_SIZE)
-    const decipher = crypto.createDecipheriv('aes-256-gcm', getMasterKey(), nonce, { authTagLength: TAG_SIZE })
-    decipher.setAAD(Buffer.from('nest2d-session-key-wrap', 'utf8'))
-    decipher.setAuthTag(tag)
-    return Buffer.concat([decipher.update(ct), decipher.final()])
-}
-
 /** Transform: plaintext in, framed ciphertext out. */
 export function createEncryptStream(dek, fileId, ownerId) {
     let buffer = Buffer.alloc(0)

@@ -23,6 +23,7 @@ Two historical flavours are covered through the config:
 """
 
 import math
+import os
 import signal
 import sys
 import threading
@@ -83,6 +84,14 @@ class WorkerConfig:
 def run_worker(config: WorkerConfig) -> None:
     logger = setup_logger(config.name)
     logger.info(f"Starting worker {config.name}")
+
+    if os.environ.get("ENCRYPTION_MASTER_KEY"):
+        # D-PRV-7: the DEK is no longer wrapped server-side — the master key
+        # has no consumer left in the workers.
+        logger.warning(
+            "ENCRYPTION_MASTER_KEY is deprecated (D-PRV-7): unused by the "
+            "workers, it can be removed from the environment"
+        )
 
     collection = db[config.collection]
     current_doc_id = None
@@ -199,11 +208,18 @@ def run_worker(config: WorkerConfig) -> None:
         current_lease = lease
 
         try:
+            from . import crypto
+
             start_at = datetime.now()
             claim_update = {"update_ts": start_at}
             if config.track_timing:
                 claim_update["startAt"] = start_at
             collection.update_one({"_id": current_doc_id}, {"$set": claim_update})
+
+            # D-PRV-7: per-job DEK delivery — on the vault path this writes
+            # workerKeyPub on the claimed doc. A failure here must fail the
+            # job (and refund it): a vault job without the app is impossible.
+            crypto.prepare_job_dek(db, config.collection, doc)
 
             result = config.process(doc)
 
@@ -263,6 +279,14 @@ def run_worker(config: WorkerConfig) -> None:
                     error_update["finishedAt"] = datetime.now()
                 collection.update_one({"_id": current_doc_id}, {"$set": error_update})
         finally:
+            # Wipe the job DEK (and unset workerKeyPub) BEFORE dropping the
+            # doc reference — success, failure or reroute alike.
+            try:
+                from . import crypto
+
+                crypto.wipe_job_dek(db, config.collection, current_doc_id)
+            except Exception as e:
+                logger.error(f"Failed to wipe job DEK: {e}")
             if current_lease:
                 try:
                     release_tokens(current_lease)

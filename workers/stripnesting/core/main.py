@@ -174,7 +174,7 @@ def strip_nesting_process(doc):
     # Unwrapped DEK when the owner's vault is unlocked, None on the legacy
     # plaintext path. Raises VaultLockedError when files are encrypted but
     # the session expired mid-queue.
-    dek = get_dek(db, owner_id)
+    dek = get_dek(db, doc)
     files = doc.get("files") or []
     params = doc.get("params") or {}
     height = params.get("height")
