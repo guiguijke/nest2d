@@ -31,6 +31,10 @@ const ALLOWED_ACTIONS = new Set([
     'click_start_trial',
     'click_subscribe_pro',
     'click_subscription_cancel',
+    // Chantier B : interrupteur turbo hybride (flag-gated dev).
+    'click_turbo_toggle',
+    // Ouverture de la boîte vault depuis le header.
+    'click_vault_menu_open',
 ])
 
 // Bounded validation of the client payload before it touches the DB.

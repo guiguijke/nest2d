@@ -17,6 +17,9 @@
             <span v-else class="free-nest__link free-nest__link--disabled">
                 {{ t('banner.comingSoon') }}
             </span>
+            <span class="free-nest__reset">
+                {{ t('banner.resetsAt', { date: resetLabel }) }}
+            </span>
         </template>
         <template v-else>
             <div class="free-nest__body">
@@ -36,6 +39,9 @@
                         :class="barLevel"
                     />
                 </div>
+                <span class="free-nest__reset">
+                    {{ t('banner.resetsAt', { date: resetLabel }) }}
+                </span>
             </div>
         </template>
     </div>
@@ -43,9 +49,10 @@
 
 <script setup>
     import { FREE_NESTING_LIMIT } from '~~/shared/constants/payment.constants'
+    import { formatQuotaReset } from '~/utils/quotaReset'
 
     const { getters } = authStore
-    const { t } = useLocale()
+    const { t, locale } = useLocale()
 
     // Temporarily disable the "Start free trial" CTA until paid plans are
     // re-enabled (NUXT_PUBLIC_PAID_PLANS_DISABLED).
@@ -75,6 +82,9 @@
     const show = computed(() => !isSubscribed.value)
 
     const isEmpty = computed(() => freeRemaining.value <= 0)
+
+    // Date+heure localisées du reset mensuel (1er du mois suivant, 00:00 UTC).
+    const resetLabel = computed(() => formatQuotaReset(new Date(), locale.value))
 
     // Width of the progress bar reflects how much of the monthly quota remains.
     const barStyle = computed(() => ({
@@ -108,6 +118,21 @@
 
         &--empty {
             color: var(--accent-primary);
+            flex-wrap: wrap;
+        }
+
+        // Ligne discrète sous la barre / sous le CTA : la date de reset du
+        // quota ne doit pas rivaliser avec le compteur principal.
+        &__reset {
+            font-size: 12px;
+            color: var(--label-tertiary);
+            text-align: center;
+        }
+
+        // État vide : le texte et le CTA tiennent sur une ligne, la date
+        // de reset passe sur sa propre ligne en dessous.
+        &--empty &__reset {
+            flex-basis: 100%;
         }
 
         &__body {
