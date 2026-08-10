@@ -217,6 +217,10 @@ const mapBinFileToUi = async (userId, file) => {
       // legacy files so the list matches the live view and result SVG.
       color: resolvePartColor(part, file.slug, index),
     })),
+    // Purge 24 h (D-PRV-10) : géométrie/blobs purgés → l'UI affiche
+    // « expiré » et masque compteur/preview. Champs additifs.
+    expired: Boolean(file.purgedAt),
+    uploadAt: file.uploadAt ?? null,
   };
 };
 
@@ -227,6 +231,9 @@ const mapStripFileToUi = async (userId, file) => {
     dxfUrl: `/api/files/strip/dxf/${file.slug}`,
     minHeight: await minRequiredHeight(userId, file),
     processingStatus: mapProcessingStatus(file.processingStatus),
+    // Purge 24 h (D-PRV-10) — voir mapBinFileToUi.
+    expired: Boolean(file.purgedAt),
+    uploadAt: file.uploadAt ?? null,
   };
 };
 

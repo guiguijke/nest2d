@@ -74,8 +74,22 @@ export default defineEventHandler(async (event) => {
             _id: 0,
             slug: 1,
             name: 1,
+            purgedAt: 1,
         })
         .toArray()
+
+    // Purge 24 h (D-PRV-10) : un fichier expiré (géométrie purgée) ne peut
+    // plus être nesté — 409 explicite plutôt qu'un job raté opaque côté
+    // worker. Les fichiers démo ne sont jamais purgés.
+    if (!isDemo) {
+        const expired = userDxfFilesDatabase.filter((file) => Boolean(file.purgedAt))
+        if (expired.length > 0) {
+            throw createError({
+                statusCode: 409,
+                statusMessage: `files_expired: ${expired.map((f) => f.name).join(', ')}`,
+            })
+        }
+    }
 
     const fileMetadata = userDxfFilesDatabase.map((file) => {
         const requestFile = filteredFiles.find((f) => f.slug === file.slug)
