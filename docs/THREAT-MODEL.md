@@ -97,24 +97,77 @@ Mitigations décidées :
 - le moat = **produit, vitesse de shipping, confiance** — pas l'opacité
   d'un blob téléchargeable.
 
-## 4. Durcissement vault niveau 1 (Phase 1) — TODO
+## 4. Durcissement vault niveau 1 (Phase 1) — D-PRV-7, design arrêté 2026-08-10
 
 Objectif : réduire la fenêtre d'exposition de la DEK côté serveur.
 
-- [ ] **DEK en RAM seule** : plus aucune persistence, même chiffrée
-      (aujourd'hui : collection `session_keys`, DEK wrappée sous la master
-      key de déploiement, TTL glissant ~2 h) ;
-- [ ] **Livraison ECDH éphémère** : la DEK transite via une clé de session
-      négociée (ECDH) entre navigateur et serveur/worker, jamais stockée ;
-- [ ] **Suppression du wrap master key** : retirer
-      `NUXT_ENCRYPTION_MASTER_KEY` / `ENCRYPTION_MASTER_KEY` du chemin de
-      session (la master key ne sert aujourd'hui qu'à protéger le cache
-      `session_keys` — sans cache persisté, elle perd son rôle) ;
-- [ ] Spécifier l'impact workers (Python ×4) : réception de la DEK par job,
-      durée de vie, purge mémoire ;
-- [ ] Mettre à jour `doc/encryption-premium.spec.md` une fois le design
-      arrêté (le mécanisme actuel — wrap master key + TTL — y est décrit ;
-      voir la note de supersession en tête de ce fichier).
+### 4.1 Session DEK en RAM seule
+
+À l'unlock (inchangé côté client : la clé transite en TLS, l'empreinte est
+vérifiée), le serveur garde la DEK dans une **Map process-local**
+`{ userId → { dek, expiresAt } }` — TTL glissant 2 h, rafraîchi à chaque
+activité vault, purge périodique avec **wipe explicite des buffers**
+(`fill(0)`) à expiration/lock. Plus aucune persistence : la collection
+`session_keys` est abandonnée (drop à la migration). Contrainte assumée :
+mono-instance app (état actuel) ; de futures réplicas exigeront des sticky
+sessions (hors scope).
+
+### 4.2 Livraison ECDH éphémère par job (serveur → worker)
+
+Le worker est un processus séparé : la DEK lui est livrée **par job**, sans
+jamais toucher un stockage lisible :
+
+1. Au claim du job, le worker génère une paire **ECDH P-256 éphémère** (RAM
+   seule) et écrit la clé publique sur le job doc (`workerKeyPub`).
+2. Le worker appelle `POST /api/security/vault/job-dek { jobSlug }`
+   (route nouvelle, rate-limited).
+3. Le serveur, si une session RAM est active pour le propriétaire du job :
+   génère SA paire éphémère, `shared = ECDH(serverPriv, workerPub)`,
+   clé de transport = `HKDF-SHA256(shared, info="nest2d-job-dek-v1")`,
+   parcel = `AES-256-GCM(transportKey, DEK, AAD=jobSlug)`, répond
+   `{ serverPub, parcel }`. Rien d'utile n'est persisté : même écrit, le
+   parcel est indéchiffrable sans les deux moitiés privées (RAM des deux
+   côtés — forward secrecy).
+4. Le worker calcule `shared = ECDH(workerPriv, serverPub)`, déwrap la DEK
+   en RAM, déchiffre en mémoire (comportement actuel), puis **wipe** en fin
+   de job (succès ou échec).
+5. Pas de session active → 409 `vault_locked` (le job échoue proprement et
+   est refundé, comme aujourd'hui à l'expiration d'une session en file).
+
+Le endpoint n'a pas besoin d'auth forte : un parcel n'est ouvrable que par
+la clé privée éphémère du demandeur ; un tiers ne récupère rien
+d'exploitable (rate-limit + validation de forme tout de même). Le worker
+appelle l'app en HTTP — nouvelle dépendance : `NEST_APP_URL` côté workers.
+
+### 4.3 Suppression du wrap master key
+
+`wrapDek`/`unwrapDek`/`getMasterKey` sortent du chemin de session ;
+`NUXT_ENCRYPTION_MASTER_KEY` perd son rôle (warning au boot si encore
+défini, note de migration). Le format de fichier chiffré (frames AES-GCM,
+AAD) est INCHANGÉ — les vecteurs d'interop `scripts/crypto-interop/`
+restent le verrou, rejoués.
+
+### 4.4 Invariants et non-changements
+
+- La DEK naît côté client (enable/rotate inchangés) ; le transit client→
+  serveur reste TLS (le durcissement porte sur le stockage serveur et la
+  livraison worker, pas sur ce transit).
+- UX : unlock une fois par session, comme aujourd'hui ; au déploiement,
+  les sessions en cours sont perdues → re-unlock (la modale s'ouvre
+  toute seule, comportement existant).
+- Promesses publiques inchangées (le vault évite déjà « nous ne pouvons
+  pas vous lire » côté mode serveur — §2).
+
+### 4.5 Verrous à livrer avec le code
+
+- Round-trip ECDH Node↔Python : vecteur partagé (même `workerPub` → même
+  parcel déchiffrable côté worker), dans `scripts/crypto-interop/` ;
+- vitest : session RAM (TTL glissant, wipe, 409 hors session) ;
+- pytest worker : claim + unwrap + wipe (HTTP mocké) ;
+- `server/tests/vault.test.js` adapté (session_keys retirée) ;
+- QA stack : enable → nest vault → résultat lisible, puis expiration →
+  job vault_locked refundé.
+- `doc/encryption-premium.spec.md` mis à jour une fois codé.
 
 ## 5. Limites de ce document
 
