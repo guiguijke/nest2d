@@ -2,11 +2,11 @@
 //! docs/PIPELINE-MAP.md §2). Mirrors ezdxf.recover behavior: lenient parsing,
 //! malformed entities skipped (never a crash), duplicate handles tolerated.
 
+pub mod canonical;
 pub mod decompose;
 pub mod entities;
 pub mod flatten;
 
-use crate::units;
 use crate::ImportError;
 use entities::Entity;
 
@@ -142,7 +142,30 @@ impl Document {
             source_insunits: insunits,
             blocks,
             entities,
-        })
+        }
+        .with_recover_drops())
+    }
+
+    /// ezdxf.recover supprime à l'audit les entités structurellement
+    /// invalides (elles n'entrent JAMAIS dans le modelspace — ni dans
+    /// entity_count, ni dans la séquence des handles canoniques, J-090).
+    /// Réplique du cas observé sur corpus : SPLINE dont le nombre de nœuds
+    /// est insuffisant (« Removed SPLINE(#2F) with invalid knot value count:
+    /// 0 < 16 » — règle : knots < control + degree + 1).
+    fn with_recover_drops(mut self) -> Document {
+        fn valid(e: &Entity) -> bool {
+            match e {
+                Entity::Spline(sp) => {
+                    sp.knots.len() >= sp.control.len() + (sp.degree as usize + 1)
+                }
+                _ => true,
+            }
+        }
+        self.entities.retain(valid);
+        for b in self.blocks.iter_mut() {
+            b.entities.retain(valid);
+        }
+        self
     }
 }
 
@@ -151,30 +174,13 @@ impl Document {
 /// of read_dxf_file + recursive_decompose + scale. Returns (primitives,
 /// skipped-entity warnings). The primitive count IS the modelspace entity
 /// count the Python pipeline gates on (MAX_ENTITY_LIMIT).
+///
+/// Handles: J-090, les primitives portent les handles CANONIQUES (séquence
+/// ezdxf du document rebuildé — voir canonical.rs), PAS les handles source :
+/// le Python attache les handles du document canonique (build_geometry tourne
+/// sur validDxf), et `canonical_dxf` réémet ces mêmes handles.
 pub fn flattened_modelspace(doc: &Document) -> (Vec<flatten::Primitive>, Vec<String>) {
-    let mut kept: Vec<Entity> = Vec::new();
-    let mut warnings = Vec::new();
-    for e in &doc.entities {
-        match e {
-            Entity::Unsupported(kind) => {
-                warnings.push(format!("skipped entity {kind}"));
-            }
-            _ => kept.push(e.clone()),
-        }
-    }
-    let flat = decompose::decompose(&kept, &doc.blocks);
-
-    // Units: decompose FIRST, then uniform scale (AGENTS #26).
-    let (factor, unknown) = units::factor_to_mm(doc.source_insunits);
-    if unknown {
-        warnings.push(format!(
-            "unknown $INSUNITS={} — assuming millimeters",
-            doc.source_insunits
-        ));
-    }
-    let mut out = Vec::with_capacity(flat.len());
-    for p in flat {
-        out.push(if factor != 1.0 { p.scaled(factor) } else { p });
-    }
-    (out, warnings)
+    let (entities, warnings) = canonical::canonical_entities(doc);
+    let prims = entities.iter().map(decompose::primitive_of).collect();
+    (prims, warnings)
 }

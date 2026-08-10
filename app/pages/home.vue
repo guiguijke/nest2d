@@ -29,6 +29,13 @@
                 class="create__title"
             />
             <DxfUpload @files="handleSubmit" />
+            <!-- J-090 : création « 100 % privée » — le fichier est parsé dans
+                 le navigateur, jamais uploadé (flag-gated). -->
+            <label v-if="localImportEnabled" class="create__local">
+                <input v-model="localProject" type="checkbox" class="create__local-box" />
+                <span class="create__local-label">{{ t('home.localToggle') }}</span>
+                <small class="create__local-hint">{{ t('home.localToggleHint') }}</small>
+            </label>
             <p class="create__text">
                 {{ t('home.uploadHint') }}
             </p>
@@ -118,8 +125,39 @@
 
     const error = ref('')
 
+    // J-090 : la création 100 % privée n'apparaît que si l'import navigateur
+    // est activé (ET le compute local — le solve tourne aussi sur l'appareil).
+    const config = useRuntimeConfig()
+    const localImportEnabled = computed(() =>
+        (config.public.localComputeEnabled === true || config.public.localComputeEnabled === 'true') &&
+        (config.public.localImportEnabled === true || config.public.localImportEnabled === 'true')
+    )
+    const localProject = ref(false)
+
     const handleSubmit = async (files) => {
         error.value = ''
+
+        if (localProject.value && localImportEnabled.value) {
+            // J-090 : création JSON sans fichiers — l'import navigateur des
+            // fichiers déposés se fait sur la page projet (IndexedDB).
+            try {
+                const data = await $fetch(API_ROUTES.PROJECT(), {
+                    method: 'POST',
+                    body: { local: true },
+                })
+                filesActions.setPendingLocalFiles(files)
+                await getProjects()
+                router.push({ path: `/project/${data.slug}` })
+            } catch (err) {
+                if (err.response) {
+                    const errorData = await err.response.json()
+                    error.value = errorData.message
+                } else {
+                    error.value = t('home.error.unexpected')
+                }
+            }
+            return
+        }
 
         const formData = new FormData()
         files.forEach((file) => formData.append('dxf', file))
@@ -244,6 +282,30 @@
             margin-top: 16px;
             color: var(--label-tertiary);
             font-size: 13px;
+        }
+
+        &__local {
+            margin-top: 16px;
+            display: inline-flex;
+            align-items: baseline;
+            gap: 8px;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        &__local-box {
+            transform: translateY(1px);
+        }
+
+        &__local-label {
+            color: var(--label-secondary);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        &__local-hint {
+            color: var(--label-tertiary);
+            font-size: 12px;
         }
 
         &__error {

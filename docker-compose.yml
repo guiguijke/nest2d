@@ -53,6 +53,9 @@ services:
       # Mode Local (calcul navigateur) — ships dark; staging/prod l'activent
       # explicitement (PR5). Ne change rien tant que false.
       NUXT_PUBLIC_LOCAL_COMPUTE_ENABLED: ${NUXT_PUBLIC_LOCAL_COMPUTE_ENABLED:-false}
+      # J-090 : import 100 % client (projets « 100 % privés », fichiers
+      # jamais uploadés). Exige LOCAL_COMPUTE. OFF tant que non vérifié en prod.
+      NUXT_PUBLIC_LOCAL_IMPORT_ENABLED: ${NUXT_PUBLIC_LOCAL_IMPORT_ENABLED:-false}
       NUXT_PUBLIC_SUPPORT_EMAIL: ${NUXT_PUBLIC_SUPPORT_EMAIL:-support@example.com}
       NUXT_PUBLIC_GITHUB_REPO: ${NUXT_PUBLIC_GITHUB_REPO:-https://github.com/guiguijke/nestorcut}
       NUXT_PUBLIC_COPYRIGHT_YEAR: ${NUXT_PUBLIC_COPYRIGHT_YEAR:-}

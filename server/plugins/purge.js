@@ -27,8 +27,8 @@ export default defineNitroPlugin(() => {
             inFlight = false
         }
     }
-    const interval = setInterval(tick, 15 * 60 * 1000)
-    interval.unref?.()
-    const boot = setTimeout(tick, 30 * 1000)
-    boot.unref?.()
+    // JAMAIS d'unref ici : en worker dev nitro, des timers unref'd laissent
+    // la boucle d'événements se vider → « worker exited with code 0 ».
+    setInterval(tick, 15 * 60 * 1000)
+    setTimeout(tick, 30 * 1000) // laisse le boot se terminer
 })

@@ -25,6 +25,24 @@ pub enum Entity {
     Unsupported(String),
 }
 
+impl Entity {
+    /// Handle de l'entité (code groupe 5) — "" si absent/non supporté.
+    pub fn handle(&self) -> &str {
+        match self {
+            Entity::Line(x) => &x.common.handle,
+            Entity::LwPolyline(x) => &x.common.handle,
+            Entity::Polyline(x) => &x.common.handle,
+            Entity::Arc(x) => &x.common.handle,
+            Entity::Circle(x) => &x.common.handle,
+            Entity::Ellipse(x) => &x.common.handle,
+            Entity::Spline(x) => &x.common.handle,
+            Entity::Point(x) => &x.common.handle,
+            Entity::Insert(x) => &x.common.handle,
+            Entity::Unsupported(_) => "",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Common {
     pub handle: String,
@@ -62,6 +80,11 @@ pub struct Polyline {
     pub points: Vec<[f64; 2]>,
     pub closed: bool,
     pub common: Common,
+    /// Handles des sous-entités VERTEX / SEQEND — vides à la lecture source ;
+    /// peuplés UNIQUEMENT par la réémission canonique (dxf/canonical.rs),
+    /// où chaque sous-entité consomme un handle ezdxf (J-090).
+    pub vertex_handles: Vec<String>,
+    pub seqend_handle: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -242,7 +265,12 @@ pub fn read_entity<'a>(
                             e.closed = (flags & 1) != 0;
                         }
                     }
-                    _ => common_apply(&mut common, c, v),
+                    // Les codes 5/8/62 d'un VERTEX (ou de la SEQEND) sont les
+                    // SIENS — ne jamais écraser le common de la POLYLINE
+                    // (J-090 : la réémission canonique handlée porte des
+                    // handles de sous-entités).
+                    _ if cur.is_none() => common_apply(&mut common, c, v),
+                    _ => {}
                 }
             }
             e.common = common;

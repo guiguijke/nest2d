@@ -39,6 +39,47 @@ async function fetchSources(payload) {
     return sources
 }
 
+/**
+ * J-090 — projet « 100 % privé » : assemble le payload moteur 100 %
+ * navigateur. local-payload n'a servi QUE des métadonnées (params, comptes,
+ * rotations, profil imposé) ; la géométrie est lue d'IndexedDB, l'instance
+ * est construite par localPayloadBuilder (miroir exact du worker Python),
+ * les bytes sources pour l'export DXF viennent du store local.
+ */
+async function buildClientPayload(meta) {
+    const [{ buildLocalPayload }, { getLocalFile }, { geoOpenHoles, geoPinwheelCapacity }] = await Promise.all([
+        import('./localPayloadBuilder'),
+        import('./localFilesStore'),
+        import('./geometryClient'),
+    ])
+    const files = []
+    const sources = {}
+    for (const f of meta.files || []) {
+        const record = await getLocalFile(f.slug)
+        if (!record) {
+            // Fichier importé sur un autre appareil, ou IndexedDB vidée :
+            // erreur explicite — le job sera refundé (local-fail).
+            throw new Error('local_geometry_missing')
+        }
+        files.push({
+            slug: f.slug,
+            name: f.name,
+            count: f.count,
+            rotations: f.rotations,
+            parts: record.parts,
+        })
+        sources[f.slug] = new Uint8Array(record.dxfBytes)
+    }
+    const { payload, itemMap } = await buildLocalPayload(
+        { files, params: meta.params, profile: meta.localConfig },
+        {
+            openHoles: (coords, holes, spaceMm) => geoOpenHoles(coords, holes, spaceMm),
+            pinwheelCapacity: (ring, coords, spaceMm, allowed) => geoPinwheelCapacity(ring, coords, spaceMm, allowed),
+        },
+    )
+    return { payload, sources, itemMap }
+}
+
 /** Frame finale synthétique pour la vue live (même forme que le reveal
  * serveur : [item_id, bin, rot_deg, x, y]). */
 function buildLiveLayout(result, payload, bestAlt) {
@@ -68,22 +109,49 @@ function buildLiveLayout(result, payload, bestAlt) {
 }
 
 export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) {
-    const payload = await $fetch(`/api/results/${jobSlug}/local-payload`)
-    // Avant le solve : tout ce dont les téléchargements ont besoin doit être
-    // dans le navigateur (test d'acceptation : réseau coupé après payload).
-    const sources = await fetchSources(payload)
+    const fetched = await $fetch(`/api/results/${jobSlug}/local-payload`)
+    let payload
+    let sources
+    // J-090 : correspondance id moteur → {slug, part} — construite par le
+    // builder client (le job d'un projet local n'a pas d'itemMap serveur).
+    let itemMap = null
+    if (fetched?.mode === 'client-built') {
+        try {
+            const built = await buildClientPayload(fetched)
+            payload = built.payload
+            sources = built.sources
+            itemMap = built.itemMap
+        } catch (e) {
+            // Géométrie locale absente ou instance invalide : refund propre,
+            // jamais de quota consommé sur un job qui n'a pas pu démarrer.
+            await $fetch(`/api/results/${jobSlug}/local-fail`, {
+                method: 'POST',
+                body: { error: 'client_payload_build' },
+            }).catch(() => {})
+            return { ok: false, error: e?.message === 'local_geometry_missing' ? 'geometry_missing' : 'payload_build' }
+        }
+    } else {
+        payload = fetched
+        // Avant le solve : tout ce dont les téléchargements ont besoin doit
+        // être dans le navigateur (test d'acceptation : réseau coupé après
+        // payload).
+        sources = await fetchSources(payload)
+    }
 
     // J-085 : l'instance réduite est réindexée — les frames live du moteur
     // portent les ids réduits, la vue live (itemMap) les ids d'origine.
     const idMap = payload?.meta?.idMap
     const liveHandler = !onLive
         ? undefined
-        : Array.isArray(idMap)
-            ? (evt) => onLive({
-                ...evt,
-                items: (evt?.items || []).map((it) => [idMap[it[0]] ?? it[0], ...it.slice(1)]),
-              })
-            : onLive
+        : (evt) => onLive({
+              ...evt,
+              // J-090 : la vue puise itemMap dans la frame quand le job est
+              // 100 % client (pas d'itemMap sur le doc serveur).
+              itemMap: itemMap || evt?.itemMap,
+              items: Array.isArray(idMap)
+                  ? (evt?.items || []).map((it) => [idMap[it[0]] ?? it[0], ...it.slice(1)])
+                  : evt?.items,
+          })
 
     const outcome = await runInWorker(jobSlug, payload, { onLive: liveHandler })
     if (!outcome.ok) {
@@ -162,5 +230,5 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             density: best.density ?? null,
         },
     })
-    return { ok: true, alternatives, liveLayout }
+    return { ok: true, alternatives, liveLayout, itemMap }
 }

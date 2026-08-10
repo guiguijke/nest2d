@@ -10,6 +10,8 @@
         >
             {{ projectName }}
             <span v-if="project.isDemo" class="project__badge">{{ t('demo.badge') }}</span>
+            <!-- J-090 : projet 100 % privé (fichiers jamais uploadés) -->
+            <span v-else-if="project.local" class="project__badge">{{ t('project.localBadge') }}</span>
         </NuxtLink>
         <div class="project__info info">
             <p class="info__time">

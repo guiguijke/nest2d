@@ -66,9 +66,14 @@ function applyUpdate(doc, update) {
 }
 
 function makeCollection(docs) {
-    const calls = { findOne: [], updateOne: [], findOneAndUpdate: [], find: [] }
+    const calls = { findOne: [], updateOne: [], findOneAndUpdate: [], find: [], insertOne: [] }
     return {
         calls,
+        async insertOne(doc) {
+            calls.insertOne.push(doc)
+            docs.push(doc)
+            return { insertedId: doc._id ?? `fake-${docs.length}` }
+        },
         async findOne(filter) {
             calls.findOne.push(filter)
             return docs.find((d) => matches(d, filter)) || null
