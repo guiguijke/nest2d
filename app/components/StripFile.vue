@@ -17,6 +17,15 @@
                 href="https://github.com/guiguijke/nestorcut/issues/new" target="_blank" :label="t('nav.reportProblem')"
                 tag="a" trackingTag="report_problem" class="file__problem" />
         </template>
+        <!-- D-PRV-10 : fichier expiré (géométrie purgée à 24 h) — compteur
+             et preview masqués, réimport nécessaire pour renester. -->
+        <template v-else-if="file.expired">
+            <div class="file__display file__placeholder">∅</div>
+            <p class="file__name">
+                {{ file.name }}
+            </p>
+            <p class="file__expired">{{ t('files.expired') }}</p>
+        </template>
         <template v-else>
             <DxfViewerComponent
                 :size="sizeType.s"
@@ -129,6 +138,14 @@ const openModal = () => {
         border: solid 1px var(--error-border);
         color: var(--label-primary);
         font-size: 16px;
+    }
+
+    // D-PRV-10 : mention « expiré » (purge 24 h).
+    &__expired {
+        width: 100%;
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--label-tertiary);
     }
 
     &__problem {

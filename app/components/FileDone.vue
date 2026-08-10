@@ -1,23 +1,36 @@
 <template>
     <div class="file">
-        <SvgDisplay :size="sizeType.s" :src="file.svgUrl" class="file__display" preserve-colors />
-        <FileParts @click="openModal()" :parts="file.parts" class="file__parts" />
-        <p class="file__name">
-            {{ file.name }}
-        </p>
-        <div class="file__counter counter">
-            <MainButton :size="sizeType.s" :icon="iconType.minus" :isDisable="file.count < 1" :isLabelShow="false"
-                trackingTag="file_decrement" @click="decrement(fileIndex, $event)" label="decrement" class="counter__btn" />
-            <input type="number" v-model="count" min="0" max="999" class="counter__value" @blur="onCountBlur" />
-            <MainButton :size="sizeType.s" :icon="iconType.plus" :isLabelShow="false" :isDisable="file.count >= 999"
-                trackingTag="file_increment" @click="increment(fileIndex, $event)" label="increment" class="counter__btn" />
-        </div>
-        <div @click="openModal()" class="file__area" />
+        <!-- D-PRV-10 : fichier expiré (géométrie purgée à 24 h) — compteur
+             et preview masqués, réimport nécessaire pour renester. -->
+        <template v-if="file.expired">
+            <div class="file__display file__placeholder">∅</div>
+            <p class="file__name">
+                {{ file.name }}
+            </p>
+            <p class="file__expired">{{ t('files.expired') }}</p>
+        </template>
+        <template v-else>
+            <SvgDisplay :size="sizeType.s" :src="file.svgUrl" class="file__display" preserve-colors />
+            <FileParts @click="openModal()" :parts="file.parts" class="file__parts" />
+            <p class="file__name">
+                {{ file.name }}
+            </p>
+            <div class="file__counter counter">
+                <MainButton :size="sizeType.s" :icon="iconType.minus" :isDisable="file.count < 1" :isLabelShow="false"
+                    trackingTag="file_decrement" @click="decrement(fileIndex, $event)" label="decrement" class="counter__btn" />
+                <input type="number" v-model="count" min="0" max="999" class="counter__value" @blur="onCountBlur" />
+                <MainButton :size="sizeType.s" :icon="iconType.plus" :isLabelShow="false" :isDisable="file.count >= 999"
+                    trackingTag="file_increment" @click="increment(fileIndex, $event)" label="increment" class="counter__btn" />
+            </div>
+            <div @click="openModal()" class="file__area" />
+        </template>
     </div>
 </template>
 <script setup>
 import { sizeType } from '~~/constants/size.constants'
 import { iconType } from '~~/constants/icon.constants'
+
+const { t } = useLocale()
 
 const props = defineProps({
     file: {
@@ -95,6 +108,23 @@ const openModal = () => {
         bottom: 0;
         left: 0;
         cursor: pointer;
+    }
+
+    &__placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        background-color: var(--fill-tertiary, rgba(127, 127, 127, 0.12));
+        color: var(--label-tertiary);
+        font-size: 20px;
+    }
+
+    &__expired {
+        width: 100%;
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--label-tertiary);
     }
 
     &__counter {
