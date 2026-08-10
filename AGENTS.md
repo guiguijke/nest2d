@@ -296,6 +296,15 @@ admin/                 (back-office Nuxt)
     masque les téléchargements ; les scalaires du rapport persistent).
     Exemptions : vault = `metadata.enc` (blob) / `encPolygonParts` (doc),
     démo = `ownerId 'demo'`. Verrous : `server/tests/purge.test.js`.
+36b. **Plugins Nitro de démarrage (dev hôte Windows)** : pas d'alias `~~/`
+    dans le code chargé par un plugin au boot (imports relatifs, pattern
+    `4_demoProjectSeed.js` — sinon « Cannot find module 'C:\shared\…' » en
+    dev), et **jamais de timer `unref`** (la boucle d'événements du worker
+    dev se vide → « worker exited with code 0 »). Le flow docker/prod ne
+    montre aucun des deux — seul le dev hôte les révèle. Et cargo :
+    `panic = "abort"` en profile.release est redondant pour wasm32 (défaut)
+    et casse `cargo test --release` natif dès qu'un test d'intégration
+    (tests/) existe — ne pas le remettre (workers/geometry).
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 
