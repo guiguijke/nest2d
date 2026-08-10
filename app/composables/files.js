@@ -11,6 +11,10 @@ const state = reactive({
     projectFiles: null,
     projectSlug: null,
     projectName: '',
+    // J-090 : projet « 100 % privé » — fichiers en IndexedDB, jamais uploadés.
+    projectLocal: false,
+    // Clé i18n de la dernière erreur d'import navigateur (affichée en page).
+    localImportError: '',
     lastParams: '',
     // Set when a demo nesting hits the monthly demo quota — shown on the
     // project page instead of the paywall (demo 402s are reason=demo_quota).
@@ -45,7 +49,10 @@ const state = reactive({
             slug: file.slug,
             count: file.count,
             // Per-file rotation override wins; otherwise use the global setting.
-            rotation: file.rotation || JSON.stringify(buildRotationAngles(Number(state.params.rotationCount)))
+            rotation: file.rotation || JSON.stringify(buildRotationAngles(Number(state.params.rotationCount))),
+            // J-090 : le serveur ne connaît pas les fichiers d'un projet
+            // local — le nom part dans le corps (métadonnée, pas géométrie).
+            ...(state.projectLocal ? { name: file.name } : {}),
         }))
     ),
     currentFilesSlug: computed(
@@ -101,6 +108,19 @@ const state = reactive({
 
 let updateTimer
 
+// J-090 : fichiers déposés sur la home à la création d'un projet « 100 %
+// privé » — la page projet les consomme à l'arrivée pour l'import navigateur
+// (module state : des File objects ne survivent pas une navigation).
+let pendingLocalFiles = []
+function setPendingLocalFiles(files) {
+    pendingLocalFiles = Array.isArray(files) ? files : []
+}
+function consumePendingLocalFiles() {
+    const files = pendingLocalFiles
+    pendingLocalFiles = []
+    return files
+}
+
 // Keep polling the project while any uploaded file is still being processed
 // by the file processing worker, so the UI flips from a loader to the
 // selectable file as soon as processing completes. Mirrors strip.js.
@@ -122,7 +142,17 @@ function scheduleFilesRefresh(path) {
 async function getProject(path) {
     try {
         const data = await $fetch(path)
-        setProjectFiles(data.files, path)
+        state.projectLocal = Boolean(data.local)
+        if (data.local) {
+            // J-090 : les fichiers d'un projet « 100 % privé » vivent dans
+            // IndexedDB — le serveur ne sert que le nom/slug du projet.
+            const { listLocalFiles } = await import('./localFilesStore')
+            const { localRecordToUiFile } = await import('./localImport')
+            const records = await listLocalFiles(data.slug)
+            setProjectFiles(records.map(localRecordToUiFile), path)
+        } else {
+            setProjectFiles(data.files, path)
+        }
         setProjectName(data.name)
     } catch (error) {
         if (error?.data?.statusMessage === 'vault_locked') {
@@ -170,6 +200,21 @@ function setProjectFiles(files, path) {
     scheduleFilesRefresh(path)
 }
 async function addFiles(files, slug) {
+    if (state.projectLocal) {
+        // J-090 : import 100 % navigateur (parse wasm + IndexedDB) — aucun
+        // byte ne transite par le serveur.
+        state.localImportError = ''
+        try {
+            const { importLocalFile } = await import('./localImport')
+            for (const file of files) {
+                await importLocalFile(file, slug)
+            }
+        } catch (err) {
+            state.localImportError = err?.message || 'localImport.parseError'
+        }
+        await getProject(API_ROUTES.PROJECT(slug))
+        return
+    }
     const formData = new FormData()
     formData.append('projectName', state.projectName)
     files.forEach((file) => formData.append('dxf', file))
@@ -363,6 +408,8 @@ async function nest(slug) {
 export const filesStore = readonly({
     getters: {
         projectFiles: computed(() => state.projectFiles),
+        projectLocal: computed(() => state.projectLocal),
+        localImportError: computed(() => state.localImportError),
         filesCount: computed(() =>
             state.filesStatusDone.reduce((acc, curr) => acc + curr.count, 0)
         ),
@@ -384,6 +431,8 @@ export const filesStore = readonly({
     actions: {
         setProjectFiles,
         setProjectName,
+        setPendingLocalFiles,
+        consumePendingLocalFiles,
         updateParams,
         updateSheet,
         addSheet,

@@ -18,13 +18,20 @@ export default defineEventHandler(async (event) => {
     const tier = await getComputeTier(userId, null)
 
     let hasDwg = false
+    let projectLocal = false
     if (projectSlug) {
         hasDwg = Boolean(
             await db
                 .collection('user_dxf_files')
                 .findOne({ projectSlug, name: /\.dwg$/i }, { projection: { _id: 1 } }),
         )
+        // J-090 : un projet « 100 % privé » est toujours calculé dans le
+        // navigateur — le serveur n'a jamais la géométrie.
+        const project = await db
+            .collection('projects')
+            .findOne({ slug: projectSlug }, { projection: { local: 1 } })
+        projectLocal = Boolean(project?.local)
     }
     const userChoice = getQuery(event).choice === 'local' ? 'local' : undefined
-    return resolveLocalMode(tier, hasDwg, userChoice)
+    return resolveLocalMode(tier, hasDwg, userChoice, projectLocal)
 })

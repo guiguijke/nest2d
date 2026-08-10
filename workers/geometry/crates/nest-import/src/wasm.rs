@@ -30,3 +30,11 @@ pub fn import_file(bytes: &[u8], flatten_tol: f64) -> Result<String, JsError> {
         .map_err(|e| JsError::new(&format!("{e}")))?;
     serde_json::to_string(&out).map_err(|e| JsError::new(&format!("{e}")))
 }
+
+/// canonical_dxf(bytes, flatten_tol_mm) -> bytes DXF canoniques mm (J-090,
+/// `_make_dxf_copy` twin) — handles frais séquentiels = ceux de
+/// `parts[].handles`. Retourne un Uint8Array côté JS (Vec<u8> natif).
+#[wasm_bindgen]
+pub fn canonical_dxf(bytes: &[u8], flatten_tol: f64) -> Result<Vec<u8>, JsError> {
+    crate::canonical_dxf(bytes, flatten_tol).map_err(|e| JsError::new(&format!("{e}")))
+}

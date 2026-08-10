@@ -1,6 +1,27 @@
 /* @ts-self-types="./nest_geometry.d.ts" */
 
 /**
+ * canonical_dxf(bytes, tol) -> bytes DXF canoniques mm (J-090) — jumeau de
+ * `_make_dxf_copy` : rebuild mm ($INSUNITS=4/$MEASUREMENT=1), INSERTs
+ * résolus, handles frais séquentiels = ceux de `parts[].handles` (verrou de
+ * l'export DXF par handle). Retourne un Uint8Array côté JS.
+ * @param {Uint8Array} bytes
+ * @param {number} tol
+ * @returns {Uint8Array}
+ */
+export function canonical_dxf(bytes, tol) {
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.canonical_dxf(ptr0, len0, tol);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
  * compute_report(json {items, containers, space}) -> rapport JSON.
  * @param {string} json
  * @returns {string}
@@ -184,6 +205,34 @@ export function open_holes(json) {
         const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.open_holes(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * pinwheel_capacity(json {hole_ring, filler_coords, space_mm, allowed?})
+ *   -> JSON {rotations: [...]} — miroir exact de holefill.py (J-085/J-089,
+ * trou érodé de space en entier, espacement > space strict).
+ * @param {string} json
+ * @returns {string}
+ */
+export function pinwheel_capacity(json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pinwheel_capacity(ptr0, len0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {

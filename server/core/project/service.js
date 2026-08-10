@@ -48,6 +48,32 @@ export async function createProjectWithFiles(domain, event, userId) {
 }
 
 /**
+ * J-090 — projet « 100 % privé » : le doc serveur ne porte QUE des
+ * métadonnées (nom, dates, quota). Les fichiers sont parsés dans le
+ * navigateur et vivent dans IndexedDB ; la géométrie ne transite jamais.
+ * Aucun fichier à la création (l'import arrive ensuite, côté client).
+ */
+export async function createLocalProject(domain, userId) {
+  const db = await connectDB();
+  const projectName = generateEntityName();
+  const projectSlug = `${standardSlugify(projectName, {
+    keepCase: false,
+  })}-${generateRandomString(6)}`;
+
+  await db.collection(domain.projectsCollection).insertOne({
+    slug: projectSlug,
+    name: projectName,
+    createdAt: new Date(),
+    ownerId: userId,
+    local: true,
+  });
+
+  return {
+    slug: projectSlug,
+  };
+}
+
+/**
  * Lists the user's projects, newest first. Bin projects also expose the raw
  * jobs queue and per-project result counts (domain.includeJobsInProjectList).
  * The shared read-only demo project is pinned first for everyone (bin
@@ -60,7 +86,7 @@ export async function listProjects(domain, userId) {
     .collection(domain.projectsCollection)
     .find({ ownerId: userId })
     .sort({ createdAt: -1 })
-    .project({ slug: 1, name: 1, createdAt: 1 })
+    .project({ slug: 1, name: 1, createdAt: 1, local: 1 })
     .toArray();
 
   const demoProject = domain.includeJobsInProjectList
@@ -94,6 +120,8 @@ export async function listProjects(domain, userId) {
     slug: project.slug,
     name: project.name,
     createdAt: project.createdAt,
+    // J-090 : projet 100 % privé (fichiers jamais uploadés) — badge UI.
+    ...(project.local ? { local: true } : {}),
     results: queueList.filter(
       (queueItem) => queueItem[domain.projectSlugField] === project.slug
     ).length,
@@ -149,6 +177,7 @@ export async function getProjectFiles(domain, userId, slug) {
         slug: 1,
         ownerId: 1,
         isDemo: 1,
+        local: 1,
       },
     }
   );
@@ -165,14 +194,17 @@ export async function getProjectFiles(domain, userId, slug) {
     throw createError({ statusCode: 403, message: "Forbidden" });
   }
 
-  const projectFiles = await db
-    .collection(domain.filesCollection)
-    .find({
-      [domain.projectSlugField]: slug,
-      ownerId: isDemo ? DEMO_OWNER_ID : userId,
-    })
-    .sort({ uploadAt: 1 })
-    .toArray();
+  const projectFiles = project.local
+    ? [] // J-090 : les fichiers d'un projet local vivent dans IndexedDB —
+         // le serveur n'a aucune géométrie à servir.
+    : await db
+        .collection(domain.filesCollection)
+        .find({
+          [domain.projectSlugField]: slug,
+          ownerId: isDemo ? DEMO_OWNER_ID : userId,
+        })
+        .sort({ uploadAt: 1 })
+        .toArray();
 
   const files = await Promise.all(
     projectFiles.map((file) => FILE_MAPPERS[domain.id](userId, file))
@@ -182,6 +214,9 @@ export async function getProjectFiles(domain, userId, slug) {
     name: project.name,
     slug: project.slug,
     isDemo,
+    // J-090 : projet 100 % privé — la page hydrate ses fichiers depuis
+    // IndexedDB, jamais depuis le serveur.
+    local: Boolean(project.local),
     files,
   };
 }
@@ -294,7 +329,7 @@ export function buildJobSlug(domain, fileMetadata) {
  */
 export async function enqueueNestingJob(
   domain,
-  { userId, projectSlug, fileMetadata, params, extraFields = {}, charge = null, skipVaultGate = false }
+  { userId, projectSlug, fileMetadata, params, extraFields = {}, charge = null, skipVaultGate = false, initialStatus = "pending", localConfig = null }
 ) {
   const db = await connectDB();
 
@@ -317,7 +352,10 @@ export async function enqueueNestingJob(
     [domain.projectSlugField]: projectSlug,
     files: fileMetadata,
     params: params,
-    status: "pending",
+    status: initialStatus,
+    // J-090 : profil compute imposé serveur pour un job 100 % navigateur
+    // (null pour les jobs classiques — champ absent de la projection).
+    ...(localConfig ? { localConfig } : {}),
     ...extraFields,
     createdAt: new Date(),
     ownerId: userId,

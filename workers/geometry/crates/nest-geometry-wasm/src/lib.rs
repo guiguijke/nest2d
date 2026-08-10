@@ -32,6 +32,39 @@ pub fn import_svg(bytes: &[u8], tol: f64) -> Result<String, JsError> {
     serde_json::to_string(&r).map_err(|e| JsError::new(&format!("{e}")))
 }
 
+/// canonical_dxf(bytes, tol) -> bytes DXF canoniques mm (J-090) — jumeau de
+/// `_make_dxf_copy` : rebuild mm ($INSUNITS=4/$MEASUREMENT=1), INSERTs
+/// résolus, handles frais séquentiels = ceux de `parts[].handles` (verrou de
+/// l'export DXF par handle). Retourne un Uint8Array côté JS.
+#[wasm_bindgen]
+pub fn canonical_dxf(bytes: &[u8], tol: f64) -> Result<Vec<u8>, JsError> {
+    nest_import::canonical_dxf(bytes, tol).map_err(|e| JsError::new(&format!("{e}")))
+}
+
+/// pinwheel_capacity(json {hole_ring, filler_coords, space_mm, allowed?})
+///   -> JSON {rotations: [...]} — miroir exact de holefill.py (J-085/J-089,
+/// trou érodé de space en entier, espacement > space strict).
+#[wasm_bindgen]
+pub fn pinwheel_capacity(json: &str) -> Result<String, JsError> {
+    #[derive(serde::Deserialize)]
+    struct In {
+        hole_ring: Vec<[f64; 2]>,
+        filler_coords: Vec<[f64; 2]>,
+        space_mm: f64,
+        #[serde(default)]
+        allowed: Option<Vec<f64>>,
+    }
+    let i: In = serde_json::from_str(json).map_err(|e| JsError::new(&format!("{e}")))?;
+    let rotations = nest_preprocess::pinwheel::pinwheel_capacity(
+        &i.hole_ring,
+        &i.filler_coords,
+        i.space_mm,
+        i.allowed.as_deref(),
+    );
+    serde_json::to_string(&serde_json::json!({ "rotations": rotations }))
+        .map_err(|e| JsError::new(&format!("{e}")))
+}
+
 /// open_holes(json {outer, holes, space_mm}) -> JSON {ring, channels_opened}.
 #[wasm_bindgen]
 pub fn open_holes(json: &str) -> Result<String, JsError> {
