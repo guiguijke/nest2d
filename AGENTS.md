@@ -248,6 +248,20 @@ admin/                 (back-office Nuxt)
     linkage, jamais de binaire modifié (mere aggregation, voir
     `docs/dwg-license.md`). R2013+ expérimental → rejet propre avec message
     actionnable, jamais d'import partiel silencieux.
+33b. **Import 100 % client (J-090) — deux verrous contre-intuitifs** :
+    (a) les **handles canoniques = séquence ezdxf FRAÎCHE** (`2F, 30, 31…`) :
+    `read_dxf_file` REBUILD le doc (`entity.copy()` jette le handle source,
+    `EntityDB.add` réassigne en séquence hex uppercase) — la « préservation »
+    des handles est une coïncidence des copies déjà pipeline ; les entités de
+    blocs décomposés prennent les handles frais dans l'ordre d'explosion
+    (verrou : `nest-import/tests/handles_canonical.rs`, sweep corpus 41/41) ;
+    (b) le **seed canonique JS ≠ Python** : un float intégral s'écrit `1000`
+    en JS vs `1000.0` en Python → le seed du flux navigateur est déterministe
+    EN LUI-MÊME (le seul pertinent — un projet local ne croise jamais le
+    pipeline serveur), mais ne reproduit pas le seed worker à géométrie
+    identique. Et : le worker géométrie importe des symboles NOMMÉS du
+    bundle wasm — ajouter une op = rebuild `build-wasm.sh` DANS LA MÊME PR,
+    sinon worker mort au chargement.
 
 ### Server (quotas & promo)
 

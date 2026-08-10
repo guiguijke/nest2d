@@ -41,8 +41,10 @@ pub struct Linework {
     pub rings: Vec<Vec<Pt>>,
     /// Open polylines → segments.
     pub segments: Vec<(Pt, Pt)>,
-    /// (handle, ink points) for handle attachment.
-    pub footprints: Vec<(String, Vec<Pt>)>,
+    /// Footprints pour l'attachement des handles (attach.rs) : encre
+    /// SNAPPÉE (même grille que les corps — coïncidence exacte encre↔bord,
+    /// voir attach.rs) + nature fermée (centroïde du fallback).
+    pub footprints: Vec<crate::attach::Footprint>,
 }
 
 /// Splits primitives into closed rings and open segments (convert_entity_to_
@@ -65,11 +67,18 @@ pub fn collect_linework(
         if pts.is_empty() {
             continue;
         }
-        lw.footprints.push((handle, pts.clone()));
+        // Règle Python (convert_entity_to_shapely) : Polygon ⇔ len>2 ET
+        // |first−last| < tol — décidée sur les points BRUTS (l'encre, elle,
+        // est stockée snappée pour l'attachement).
+        let closed = pts.len() > 2 && dist2(pts[0], pts[pts.len() - 1]).sqrt() < tol;
+        lw.footprints.push(crate::attach::Footprint {
+            handle,
+            ink: pts.iter().map(|&q| snap_pt(q)).collect(),
+            closed,
+        });
         if pts.len() == 1 {
             continue; // POINT: footprint only
         }
-        let closed = dist2(pts[0], pts[pts.len() - 1]).sqrt() < tol;
         if closed && pts.len() >= 3 {
             lw.rings.push(pts);
         } else {
@@ -587,8 +596,18 @@ pub fn build_parts(lw: Linework, tol: f64) -> Vec<Part> {
         amin.partial_cmp(&bmin).unwrap_or(std::cmp::Ordering::Equal)
     });
     let parts = ordered;
+    // Attachement des handles (build_geometry.py lignes ~328-367, J-090) :
+    // sur les corps ORDONNÉS mais AVANT les filtres d'émission (le Python
+    // attache sur tous les bodies puis to_mongo_dict écarte les petits —
+    // les handles des corps filtrés disparaissent avec eux). probe_tol =
+    // max(tolerance, 1e-6) côté Python ; ici tolerance = tol (flattening).
+    let bodies: Vec<crate::attach::Body> = parts
+        .iter()
+        .map(|(outer, holes)| crate::attach::Body { outer, holes })
+        .collect();
+    let assigned = crate::attach::attach_handles(&lw.footprints, &bodies, tol.max(1e-6));
     let mut out: Vec<Part> = Vec::new();
-    for (outer, holes) in parts {
+    for ((outer, holes), handles) in parts.into_iter().zip(assigned) {
         let mut ext = reduce_ring(&outer);
         if ext.len() < 3 {
             continue;
@@ -627,6 +646,7 @@ pub fn build_parts(lw: Linework, tol: f64) -> Vec<Part> {
         out.push(Part {
             coordinates: ext_final,
             holes: holes_out,
+            handles,
             width,
             height,
         });

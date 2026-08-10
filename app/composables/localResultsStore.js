@@ -14,35 +14,15 @@
  * Purge alignée sur la rétention serveur : `purgeProject` appelé à la
  * suppression d'un projet ; `prune` borne le nombre de résultats conservés.
  *
- * Aucune dépendance — API IndexedDB native. Jamais appelé côté serveur (SSR).
+ * L'ouverture de la base est partagée (localDb.js, J-090) : un seul
+ * openDb() versionné pour les stores `results` et `files`, jamais deux
+ * versions concurrentes de la même DB. Aucune dépendance — API IndexedDB
+ * native. Jamais appelé côté serveur (SSR).
  */
+import { openDb } from './localDb'
 
-const DB_NAME = 'nestorcut-local'
-const DB_VERSION = 2
 const STORE = 'results'
 const MAX_RESULTS_PER_PROJECT = 20
-
-let dbPromise = null
-
-function openDb() {
-    if (typeof indexedDB === 'undefined') return Promise.reject(new Error('indexeddb_unavailable'))
-    dbPromise = dbPromise || new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, DB_VERSION)
-        req.onupgradeneeded = () => {
-            const db = req.result
-            if (!db.objectStoreNames.contains(STORE)) {
-                const store = db.createObjectStore(STORE, { keyPath: 'slug' })
-                store.createIndex('projectSlug', 'projectSlug', { unique: false })
-            }
-        }
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-    })
-    // Un échec (navigation privée, quota) ne doit pas être caché pour
-    // toujours : remettre à null permet de retenter au prochain appel.
-    dbPromise.catch(() => { dbPromise = null })
-    return dbPromise
-}
 
 function tx(db, mode) {
     return db.transaction(STORE, mode).objectStore(STORE)

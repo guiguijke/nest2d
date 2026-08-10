@@ -40,6 +40,8 @@ export function useLocalMode(projectSlug) {
     function mapError(err) {
         if (err === 'memory_cap') return t('localMode.memorySuggest')
         if (err === 'entity_limit') return t('localMode.entityLimit')
+        // J-090 : géométrie d'un projet local absente de CE navigateur.
+        if (err === 'geometry_missing') return t('localImport.missingGeometry')
         if (err === 'crash') return t('localMode.crashError')
         return t('localCompute.error')
     }

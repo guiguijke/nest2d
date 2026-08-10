@@ -6,6 +6,7 @@
 //! Reference: docs/PIPELINE-MAP.md, AGENTS.md #14b (libm everywhere).
 
 pub mod assemble;
+pub mod attach;
 pub mod dxf;
 #[cfg(feature = "svg")]
 pub mod svg;
@@ -24,6 +25,13 @@ use serde::Serialize;
 pub struct Part {
     pub coordinates: Vec<[f64; 2]>,
     pub holes: Vec<Vec<[f64; 2]>>,
+    /// Handles DXF CANONIQUES des entités sources de la pièce (J-090) —
+    /// jumeau de `ClosedPolygon.handles` (build_geometry.py). Ce sont les
+    /// handles du document REBUILDÉ (séquence ezdxf fraîche, dxf/canonical.rs),
+    /// les mêmes que portent les bytes de `canonical_dxf` — verrou de
+    /// l'export DXF par handle (nest-export::build_part_dxf).
+    /// Champ ADDITIF : les consommateurs JSON actuels l'ignorent.
+    pub handles: Vec<String>,
     pub width: f64,
     pub height: f64,
 }
@@ -83,6 +91,20 @@ pub fn import_svg(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, Import
 /// BOM/whitespace then '<' = SVG (XML), anything else = DXF.
 #[cfg(feature = "svg")]
 pub fn import_file(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, ImportError> {
+    if is_svg_signature(bytes) {
+        return svg::import_svg(bytes, flatten_tol);
+    }
+    import_dxf(bytes, flatten_tol)
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn import_file(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, ImportError> {
+    import_dxf(bytes, flatten_tol)
+}
+
+/// Détection de format par signature de contenu (AGENTS #31) — `true` si SVG.
+#[cfg(feature = "svg")]
+fn is_svg_signature(bytes: &[u8]) -> bool {
     let head = &bytes[..bytes.len().min(1024)];
     let mut i = 0;
     // UTF-8 BOM
@@ -92,15 +114,31 @@ pub fn import_file(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, Impor
     while i < head.len() && (head[i] as char).is_whitespace() {
         i += 1;
     }
-    if i < head.len() && head[i] == b'<' {
-        return svg::import_svg(bytes, flatten_tol);
+    i < head.len() && head[i] == b'<'
+}
+
+/// Bytes DXF canoniques mm (J-090) — jumeau de `_make_dxf_copy`
+/// (workers/fileprocessing/core/main.py) : la copie `validDxf` est TOUJOURS
+/// un DXF rebuildé en mm ($INSUNITS=4, $MEASUREMENT=1), entities décomposées
+/// (INSERTs résolus), handles frais séquentiels ezdxf (2F, 30, 31, … —
+/// voir dxf/canonical.rs). SVG → LWPOLYLINEs synthétisés depuis les rings
+/// (même flattening 0,5 px que l'import, svg_bytes_to_drawing twin).
+/// `flatten_tol` est accepté pour symétrie d'API mais inutilisé : la copie
+/// canonique garde les courbes ENTIÈRES (ARC/SPLINE…), le flattening n'agit
+/// que dans build_geometry — pareil côté Python.
+#[cfg(feature = "svg")]
+pub fn canonical_dxf(bytes: &[u8], _flatten_tol: f64) -> Result<Vec<u8>, ImportError> {
+    if is_svg_signature(bytes) {
+        return svg::canonical_dxf(bytes);
     }
-    import_dxf(bytes, flatten_tol)
+    let doc = dxf::Document::parse(bytes)?;
+    Ok(dxf::canonical::canonical_dxf_bytes(&doc))
 }
 
 #[cfg(not(feature = "svg"))]
-pub fn import_file(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, ImportError> {
-    import_dxf(bytes, flatten_tol)
+pub fn canonical_dxf(bytes: &[u8], _flatten_tol: f64) -> Result<Vec<u8>, ImportError> {
+    let doc = dxf::Document::parse(bytes)?;
+    Ok(dxf::canonical::canonical_dxf_bytes(&doc))
 }
 
 #[cfg(test)]

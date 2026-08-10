@@ -69,6 +69,11 @@ export default defineNuxtConfig({
             // geometry, no privacy claim, no public UI mention. Ships dark;
             // set NUXT_PUBLIC_LOCAL_COMPUTE_ENABLED=true to enable.
             localComputeEnabled: false,
+            // J-090 (import 100 % client) : projets « 100 % privés » dont les
+            // fichiers sont parsés dans le navigateur et ne quittent JAMAIS
+            // la machine (IndexedDB). Exige localComputeEnabled. Ships dark ;
+            // NUXT_PUBLIC_LOCAL_IMPORT_ENABLED=true pour activer.
+            localImportEnabled: false,
         },
     },
 
