@@ -286,6 +286,15 @@ admin/                 (back-office Nuxt)
     charge (grant → abonnement → quota free) prime toujours. Verrous :
     `server/tests/entitlement.test.js`, `server/tests/promo.test.js`
     (`npx vitest run`).
+34b. **`crypto.createECDH('secp256r1')` peut jeter `ERR_CRYPTO_INVALID_CURVE`**
+    (alias absent de certains builds OpenSSL 3.5, vu sur Node 24 Windows) →
+    toujours fallback `prime256v1` (même courbe NIST P-256, format wire
+    identique) — helper `createP256Ecdh` (`job-dek.post.js`,
+    `verify_jobdek.mjs`). Et **QA curl d'un nesting SERVEUR = tier payant
+    obligatoire** : un compte Free est routé `awaiting_local` (calcul
+    navigateur), aucun worker ne produit de résultat — granter
+    `grantedUntil` en base avant le scénario (verrou D-PRV-7 :
+    `scripts/validate_vault_dprv7_e2e.sh`).
 35. **Stratégie & tiers : `docs/STRATEGY.md` fait foi** (marqueurs
     `[prod]`/`[spéc]`/`[conditionnel]` — ne jamais marquer `[prod]` du
     non-livré). La privacy n'est **jamais une feature payante** : le vault
