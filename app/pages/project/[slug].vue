@@ -50,6 +50,10 @@
         <div v-if="nestRequestError" class="content__error">
             {{ nestRequestError }}
         </div>
+        <!-- J-090 : erreur d'import navigateur (clé i18n renvoyée par le store) -->
+        <div v-if="localImportError" class="content__error">
+            {{ t(localImportError) }}
+        </div>
         <div v-if="sheetCapExceeded" class="content__error">
             {{ t('nest.sheetCapHint') }}
         </div>
@@ -173,7 +177,9 @@ watch(
                 onLive: (evt) => {
                     localLive.value = {
                         slug: job.slug,
-                        itemMap: job.itemMap || [],
+                        // J-090 : la frame porte l'itemMap pour les projets
+                        // 100 % clients (le doc job n'en a pas).
+                        itemMap: evt.itemMap || job.itemMap || [],
                         liveLayout: evt,
                         compute: null,
                         progress: null,
@@ -184,6 +190,7 @@ watch(
                 localComputeError.value =
                     res.error === 'memory_cap' ? 'memory_cap'
                     : res.error === 'entity_limit' ? 'entity_limit'
+                    : res.error === 'geometry_missing' ? 'geometry_missing'
                     : 'crash';
             } else {
                 // Les records ont changé : forcer la prochaine hydratation.
@@ -191,7 +198,7 @@ watch(
                 if (res.liveLayout) {
                     localReveal.value = {
                         slug: job.slug,
-                        itemMap: job.itemMap || [],
+                        itemMap: res.itemMap || job.itemMap || [],
                         liveLayout: res.liveLayout,
                         compute: null,
                         progress: null,
@@ -210,10 +217,11 @@ watch(
 );
 const { getters: filesGetters, actions } = filesStore;
 const params = computed(() => filesGetters.params);
-const { setProjectFiles, setProjectName, nest } = actions;
+const { setProjectFiles, setProjectName, nest, getProject, consumePendingLocalFiles } = actions;
 const filesCount = computed(() => filesGetters.filesCount);
 const isNewParams = computed(() => filesGetters.isNewParams);
 const nestRequestError = computed(() => filesGetters.nestRequestError);
+const localImportError = computed(() => filesGetters.localImportError);
 const demoQuotaReached = computed(() => filesGetters.demoQuotaReached);
 const slug = route.params.slug;
 const apiPath = API_ROUTES.PROJECT(slug);
@@ -224,6 +232,8 @@ const data = filesGetters.projectFiles || await $apiFetch(apiPath);
 // compute profile (4 vcores, 90 s, 3 directions) and the monthly demo quota
 // stay server-imposed.
 const isDemo = computed(() => Boolean(data.isDemo));
+// J-090 : projet « 100 % privé » — fichiers en IndexedDB, jamais uploadés.
+const isLocalProject = computed(() => Boolean(data.local));
 const DEMO_LIMIT = DEMO_NESTING_LIMIT;
 const user = computed(() => unref(authStore.getters.user) || {});
 const demoRemaining = computed(() => Number(user.value.demoRemaining ?? DEMO_LIMIT));
@@ -305,7 +315,15 @@ const sizesIsAvailable = computed(() => {
     });
 })
 onMounted(() => {
-    if (!filesGetters.projectFiles) {
+    if (isLocalProject.value) {
+        // J-090 : hydration IndexedDB (jamais le serveur) + import des
+        // fichiers déposés sur la home à la création du projet.
+        (async () => {
+            await getProject(apiPath)
+            const pending = consumePendingLocalFiles()
+            if (pending.length) await actions.addFiles(pending, slug)
+        })()
+    } else if (!filesGetters.projectFiles) {
         setProjectFiles(data.files, apiPath)
         setProjectName(data.name)
     }

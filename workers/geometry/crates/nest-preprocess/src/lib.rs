@@ -15,6 +15,8 @@
 
 use nest_import::assemble as ga; // géométrie d'arrangement partagée
 
+pub mod pinwheel; // J-090 — miroir de holefill.pinwheel_capacity (J-085)
+
 #[cfg(feature = "wasm")]
 mod wasm;
 

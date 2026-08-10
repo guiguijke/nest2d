@@ -1,6 +1,9 @@
-import { connectDB, getBucket } from '~~/server/db/mongo'
-import { DEMO_OWNER_ID } from '~~/shared/constants/demo.constants'
-import logger from '~~/server/utils/logger'
+// Imports RELATIFS (pas d'alias ~~/) : ce module est chargé par un plugin
+// Nitro au démarrage — les plugins ne résolvent pas les alias dans ce
+// contexte (cf. 4_demoProjectSeed.js, même pattern).
+import { connectDB, getBucket } from '../../db/mongo'
+import { DEMO_OWNER_ID } from '../../../shared/constants/demo.constants'
+import logger from '../../utils/logger'
 
 /**
  * D-PRV-10 / J-091 — purge 24 h du Mode Serveur (spec : specs/81-purge-24h.md).

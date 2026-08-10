@@ -266,9 +266,13 @@ export function resolveComputeLocation(localComputeEnabled, isDemo, tier, projec
  * @param {string} tier 'free'|'standard'|'privacy'
  * @param {boolean} hasDwg le job contient-il un DWG ?
  * @param {string} [userChoice] 'local'|'server' choix explicite (payants)
+ * @param {boolean} [projectLocal] projet « 100 % privé » (J-090) ?
  * @returns {{mode: 'local'|'server', canToggle: boolean, reason: string}}
  */
-export function resolveLocalMode(tier, hasDwg, userChoice) {
+export function resolveLocalMode(tier, hasDwg, userChoice, projectLocal = false) {
+    // J-090 : un projet local est TOUJOURS calculé dans le navigateur — le
+    // serveur n'a jamais la géométrie, aucun autre routage n'est possible.
+    if (projectLocal) return { mode: 'local', canToggle: false, reason: 'project_local' }
     if (hasDwg) return { mode: 'server', canToggle: false, reason: 'dwg' }
     if (tier === 'free') return { mode: 'local', canToggle: false, reason: 'free' }
     return { mode: userChoice === 'local' ? 'local' : 'server', canToggle: true, reason: 'choice' }

@@ -7,6 +7,12 @@ import { connectDB } from '~~/server/db/mongo'
  * client fetches it once, runs the WASM engine on it, then POSTs the result
  * back to local-result. Only geometry the account could already see (owner,
  * or shared demo) — nothing more.
+ *
+ * J-090 : pour un projet « 100 % privé » (job.localConfig présent), le
+ * payload moteur est ASSEMBLÉ PAR LE NAVIGATEUR (géométrie en IndexedDB) —
+ * cette route ne sert alors QUE des métadonnées : params du job (tôles,
+ * espacement, options), métadonnées fichiers (slug/nom/compte/rotations) et
+ * le profil compute imposé serveur. Aucune géométrie ne transite.
  */
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId
@@ -23,13 +29,43 @@ export default defineEventHandler(async (event) => {
     const db = await connectDB()
     const job = await db.collection('nesting_jobs').findOne(
         { slug },
-        { projection: { ownerId: 1, projectSlug: 1, status: 1, localPayload: 1 } }
+        { projection: { ownerId: 1, projectSlug: 1, status: 1, localPayload: 1, localConfig: 1, files: 1, params: 1 } }
     )
     // Owner-only, demo included (same rule as local-result/local-fail).
     if (!job || job.ownerId !== userId) {
         throw createError({ statusCode: 404, statusMessage: 'Job not found' })
     }
-    if (job.status !== 'awaiting_local' || !job.localPayload) {
+    if (job.status !== 'awaiting_local') {
+        throw createError({ statusCode: 409, statusMessage: 'Job is not awaiting local compute' })
+    }
+
+    // J-090 — voie 100 % client : métadonnées + profil imposé, zéro géométrie.
+    if (job.localConfig) {
+        const p = job.params || {}
+        return {
+            mode: 'client-built',
+            files: (job.files || []).map((f) => ({
+                slug: f.slug,
+                name: f.simpleName || f.slug,
+                count: f.count || 0,
+                rotations: f.rotations || null,
+            })),
+            params: {
+                sheets: Array.isArray(p.sheets) ? p.sheets : null,
+                width: p.width ?? null,
+                height: p.height ?? null,
+                sheetCount: p.sheetCount ?? null,
+                space: p.space ?? 0,
+                fillHoles: p.fillHoles !== false,
+                addOutShape: Boolean(p.addOutShape),
+                outputUnit: p.outputUnit || 'mm',
+                directions: p.directions || null,
+            },
+            localConfig: job.localConfig,
+        }
+    }
+
+    if (!job.localPayload) {
         throw createError({ statusCode: 409, statusMessage: 'Job is not awaiting local compute' })
     }
     const payload = job.localPayload

@@ -82,6 +82,25 @@ export async function geoMemoryPages() {
     return r.ok ? parseInt(r.result, 10) : 0
 }
 
+/** J-090 : bytes DXF canoniques mm (import 100 % client — contrat d'export
+ * par handle, miroir de la copie validDxf du pipeline serveur). */
+export async function geoCanonicalDxf(bytes, tol = 0.01) {
+    const r = await call('canonical_dxf', { bytes: Array.from(bytes), tol })
+    return r.ok ? new Uint8Array(r.result) : r
+}
+/** J-090 : rotations pinwheel validées pour un filler dans un trou
+ * (pré-passe meta J-085 côté navigateur). */
+export async function geoPinwheelCapacity(holeRing, fillerCoords, spaceMm, allowed = null) {
+    return parse(await call('pinwheel_capacity', {
+        json: JSON.stringify({
+            hole_ring: holeRing,
+            filler_coords: fillerCoords,
+            space_mm: spaceMm,
+            allowed,
+        }),
+    }))
+}
+
 /**
  * QA (PR3) : calcule côté navigateur les artefacts d'un résultat résolu
  * (SVG coloré par tôle + rapport) via le PONT localBridge (J-082), pour

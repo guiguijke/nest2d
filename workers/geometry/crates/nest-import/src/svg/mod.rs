@@ -84,7 +84,7 @@ fn walk(node: &roxmltree::Node, parent: &Ctx, prims: &mut Vec<Primitive>, warnin
                 emit_path(&p, prims);
             }
         }
-        "rect" | "circle" | "ellipse" | "line" | "polyline" | "polygon" => {
+        "rect" | "circle" | "ellipse" | "polyline" | "polygon" => {
             if display_none {
                 return;
             }
@@ -95,8 +95,13 @@ fn walk(node: &roxmltree::Node, parent: &Ctx, prims: &mut Vec<Primitive>, warnin
                 emit_path(&p, prims);
             }
         }
+        // `<line>` est un `SimpleLine` pour svgelements — ABSENT de la liste
+        // _CONVERTIBLE de svg_to_drawing.py : le pipeline Python le saute
+        // (avec warning), donc aucune entité canonique, aucun handle (J-090,
+        // verrou svg_shapes : le <line> consommait un handle ici et décalait
+        // toute la séquence).
         "text" | "tspan" | "image" | "desc" | "title" | "metadata" | "style" | "use" | "pattern"
-        | "linearGradient" | "radialGradient" | "clipPath" | "mask" | "marker" => {
+        | "line" | "linearGradient" | "radialGradient" | "clipPath" | "mask" | "marker" => {
             warnings.push(format!("Skipping unsupported SVG element: {tag}"));
         }
         _ => {
@@ -303,7 +308,22 @@ fn viewbox_transform(
 
 /// svg_bytes_to_drawing twin: parse → flatten → primitives mm (y-up).
 /// Zero convertible geometry = clean error (parity of behavior).
+///
+/// Handles (J-090) : les primitives reçoivent la séquence canonique ezdxf
+/// (2F, 30, …, une LWPOLYLINE = un handle) — les mêmes handles que portent
+/// les LWPOLYLINEs synthétisés de `canonical_dxf`, pour l'export par handle.
 pub fn import_svg(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, ImportError> {
+    let (prims, mut warnings, entity_count) = svg_primitives(bytes)?;
+    let (linework, w2, _) = crate::assemble::collect_linework(&prims, flatten_tol);
+    warnings.extend(w2);
+    let parts = crate::assemble::build_parts(linework, flatten_tol);
+    Ok(ImportResult { parts, source_units: 4, entity_count, warnings })
+}
+
+/// Parse + flatten SVG → primitives mm (y-up), handles canoniques assignés.
+/// Point d'injection unique partagé par import_svg et canonical_dxf : même
+/// source ⇒ même ordre ⇒ même séquence de handles.
+fn svg_primitives(bytes: &[u8]) -> Result<(Vec<Primitive>, Vec<String>, usize), ImportError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|e| ImportError::Corrupt(format!("Unreadable SVG file: {e}")))?;
     let doc = roxmltree::Document::parse(text)
@@ -336,8 +356,41 @@ pub fn import_svg(bytes: &[u8], flatten_tol: f64) -> Result<ImportResult, Import
             "No convertible geometry found in SVG (paths/shapes only)".to_string(),
         ));
     }
-    let (linework, w2, _) = crate::assemble::collect_linework(&prims, flatten_tol);
-    warnings.extend(w2);
-    let parts = crate::assemble::build_parts(linework, flatten_tol);
-    Ok(ImportResult { parts, source_units: 4, entity_count, warnings })
+    // Séquence canonique (svg_bytes_to_drawing → ezdxf.new("R2010") : les
+    // add_lwpolyline reçoivent 2F, 30, 31, … dans l'ordre d'émission).
+    let mut hg = crate::dxf::canonical::HandleGen::new();
+    for p in prims.iter_mut() {
+        if let Primitive::Polyline { handle, .. } = p {
+            *handle = hg.next_handle();
+        }
+    }
+    Ok((prims, warnings, entity_count))
+}
+
+/// Bytes DXF canoniques d'une source SVG (svg_bytes_to_drawing twin) :
+/// LWPOLYLINEs aplaties (0,5 px, mm, y-up) avec handles canoniques,
+/// $INSUNITS=4 / $MEASUREMENT=1, ACADVER AC1024 (ezdxf.new("R2010")).
+pub fn canonical_dxf(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
+    let (prims, _, _) = svg_primitives(bytes)?;
+    let entities: Vec<crate::dxf::entities::Entity> = prims
+        .into_iter()
+        .filter_map(|p| match p {
+            Primitive::Polyline { points, closed, handle, layer } => {
+                Some(crate::dxf::entities::Entity::LwPolyline(
+                    crate::dxf::entities::LwPolyline {
+                        bulges: vec![0.0; points.len()],
+                        points,
+                        closed,
+                        common: crate::dxf::entities::Common {
+                            handle,
+                            layer,
+                            color: 256,
+                        },
+                    },
+                ))
+            }
+            _ => None,
+        })
+        .collect();
+    Ok(crate::dxf::canonical::emit_dxf(&entities, "AC1024"))
 }

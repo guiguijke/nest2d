@@ -2,6 +2,14 @@
 /* eslint-disable */
 
 /**
+ * canonical_dxf(bytes, tol) -> bytes DXF canoniques mm (J-090) — jumeau de
+ * `_make_dxf_copy` : rebuild mm ($INSUNITS=4/$MEASUREMENT=1), INSERTs
+ * résolus, handles frais séquentiels = ceux de `parts[].handles` (verrou de
+ * l'export DXF par handle). Retourne un Uint8Array côté JS.
+ */
+export function canonical_dxf(bytes: Uint8Array, tol: number): Uint8Array;
+
+/**
  * compute_report(json {items, containers, space}) -> rapport JSON.
  */
 export function compute_report(json: string): string;
@@ -42,6 +50,13 @@ export function import_svg(bytes: Uint8Array, tol: number): string;
 export function open_holes(json: string): string;
 
 /**
+ * pinwheel_capacity(json {hole_ring, filler_coords, space_mm, allowed?})
+ *   -> JSON {rotations: [...]} — miroir exact de holefill.py (J-085/J-089,
+ * trou érodé de space en entier, espacement > space strict).
+ */
+export function pinwheel_capacity(json: string): string;
+
+/**
  * Pages mémoire wasm courantes (garde-fou du worker géométrie) — même
  * sémantique que nest_wasm::wasm_memory_pages (memory_size, exact).
  */
@@ -51,6 +66,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly canonical_dxf: (a: number, b: number, c: number) => [number, number, number, number];
     readonly compute_report: (a: number, b: number) => [number, number, number, number];
     readonly export_dxf: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly export_dxf_sheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
@@ -58,6 +74,7 @@ export interface InitOutput {
     readonly import_file: (a: number, b: number, c: number) => [number, number, number, number];
     readonly import_svg: (a: number, b: number, c: number) => [number, number, number, number];
     readonly open_holes: (a: number, b: number) => [number, number, number, number];
+    readonly pinwheel_capacity: (a: number, b: number) => [number, number, number, number];
     readonly wasm_memory_pages: () => number;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
