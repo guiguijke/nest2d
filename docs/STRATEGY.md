@@ -42,13 +42,16 @@ Correspondance des noms (le code n'est pas renommé à ce stade) :
   pas de quota (charge refundée par le worker, `worker_common/refund.py`)
   [prod].
 - Cap **2 tôles par job** (somme des counts, identiques ou différentes) [prod, PR#18].
-- Phase 2 : calcul **navigateur uniquement** [conditionnel].
+- Calcul **navigateur uniquement** (Mode Local forcé : solve WASM
+  mono-walk, résultats 100 % navigateur, refund à l'échec) [prod, PR#33-38 —
+  flag ON 2026-08-08].
 
 ### Unlimited — 19 €/mois
 
 - Nestings illimités, tôles illimitées [prod].
-- Calcul serveur [prod] ; Phase 2 : serveur **ou navigateur, au choix**
-  [conditionnel].
+- Calcul serveur [prod] **ou navigateur, au choix** (toggle « Lieu de
+  calcul », défaut serveur — un payant ne voit rien changer) [prod, flag ON
+  2026-08-08]. DWG ⇒ serveur dans tous les cas (local = DXF+SVG).
 - Notifications email de fin de nesting [prod].
 
 ### Pro — 39 €/mois
@@ -59,7 +62,8 @@ Correspondance des noms (le code n'est pas renommé à ce stade) :
   compute du tier code `privacy` : 8 vcores / 180 s / priority 10 [prod] ;
   repositionnement marketing « Pro = compute max », le vault ZK est sorti
   de l'exclusivité Pro (§2) [prod, PR#17].
-- Phase 2 : **turbo hybride** client + serveur [conditionnel].
+- **Turbo hybride** client + serveur (multi-thread wasm + budget serveur
+  max) [spéc — non codé, voir plan §6].
 
 ## 2. Privacy — spectre à 3 modes
 
@@ -67,8 +71,12 @@ La privacy n'est **jamais une feature payante** : le vault ZK est opt-in
 sur TOUS les plans (gate `hasPrivacyTier` retiré, Phase 1) [prod, PR#17]. Chaque promesse publique doit être **exactement vraie** — détail
 des promesses et threat model dans `docs/THREAT-MODEL.md`.
 
-- **Mode Local** [conditionnel — Phase 2 WASM] : « files never leave your
-  machine ». Vrai par construction, aucune nuance.
+- **Mode Local** [prod, flag ON 2026-08-08 — périmètre exact] : le solve
+  tourne dans le navigateur (WASM mono-walk) et **les résultats ne quittent
+  jamais le navigateur** (IndexedDB ; quota = scalaires bornés). Les
+  fichiers sources, eux, sont uploadés pour le parsing serveur (DXF/SVG) —
+  la promesse « files never leave your machine » exige l'import 100 %
+  client [spéc] et ne doit JAMAIS être affichée avant (règle 4, §5).
 - **Mode Serveur** [spéc] : chiffré avec la clé de l'utilisateur ; RAM
   volatile uniquement pendant le job ; le clair n'est jamais écrit sur
   disque ; purge automatique des blobs après le délai affiché (24 h) ; la
@@ -150,32 +158,33 @@ Quatre chantiers **indépendants, à traiter en PR séparées** :
 
 Déjà livrés : codes promo partenaires [prod], rapport matière [prod].
 
-### Phase 2 — [conditionnelle]
+### Phase 2 — Mode Local [prod, flag ON 2026-08-08]
 
-Hybride WASM navigateur/serveur (Free = navigateur seul, Unlimited = choix
-navigateur/serveur, Pro = turbo hybride client+serveur). **Conditionnée au
-verdict du spike WASM** : GO/NO-GO documenté dans `spike/VERDICT.md` —
-aucun travail Phase 2 avant un GO écrit.
+**Verdict spike = GO** (spike/VERDICT.md : ratio 1,5-1,7×, bit-exact
+natif/wasm via libm des deux côtés, .wasm 349 Ko gz, mémoire < 36 Mo).
+**Livré en prod** (PR#20 → PR#39, J-058 → J-089) : moteur wasm32 (jagua
+vendored mono-thread, libm, `nest-wasm`, artefact `/engine/*`), verrou
+déterminisme SHA-256 (natif ≡ wasm, tolérance 0), `computeLocation` écrit
+serveur (free/démo ⇒ local forcé ; paid ⇒ choix, défaut serveur ; DWG ⇒
+serveur), Web Worker, profil browser 13 s mono-walk, refund à l'échec,
+**rendu 100 % client** (SVG/rapport/DXF via crate géométrie dual-cible,
+parité verrouillée par diff client/serveur bloquant), résultats IndexedDB,
+vue live du solve navigateur (EventSink 2 Hz), trou-filling meta-pièces
+sécurisé (J-089).
 
-**Verdict = GO** (spike/VERDICT.md : ratio 1,5-1,7×, bit-exact natif/wasm
-via libm des deux côtés, .wasm 349 Ko gz, mémoire < 36 Mo). **Fondations
-livrées derrière flag** [PR#20/B1, PR#21/B2 — QA interne, aucune com
-publique] : moteur compilé wasm32 (jagua vendored mono-thread, libm,
-`nest-wasm`, artefact `/engine/*` 352 Ko gz), verrou déterminisme SHA-256
-(natif ≡ wasm, tolérance 0), `computeLocation` écrit serveur (free/démo ⇒
-local, paid ⇒ opt-in projet), Web Worker, profil browser 13 s, refund à
-l'échec. **Reste pour le claim « files never leave your machine »** :
-pipeline DXF/SVG côté client (parsing + canaux + métriques rapport),
-multi-thread wasm (COOP/COEP), tests mobiles, copy publique.
+**Reste pour le claim complet « files never leave your machine »** [spéc] :
+import 100 % client (nest-import DXF/SVG + nest-preprocess canaux en wasm,
+crates livrées mais non câblées dans le flux d'upload), métriques rapport
+client (fait, J-082), tests mobiles (fiche bloquante docs/MOBILE-TEST-PR5.md),
+puis copy publique complète. **Turbo hybride Pro** [spéc] : multi-thread
+wasm (COOP/COEP) + budget serveur max — voir plan dédié.
 
-Scope attendu du spike (revue 2026-08-05) : le verdict sera plutôt
-« GO, périmètre X » qu'un oui/non sec. Commencer par une **cartographie
-moteur/pipeline** : le cœur (recuit BPP, constructif `HoleFillEvaluator`,
-jagua/sparrow) est **Rust** — compilable WASM ; le pipeline **Python**
-(parse DXF/SVG/DWG, canaux capillaires `holed_polygons.py`, métriques du
-rapport) n'embarque pas et devra être porté ou réimplémenté côté client
-en mode navigateur. La logique trous doit donc vivre côté client — à
-chiffrer dans le verdict.
+### Phase 3 — pistes (non engagées)
+
+Multi-thread wasm navigateur (rayon + SharedArrayBuffer, exige en-têtes
+COOP/COEP cross-origin isolation — incompatible avec les intégrations
+tiers actuelles, à arbitrer), import client intégral, hybride Pro
+client+serveur.
 
 ## Hors scope de ce document
 
