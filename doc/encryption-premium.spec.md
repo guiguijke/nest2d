@@ -13,6 +13,20 @@
 > `docs/THREAT-MODEL.md`. Le reste de cette spec (fichier-clé, crypto,
 > format chiffré, cycle de vie) reste la référence d'implémentation.
 >
+> ✅ **Mise à jour 2026-08-11 — D-PRV-7 LIVRÉ** : le mécanisme de session
+> décrit historiquement au §2 (collection `session_keys`, DEK wrappée sous
+> master key) est **remplacé** par : session DEK en **RAM process-local
+> seule** (Map `{ userId → { dek, expiresAt } }`, TTL glissant 2 h, wipe
+> explicite des buffers, zéro persistence — `session_keys` est droppée au
+> boot) et **livraison aux workers par job via ECDH P-256 éphémère**
+> (`POST /api/security/vault/job-dek`, parcel AES-256-GCM sous clé de
+> transport HKDF — voir §2.2 et `docs/THREAT-MODEL.md` §4).
+> `NUXT_ENCRYPTION_MASTER_KEY` / `ENCRYPTION_MASTER_KEY` n'ont plus aucun
+> rôle (warning de deprecation au boot si encore définis). Le format de
+> fichier chiffré (§3) est INCHANGÉ ; les verrous d'interop
+> `scripts/crypto-interop/` couvrent désormais aussi le parcel job-dek
+> (`verify_jobdek.mjs` / `verify_jobdek.py`, les deux directions).
+>
 > **Changement v2** : abandon du mode passphrase (Argon2id) au profit d'un
 > **fichier-clé téléchargeable**. Le serveur ne stocke rien permettant de
 > déchiffrer. Sans le fichier, les données sont illisibles ; si le fichier
@@ -31,9 +45,9 @@
 
 Nuances à assumer en interne (et dans les CGV/FAQ en langage clair) :
 - Pendant une session de travail déverrouillée, la clé vit en mémoire
-  serveur (cache TTL, jamais écrite sur disque ni en base en clair) le
-  temps de traiter les fichiers. « Rien de **persisté** » est la promesse
-  exacte.
+  serveur (RAM process-local uniquement — jamais écrite sur disque ni en
+  base, même chiffrée, depuis D-PRV-7) le temps de traiter les fichiers.
+  « Rien de **persisté** » est la promesse exacte.
 - TLS obligatoire sur tout le transport (déjà en place).
 
 ## 2. Architecture
@@ -44,7 +58,8 @@ Fichier-clé (détenu par l'utilisateur, généré dans SON navigateur)
 
 Serveur (ne persiste QUE) :
   users.encryption = { enabled: true, keyId, fingerprint, createdAt }
-  session_keys (TTL) = { userId, dekWrappée-clé-maître, expiresAt }   ← éphémère
+  Session DEK : Map RAM process-local { userId → { dek, expiresAt } }
+    (TTL 2 h glissant, wipe des buffers — RIEN en base ; D-PRV-7)
 ```
 
 - `keyId` : identifiant public court (8 hex) — affiché dans le nom du fichier.
@@ -80,25 +95,34 @@ lecture, cf. `validTypes` dans `app/utils/vault.js`)
    et je comprends que sa perte rend mes données irrécupérables. »
 4. Le client envoie la clé une fois à `POST /api/security/vault/enable`
    (TLS) → le serveur calcule et stocke `keyId` + `fingerprint`, active
-   `encryption.enabled`, crée l'entrée `session_keys`, puis **oublie** la clé.
+   `encryption.enabled`, ouvre la session RAM, puis **oublie** la clé.
 
 **Déverrouillage (début de session de travail)** :
 1. L'utilisateur glisse/sélectionne son `.key.json` (ou il est retrouvé dans
    le cache navigateur, cf. §2.3).
 2. `POST /api/security/vault/unlock` → le serveur vérifie
-   `SHA-256(clé) == fingerprint` → écrit/rafraîchit `session_keys`
+   `SHA-256(clé) == fingerprint` → ouvre/rafraîchit la session RAM
    (TTL 2h glissant) → 200. Sinon 403 `wrong_key`.
-3. Upload / nesting / téléchargement : OK tant que l'entrée TTL existe.
+3. Upload / nesting / téléchargement : OK tant que la session RAM est active.
    Expirée → 403 `vault_locked` → le front rouvre la modale de déverrouillage.
 
-**Workers** : lisent `session_keys`, déwrappent la DEK avec la clé maître
-serveur (env), traitent en mémoire, oublient. (La clé maître ne sert qu'à
-protéger le cache éphémère — sans elle, un dump Mongo pendant une session
-active exposerait les DEK.)
+**Workers** (D-PRV-7) : la DEK ne transite plus JAMAIS par la base. Au claim
+du job, le worker génère une paire ECDH P-256 éphémère (RAM seule) et écrit
+la clé publique sur le doc (`workerKeyPub`), puis appelle
+`POST {NEST_APP_URL}/api/security/vault/job-dek { jobSlug }`. Le serveur —
+si une session RAM est active pour le propriétaire — répond `{ serverPub,
+parcel }` : parcel = AES-256-GCM(clé de transport HKDF-SHA256(ECDH, info
+"nest2d-job-dek-v1"), DEK, AAD = jobSlug). Le worker déwrappe en RAM,
+déchiffre en mémoire, puis **wipe** en fin de job (succès ou échec) +
+`$unset workerKeyPub`. Pas de session active → 409 `vault_locked` (le job
+échoue proprement et est refundé). Rien d'exploitable n'est persisté : même
+intercepté, le parcel est indéchiffrable sans les deux moitiés privées (RAM
+des deux côtés — forward secrecy).
 
 **Crypto-shredding gratuit** : suppression de compte, purge manuelle, ou
-perte du fichier par l'utilisateur → les données sont mortes. `DELETE
-session_keys` + les fichiers chiffrés deviennent du bruit.
+perte du fichier par l'utilisateur → les données sont mortes. La session RAM
+s'évapore (wipe à l'expiration/au lock, perte au redémarrage) et les
+fichiers chiffrés deviennent du bruit.
 
 ### 2.3 Confort UX (optionnel, côté client uniquement)
 
@@ -136,10 +160,12 @@ Absence de flag = fichier legacy en clair, servi tel quel.
 
 | Fichier | Changement |
 |---|---|
-| `server/utils/crypto.js` (nouveau) | `encryptChunk/decryptChunk` (AES-256-GCM + AAD), `fingerprint(dek)`, wrap/unwrap pour `session_keys` via `NUXT_ENCRYPTION_MASTER_KEY`. **Aucun KDF** (plus de passphrase) |
+| `server/utils/crypto.js` (nouveau) | `encryptChunk/decryptChunk` (AES-256-GCM + AAD), `fingerprint(dek)`. **Aucun KDF** (plus de passphrase). ~~wrap/unwrap master key~~ retiré par D-PRV-7 |
 | `server/db/mongo.js` | Wrapper des buckets GridFS (upload/download chiffrant à la volée) |
-| `server/api/security/vault/enable.post.js` (nouveau) | Enregistre fingerprint, active le vault, seed `session_keys` |
+| `server/api/security/vault/enable.post.js` (nouveau) | Enregistre fingerprint, active le vault, ouvre la session RAM |
 | `server/api/security/vault/unlock.post.js` (nouveau) | Vérifie fingerprint (temps constant), refresh TTL. Rate-limit 10/min/IP |
+| `server/api/security/vault/job-dek.post.js` (D-PRV-7) | Livraison DEK par job aux workers (ECDH P-256 éphémère + HKDF + parcel AES-GCM). 409 `vault_locked` hors session. Rate-limit 60/min |
+| `server/plugins/vault-dprv7.js` (D-PRV-7) | Boot : warning si `NUXT_ENCRYPTION_MASTER_KEY` encore défini + drop idempotent de `session_keys` |
 | `server/api/security/vault/status.get.js` (nouveau) | `{ enabled, locked, expiresAt }` |
 | `server/api/security/vault/disable.post.js` (nouveau) | Déchiffrement complet ou destruction, au choix |
 | Upload DXF + `server/api/files/**/*.get.js` | Chiffrement/déchiffrement transparent ; 403 `vault_locked` si premium verrouillé |
@@ -157,10 +183,13 @@ Absence de flag = fichier legacy en clair, servi tel quel.
 
 ### 4.3 Workers Python (×4)
 
-Identique spec v1 : `utils/crypto.py` (AESGCM, `cryptography`), lecture
-`session_keys`, unwrap via `ENCRYPTION_MASTER_KEY` (env), chiffrement des
-**résultats** aussi. **Test d'interop JS ↔ Python obligatoire** sur vecteur
-fixe (mêmes tailles nonce/tag, même AAD).
+`worker_common/crypto.py` (AESGCM, `cryptography`) — D-PRV-7 : livraison de
+la DEK **par job** via ECDH éphémère contre l'app (`NEST_APP_URL`, voir
+§2.2) ; `prepare_job_dek` au claim (écrit `workerKeyPub`), `get_dek(db, doc)`
+à la demande (cache RAM essuyable), `wipe_job_dek` en fin de job. Plus aucune
+lecture `session_keys`, plus de master key. Chiffrement des **résultats**
+aussi. **Test d'interop JS ↔ Python obligatoire** sur vecteur fixe (mêmes
+tailles nonce/tag, même AAD) — frames ET parcel job-dek.
 
 ## 5. Gating commercial (inchangé)
 
@@ -180,13 +209,15 @@ l'illimité nesting reste commun aux deux abos.
 
 ## 7. Checklist implémentation
 
-1. [x] `NUXT_ENCRYPTION_MASTER_KEY` (app) + `ENCRYPTION_MASTER_KEY` (workers)
-      dans `.env.example` + docker-compose (`openssl rand -hex 32`)
+1. [x] ~~`NUXT_ENCRYPTION_MASTER_KEY` (app) + `ENCRYPTION_MASTER_KEY`
+      (workers)~~ **supprimés par D-PRV-7** (warnings de deprecation au boot
+      si encore présents ; `NEST_APP_URL` ajouté aux workers)
 2. [x] `server/utils/crypto.js` + tests round-trip + vecteur interop Python
 3. [x] Wrapper buckets GridFS + flag `enc`
 4. [x] Endpoints vault (enable/unlock/status/disable) + rate-limit +
       comparaison fingerprint temps constant + **aucun log de la clé**
-5. [x] Collection `session_keys` + index TTL
+5. [x] ~~Collection `session_keys` + index TTL~~ **remplacée par la session
+      RAM process-local (D-PRV-7)** + livraison ECDH par job (`job-dek`)
 6. [x] 403 `vault_locked` sur upload/nesting/download premium verrouillé
 7. [x] Front : activation (génération + téléchargement + checkbox),
       `VaultUnlock.vue`, IndexedDB opt-in, settings
