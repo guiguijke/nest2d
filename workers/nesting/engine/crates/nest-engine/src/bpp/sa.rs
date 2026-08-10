@@ -13,7 +13,9 @@ use jagua_rs::Instant;
 use std::time::Duration;
 
 /// Scalarized cost for SA acceptance. Lexicographic comparisons use `cmp_key`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Serialize/Deserialize : transport du coût complet dans les alternatives
+/// exportées (`cost_detail`, J-093 — parité exacte du merge wasm).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Cost {
     pub unplaced: usize,
     pub bin_cost: u64,

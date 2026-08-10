@@ -157,6 +157,15 @@ admin/                 (back-office Nuxt)
     grille 40 000 → repli band offcut (exact pour les chutes en bande).
 16. **Seed Mongo = BSON Int64** : sérialiser en `toString()` côté API,
     sinon `{low, high, unsigned}` à l'écran.
+16b. **Seeds 63 bits côté JS : BigInt ou string, JAMAIS de JSON.parse nu** :
+    `JSON.parse` arrondit tout entier > 2^53 (un seed `…84961` devient
+    `…84900`) — tie-breaks et replay dérivent silencieusement. Pool
+    J-093 : seeds calculées en BigInt (`localPool.deriveSeed`), réécrites
+    en string sur les runs du merge (le JSON.parse du worker les mangle) ET
+    re-patchées depuis la string brute de sortie du merge ; `prng_seed` du
+    merge est un placeholder 0 (le parse EngineConfig exige u64 — la string
+    63 bits serait manglée en number). Tout nouveau passage de seed par du
+    JSON JS doit garder la forme string.
 17. **Le seed déterministe exclut la config** (instance+space+budget) :
     modifier `config.json` ne change PAS le seed → A/B à seed égal
     gratuits.

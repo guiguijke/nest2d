@@ -1,6 +1,58 @@
 /* @ts-self-types="./nest_wasm.d.ts" */
 
 /**
+ * merge_alternatives(json) -> result_json (J-093 — pool de Web Workers).
+ *
+ * Fusionne des runs mono-walk DÉJÀ EXPORTÉS (un champion par worker du pool
+ * navigateur) en alternatives, avec la sémantique EXACTE du multi-start
+ * serveur : champions par classe directionnelle active (ordre canonique
+ * left/bottom/balanced), repli qualité, dédup fingerprint, cap
+ * n_alternatives, ranks ré-assignés. Entrée JSON :
+ *
+ * ```json
+ * {
+ *   "problem": "spp" | "bpp",
+ *   "instance": { "...instance externe (comme run_nesting)..." },
+ *   "engineConfig": { "...config moteur complète ou partielle..." },
+ *   "runs": [ { "seed": 12345, "bias": "left", "evaluations": 12,
+ *               "iterations": 34, "used_height": 40.0,
+ *               "cost_detail": {"unplaced":0,"bin_cost":2,"remnant":0.4,"falkenauer":0.8},
+ *               "solution": { "...solution externe du walk..." } } ],
+ *   "biases": ["left"],
+ *   "n_alternatives": 3
+ * }
+ * ```
+ *
+ * `seed` accepte number ou string (BigInt). Pour la parité exacte serveur,
+ * reprendre par pass-through les champs additifs exportés par chaque walk
+ * (`used_height` SPP, `cost_detail` BPP) — replis documentés sinon (voir
+ * nest_engine::merge). Retour : la forme exacte de run_nesting
+ * `{ "problem", "sol_instance", "alternatives" }`.
+ * @param {string} json
+ * @returns {string}
+ */
+export function merge_alternatives(json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.merge_alternatives(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * run_nesting(instance_json, params_json, seed) -> result_json
  *
  * - `instance_json`: jagua-rs external instance (SPP: name/items/strip_height;

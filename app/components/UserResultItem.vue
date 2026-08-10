@@ -134,6 +134,11 @@ const cancelNesting = async () => {
     cancelling.value = true;
     try {
         await $fetch(`/api/results/${props.result.slug}/cancel`, { method: 'POST' });
+        // J-093 : si ce job tournait dans le navigateur (pool local), le
+        // serveur a finalisé + refundé — on termine le pool ici (no-op si
+        // le job n'était pas local). JAMAIS de local-fail ensuite.
+        const { cancelPool } = await import('~/composables/localPool');
+        cancelPool(props.result.slug);
     } catch (e) {
         console.warn('cancel failed', e);
         cancelling.value = false;

@@ -7,6 +7,7 @@
 pub mod bpp;
 pub mod config;
 pub mod gravity;
+pub mod merge;
 pub mod progress;
 pub mod spp;
 
