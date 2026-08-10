@@ -20,8 +20,42 @@ export default defineEventHandler(async (event) => {
     if (!job) {
         throw createError({ statusCode: 404, statusMessage: 'Job not found' })
     }
-    if (job.status !== 'pending' && job.status !== 'processing') {
+    if (job.status !== 'pending' && job.status !== 'processing' && job.status !== 'awaiting_local') {
         return { ok: false, status: job.status }
+    }
+
+    // J-093 : un job local (navigateur) s'annule comme un échec local — le
+    // pool de workers est terminé côté client, le serveur finalise et
+    // refunde le quota (miroir de local-fail.post.js / worker refund.py).
+    if (job.status === 'awaiting_local') {
+        const chargeType = job.charge?.type
+        const alreadyRefunded = Boolean(job.charge?.refunded)
+        if (!alreadyRefunded && chargeType === 'free') {
+            await db.collection('users').updateOne(
+                { id: job.ownerId, freeNestingUsed: { $gt: 0 } },
+                { $inc: { freeNestingUsed: -1 } }
+            )
+        } else if (!alreadyRefunded && chargeType === 'demo') {
+            await db.collection('users').updateOne(
+                { id: job.ownerId, demoNestingUsed: { $gt: 0 } },
+                { $inc: { demoNestingUsed: -1 } }
+            )
+        }
+        await db.collection('nesting_jobs').updateOne(
+            { _id: job._id },
+            {
+                $set: {
+                    status: 'cancelled',
+                    cancelRequested: true,
+                    information: 'Nesting cancelled by user.',
+                    finishedAt: new Date(),
+                    update_ts: new Date(),
+                    ...(alreadyRefunded ? {} : { 'charge.refunded': true }),
+                },
+                $unset: { progress: '', compute: '', localPayload: '', liveLayout: '' },
+            }
+        )
+        return { ok: true, status: 'cancelled' }
     }
 
     if (job.status === 'pending') {

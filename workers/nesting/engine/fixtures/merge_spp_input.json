@@ -1,0 +1,72 @@
+{
+  "problem": "spp",
+  "instance": {
+    "name": "merge-fixture",
+    "strip_height": 100.0,
+    "items": []
+  },
+  "engineConfig": {
+    "min_item_separation": 2.0,
+    "narrow_concavity_cutoff": null
+  },
+  "biases": ["left", "bottom", "balanced"],
+  "n_alternatives": 3,
+  "runs": [
+    {
+      "seed": "111",
+      "bias": "left",
+      "evaluations": 1000,
+      "used_height": 40.0,
+      "solution": {
+        "strip_width": 80.0,
+        "density": 0.6,
+        "run_time_sec": 0,
+        "layout": {
+          "container_id": 0,
+          "density": 0.6,
+          "placed_items": [
+            { "item_id": 0, "transformation": { "rotation": 0.0, "translation": [10.0, 20.0] } },
+            { "item_id": 1, "transformation": { "rotation": 90.0, "translation": [30.0, 40.0] } }
+          ]
+        }
+      }
+    },
+    {
+      "seed": 222,
+      "bias": "bottom",
+      "evaluations": 900,
+      "used_height": 25.0,
+      "solution": {
+        "strip_width": 70.0,
+        "density": 0.65,
+        "run_time_sec": 0,
+        "layout": {
+          "container_id": 0,
+          "density": 0.65,
+          "placed_items": [
+            { "item_id": 0, "transformation": { "rotation": 0.0, "translation": [5.0, 5.0] } }
+          ]
+        }
+      }
+    },
+    {
+      "seed": 333,
+      "bias": "balanced",
+      "evaluations": 800,
+      "used_height": 60.0,
+      "solution": {
+        "strip_width": 80.0,
+        "density": 0.55,
+        "run_time_sec": 0,
+        "layout": {
+          "container_id": 0,
+          "density": 0.55,
+          "placed_items": [
+            { "item_id": 0, "transformation": { "rotation": 0.0, "translation": [10.0, 20.0] } },
+            { "item_id": 1, "transformation": { "rotation": 90.0, "translation": [30.0, 40.0] } }
+          ]
+        }
+      }
+    }
+  ]
+}

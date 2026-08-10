@@ -3,7 +3,7 @@ import { connectDB } from '~~/server/db/mongo'
 import { DOMAINS } from '~~/server/core/domains'
 import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
-import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, BROWSER_COMPUTE, getComputeProfile, getComputeTier, resolveComputeLocation, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
+import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, BROWSER_COMPUTE, browserWalksForTier, getComputeProfile, getComputeTier, resolveComputeLocation, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
 import {
     DEMO_MAX_DIRECTIONS,
     DEMO_MAX_PARTS,
@@ -246,7 +246,7 @@ export default defineEventHandler(async (event) => {
             : Math.max(1, Math.floor(Number(params.sheetCount) || 1))
         assertSheetCountWithinTier(totalSheets, tier)
         charge = await assertCanNest(userId)
-        compute = { priority: BROWSER_COMPUTE.priority }
+        compute = { priority: BROWSER_COMPUTE.priority, level: tier }
     } else {
         dbParams = sheets
             ? {
@@ -321,6 +321,9 @@ export default defineEventHandler(async (event) => {
         dbParams.vcores = BROWSER_COMPUTE.vcores
         dbParams.directions = directions
         compute.priority = BROWSER_COMPUTE.priority
+        // J-093 : taille du pool de walks navigateur, imposée serveur
+        // (jamais par le client — P3). compute.level = le tier ici.
+        dbParams.browser_walks = isDemo ? 1 : browserWalksForTier(compute.level)
     }
     // Unit for the exported result DXF, taken from the server-side user
     // profile (never the client). Internal geometry stays mm — the worker
@@ -358,6 +361,8 @@ export default defineEventHandler(async (event) => {
                   maxDirections: BROWSER_COMPUTE.maxDirections,
                   directions: dbParams.directions,
                   level: BROWSER_COMPUTE.level,
+                  // J-093 : taille du pool (écrite par le bloc local commun).
+                  walks: dbParams.browser_walks ?? 1,
               }
             : null,
     })

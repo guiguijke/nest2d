@@ -230,6 +230,18 @@ export const BROWSER_COMPUTE = {
 }
 
 /**
+ * J-093 — taille du pool de walks navigateur par tier : le parallélisme est
+ * la VITESSE de délivrance, jamais la qualité (arrêt sur plateau partout).
+ * Taille FIXE par tier, jamais hardwareConcurrency côté client — même job,
+ * même tier ⇒ même résultat sur toute machine (déterminisme cross-device).
+ */
+export const BROWSER_WALKS = { free: 1, standard: 4, privacy: 8 }
+
+export function browserWalksForTier(tier) {
+    return BROWSER_WALKS[tier] ?? 1
+}
+
+/**
  * Where a nesting job is computed (Phase 2, flag-gated internal QA — NOT a
  * privacy feature: DXF/SVG parsing stays server-side, "local" only means the
  * SOLVE happens in the browser on server-parsed geometry).
