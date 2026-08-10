@@ -1,17 +1,15 @@
 use crate::bpp::constructive::DirBias;
 use crate::config::EngineConfig;
+use crate::merge::{SpMergeMode, SpRun, merge_sp_runs};
 use crate::progress::{EventSink, PlateauTerminator, ProgressListener};
 use crate::{EngineOutput, map_workers};
 use anyhow::{Context, Result, bail};
 use jagua_rs::io::import::Importer;
 use jagua_rs::probs::spp::entities::{SPInstance, SPSolution};
-use jagua_rs::probs::spp::io::ext_repr::{ExtSPInstance, ExtSPSolution};
+use jagua_rs::probs::spp::io::ext_repr::ExtSPInstance;
 use rand::SeedableRng;
 use rand::rngs::Xoshiro256PlusPlus;
 use sparrow::optimizer::optimize;
-use sparrow::util::io::ExtSPOutput;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use jagua_rs::Instant;
 use std::time::Duration;
 
@@ -41,33 +39,11 @@ pub fn derive_seed(master: u64, worker: usize) -> u64 {
     (z ^ (z >> 31)) & 0x7FFF_FFFF_FFFF_FFFF
 }
 
-/// Fingerprint of a layout: two runs producing the same placements (to 0.1 mm
-/// / 0.1°) are the same alternative and must not be exported twice.
-fn solution_fingerprint(solution: &ExtSPSolution) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    ((solution.strip_width * 10.0).round() as u64).hash(&mut hasher);
-    let mut items: Vec<(u64, i64, i64, i64)> = solution
-        .layout
-        .placed_items
-        .iter()
-        .map(|pi| {
-            (
-                pi.item_id,
-                (pi.transformation.rotation * 10.0).round() as i64,
-                (pi.transformation.translation.0 * 10.0).round() as i64,
-                (pi.transformation.translation.1 * 10.0).round() as i64,
-            )
-        })
-        .collect();
-    items.sort_unstable();
-    items.hash(&mut hasher);
-    hasher.finish()
-}
-
 /// Used height of a solution (max y extent of the placed shapes) — the
 /// secondary ranking criterion: at equal width, the layout consuming the
 /// least sheet height wins (parts nested in holes instead of stacked).
-fn used_height(solution: &SPSolution) -> f32 {
+/// Pub : réutilisée par le repli `used_height` du merge wasm (merge.rs).
+pub fn used_height(solution: &SPSolution) -> f32 {
     solution
         .layout_snapshot
         .placed_items
@@ -509,75 +485,35 @@ sink,
         }
 
         // Alternatives grouped by class (canonical left/bottom/balanced
-        // order), then remaining runs by quality as fallback.
-        let quality = |r: &ClassRun| {
-            (
-                ordered_float(strip(r)),
-                ordered_float(used_height(&r.solution)),
-                r.seed,
-            )
-        };
-        fn strip(r: &ClassRun) -> f32 {
-            r.solution.strip_width()
-        }
-        fn ordered_float(v: f32) -> u64 {
-            (v * 1e4).round() as u64
-        }
-        let mut ordered: Vec<&ClassRun> = DirBias::ALL
-            .into_iter()
-            .filter(|b| biases.contains(b))
-            .filter_map(|b| runs.iter().filter(|r| r.bias == b).min_by_key(|r| quality(r)))
-            .collect();
-        let mut rest: Vec<&ClassRun> = runs.iter().collect();
-        rest.sort_by_key(|r| quality(r));
-        ordered.extend(rest);
-
+        // order), then remaining runs by quality as fallback — la fusion est
+        // partagée avec l'entrée wasm `merge_alternatives` (J-093).
         let epoch = *sparrow::EPOCH;
-        let mut seen = std::collections::HashSet::new();
-        let mut alternatives = Vec::new();
-        let mut best_json: Option<ExtSPOutput> = None;
-        for run in ordered {
-            let ext_sol = jagua_rs::probs::spp::io::export(&instance, &run.solution, epoch);
-            let fp = solution_fingerprint(&ext_sol);
-            if !seen.insert(fp) {
-                continue;
-            }
-            let output = ExtSPOutput {
-                instance: ext_instance.clone(),
-                solution: ext_sol,
-            };
-            if best_json.is_none() {
-                best_json = Some(output.clone());
-            }
-            alternatives.push(serde_json::json!({
-                "rank": alternatives.len(),
-                "seed": run.seed,
-                "bias": run.bias.as_str(),
-                "evaluations": run.evals,
-                "strip_width": output.solution.strip_width,
-                "density": output.solution.density,
-                "solution": output.solution,
-            }));
-            if alternatives.len() >= config.n_alternatives {
-                break;
-            }
-        }
+        let exported: Vec<SpRun> = runs
+            .iter()
+            .map(|r| SpRun {
+                seed: r.seed,
+                bias: Some(r.bias),
+                evals: r.evals,
+                used_height: used_height(&r.solution),
+                solution: jagua_rs::probs::spp::io::export(&instance, &r.solution, epoch),
+            })
+            .collect();
+        let merged = merge_sp_runs(
+            &ext_instance,
+            &exported,
+            SpMergeMode::Directions(&biases),
+            config.n_alternatives,
+        )
+        .expect("feasible solutions exist but none exported");
 
-        let best = best_json.expect("feasible solutions exist but none exported");
-        let best_width = best.solution.strip_width;
-        let best_density = best.solution.density;
-        let n_exported = alternatives.len();
         sink(&format!(
             "{{\"type\":\"done\",\"best_strip_width\":{:.3},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
-            best_width,
-            best_density,
-            n_exported,
+            merged.best_strip_width,
+            merged.best_density,
+            merged.output.alternatives.len(),
             started.elapsed().as_secs()
         ));
-        return Ok(EngineOutput {
-            sol_instance: serde_json::to_value(&best)?,
-            alternatives,
-        });
+        return Ok(merged.output);
     }
 
 
@@ -702,63 +638,31 @@ sink,
         }).collect();
     }
 
-    // Rank: narrowest strip first, then least used height, stable seed tie-break.
-    final_runs.sort_by(|a, b| {
-        a.solution
-            .strip_width()
-            .total_cmp(&b.solution.strip_width())
-            .then(used_height(&a.solution).total_cmp(&used_height(&b.solution)))
-            .then(a.seed.cmp(&b.seed))
-    });
-
-    // Export incumbent (best feasible) + distinct alternatives.
+    // Rank: narrowest strip first, then least used height, stable seed
+    // tie-break — fusion partagée avec l'entrée wasm `merge_alternatives`
+    // (J-093), mode Flat (flux legacy sans classes).
     let epoch = *sparrow::EPOCH;
-    let mut seen = std::collections::HashSet::new();
-    let mut alternatives = Vec::new();
-    let mut best_json: Option<ExtSPOutput> = None;
-
-    for run in final_runs.iter() {
-        let ext_sol = jagua_rs::probs::spp::io::export(&instance, &run.solution, epoch);
-        let fp = solution_fingerprint(&ext_sol);
-        if !seen.insert(fp) {
-            continue; // same layout as an already-exported alternative
-        }
-        let output = ExtSPOutput {
-            instance: ext_instance.clone(),
-            solution: ext_sol,
-        };
-        if best_json.is_none() {
-            best_json = Some(output.clone());
-        }
-        alternatives.push(serde_json::json!({
-            "rank": alternatives.len(),
-            "seed": run.seed,
-            "evaluations": run.evals,
-            "strip_width": output.solution.strip_width,
-            "density": output.solution.density,
-            "solution": output.solution,
-        }));
-        if alternatives.len() >= config.n_alternatives {
-            break;
-        }
-    }
-
-    let best = best_json.expect("feasible solutions exist but none exported");
-    let best_width = best.solution.strip_width;
-    let best_density = best.solution.density;
-    let n_exported = alternatives.len();
+    let exported: Vec<SpRun> = final_runs
+        .iter()
+        .map(|r| SpRun {
+            seed: r.seed,
+            bias: None,
+            evals: r.evals,
+            used_height: used_height(&r.solution),
+            solution: jagua_rs::probs::spp::io::export(&instance, &r.solution, epoch),
+        })
+        .collect();
+    let merged = merge_sp_runs(&ext_instance, &exported, SpMergeMode::Flat, config.n_alternatives)
+        .expect("feasible solutions exist but none exported");
 
     sink(&format!(
         "{{\"type\":\"done\",\"best_strip_width\":{:.3},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
-        best_width,
-        best_density,
-        n_exported,
+        merged.best_strip_width,
+        merged.best_density,
+        merged.output.alternatives.len(),
         started.elapsed().as_secs()
     ));
-    Ok(EngineOutput {
-        sol_instance: serde_json::to_value(&best)?,
-        alternatives,
-    })
+    Ok(merged.output)
 }
 
 #[cfg(test)]
@@ -790,5 +694,33 @@ mod tests {
     #[test]
     fn derive_seed_differs_per_master() {
         assert_ne!(derive_seed(1, 0), derive_seed(2, 0));
+    }
+
+    /// Vecteurs en dur pour le miroir BigInt côté JS (J-093 — le pool de Web
+    /// Workers dérive seed_w = derive_seed(master, w) exactement comme le
+    /// multi-start serveur). Valeurs vérifiées par deux implémentations
+    /// indépendantes (Rust + Python).
+    #[test]
+    fn derive_seed_vectors() {
+        let vectors: &[(u64, usize, u64)] = &[
+            (0, 0, 0),
+            (1, 0, 6238072747940578789),
+            (42, 0, 2835554897195333154),
+            (42, 1, 4456085495900499605),
+            (42, 2, 2949826092126892291),
+            (42, 3, 5139283748462763858),
+            (i64::MAX as u64, 7, 3255033911170563879), // 2^63 - 1
+            (9223372036854775806, 1, 3158053848750491582), // 2^63 - 2
+        ];
+        for &(master, worker, expected) in vectors {
+            assert_eq!(
+                derive_seed(master, worker),
+                expected,
+                "derive_seed({master}, {worker})"
+            );
+            // Stabilité : deux appels, même valeur (et ≤ i64::MAX).
+            assert_eq!(derive_seed(master, worker), derive_seed(master, worker));
+            assert!(expected <= i64::MAX as u64);
+        }
     }
 }
