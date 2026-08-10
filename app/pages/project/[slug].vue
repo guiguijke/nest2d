@@ -38,6 +38,12 @@
             </template>
         </MainButton>
         <FreeNestBanner v-if="!isDemo" />
+        <!-- D-PRV-10 : disclosure purge 24 h — masquée pour les comptes
+             vault (exemptés : blobs chiffrés au repos). Défaut = afficher
+             (sur-divulgation si le statut vault est indisponible). -->
+        <p v-if="!vaultEnabled" class="content__purge-notice">
+            {{ t('nest.purgeNotice') }}
+        </p>
         <div v-if="isDemo && demoQuotaReached" class="content__error">
             {{ t('demo.quotaEmpty') }}
         </div>
@@ -82,6 +88,19 @@ const { t } = useLocale()
 // displayToMm normalizes them for the fit check.
 const { unit, unitLabel, fmtLengthValue, displayToMm } = useUnit()
 const $apiFetch = useApiFetch();
+
+// D-PRV-10 : la notice purge 24 h est masquée pour les comptes vault
+// (exemptés — blobs chiffrés au repos). Si le statut est indisponible, la
+// notice reste affichée (sur-divulgation, jamais l'inverse).
+const vaultEnabled = ref(false);
+onMounted(async () => {
+    try {
+        const status = await $fetch("/api/security/vault/status");
+        vaultEnabled.value = Boolean(status?.enabled);
+    } catch {
+        // statut indisponible → notice conservée
+    }
+});
 
 const { getters } = globalStore;
 const resultsList = computed(() => getters.resultsList);
@@ -356,6 +375,12 @@ const startsNest = () => {
     &__text {
         color: var(--label-secondary);
         margin-top: 16px;
+    }
+
+    &__purge-notice {
+        color: var(--label-tertiary);
+        margin-top: 12px;
+        font-size: 12px;
     }
 
     &__live {

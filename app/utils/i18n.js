@@ -181,6 +181,10 @@ const dict = {
         'nest.computing': 'Computing…',
         'nest.sheetCapHint': '2 sheets max on the Free plan — Unlimited removes the cap',
         'nest.error.sheetCap': 'Sheet limit exceeded: the Free plan allows up to 2 sheets per job.',
+        // Purge 24 h (D-PRV-10) : disclosure au nest + états « expiré ».
+        'nest.purgeNotice': 'Privacy: uploaded files and nesting results are deleted automatically 24 h after nesting — download your DXF promptly.',
+        'results.expired': 'Expired (24 h purge)',
+        'files.expired': 'Expired (24 h purge) — re-upload this file to nest it again',
         'localCompute.title': 'On-device optimization',
         'localCompute.running': 'Optimizing your layout on this device — your files never leave the browser.',
         'localCompute.error': 'Local compute failed. The nesting was refunded — please try again.',
@@ -631,6 +635,10 @@ const dict = {
         'nest.computing': 'Calcul en cours…',
         'nest.sheetCapHint': "2 tôles max avec l'offre Free — Unlimited supprime la limite",
         'nest.error.sheetCap': "Limite de tôles dépassée : l'offre Free permet jusqu'à 2 tôles par tâche.",
+        // Purge 24 h (D-PRV-10) : disclosure au nest + états « expiré ».
+        'nest.purgeNotice': "Confidentialité : fichiers importés et résultats sont supprimés automatiquement 24 h après le nesting — téléchargez vos DXF sans tarder.",
+        'results.expired': "Expiré (purge 24 h)",
+        'files.expired': "Expiré (purge 24 h) — réimportez ce fichier pour le nester à nouveau",
         'localCompute.title': "Optimisation sur l'appareil",
         'localCompute.running': "Optimisation de l'agencement sur cet appareil — vos fichiers ne quittent pas le navigateur.",
         'localCompute.error': "Le calcul local a échoué. L'imbrication a été remboursée — réessayez.",

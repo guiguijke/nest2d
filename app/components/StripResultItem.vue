@@ -10,6 +10,9 @@
             <div v-if="isFailed" class="result__placeholder">
                 Err
             </div>
+            <!-- D-PRV-10 : blobs purgés à 24 h → preview/téléchargement
+                 masqués, mention « expiré ». -->
+            <div v-else-if="result.purgedAt" class="result__placeholder">∅</div>
             <DxfViewerComponent
                 v-else-if="result.dxfUrl"
                 :size="sizeType.s"
@@ -18,6 +21,9 @@
             />
             <p class="result__name">
                 {{ result.slug }}.dxf
+            </p>
+            <p v-if="result.purgedAt" class="result__expired">
+                {{ t('results.expired') }}
             </p>
         </template>
         <div class="result__meta">
@@ -68,7 +74,7 @@ const isFailed = computed(() => {
     return status === statusType.failed || status === 'error';
 });
 
-const canPreview = computed(() => Boolean(props.result?.dxfUrl) && !isInProgress.value && !isFailed.value);
+const canPreview = computed(() => Boolean(props.result?.dxfUrl) && !props.result?.purgedAt && !isInProgress.value && !isFailed.value);
 
 const { fmtLength } = useUnit()
 const roundedWidth = computed(() => fmtLength(props.result?.width ?? 0));
@@ -112,6 +118,13 @@ const onDownload = () => {
         background-color: var(--error-background);
         border: solid 1px var(--error-border);
         color: var(--label-primary);
+    }
+
+    // D-PRV-10 : mention « expiré » (purge 24 h).
+    &__expired {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--label-tertiary);
     }
 
     &__name {

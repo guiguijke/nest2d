@@ -38,6 +38,9 @@ export async function getResults(userId, projectSlug) {
             status: status,
             isMultiSheet: isMultiSheet,
             createdAt: queueItem.createdAt,
+            // Purge 24 h (D-PRV-10) : posé quand les blobs résultats ont été
+            // supprimés — l'UI masque les téléchargements (le rapport reste).
+            purgedAt: queueItem.purgedAt ?? null,
             placed: queueItem.placed || 0,
             requested: queueItem.requested || 0,
             // Specific failure reason written by the worker (e.g. which part

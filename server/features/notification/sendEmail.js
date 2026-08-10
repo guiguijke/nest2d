@@ -38,9 +38,15 @@ export async function sendNestFinishEmail(nestingJob) {
   try {
     const recipient = user.email;
     const emailSubject = `Your nesting project ${project.name} is finished`;
+    // D-PRV-10 : rappel de la purge 24 h — les utilisateurs vault en sont
+    // exemptés (leurs blobs restent chiffrés au repos).
+    const purgeLine = user.encryption?.enabled
+      ? ''
+      : `<p>Privacy: uploaded files and nesting results are kept for 24 h only, then automatically deleted — download your DXF promptly.</p>`;
     const emailBody = `
       <p>Your nesting project ${project.name} is finished</p>
       <p>You can view the project <a href="${useRuntimeConfig().public.baseUrl}/project/${project.slug}">here</a></p>
+      ${purgeLine}
     `;
 
     await sendEmail(recipient, emailSubject, emailBody);

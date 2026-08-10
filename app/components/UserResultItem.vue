@@ -40,7 +40,8 @@
                 Err
             </div>
             <template v-else>
-                <div 
+                <div
+                    v-if="!result.purgedAt"
                     :class="svgRowClasses"
                     class="result__svg-row"
                 >
@@ -53,12 +54,18 @@
                         preserve-colors
                     />
                 </div>
+                <div v-else class="result__placeholder">∅</div>
             </template>
             <p class="result__name">
                 {{ result.slug }}.dxf
             </p>
             <p v-if="isLocal" class="result__local" :title="t('localMode.done')">
                 {{ t('localMode.done') }}
+            </p>
+            <!-- D-PRV-10 : blobs résultats purgés à 24 h — téléchargements
+                 masqués, le rapport (scalaires) reste consultable. -->
+            <p v-if="result.purgedAt" class="result__expired">
+                {{ t('results.expired') }}
             </p>
             <div class="result__controls controls">
                 <MainButton
@@ -72,7 +79,7 @@
                 <!-- Job serveur : href GridFS. Job local (J-082) : contenus
                      persistés en IndexedDB, téléchargement 100 % navigateur. -->
                 <MainButton
-                    v-if="isResultCompleted && !isLocal"
+                    v-if="isResultCompleted && !isLocal && !result.purgedAt"
                     :href="downloadUrl"
                     :label="downloadButtonText"
                     tag="a"
@@ -325,6 +332,13 @@ const onDownload = () => {
 
     // J-082 : mention « calculé localement » des jobs Mode Local.
     &__local {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--label-tertiary);
+    }
+
+    // D-PRV-10 : mention « expiré » des résultats purgés (24 h).
+    &__expired {
         margin-top: 4px;
         font-size: 11px;
         color: var(--label-tertiary);
