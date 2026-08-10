@@ -69,7 +69,7 @@ def _close_polygon_from_dxf(doc):
 
     start_time = time.time()
 
-    dek = get_dek(db, doc["ownerId"])
+    dek = get_dek(db, doc)
     dxf_bytes = read_gridfs(strip_user_dxf_bucket, doc["slug"], doc["ownerId"], dek)
     drawing, original_footprints = read_dxf(io.BytesIO(dxf_bytes))
 

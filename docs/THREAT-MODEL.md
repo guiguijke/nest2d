@@ -97,7 +97,7 @@ Mitigations décidées :
 - le moat = **produit, vitesse de shipping, confiance** — pas l'opacité
   d'un blob téléchargeable.
 
-## 4. Durcissement vault niveau 1 (Phase 1) — D-PRV-7, design arrêté 2026-08-10
+## 4. Durcissement vault niveau 1 (Phase 1) — D-PRV-7, design arrêté 2026-08-10, implémenté 2026-08-11
 
 Objectif : réduire la fenêtre d'exposition de la DEK côté serveur.
 

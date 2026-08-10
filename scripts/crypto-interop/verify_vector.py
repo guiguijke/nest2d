@@ -19,8 +19,6 @@ from worker_common.crypto import (  # noqa: E402
     decrypt_bytes,
     encrypt_bytes,
     fingerprint_key,
-    unwrap_dek,
-    wrap_dek,
 )
 
 HERE = os.path.dirname(__file__)
@@ -40,12 +38,6 @@ def main() -> None:
     )
     assert fingerprint_key(dek) == vector["dek_fingerprint"], "fingerprint mismatch"
     print("✓ Python decrypts the JS vector (multi-frame) and fingerprints match")
-
-    # Master-key wrap/unwrap round-trip (uses a throwaway local key).
-    os.environ["ENCRYPTION_MASTER_KEY"] = os.urandom(32).hex()
-    wrapped = wrap_dek(dek)
-    assert unwrap_dek(wrapped) == dek, "wrap/unwrap mismatch"
-    print("✓ Python wrap/unwrap DEK")
 
     # Produce the Python -> JS vector.
     plain_py = (

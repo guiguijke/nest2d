@@ -36,7 +36,6 @@ export default defineNuxtConfig({
         listmonkUser: '',
         listmonkPassword: '',
         listmonkListId: '',
-        encryptionMasterKey: '',
         apiToken: '',
         googleClientSecret: '',
         blockedCountries: '',

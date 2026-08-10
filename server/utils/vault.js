@@ -8,76 +8,80 @@ import {
     createEncryptStream,
     decryptBuffer,
     polygonPartsAadId,
-    unwrapDek,
-    wrapDek,
 } from '~~/server/utils/crypto'
 
 /**
- * Vault session cache — the only place a DEK exists server-side.
+ * Vault session cache (D-PRV-7) — the only place a DEK exists server-side.
  *
- * The DEK is stored wrapped (AES-256-GCM under the deployment master key) in
- * the `session_keys` collection with a TTL index: it is never persisted in
- * clear, never logged, and disappears at expiry. Sliding TTL (2h) refreshed
- * on activity.
+ * Process-local RAM only: userId → { dek, expiresAt }. NOTHING is persisted
+ * (the legacy `session_keys` Mongo collection with its master-key-wrapped
+ * DEKs is dropped at boot by the vault-dprv7 plugin): a database dump or
+ * backup can no longer expose even a wrapped DEK. Sliding TTL (2h) refreshed
+ * on activity; expired entries are wiped (Buffer.fill(0)) opportunistically
+ * on access — no timers. A process restart drops every session (users simply
+ * re-unlock). Mono-instance deployment is assumed: future app replicas will
+ * need sticky sessions.
  */
 
 export const VAULT_SESSION_TTL_MS = 2 * 60 * 60 * 1000
 
-let indexesReady = false
+/** @type {Map<string, { dek: Buffer, expiresAt: number }>} */
+const sessions = new Map()
 
-async function ensureVaultIndexes(db) {
-    if (indexesReady) return
-    await db.collection('session_keys').createIndex(
-        { expiresAt: 1 },
-        { expireAfterSeconds: 0 }
-    )
-    await db.collection('session_keys').createIndex({ userId: 1 }, { unique: true })
-    indexesReady = true
-}
-
-export async function createVaultSession(userId, dekBuffer) {
-    const db = await connectDB()
-    await ensureVaultIndexes(db)
-    const expiresAt = new Date(Date.now() + VAULT_SESSION_TTL_MS)
-    await db.collection('session_keys').updateOne(
-        { userId },
-        {
-            $set: {
-                userId,
-                wrappedDek: wrapDek(dekBuffer),
-                expiresAt,
-                updatedAt: new Date(),
-            },
-        },
-        { upsert: true }
-    )
-    return { expiresAt }
+function wipeEntry(entry) {
+    entry.dek.fill(0)
 }
 
 /**
- * Returns the unwrapped DEK if an active session exists (sliding TTL
- * refresh), null otherwise.
+ * Opportunistic sweep of expired sessions (wipe + delete). The Map is tiny
+ * (one entry per unlocked user), so an O(n) scan on each access is fine and
+ * avoids any timer.
+ */
+function sweepExpired(now) {
+    for (const [userId, entry] of sessions) {
+        if (entry.expiresAt <= now) {
+            wipeEntry(entry)
+            sessions.delete(userId)
+        }
+    }
+}
+
+/**
+ * Opens (or replaces) a vault session. Stores a DEFENSIVE COPY of the DEK —
+ * the session owns its buffer regardless of what the caller does with its
+ * own. Any previous session for the user is wiped first.
+ */
+export async function createVaultSession(userId, dekBuffer) {
+    const previous = sessions.get(userId)
+    if (previous) wipeEntry(previous)
+    const expiresAt = Date.now() + VAULT_SESSION_TTL_MS
+    sessions.set(userId, { dek: Buffer.from(dekBuffer), expiresAt })
+    return { expiresAt: new Date(expiresAt) }
+}
+
+/**
+ * Returns the live DEK when an active session exists (sliding TTL refresh),
+ * null otherwise. Expired entries are wiped on the way.
+ *
+ * ⚠️ The returned Buffer IS the session's buffer: callers must NEVER mutate
+ * or wipe it. Wiping happens exclusively here, on expiry or via
+ * clearVaultSessions().
  */
 export async function getVaultSession(userId) {
-    const db = await connectDB()
-    await ensureVaultIndexes(db)
-    const doc = await db.collection('session_keys').findOne({
-        userId,
-        expiresAt: { $gt: new Date() },
-    })
-    if (!doc) return null
-
-    const expiresAt = new Date(Date.now() + VAULT_SESSION_TTL_MS)
-    await db.collection('session_keys').updateOne(
-        { userId },
-        { $set: { expiresAt, updatedAt: new Date() } }
-    )
-    return { dek: unwrapDek(doc.wrappedDek), expiresAt }
+    const now = Date.now()
+    sweepExpired(now)
+    const entry = sessions.get(userId)
+    if (!entry) return null
+    entry.expiresAt = now + VAULT_SESSION_TTL_MS
+    return { dek: entry.dek, expiresAt: new Date(entry.expiresAt) }
 }
 
 export async function clearVaultSessions(userId) {
-    const db = await connectDB()
-    await db.collection('session_keys').deleteMany({ userId })
+    const entry = sessions.get(userId)
+    if (entry) {
+        wipeEntry(entry)
+        sessions.delete(userId)
+    }
 }
 
 export async function getVaultStatus(userId) {
