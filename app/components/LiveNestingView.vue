@@ -141,8 +141,13 @@ async function ensureGeometry(slug) {
     if (!slug || geometryCache.value[slug] || pendingSlugs.has(slug)) return;
     pendingSlugs.add(slug);
     try {
-        const data = await $fetch(`/api/files/project/geometry/${slug}`);
-        const parts = (data.parts || []).map((p) => ({
+        // J-090 : un fichier « 100 % privé » n'a AUCUNE géométrie côté
+        // serveur — sa source de vérité est IndexedDB (même forme de parts).
+        const { getLocalFile } = await import('~/composables/localFilesStore');
+        const local = await getLocalFile(slug).catch(() => null);
+        const rawParts = local?.parts
+            || (await $fetch(`/api/files/project/geometry/${slug}`)).parts;
+        const parts = (rawParts || []).map((p) => ({
             d: ringsToPath([p.coordinates, ...(p.holes || [])]),
             // Assigned at import; the geometry route always resolves one
             // (deterministic fallback for legacy files).
@@ -150,6 +155,13 @@ async function ensureGeometry(slug) {
         }));
         geometryCache.value = { ...geometryCache.value, [slug]: parts };
     } catch (e) {
+        // 404 = fichier vraiment absent (projet local inconnu de CE
+        // navigateur, ou purge 24 h) : négatif-cacher pour ne pas tempêter
+        // l'endpoint à chaque frame live. Erreurs réseau transitoires : on
+        // retentera au prochain frame (comportement historique).
+        if (e?.response?.status === 404) {
+            geometryCache.value = { ...geometryCache.value, [slug]: [] };
+        }
         console.warn('geometry fetch failed', slug, e);
     } finally {
         pendingSlugs.delete(slug);
