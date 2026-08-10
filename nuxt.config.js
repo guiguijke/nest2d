@@ -74,6 +74,12 @@ export default defineNuxtConfig({
             // la machine (IndexedDB). Exige localComputeEnabled. Ships dark ;
             // NUXT_PUBLIC_LOCAL_IMPORT_ENABLED=true pour activer.
             localImportEnabled: false,
+            // Chantier B (turbo hybride client+serveur, J-093 suite) : bouton
+            // Turbo (boîte + interrupteur + notice). DEV/staging seulement
+            // tant que la course n'est pas codée — la préférence enregistrée
+            // est réservée aux payants côté serveur (P3).
+            // NUXT_PUBLIC_TURBO_ENABLED=true pour activer.
+            turboEnabled: false,
         },
     },
 

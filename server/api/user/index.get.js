@@ -40,6 +40,9 @@ export default defineEventHandler(async (event) => {
         unitsEnabled,
         // null = never asked (first-login prompt eligible), true/false = answered.
         newsletterOptIn: user.newsletterOptIn ?? null,
+        // Chantier B (à venir) : préférence turbo hybride client+serveur —
+        // réservée aux payants à l'écriture (P3), inerte aujourd'hui.
+        turboHybrid: user.turboHybrid === true,
         // Partner promo code redeemed on this account (raised free quota for
         // the campaign duration). null when none; active=false once the
         // campaign end date is past (quota already back to the default via
