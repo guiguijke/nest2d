@@ -39,5 +39,7 @@ const mapJobToUi = (job) => {
     fileCount: files.reduce((acc, file) => acc + (file.count || 0), 0),
     dxfUrl: dxfFile ? `/api/files/strip/nest/dxf/${dxfFile}` : null,
     createdAt: job.createdAt,
+    // Purge 24 h (D-PRV-10) : blobs résultats supprimés → UI « expiré ».
+    purgedAt: job.purgedAt ?? null,
   };
 };

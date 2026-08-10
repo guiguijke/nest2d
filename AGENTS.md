@@ -274,6 +274,14 @@ admin/                 (back-office Nuxt)
     avant publication ; les promesses privacy exactes par mode (Local /
     Serveur / Vault ZK) sont dans `docs/THREAT-MODEL.md` — ne jamais
     promettre « nous ne pouvons pas vous lire » en mode serveur.
+36. **Purge GridFS = delete par bucket, jamais un TTL seul** : un index TTL
+    sur `<bucket>.files` supprime le doc mais laisse les `.chunks`
+    orphelins. Le sweeper 24 h (`server/features/purge/sweep.js`, plugin
+    `server/plugins/purge.js`, D-PRV-10) passe par `bucket.delete(_id)` et
+    marque `purgedAt` les docs job/fichier (l'UI affiche « expiré » et
+    masque les téléchargements ; les scalaires du rapport persistent).
+    Exemptions : vault = `metadata.enc` (blob) / `encPolygonParts` (doc),
+    démo = `ownerId 'demo'`. Verrous : `server/tests/purge.test.js`.
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 
