@@ -73,6 +73,16 @@
             </div>
             <LocaleSwitcher class="header__btn" />
             <UnitSwitcher class="header__btn" />
+            <VaultMenuButton
+                v-if="isPrimaryTheme"
+                class="header__btn"
+            />
+            <!-- Chantier B : bouton Turbo (flag dev NUXT_PUBLIC_TURBO_ENABLED,
+                 composant inerte sinon) — à côté du vault dans le header. -->
+            <TurboMenuButton
+                v-if="isPrimaryTheme"
+                class="header__btn"
+            />
             <MainButton
                 :href="githubIssues"
                 target="_blank"

@@ -146,115 +146,32 @@
 
 <script setup>
 import { themeType } from '~~/constants/theme.constants'
-import {
-    buildKeyFile,
-    downloadKeyFile,
-    forgetRememberedKey,
-    generateVaultKey,
-    keyToBase64,
-} from '~/utils/vault'
 import { trackEvent } from '~/utils/track'
 
 const { t } = useLocale()
 
-const status = ref(null)
-const loading = ref(false)
-const error = ref('')
-const notice = ref('')
-
-// Activation flow state
-const pendingKey = ref(null)
-const pendingKeyFile = ref(null)
-const confirmed = ref(false)
+// Logique vault partagée avec le panneau du header (VaultMenuButton) — voir
+// app/composables/useVaultControls.js. Seules la désactivation et la
+// destruction complète restent propres à cette page (demande explicite).
+const {
+    status,
+    loading,
+    error,
+    notice,
+    pendingKey,
+    pendingKeyFile,
+    confirmed,
+    refresh,
+    generate,
+    redownload,
+    enable,
+    openUnlock,
+    rotate,
+    forgetBrowser,
+} = useVaultControls()
 
 // Full-destroy confirmation: user must retype their keyId to enable the button.
 const destroyConfirm = ref('')
-
-const unlockDialog = useVaultUnlockDialog()
-
-async function refresh() {
-    try {
-        status.value = await $fetch('/api/security/vault/status')
-    } catch {
-        status.value = null
-    }
-}
-
-async function sha256Hex(bytes) {
-    const digest = await crypto.subtle.digest('SHA-256', bytes)
-    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-async function generate() {
-    error.value = ''
-    const keyBytes = generateVaultKey()
-    const keyId = (await sha256Hex(keyBytes)).slice(0, 8)
-    pendingKey.value = keyBytes
-    pendingKeyFile.value = buildKeyFile(keyBytes, keyId)
-    confirmed.value = false
-    downloadKeyFile(pendingKeyFile.value)
-    trackEvent('vault_key_generated')
-}
-
-function redownload() {
-    if (pendingKeyFile.value) downloadKeyFile(pendingKeyFile.value)
-}
-
-async function enable() {
-    if (!pendingKey.value || !confirmed.value) return
-    loading.value = true
-    error.value = ''
-    try {
-        await $fetch('/api/security/vault/enable', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: keyToBase64(pendingKey.value) }),
-        })
-        pendingKey.value = null
-        pendingKeyFile.value = null
-        notice.value = t('vault.activated')
-        trackEvent('vault_enabled')
-        await refresh()
-        await authStore.actions.setUser()
-    } catch (err) {
-        error.value = err?.data?.statusMessage || t('vault.error.activate')
-    } finally {
-        loading.value = false
-    }
-}
-
-function openUnlock() {
-    unlockDialog.value = true
-}
-
-async function rotate() {
-    error.value = ''
-    const keyBytes = generateVaultKey()
-    const keyId = (await sha256Hex(keyBytes)).slice(0, 8)
-    const keyFile = buildKeyFile(keyBytes, keyId)
-    downloadKeyFile(keyFile)
-    loading.value = true
-    try {
-        await $fetch('/api/security/vault/rotate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: keyToBase64(keyBytes) }),
-        })
-        notice.value = t('vault.rotated')
-        trackEvent('vault_rotated')
-        await refresh()
-    } catch (err) {
-        error.value = err?.data?.statusMessage || t('vault.error.rotate')
-    } finally {
-        loading.value = false
-    }
-}
-
-async function forgetBrowser() {
-    await forgetRememberedKey()
-    notice.value = t('vault.forgetNotice')
-    trackEvent('vault_forget_browser')
-}
 
 async function disable(mode) {
     const message = mode === 'destroy'
