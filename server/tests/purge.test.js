@@ -5,12 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // GridFS chunks follow — a raw .files delete would orphan them).
 const state = vi.hoisted(() => ({ db: null, deleted: [] }))
 
-vi.mock('~~/server/db/mongo', () => ({
+vi.mock('../../server/db/mongo', () => ({
     connectDB: async () => state.db,
     getBucket: vi.fn(),
 }))
 
-vi.mock('~~/server/utils/logger', () => ({
+vi.mock('../../server/utils/logger', () => ({
     default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
