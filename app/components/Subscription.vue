@@ -73,6 +73,9 @@
                 <div class="subscription__free">
                     {{ t('sub.freeLeft', { n: data.freeRemaining }) }}
                 </div>
+                <div class="subscription__reset">
+                    {{ t('sub.resetsAt', { date: quotaResetLabel }) }}
+                </div>
                 <MainButton
                     v-if="!paidDisabled"
                     :label="t('sub.startTrial', { days: data.plan.trialDays })"
@@ -109,8 +112,13 @@ import MainButton from './MainButton.vue'
 import MainTitle from './MainTitle.vue'
 import { themeType } from '~~/constants/theme.constants'
 import { sizeType } from '~~/constants/size.constants'
+import { formatQuotaReset } from '~/utils/quotaReset'
 
-const { t } = useLocale()
+const { t, locale } = useLocale()
+
+// Date+heure localisées du reset du quota gratuit (1er du mois suivant,
+// 00:00 UTC) — affichées près du compteur de nestings restants.
+const quotaResetLabel = computed(() => formatQuotaReset(new Date(), locale.value))
 
 // Temporarily disable paid-plan CTAs (Unlimited trial + Pro upgrade) until
 // Strip ships to production. Toggle via NUXT_PUBLIC_PAID_PLANS_DISABLED.
@@ -248,9 +256,16 @@ const cancelSubscription = async () => {
     }
 
     &__free {
-        margin: 12px 0 18px;
+        margin: 12px 0 4px;
         font-size: 13px;
         color: var(--accent-primary);
+    }
+
+    // Date de reset du quota gratuit : discrète, sous le compteur.
+    &__reset {
+        margin: 0 0 18px;
+        font-size: 12px;
+        color: var(--label-tertiary);
     }
 
     // Override MainButton's default `width: max-content` so the trial button
