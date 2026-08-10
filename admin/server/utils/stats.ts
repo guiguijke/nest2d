@@ -77,14 +77,20 @@ export async function getOverviewStats() {
     ])
     .toArray()
 
-  // Unread support threads (threads where the last message is from a user
-  // i.e. not from an admin). We approximate "unread" by absence of a recent
-  // admin reply; the support page gives the precise view.
+  // Unread support threads: a thread is unread when its last non-welcome
+  // message is from the user — the exact semantics of the conversations list
+  // (admin/server/api/support/conversations.get.ts, badge « nouveau »).
+  // The previous version read `$fromAdmin`, a field that does not exist on
+  // support messages (schema: sender = 'user' | 'support' | 'welcome') — the
+  // $last of a missing field is null, null counts as `$ne: true`, and
+  // welcome-only threads were counted here while the support page filters
+  // them out: badge « 2 non lus » with an empty list.
   const unreadSupport = await support
     .aggregate([
-      { $sort: { timestamp: 1 } },
-      { $group: { _id: '$userId', lastFromAdmin: { $last: '$fromAdmin' } } },
-      { $match: { lastFromAdmin: { $ne: true } } },
+      { $match: { sender: { $ne: 'welcome' } } },
+      { $sort: { userId: 1, timestamp: 1 } },
+      { $group: { _id: '$userId', lastSender: { $last: '$sender' } } },
+      { $match: { lastSender: 'user' } },
       { $count: 'threads' },
     ])
     .toArray()
