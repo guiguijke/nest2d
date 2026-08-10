@@ -24,11 +24,66 @@
                 {{ resultsLabel }}
             </p>
         </div>
+        <!-- Poubelle : jamais sur le projet démo partagé (403 serveur).
+             Révélée au survol desktop, toujours visible en tactile (CSS). -->
+        <MainButton
+            v-if="canDelete"
+            class="project__btn"
+            :icon="iconType.trash"
+            :size="sizeType.m"
+            :theme="themeType.secondary"
+            :label="t('project.delete')"
+            :isLabelShow="false"
+            trackingTag="project_delete_open"
+            @click.stop="openConfirm"
+        />
+        <DialogWrapper
+            v-model:isModalOpen="confirmOpen"
+            trackingTag="project_delete"
+        >
+            <div class="delete-dialog">
+                <MainTitle
+                    :label="t('project.deleteConfirmTitle', { name: projectName })"
+                    class="delete-dialog__title"
+                />
+                <p class="delete-dialog__text">
+                    {{ t(confirmMessageKey) }}
+                </p>
+                <p
+                    v-if="deleteError"
+                    class="delete-dialog__error"
+                    role="alert"
+                >
+                    {{ deleteError }}
+                </p>
+                <div class="delete-dialog__actions">
+                    <MainButton
+                        :theme="themeType.secondary"
+                        :label="t('project.deleteCancel')"
+                        :isDisable="deleting"
+                        trackingTag="project_delete_cancel"
+                        class="delete-dialog__action"
+                        @click="confirmOpen = false"
+                    />
+                    <MainButton
+                        :theme="themeType.primary"
+                        :label="t('project.deleteConfirm')"
+                        :isDisable="deleting"
+                        trackingTag="project_delete_confirm"
+                        class="delete-dialog__action"
+                        @click="confirmDelete"
+                    />
+                </div>
+            </div>
+        </DialogWrapper>
     </div>
 </template>
 
 <script setup>
 import { computed, onBeforeMount, onBeforeUnmount, toRefs, unref } from 'vue';
+import { iconType } from '~~/constants/icon.constants';
+import { sizeType } from '~~/constants/size.constants';
+import { themeType } from '~~/constants/theme.constants';
 
 const { project } = defineProps({
     project: {
@@ -50,6 +105,33 @@ const projectClasses = computed(() => ({
 const projectName = computed(() =>
     project.isDemo ? t('demo.projectName') : project.name
 )
+
+// Suppression (logique dans composables/projects.js — testée en node).
+const canDelete = computed(() => canDeleteProject(unref(project)))
+const confirmOpen = ref(false)
+const deleting = ref(false)
+const deleteError = ref('')
+const confirmMessageKey = computed(() => deleteConfirmMessageKey(unref(project)))
+
+function openConfirm() {
+    deleteError.value = ''
+    confirmOpen.value = true
+}
+
+async function confirmDelete() {
+    if (deleting.value) return
+    deleting.value = true
+    deleteError.value = ''
+    // Si l'utilisateur est SUR la page du projet supprimé (aside du layout
+    // auth), deleteProject ramène à /home après succès.
+    const result = await deleteProject(unref(project), { currentSlug: route.params.slug })
+    deleting.value = false
+    if (!result.ok) {
+        deleteError.value = t(result.errorKey)
+        return
+    }
+    confirmOpen.value = false
+}
 const timeAgo = computed(() => {
     const past = new Date(project.createdAt);
     const diffMs = unref(now) - past;
@@ -143,7 +225,13 @@ onBeforeUnmount(() => {
         position: absolute;
         top: 8px;
         right: 8px;
+        z-index: 1;
         transition: opacity 0.3s;
+
+        // Tactile : pas de survol — la poubelle reste visible en permanence.
+        @media (hover: none) {
+            opacity: 1;
+        }
     }
 
     &__info {
@@ -176,6 +264,13 @@ onBeforeUnmount(() => {
         #{$self}__label {
             color: var(--label-primary);
         }
+        // Le :hover ne se déclenche pas sur une carte en pointer-events:none :
+        // la poubelle du projet courant (aside) reste visible et cliquable —
+        // c'est le seul chemin pour supprimer le projet qu'on consulte.
+        #{$self}__btn {
+            pointer-events: auto;
+            opacity: 1;
+        }
     }
 }
 
@@ -188,6 +283,33 @@ onBeforeUnmount(() => {
     }
     &__results {
         text-align: right;
+    }
+}
+
+.delete-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 24px;
+    max-width: 420px;
+    text-align: center;
+
+    &__text {
+        color: var(--label-secondary);
+        font-size: 14px;
+        line-height: 1.5;
+    }
+    &__error {
+        color: var(--error-border, #ef4444);
+        font-size: 14px;
+    }
+    &__actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+    }
+    &__action {
+        flex: 1;
     }
 }
 </style>

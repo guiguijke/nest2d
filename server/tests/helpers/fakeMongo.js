@@ -66,7 +66,7 @@ function applyUpdate(doc, update) {
 }
 
 function makeCollection(docs) {
-    const calls = { findOne: [], updateOne: [], findOneAndUpdate: [], find: [], insertOne: [] }
+    const calls = { findOne: [], updateOne: [], findOneAndUpdate: [], find: [], insertOne: [], deleteOne: [], deleteMany: [] }
     return {
         calls,
         async insertOne(doc) {
@@ -105,6 +105,25 @@ function makeCollection(docs) {
             if (!doc) return null
             applyUpdate(doc, update)
             return doc
+        },
+        async deleteOne(filter) {
+            calls.deleteOne.push(filter)
+            const index = docs.findIndex((d) => matches(d, filter))
+            if (index === -1) return { deletedCount: 0 }
+            docs.splice(index, 1)
+            return { deletedCount: 1 }
+        },
+        async deleteMany(filter) {
+            calls.deleteMany.push(filter)
+            let deletedCount = 0
+            // Backwards so splice does not shift the docs still to check.
+            for (let i = docs.length - 1; i >= 0; i--) {
+                if (matches(docs[i], filter)) {
+                    docs.splice(i, 1)
+                    deletedCount++
+                }
+            }
+            return { deletedCount }
         },
     }
 }
