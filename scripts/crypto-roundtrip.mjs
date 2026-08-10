@@ -2,7 +2,6 @@
  * Standalone round-trip test for server/utils/crypto.js.
  * Stubs the Nuxt auto-imports the module relies on, then verifies:
  *  - encrypt → decrypt over multi-frame + partial-frame payloads
- *  - wrap/unwrap of a DEK
  *  - tamper detection (GCM tag)
  *  - writes the JS→Python interop vector for scripts/crypto-interop/
  *
@@ -13,16 +12,11 @@ import { Readable } from 'node:stream'
 import { writeFileSync } from 'node:fs'
 
 // --- Stubs for Nuxt auto-imports used inside server/utils/crypto.js ---
-const MASTER_KEY = crypto.randomBytes(32).toString('hex')
-globalThis.useRuntimeConfig = () => ({ encryptionMasterKey: MASTER_KEY })
 globalThis.createError = (opts) => Object.assign(new Error(opts.statusMessage), opts)
 
 const {
     PLAINTEXT_BLOCK,
-    FRAME_SIZE,
     fingerprintKey,
-    wrapDek,
-    unwrapDek,
     createEncryptStream,
     createDecryptStream,
 } = await import('../server/utils/crypto.js')
@@ -99,14 +93,7 @@ for (const size of sizes) {
     console.log('✓ wrong AAD rejected')
 }
 
-// 5. wrap/unwrap
-{
-    const wrapped = wrapDek(dek)
-    if (!unwrapDek(wrapped).equals(dek)) throw new Error('wrap/unwrap mismatch')
-    console.log('✓ wrap/unwrap DEK')
-}
-
-// 6. Interop vector for the Python workers (fixed key, fixed nonces? No —
+// 5. Interop vector for the Python workers (fixed key, fixed nonces? No —
 // nonces are random per frame, so the vector is a full encrypted payload the
 // Python side must be able to decrypt).
 {

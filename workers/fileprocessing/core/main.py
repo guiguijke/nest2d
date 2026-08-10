@@ -42,7 +42,7 @@ def _getting_drawing(doc) -> Drawing:
     if not doc.get("isDxfCopyExist", False):
         raise Exception("Dxf copy not exists")
     
-    dek = get_dek(db, doc["ownerId"])
+    dek = get_dek(db, doc)
     dxf_bytes = read_gridfs(valid_dxf_bucket, dxf_file_slug, doc["ownerId"], dek)
 
     # The valid bucket holds pipeline-produced copies — already canonical mm
@@ -65,7 +65,7 @@ def _make_dxf_copy(doc) -> Drawing:
 
     logger.info("Making dxf copy", extra={"dxf_file_slug": dxf_file_slug})
 
-    dek = get_dek(db, user_id)
+    dek = get_dek(db, doc)
     dxf_bytes = read_gridfs(user_dxf_bucket, dxf_file_slug, user_id, dek)
 
     # SVG and DWG uploads are normalized at this boundary: whatever the
@@ -121,7 +121,7 @@ def _make_svg_file(doc):
 
     slug = doc["slug"]
     owner_id = doc["ownerId"]
-    dek = get_dek(db, owner_id)
+    dek = get_dek(db, doc)
     closed_parts = resolve_polygon_parts(db, doc, dek)
     # Strip the source extension whatever the upload format (.dxf/.svg/.dwg).
     svg_slug = slug.rsplit(".", 1)[0] + "-origin.svg"
@@ -210,7 +210,7 @@ def _close_polygon_from_dxf(doc, logger_tag: str):
 
     _check_handle_coverage(drawing, polygon_parts, logger, doc["slug"])
     
-    dek = get_dek(db, doc["ownerId"])
+    dek = get_dek(db, doc)
     if dek is not None:
         # Vault enabled: geometry is stored encrypted; the plaintext parts
         # only live in memory for the rest of this processing run.

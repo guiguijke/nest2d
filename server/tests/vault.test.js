@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import './helpers/h3Shims'
 
 // The mocked db is swapped per test through this hoisted state.
@@ -8,9 +8,9 @@ vi.mock('~~/server/db/mongo', () => ({
     connectDB: async () => state.db,
 }))
 
-// createVaultSession wraps the DEK with the deployment master key — mocked:
-// the wrap itself is covered by the vault utils, what matters here is that
-// the handler calls it BEFORE persisting the fingerprint (never half-enabled).
+// The vault session cache is mocked for the HANDLER tests below (what matters
+// there is call ordering, not storage). The real RAM implementation is
+// exercised through `realVault` (vi.importActual) in the D-PRV-7 describe.
 const vaultMocks = vi.hoisted(() => ({
     createVaultSession: vi.fn(async () => ({ expiresAt: new Date() })),
     getVaultStatus: vi.fn(async () => ({ enabled: false, locked: true, keyId: null })),
@@ -21,6 +21,11 @@ import enableHandler from '~~/server/api/security/vault/enable.post.js'
 import statusHandler from '~~/server/api/security/vault/status.get.js'
 import { getComputeTier } from '~~/server/utils/entitlement'
 import { fakeDb } from './helpers/fakeMongo'
+
+// Real (unmocked) vault utils: RAM session cache, no Mongo involved for
+// sessions anymore (D-PRV-7). The module Map is shared across these tests —
+// each uses its own userId.
+const realVault = await vi.importActual('~~/server/utils/vault')
 
 const KEY = Buffer.alloc(32, 7).toString('base64')
 const ev = (userId, body = { key: KEY }) => ({ context: { auth: { userId } }, _body: body })
@@ -35,6 +40,10 @@ beforeEach(() => {
     vaultMocks.getVaultStatus.mockClear()
 })
 
+afterEach(() => {
+    vi.restoreAllMocks()
+})
+
 describe('POST /api/security/vault/enable (opt-in tous plans — D-PRV-5)', () => {
     it('401 without auth', async () => {
         await expectErr(enableHandler({ context: {} }), 401, 'Unauthorized')
@@ -46,7 +55,7 @@ describe('POST /api/security/vault/enable (opt-in tous plans — D-PRV-5)', () =
         const res = await enableHandler(ev('u1'))
         expect(res.ok).toBe(true)
         expect(res.keyId).toHaveLength(8)
-        // Session wrapped BEFORE the fingerprint persisted (never half-enabled).
+        // Session opened BEFORE the fingerprint persisted (never half-enabled).
         expect(vaultMocks.createVaultSession).toHaveBeenCalledTimes(1)
         expect(userDoc.encryption?.enabled).toBe(true)
         expect(userDoc.encryption?.keyId).toBe(res.keyId)
@@ -103,6 +112,98 @@ describe('GET /api/security/vault/status', () => {
 
     it('401 without auth', async () => {
         await expectErr(statusHandler({ context: {} }), 401, 'Unauthorized')
+    })
+})
+
+describe('vault session RAM cache (D-PRV-7 — no Mongo, no wrap)', () => {
+    const dek = () => Buffer.alloc(32, 42)
+
+    it('createVaultSession + getVaultSession round-trips the DEK', async () => {
+        const { expiresAt } = await realVault.createVaultSession('ram-u1', dek())
+        expect(expiresAt).toBeInstanceOf(Date)
+        const session = await realVault.getVaultSession('ram-u1')
+        expect(session).not.toBeNull()
+        expect(session.dek.equals(dek())).toBe(true)
+        expect(session.expiresAt).toBeInstanceOf(Date)
+        await realVault.clearVaultSessions('ram-u1')
+    })
+
+    it('stores a defensive copy: mutating the caller buffer does not alias the session', async () => {
+        const caller = dek()
+        await realVault.createVaultSession('ram-u2', caller)
+        caller.fill(0)
+        const session = await realVault.getVaultSession('ram-u2')
+        expect(session.dek.equals(dek())).toBe(true)
+        await realVault.clearVaultSessions('ram-u2')
+    })
+
+    it('slides the TTL on activity (mocked Date.now)', async () => {
+        const t0 = 1_000_000
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(t0)
+        await realVault.createVaultSession('ram-u3', dek())
+
+        // 1h later: activity slides the window to t0+1h+2h.
+        nowSpy.mockReturnValue(t0 + 60 * 60 * 1000)
+        const session = await realVault.getVaultSession('ram-u3')
+        expect(session).not.toBeNull()
+        expect(session.expiresAt.getTime()).toBe(t0 + 3 * 60 * 60 * 1000)
+
+        // 1h59m later: still alive thanks to the slide.
+        nowSpy.mockReturnValue(t0 + 3 * 60 * 60 * 1000 - 60 * 1000)
+        expect(await realVault.getVaultSession('ram-u3')).not.toBeNull()
+        await realVault.clearVaultSessions('ram-u3')
+    })
+
+    it('returns null after expiry AND wipes the buffer', async () => {
+        const t0 = 2_000_000
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(t0)
+        await realVault.createVaultSession('ram-u4', dek())
+        const session = await realVault.getVaultSession('ram-u4')
+        const mapBuffer = session.dek // the session's own buffer
+
+        nowSpy.mockReturnValue(t0 + realVault.VAULT_SESSION_TTL_MS + 1)
+        expect(await realVault.getVaultSession('ram-u4')).toBeNull()
+        // The wiped buffer is all zeros — the DEK is gone even for anyone
+        // still holding a reference.
+        expect(mapBuffer.every((b) => b === 0)).toBe(true)
+    })
+
+    it('clearVaultSessions wipes and removes the session', async () => {
+        await realVault.createVaultSession('ram-u5', dek())
+        const session = await realVault.getVaultSession('ram-u5')
+        const mapBuffer = session.dek
+        await realVault.clearVaultSessions('ram-u5')
+        expect(await realVault.getVaultSession('ram-u5')).toBeNull()
+        expect(mapBuffer.every((b) => b === 0)).toBe(true)
+    })
+
+    it('re-creating a session wipes the previous buffer', async () => {
+        await realVault.createVaultSession('ram-u6', dek())
+        const first = (await realVault.getVaultSession('ram-u6')).dek
+        await realVault.createVaultSession('ram-u6', Buffer.alloc(32, 9))
+        expect(first.every((b) => b === 0)).toBe(true)
+        const session = await realVault.getVaultSession('ram-u6')
+        expect(session.dek.equals(Buffer.alloc(32, 9))).toBe(true)
+        await realVault.clearVaultSessions('ram-u6')
+    })
+
+    it('requireFileAccess throws 403 vault_locked without an active session', async () => {
+        state.db = fakeDb({ users: [{ id: 'ram-u7', encryption: { enabled: true } }] })
+        await expectErr(realVault.requireFileAccess('ram-u7'), 403, 'vault_locked')
+    })
+
+    it('requireFileAccess returns the DEK with an active session', async () => {
+        state.db = fakeDb({ users: [{ id: 'ram-u8', encryption: { enabled: true } }] })
+        await realVault.createVaultSession('ram-u8', dek())
+        const { dek: granted } = await realVault.requireFileAccess('ram-u8')
+        expect(granted.equals(dek())).toBe(true)
+        await realVault.clearVaultSessions('ram-u8')
+    })
+
+    it('requireFileAccess returns dek: null when encryption is disabled (legacy plaintext path)', async () => {
+        state.db = fakeDb({ users: [{ id: 'ram-u9' }] })
+        const { dek: granted } = await realVault.requireFileAccess('ram-u9')
+        expect(granted).toBeNull()
     })
 })
 

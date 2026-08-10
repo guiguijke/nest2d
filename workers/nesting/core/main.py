@@ -440,7 +440,7 @@ def nesting_process(doc):
     # Unwrapped DEK when the owner's vault is unlocked, None on the legacy
     # plaintext path. Raises VaultLockedError when files are encrypted but
     # the session expired mid-queue.
-    dek = get_dek(db, owner_id)
+    dek = get_dek(db, doc)
 
     # Map allowRotation boolean to allowed_orientations array (fallback for backward compatibility)
     default_allowed_orientations = [0.0, 90.0, 180.0, 270.0] if allow_rotation else [0.0]
