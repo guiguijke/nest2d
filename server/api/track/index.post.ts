@@ -35,6 +35,12 @@ const ALLOWED_ACTIONS = new Set([
     'click_turbo_toggle',
     // Ouverture de la boîte vault depuis le header.
     'click_vault_menu_open',
+    // Newsletter : prompt une-fois (home) + réglage d'abonnement (profil).
+    'newsletter_prompt_shown',
+    'newsletter_prompt_accept',
+    'newsletter_prompt_dismiss',
+    'newsletter_toggle_on',
+    'newsletter_toggle_off',
 ])
 
 // Bounded validation of the client payload before it touches the DB.

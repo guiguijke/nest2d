@@ -41,6 +41,8 @@ const toggle = async (event) => {
         // (setUser() reads the useAsyncData('user') cache — refresh it first).
         await refreshNuxtData('user')
         await authStore.actions.setUser()
+        // Track only on success — a failed PATCH rolls the checkbox back.
+        trackEvent(value ? 'newsletter_toggle_on' : 'newsletter_toggle_off')
         saved.value = true
         setTimeout(() => (saved.value = false), 3000)
     } catch {

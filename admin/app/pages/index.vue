@@ -4,6 +4,10 @@ definePageMeta({ middleware: ['admin-auth'] })
 const { data: overview, pending, error, refresh } = await useFetch('/api/stats/overview', {
   credentials: 'include',
 })
+// Separate fetch: a failure here must not blank the whole dashboard.
+const { data: queueTimes } = await useFetch('/api/stats/queue-times', {
+  credentials: 'include',
+})
 const { snapshot, connected } = useLiveStats()
 
 // Auto-refresh the overview every 60s as a fallback alongside the SSE stream.
@@ -15,6 +19,23 @@ onBeforeUnmount(() => clearInterval(timer))
 
 const fmt = (n: any) => (n == null ? '—' : new Intl.NumberFormat('fr-FR').format(n))
 const live = computed(() => snapshot.value)
+
+// Compact duration: « 12 s », « 3 min », « 1 h 05 min ».
+function fmtDur(sec: any): string {
+  if (sec == null || !Number.isFinite(sec)) return '—'
+  if (sec < 60) return `${Math.round(sec)} s`
+  const min = sec / 60
+  if (min < 60) return `${Math.round(min)} min`
+  const h = Math.floor(min / 60)
+  const m = Math.round(min % 60)
+  return `${h} h ${String(m).padStart(2, '0')} min`
+}
+// Code tier -> marketing name (privacy IS the Pro tier).
+const queueTiers = [
+  { key: 'free', label: 'Free' },
+  { key: 'standard', label: 'Unlimited' },
+  { key: 'privacy', label: 'Pro' },
+] as const
 </script>
 
 <template>
@@ -56,6 +77,45 @@ const live = computed(() => snapshot.value)
           <StatCard label="En traitement" :value="fmt(live?.processing ?? overview.jobs.processing)" :live="!!live" />
           <StatCard label="Échoués" :value="fmt(live?.failed ?? overview.jobs.failed)" accent="err" :live="!!live" />
           <StatCard label="Terminés 24h" :value="fmt(overview.jobs.done24h)" accent="ok" />
+        </div>
+      </section>
+
+      <!-- Measured queue times (30d) -->
+      <section v-if="queueTimes" class="card space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold">File d'attente mesurée (30 j)</h3>
+          <span class="text-[11px] text-ink-400">médiane · p95</span>
+        </div>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div
+            v-for="t in queueTiers"
+            :key="t.key"
+            class="rounded-lg border border-marine-700 p-3 space-y-1.5"
+          >
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-white">{{ t.label }}</span>
+              <span class="text-ink-400">
+                {{ queueTimes.tiers?.[t.key] ? fmt(queueTimes.tiers[t.key].jobs) + ' job(s)' : '—' }}
+              </span>
+            </div>
+            <template v-if="queueTimes.tiers?.[t.key]">
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-ink-400">Attente</span>
+                <span class="font-mono text-ink-200">
+                  {{ fmtDur(queueTimes.tiers[t.key].waitP50Sec) }} ·
+                  {{ fmtDur(queueTimes.tiers[t.key].waitP95Sec) }}
+                </span>
+              </div>
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-ink-400">Calcul</span>
+                <span class="font-mono text-ink-200">
+                  {{ fmtDur(queueTimes.tiers[t.key].wallP50Sec) }} ·
+                  {{ fmtDur(queueTimes.tiers[t.key].wallP95Sec) }}
+                </span>
+              </div>
+            </template>
+            <p v-else class="text-xs text-ink-400">—</p>
+          </div>
         </div>
       </section>
 

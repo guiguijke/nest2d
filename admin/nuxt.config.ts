@@ -30,6 +30,12 @@ export default defineNuxtConfig({
     resendToken: '',
     resendFrom: 'onboarding@resend.dev',
     stripeSecretKey: '',
+    // listmonk (self-hosted newsletter): NUXT_ADMIN_LISTMONK_* takes
+    // precedence, with fallback on the main app's NUXT_LISTMONK_* so a single
+    // .env (env_file in docker-compose) covers both apps.
+    listmonkUrl: process.env.NUXT_ADMIN_LISTMONK_URL || process.env.NUXT_LISTMONK_URL || '',
+    listmonkUser: process.env.NUXT_ADMIN_LISTMONK_USER || process.env.NUXT_LISTMONK_USER || '',
+    listmonkPassword: process.env.NUXT_ADMIN_LISTMONK_PASSWORD || process.env.NUXT_LISTMONK_PASSWORD || '',
     public: {
       appBaseUrl: 'http://localhost:3000',
       // Mirrored for the client-side guard.
