@@ -22,7 +22,10 @@
                      dans les frames live par runLocalJobPrivate. -->
                 <span v-if="localWalks > 1" class="live-panel__elapsed"> · ×{{ localWalks }} walks</span>
             </h3>
-            <p class="live-panel__status">{{ t('localCompute.running') }}</p>
+            <!-- D-PRV-9 : la promesse « fichiers jamais envoyés » n'est vraie
+                 que pour un projet 100 % privé (import navigateur) — un projet
+                 cloud en calcul local a uploadé ses sources (purgées 24 h). -->
+            <p class="live-panel__status">{{ t(isLocalProject ? 'localCompute.runningLocal' : 'localCompute.running') }}</p>
             <!-- J-084 : vue live du solve navigateur — les frames layout
                  streamées par le moteur WASM alimentent LiveNestingView,
                  exactement comme le flux SSE côté serveur. -->

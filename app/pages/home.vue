@@ -132,7 +132,10 @@
         (config.public.localComputeEnabled === true || config.public.localComputeEnabled === 'true') &&
         (config.public.localImportEnabled === true || config.public.localImportEnabled === 'true')
     )
-    const localProject = ref(false)
+    // Le mode local doit être 100 % local : dès que l'import navigateur est
+    // disponible, la création 100 % privée est le DÉFAUT (opt-out possible
+    // pour le cloud : import DWG, accès multi-appareils).
+    const localProject = ref(localImportEnabled.value)
 
     const handleSubmit = async (files) => {
         error.value = ''
