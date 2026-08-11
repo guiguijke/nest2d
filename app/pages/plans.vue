@@ -29,6 +29,15 @@
                         {{ feature }}
                     </li>
                 </ul>
+                <div v-if="queueTimesReady" class="cards__measured">
+                    <template v-if="measuredByTier[tier.tierKey]">
+                        <p class="cards__measured-line">{{ measuredByTier[tier.tierKey].wait }}</p>
+                        <p class="cards__measured-line">{{ measuredByTier[tier.tierKey].wall }}</p>
+                    </template>
+                    <p v-else class="cards__measured-line cards__measured-line--collecting">
+                        {{ t('plans.measured.collecting') }}
+                    </p>
+                </div>
                 <MainButton
                     :theme="tier.highlighted ? themeType.primary : themeType.secondary"
                     :label="userIsSet ? t('plans.cta.manageInProfile') : tier.cta"
@@ -92,6 +101,52 @@ const paidDisabled = computed(() => useRuntimeConfig().public.paidPlansDisabled 
 // Shared with the landing via the 'payment-plans' cache key (deduplicated +
 // cached for a few minutes). See composables/usePlans.js.
 const { data: plans } = usePlans()
+
+// Measured queue/compute stats per tier (public endpoint, 60 s server-side
+// cache). Client-only: SSR would render the "collecting" fallback anyway.
+const { data: queueTimes, status: queueTimesStatus } = useFetch('/api/metrics/queue-times', {
+    server: false,
+})
+const queueTimesReady = computed(() => unref(queueTimesStatus) !== 'pending')
+
+// Below this sample size a percentile is noise — show the honest fallback.
+const MIN_MEASURED_JOBS = 5
+
+// Compact duration: < 90 s → "12 s", < 90 min → "3 min", else "1 h 05 min".
+function formatQueueDuration(seconds) {
+    const totalSec = Math.round(seconds)
+    if (totalSec < 90) return `${totalSec} s`
+    const totalMin = Math.round(totalSec / 60)
+    if (totalMin < 90) return `${totalMin} min`
+    const hours = Math.floor(totalMin / 60)
+    const mins = totalMin % 60
+    return mins ? `${hours} h ${String(mins).padStart(2, '0')} min` : `${hours} h`
+}
+
+// Card key → compute tier key (marketing names differ from code tiers).
+const measuredByTier = computed(() => {
+    const tiersData = unref(queueTimes)?.tiers
+    const out = {}
+    for (const key of ['free', 'standard', 'privacy']) {
+        const stats = tiersData?.[key]
+        out[key] =
+            stats && stats.jobs >= MIN_MEASURED_JOBS
+                ? {
+                      wait: t('plans.measured.wait', {
+                          p50: formatQueueDuration(stats.waitP50Sec),
+                          p95: formatQueueDuration(stats.waitP95Sec),
+                      }),
+                      wall: t('plans.measured.wall', {
+                          p50: formatQueueDuration(stats.wallP50Sec),
+                          p95: formatQueueDuration(stats.wallP95Sec),
+                          n: stats.jobs,
+                      }),
+                  }
+                : null
+    }
+    return out
+})
+
 const formatPlanPrice = (plan) => {
     if (!plan?.available) return null
     return new Intl.NumberFormat('en', {
@@ -109,6 +164,7 @@ const tiers = computed(() => {
     return [
         {
             name: t('plans.tier.free'),
+            tierKey: 'free',
             price: '€0',
             intervalLabel: t('plans.interval.forever'),
             badge: t('plans.badge.discovery'),
@@ -125,6 +181,7 @@ const tiers = computed(() => {
         },
         {
             name: t('plans.tier.unlimited'),
+            tierKey: 'standard',
             // Live Stripe price when the sync worked, static label as fallback.
             price: stdAvailable ? formatPlanPrice(stdPlan) : SUBSCRIPTION_PRICE_LABEL,
             intervalLabel: t('plans.interval.month'),
@@ -149,6 +206,7 @@ const tiers = computed(() => {
         },
         {
             name: t('plans.tier.pro'),
+            tierKey: 'privacy',
             price: proAvailable ? formatPlanPrice(proPlan) : PRO_PRICE_LABEL,
             intervalLabel: t('plans.interval.month'),
             badge: t('plans.badge.confidentiality'),
@@ -317,6 +375,24 @@ function onTierClick(tier) {
         margin-top: 24px;
         margin-bottom: 32px;
         flex-grow: 1;
+    }
+
+    // Measured queue/compute stats (public /api/metrics/queue-times) — kept
+    // discreet: description-like styling, one size down.
+    &__measured {
+        margin-top: -16px;
+        margin-bottom: 24px;
+        font-size: 12px;
+        text-align: center;
+        color: var(--label-tertiary);
+    }
+
+    &__measured-line {
+        padding: 1px 0;
+
+        &--collecting {
+            font-style: italic;
+        }
     }
 
     &__feature {
