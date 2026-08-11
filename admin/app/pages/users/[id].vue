@@ -11,6 +11,27 @@
     const { data: activity } = await useFetch('/api/users/' + encodeURIComponent(id) + '/activity', {
         credentials: 'include',
     })
+    const { data: newsletter } = await useFetch('/api/users/' + encodeURIComponent(id) + '/newsletter', {
+        credentials: 'include',
+    })
+
+    // Badge for the listmonk subscriber status (blocklisted = opted out).
+    function newsletterBadge(nl: any) {
+        if (!nl?.configured) return { text: 'Non configuré', cls: 'bg-marine-700 text-ink-300' }
+        if (nl?.error) return { text: 'Erreur listmonk', cls: 'bg-err/15 text-err' }
+        const s = nl?.subscriber?.status
+        if (s === 'enabled') return { text: 'Abonné', cls: 'bg-ok/15 text-ok' }
+        if (s === 'unconfirmed') return { text: 'Non confirmé', cls: 'bg-warn/15 text-warn' }
+        if (s === 'blocklisted') return { text: 'Désabonné', cls: 'bg-err/15 text-err' }
+        return { text: 'Inconnu de listmonk', cls: 'bg-marine-700 text-ink-300' }
+    }
+    // Rate as a rounded percentage, guarded against divide-by-zero. listmonk
+    // views/clicks are per-campaign aggregates (the API exposes nothing
+    // per-subscriber), so these are campaign-level rates.
+    function pct(part: number, whole: number): string {
+        if (!whole) return '—'
+        return Math.round((part / whole) * 100) + ' %'
+    }
 
     function fmtDurationMin(min: number): string {
         if (!min) return '0 min'
@@ -231,6 +252,136 @@
                     </dl>
                 </section>
             </div>
+
+            <!-- Newsletter (listmonk) -->
+            <section
+                v-if="newsletter"
+                class="card space-y-3"
+            >
+                <div class="flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold">Newsletter</h2>
+                    <span
+                        class="badge"
+                        :class="newsletterBadge(newsletter).cls"
+                        >{{ newsletterBadge(newsletter).text }}</span
+                    >
+                </div>
+
+                <p
+                    v-if="!newsletter.configured"
+                    class="text-xs text-ink-400"
+                >
+                    listmonk n'est pas configuré (NUXT_ADMIN_LISTMONK_* / NUXT_LISTMONK_*).
+                </p>
+                <p
+                    v-else-if="newsletter.error"
+                    class="text-xs text-err"
+                >
+                    {{ newsletter.error }}
+                </p>
+                <template v-else>
+                    <dl class="space-y-1.5 text-xs">
+                        <div class="flex justify-between">
+                            <dt class="text-ink-400">Opt-in applicatif</dt>
+                            <dd>{{ newsletter.optIn ? 'oui' : 'non' }}</dd>
+                        </div>
+                        <div
+                            v-if="newsletter.subscriber"
+                            class="flex justify-between"
+                        >
+                            <dt class="text-ink-400">Inscrit le</dt>
+                            <dd>{{ fmtDate(newsletter.subscriber.createdAt) }}</dd>
+                        </div>
+                        <div
+                            v-if="newsletter.subscriber?.lists?.length"
+                            class="flex justify-between"
+                        >
+                            <dt class="text-ink-400">Listes</dt>
+                            <dd class="text-right">
+                                <span
+                                    v-for="l in newsletter.subscriber.lists"
+                                    :key="l.id"
+                                    class="ml-1"
+                                    >{{ l.name }}<span
+                                        v-if="l.status"
+                                        class="text-ink-400"
+                                    >
+                                        ({{ l.status }})</span
+                                    ></span
+                                >
+                            </dd>
+                        </div>
+                    </dl>
+                    <p
+                        v-if="!newsletter.subscriber"
+                        class="text-xs text-ink-400"
+                    >
+                        Cet email est inconnu de listmonk (jamais inscrit ou supprimé).
+                    </p>
+
+                    <!-- Campaign aggregates — listmonk exposes NO per-subscriber
+                         opens/clicks, only per-campaign totals. -->
+                    <template v-if="newsletter.campaigns?.length">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-400">
+                            Campagnes (agrégats plateforme)
+                        </h3>
+                        <!-- Desktop table -->
+                        <table class="w-full text-xs hidden md:table">
+                            <thead class="text-left text-ink-400">
+                                <tr>
+                                    <th class="py-1 pr-3 font-medium">Nom</th>
+                                    <th class="py-1 pr-3 font-medium">Statut</th>
+                                    <th class="py-1 pr-3 font-medium">Envoyés</th>
+                                    <th class="py-1 pr-3 font-medium">Ouverture</th>
+                                    <th class="py-1 font-medium">Clics</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr
+                                    v-for="c in newsletter.campaigns"
+                                    :key="c.id"
+                                    class="border-t border-marine-800"
+                                >
+                                    <td class="py-1 pr-3 text-white">{{ c.name }}</td>
+                                    <td class="py-1 pr-3 text-ink-300">{{ c.status }}</td>
+                                    <td class="py-1 pr-3 font-mono text-ink-300">{{ c.sent }}</td>
+                                    <td class="py-1 pr-3 font-mono text-ink-300">{{ pct(c.views, c.sent) }}</td>
+                                    <td class="py-1 font-mono text-ink-300">{{ pct(c.clicks, c.sent) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <!-- Mobile cards -->
+                        <div class="space-y-2 md:hidden">
+                            <div
+                                v-for="c in newsletter.campaigns"
+                                :key="c.id"
+                                class="space-y-1 border-t border-marine-800 pt-2 text-xs first:border-0 first:pt-0"
+                            >
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="min-w-0 truncate text-white">{{ c.name }}</span>
+                                    <span class="shrink-0 text-ink-400">{{ c.status }}</span>
+                                </div>
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-ink-400">Envoyés</span>
+                                    <span class="font-mono text-ink-300">{{ c.sent }}</span>
+                                </div>
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-ink-400">Ouverture / clics</span>
+                                    <span class="font-mono text-ink-300"
+                                        >{{ pct(c.views, c.sent) }} / {{ pct(c.clicks, c.sent) }}</span
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    <p
+                        v-else
+                        class="text-xs text-ink-400"
+                    >
+                        Aucune campagne.
+                    </p>
+                </template>
+            </section>
 
             <!-- Usage & recent jobs -->
             <section
