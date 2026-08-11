@@ -69,8 +69,8 @@ function senderCls(s: string) {
     </div>
 
     <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <!-- Conversation list -->
-      <div class="card max-h-[70vh] overflow-y-auto p-0">
+      <!-- Conversation list (hidden on mobile once a thread is open) -->
+      <div class="card max-h-[70vh] overflow-y-auto p-0" :class="selectedUserId ? 'hidden md:block' : ''">
         <div v-if="!conversations?.items?.length" class="p-4 text-xs text-ink-400">Aucune conversation.</div>
         <button
           v-for="c in conversations?.items"
@@ -88,11 +88,12 @@ function senderCls(s: string) {
         </button>
       </div>
 
-      <!-- Thread -->
-      <div class="card flex min-h-[70vh] flex-col">
+      <!-- Thread (hidden on mobile until a conversation is picked) -->
+      <div class="card min-h-[70vh] flex-col" :class="selectedUserId ? 'flex' : 'hidden md:flex'">
         <div v-if="!selectedUserId" class="m-auto text-xs text-ink-400">Sélectionnez une conversation.</div>
         <template v-else>
           <div class="flex items-center justify-between border-b border-marine-800 pb-2">
+            <button class="btn-ghost md:hidden" @click="selectedUserId = null">← Retour</button>
             <div>
               <NuxtLink
                 v-if="thread?.user"

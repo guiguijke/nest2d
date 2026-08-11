@@ -57,7 +57,7 @@
                     <h2 class="text-sm font-semibold">Abonnements actifs</h2>
                     <p class="text-[11px] text-ink-400">Utilisateurs avec un abonnement Stripe en cours</p>
                 </div>
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto hidden md:block">
                     <table class="w-full text-xs">
                         <thead class="border-b border-marine-700 text-left text-ink-400">
                             <tr>
@@ -116,6 +116,57 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                <!-- Mobile cards -->
+                <div class="space-y-2 p-3 md:hidden">
+                    <div
+                        v-for="s in data.subscriptions"
+                        :key="s.userId"
+                        class="rounded-[4px] border border-marine-700 bg-marine-900/40 space-y-1.5 p-3 text-xs"
+                    >
+                        <div class="flex items-center justify-between gap-2">
+                            <NuxtLink
+                                :to="`/users/${encodeURIComponent(s.userId)}`"
+                                class="min-w-0 truncate font-medium text-ink-200 hover:text-blue hover:underline"
+                            >
+                                {{ s.name || s.email || s.userId.slice(0, 20) }}
+                            </NuxtLink>
+                            <span
+                                class="badge shrink-0"
+                                :class="tierBadge(s.tier)"
+                                >{{ s.tier }}</span
+                            >
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Statut</span>
+                            <span>
+                                <span
+                                    class="badge"
+                                    :class="s.status === 'active' ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn'"
+                                    >{{ s.status }}</span
+                                >
+                                <span
+                                    v-if="s.cancelAtPeriodEnd"
+                                    class="ml-1 text-[10px] text-warn"
+                                    >annulé en cours</span
+                                >
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Montant</span>
+                            <span class="font-mono text-ink-200">{{ fmtEur(s.planPriceEur) }}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Fin de période</span>
+                            <span class="text-ink-300">{{ fmtDate(s.currentPeriodEnd) }}</span>
+                        </div>
+                    </div>
+                    <p
+                        v-if="!data.subscriptions.length"
+                        class="py-4 text-center text-xs text-ink-400"
+                    >
+                        Aucun abonné actif.
+                    </p>
                 </div>
             </section>
         </template>

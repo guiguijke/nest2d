@@ -137,7 +137,7 @@
                 <div class="border-b border-marine-700 px-4 pt-3 pb-2">
                     <h2 class="text-sm font-semibold">Nouvelles inscriptions</h2>
                 </div>
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto hidden md:block">
                     <table class="w-full text-xs">
                         <thead class="text-left text-ink-400">
                             <tr>
@@ -178,6 +178,38 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                <!-- Mobile cards -->
+                <div class="space-y-2 p-3 md:hidden">
+                    <div
+                        v-for="su in data.signups"
+                        :key="su.id"
+                        class="rounded-[4px] border border-marine-700 bg-marine-900/40 space-y-1.5 p-3 text-xs"
+                    >
+                        <div class="flex items-center justify-between gap-2">
+                            <NuxtLink
+                                :to="`/users/${encodeURIComponent(su.id)}`"
+                                class="min-w-0 truncate font-medium text-ink-200 hover:text-blue hover:underline"
+                                >{{ su.name || '—' }}</NuxtLink
+                            >
+                            <span class="badge shrink-0 bg-marine-700 text-ink-300">{{ su.provider }}</span>
+                        </div>
+                        <div class="truncate text-ink-400">{{ su.email }}</div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Date</span>
+                            <span class="text-ink-300">{{ fmtDate(su.createdAt) }}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Pays</span>
+                            <span class="font-mono text-ink-300">{{ su.signupCountry || '—' }}</span>
+                        </div>
+                    </div>
+                    <p
+                        v-if="!data.signups.length"
+                        class="py-4 text-center text-xs text-ink-400"
+                    >
+                        Aucune inscription sur la période.
+                    </p>
                 </div>
             </div>
         </template>
