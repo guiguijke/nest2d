@@ -50,7 +50,8 @@
 </script>
 
 <template>
-    <div class="overflow-x-auto">
+    <!-- Desktop table -->
+    <div class="overflow-x-auto hidden md:block">
         <table class="w-full text-xs">
             <thead class="text-left text-ink-400">
                 <tr>
@@ -135,5 +136,72 @@
                 </tr>
             </tbody>
         </table>
+    </div>
+
+    <!-- Mobile cards -->
+    <div class="space-y-2 md:hidden">
+        <div
+            v-for="(j, i) in jobs"
+            :key="i"
+            class="rounded-[4px] border border-marine-700 bg-marine-900/40 space-y-1.5 p-3 text-xs"
+        >
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-ink-300">
+                    {{ fmtDate(j.finishedAt || j.createdAt) }}
+                    <span class="text-ink-400">{{ fmtTime(j.finishedAt || j.createdAt) }}</span>
+                </span>
+                <span
+                    class="badge"
+                    :class="statusCls(j.status)"
+                    >{{ j.status }}</span
+                >
+            </div>
+            <div
+                v-if="!compact"
+                class="flex items-center justify-between gap-2"
+            >
+                <span class="text-ink-400">Système</span>
+                <span class="badge bg-marine-700 text-ink-300">{{ j.system }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-ink-400">Durée</span>
+                <span class="font-mono text-ink-200">{{ duration(j) }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-ink-400">Densité</span>
+                <span class="font-mono text-ink-300">{{ density(j) }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-ink-400">Pièces</span>
+                <span class="font-mono text-ink-300">
+                    {{ j.placed ?? '—'
+                    }}<span
+                        v-if="j.requested"
+                        class="text-ink-400"
+                        >/{{ j.requested }}</span
+                    >
+                </span>
+            </div>
+            <div
+                v-if="!compact"
+                class="flex items-center justify-between gap-2"
+            >
+                <span class="text-ink-400">Niveau</span>
+                <span class="font-mono text-ink-400">{{ j.params?.computeLevel || '—' }}</span>
+            </div>
+            <div
+                v-if="!compact"
+                class="flex items-center justify-between gap-2"
+            >
+                <span class="text-ink-400">Facturé</span>
+                <span class="badge bg-marine-700 text-ink-300">{{ chargeLabel(j.charge) }}</span>
+            </div>
+        </div>
+        <p
+            v-if="!jobs.length"
+            class="py-4 text-center text-xs text-ink-400"
+        >
+            Aucun job.
+        </p>
     </div>
 </template>
