@@ -80,7 +80,7 @@
                     placeholder="email, nom ou identifiant…"
                 />
             </div>
-            <div>
+            <div class="w-full sm:w-auto">
                 <label class="label">Statut</label>
                 <select
                     v-model="status"
@@ -93,7 +93,7 @@
                     <option value="banned">Bannis</option>
                 </select>
             </div>
-            <div>
+            <div class="w-full sm:w-auto">
                 <label class="label">Provider</label>
                 <select
                     v-model="provider"
@@ -120,7 +120,8 @@
         </div>
 
         <template v-else-if="data">
-            <div class="card overflow-x-auto p-0">
+            <!-- Desktop table -->
+            <div class="card overflow-x-auto p-0 hidden md:block">
                 <table class="w-full text-xs">
                     <thead class="border-b border-marine-700 text-left text-ink-400">
                         <tr>
@@ -169,6 +170,50 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Mobile cards -->
+            <div class="space-y-2 md:hidden">
+                <button
+                    v-for="u in data.items"
+                    :key="u.id"
+                    class="card block w-full space-y-1.5 p-3 text-left text-xs"
+                    @click="router.push(`/users/${encodeURIComponent(u.id)}`)"
+                >
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="min-w-0 truncate font-medium text-white">{{ u.name || '—' }}</span>
+                        <span
+                            class="badge shrink-0"
+                            :class="statusBadge(u).cls"
+                            >{{ statusBadge(u).text }}</span
+                        >
+                    </div>
+                    <div class="truncate text-ink-400">{{ u.email }}</div>
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-ink-400">Provider</span>
+                        <span class="text-ink-300">{{ u.provider }}</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-ink-400">Pays</span>
+                        <span class="font-mono text-ink-300">{{ u.signupCountry || '—' }}</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-ink-400">Inscrit le</span>
+                        <span class="text-ink-300">{{ fmtDate(u.createdAt) }}</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-ink-400">Dernière activité</span>
+                        <span :class="isActive(u.lastActiveAt) ? 'text-ok' : 'text-ink-400'">{{
+                            fmtDate(u.lastActiveAt)
+                        }}</span>
+                    </div>
+                </button>
+                <p
+                    v-if="!data.items.length"
+                    class="card p-3 text-center text-xs text-ink-400"
+                >
+                    Aucun utilisateur.
+                </p>
             </div>
 
             <!-- Pagination -->

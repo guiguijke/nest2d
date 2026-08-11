@@ -42,7 +42,7 @@ function statusCls(s: string) {
     </div>
 
     <div class="card flex flex-wrap items-end gap-3">
-      <div>
+      <div class="w-full sm:w-auto">
         <label class="label">Statut</label>
         <select v-model="filters.status" class="input">
           <option value="">Actifs (défaut)</option>
@@ -56,7 +56,8 @@ function statusCls(s: string) {
     </div>
 
     <div v-if="pending && !data" class="text-sm text-ink-400">Chargement…</div>
-    <div v-else-if="data" class="card overflow-x-auto p-0">
+    <!-- Desktop table -->
+    <div v-else-if="data" class="card overflow-x-auto p-0 hidden md:block">
       <table class="w-full text-xs">
         <thead class="border-b border-marine-700 text-left text-ink-400">
           <tr>
@@ -80,6 +81,33 @@ function statusCls(s: string) {
           <tr v-if="!data.items.length"><td colspan="6" class="px-3 py-6 text-center text-ink-400">Aucun job.</td></tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Mobile cards -->
+    <div v-if="data" class="space-y-2 md:hidden">
+      <div v-for="(j, i) in data.items" :key="i" class="card space-y-1.5 p-3 text-xs">
+        <div class="flex items-center justify-between gap-2">
+          <span class="badge bg-marine-700 text-ink-300">{{ j.system }}</span>
+          <span class="badge" :class="statusCls(j.status)">{{ j.status }}</span>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-ink-400">Slug</span>
+          <span class="min-w-0 truncate font-mono text-ink-200">{{ j.slug || '—' }}</span>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-ink-400">Propriétaire</span>
+          <span class="min-w-0 truncate font-mono text-ink-400">{{ j.ownerId ? j.ownerId.slice(0, 24) : '—' }}</span>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-ink-400">Mis à jour</span>
+          <span class="text-ink-300">{{ fmt(j.updatedAt || j.createdAt) }}</span>
+        </div>
+        <div v-if="j.error" class="flex items-start justify-between gap-2">
+          <span class="shrink-0 text-ink-400">Erreur</span>
+          <span class="break-all font-mono text-err">{{ j.error }}</span>
+        </div>
+      </div>
+      <p v-if="!data.items.length" class="card p-3 text-center text-xs text-ink-400">Aucun job.</p>
     </div>
 
     <div v-if="data" class="flex items-center justify-between text-xs text-ink-400">

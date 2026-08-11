@@ -70,23 +70,23 @@
 
 <template>
     <div class="space-y-5">
-        <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
+        <div class="flex items-center justify-between gap-2">
+            <div class="flex min-w-0 items-center gap-3">
                 <button
-                    class="btn-ghost"
+                    class="btn-ghost shrink-0"
                     @click="router.push('/users')"
                 >
                     ← Retour
                 </button>
-                <div>
-                    <h1 class="text-xl">{{ u?.name || '—' }}</h1>
-                    <p class="text-xs text-ink-400">{{ u?.email }} · {{ u?.id }}</p>
+                <div class="min-w-0">
+                    <h1 class="text-xl truncate">{{ u?.name || '—' }}</h1>
+                    <p class="text-xs text-ink-400 truncate">{{ u?.email }} · {{ u?.id }}</p>
                 </div>
             </div>
             <a
                 v-if="u"
                 :href="`${useRuntimeConfig().public.appBaseUrl}/project/_`"
-                class="btn-secondary"
+                class="btn-secondary shrink-0"
                 target="_blank"
                 rel="noopener"
             >
@@ -279,7 +279,7 @@
                     <h2 class="text-sm font-semibold">Sessions</h2>
                     <div class="flex gap-2">
                         <button
-                            class="btn-secondary"
+                            class="btn-secondary w-full sm:w-auto"
                             :disabled="acting"
                             @click="patch({ action: 'revokeSessions' })"
                         >
@@ -299,7 +299,7 @@
                         />
                     </div>
                     <button
-                        class="btn-primary"
+                        class="btn-primary w-full sm:w-auto"
                         :disabled="acting"
                         @click="grantMonth"
                     >
@@ -321,7 +321,7 @@
                             />
                         </div>
                         <button
-                            class="btn-danger"
+                            class="btn-danger w-full sm:w-auto"
                             :disabled="acting"
                             @click="patch({ action: 'ban', reason: banReason })"
                         >
@@ -333,7 +333,7 @@
                             Banni le {{ fmtDate(u.bannedAt) }} — {{ u.bannedReason || 'sans raison' }}
                         </p>
                         <button
-                            class="btn-secondary"
+                            class="btn-secondary w-full sm:w-auto"
                             :disabled="acting"
                             @click="patch({ action: 'unban' })"
                         >
@@ -350,7 +350,8 @@
                     v-if="data.recentEvents.length"
                     class="max-h-64 overflow-y-auto"
                 >
-                    <table class="w-full text-xs">
+                    <!-- Desktop table -->
+                    <table class="w-full text-xs hidden md:table">
                         <thead class="text-left text-ink-400">
                             <tr>
                                 <th class="py-1 pr-3 font-medium">Date</th>
@@ -370,6 +371,18 @@
                             </tr>
                         </tbody>
                     </table>
+                    <!-- Mobile rows -->
+                    <div class="space-y-1.5 md:hidden">
+                        <div
+                            v-for="(e, i) in data.recentEvents"
+                            :key="i"
+                            class="flex items-center justify-between gap-2 border-t border-marine-800 pt-1.5 text-xs first:border-0 first:pt-0"
+                        >
+                            <span class="min-w-0 truncate font-mono">{{ e.action }}</span>
+                            <span class="shrink-0 font-mono text-ink-300">{{ e.country || '—' }}</span>
+                            <span class="shrink-0 text-ink-300">{{ fmtDate(e.timestamp) }}</span>
+                        </div>
+                    </div>
                 </div>
                 <p
                     v-else

@@ -33,14 +33,14 @@ const nav = [
             <span class="badge bg-ok/15 text-ok">● Réseau local</span>
           </template>
           <template v-else>
-            <span v-if="admin" class="text-xs text-ink-300">{{ admin.name }} · {{ admin.email }}</span>
+            <span v-if="admin" class="hidden text-xs text-ink-300 sm:inline">{{ admin.name }} · {{ admin.email }}</span>
             <button class="btn-ghost" @click="logout">Déconnexion</button>
           </template>
         </div>
       </div>
     </header>
 
-    <div class="flex">
+    <div class="flex flex-col md:flex-row">
       <!-- Sidebar -->
       <aside class="sticky top-12 hidden h-[calc(100vh-3rem)] w-52 shrink-0 border-r border-marine-700 bg-marine-900 p-3 md:block">
         <nav class="flex flex-col gap-1">

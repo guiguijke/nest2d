@@ -131,34 +131,34 @@
         <div class="card space-y-3">
             <h2 class="text-sm font-semibold">Nouveau code</h2>
             <div class="flex flex-wrap items-end gap-3">
-                <div>
+                <div class="w-full sm:w-auto">
                     <label class="label">Code</label>
                     <input
                         v-model="code"
-                        class="input w-40 font-mono uppercase"
+                        class="input w-full font-mono uppercase sm:w-40"
                         placeholder="JD20"
                         maxlength="20"
                     />
                 </div>
-                <div>
+                <div class="w-full sm:w-auto">
                     <label class="label">Partenaire</label>
                     <input
                         v-model="partner"
-                        class="input w-56"
+                        class="input w-full sm:w-56"
                         placeholder="JD's Garage"
                     />
                 </div>
-                <div>
+                <div class="w-full sm:w-auto">
                     <label class="label">Nestings gratuits / mois</label>
                     <input
                         v-model.number="freeNestingLimit"
                         type="number"
                         min="1"
                         max="1000"
-                        class="input w-32"
+                        class="input w-full sm:w-32"
                     />
                 </div>
-                <div>
+                <div class="w-full sm:w-auto">
                     <label class="label">Expiration (optionnel)</label>
                     <input
                         v-model="expiresAt"
@@ -166,18 +166,18 @@
                         class="input"
                     />
                 </div>
-                <div>
+                <div class="w-full sm:w-auto">
                     <label class="label">Max utilisations (optionnel)</label>
                     <input
                         v-model="maxRedemptions"
                         type="number"
                         min="1"
-                        class="input w-36"
+                        class="input w-full sm:w-36"
                         placeholder="illimité"
                     />
                 </div>
                 <button
-                    class="btn-primary"
+                    class="btn-primary w-full sm:w-auto"
                     :disabled="acting"
                     @click="createCode"
                 >
@@ -207,7 +207,8 @@
         </div>
 
         <template v-else-if="data">
-            <div class="card overflow-x-auto p-0">
+            <!-- Desktop table -->
+            <div class="card overflow-x-auto p-0 hidden md:block">
                 <table class="w-full text-xs">
                     <thead class="border-b border-marine-700 text-left text-ink-400">
                         <tr>
@@ -296,6 +297,95 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Mobile cards -->
+            <div class="space-y-2 md:hidden">
+                <div
+                    v-for="c in data.items"
+                    :key="c.code"
+                    class="card space-y-2 p-3 text-xs"
+                >
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="font-mono font-medium text-white">{{ c.code }}</span>
+                        <span
+                            class="badge"
+                            :class="statusBadge(c).cls"
+                            >{{ statusBadge(c).text }}</span
+                        >
+                    </div>
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Partenaire</span>
+                            <span class="text-ink-300">{{ c.partner }}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Limite</span>
+                            <span class="text-ink-300">{{ c.freeNestingLimit }}/mois</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Utilisations</span>
+                            <span class="text-ink-300">
+                                {{ c.redemptionCount || 0
+                                }}{{ c.maxRedemptions ? ` / ${c.maxRedemptions}` : '' }}
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Expiration</span>
+                            <span class="text-ink-300">{{ fmtDate(c.expiresAt) }}</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-ink-400">Créé le</span>
+                            <span class="text-ink-300">{{ fmtDate(c.createdAt) }}</span>
+                        </div>
+                    </div>
+                    <div class="space-y-1.5 border-t border-marine-800 pt-2">
+                        <span class="text-ink-400">Reconduire</span>
+                        <div class="flex flex-wrap items-center gap-1">
+                            <input
+                                v-model="renewDates[c.code]"
+                                type="date"
+                                class="input input-xs w-32"
+                                @keyup.enter="renewCustom(c)"
+                            />
+                            <button
+                                class="btn-secondary"
+                                :disabled="acting"
+                                title="Appliquer la date choisie"
+                                @click="renewCustom(c)"
+                            >
+                                OK
+                            </button>
+                            <button
+                                class="btn-secondary"
+                                :disabled="acting"
+                                @click="quickRenew(c, 3)"
+                            >
+                                +3 mois
+                            </button>
+                            <button
+                                class="btn-secondary"
+                                :disabled="acting"
+                                @click="quickRenew(c, 6)"
+                            >
+                                +6 mois
+                            </button>
+                        </div>
+                    </div>
+                    <button
+                        class="btn-secondary w-full"
+                        :disabled="acting"
+                        @click="toggle(c)"
+                    >
+                        {{ c.active ? 'Désactiver' : 'Activer' }}
+                    </button>
+                </div>
+                <p
+                    v-if="!data.items.length"
+                    class="card p-3 text-center text-xs text-ink-400"
+                >
+                    Aucun code promo.
+                </p>
             </div>
         </template>
     </div>
