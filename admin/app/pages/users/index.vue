@@ -7,6 +7,7 @@
     const search = ref((route.query.q as string) || '')
     const status = ref((route.query.status as string) || '')
     const provider = ref((route.query.provider as string) || '')
+    const sort = ref((route.query.sort as string) || '')
     const page = ref(parseInt((route.query.page as string) || '1') || 1)
     const limit = 50
 
@@ -19,12 +20,17 @@
             refresh()
         }, 300)
     })
-    watch([status, provider, page], () => refresh())
+    // Changing the sort order re-reads from page 1, like a new filter.
+    watch(sort, () => {
+        page.value = 1
+    })
+    watch([status, provider, sort, page], () => refresh())
 
     const queryParams = computed(() => ({
         q: search.value || undefined,
         status: status.value || undefined,
         provider: provider.value || undefined,
+        sort: sort.value || undefined,
         page: page.value,
         limit,
     }))
@@ -40,15 +46,31 @@
                 q: search.value || undefined,
                 status: status.value || undefined,
                 provider: provider.value || undefined,
+                sort: sort.value || undefined,
                 page: page.value,
             },
         })
     }
-    watch([search, status, provider, page], syncUrl)
+    watch([search, status, provider, sort, page], syncUrl)
 
     function fmtDate(d: any) {
         if (!d) return '—'
         return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    }
+    // Relative short format for last activity: « il y a 5 min / 2 j ».
+    function fmtRelative(d: any) {
+        if (!d) return '—'
+        const diff = Date.now() - new Date(d).getTime()
+        const min = Math.floor(diff / 60000)
+        if (min < 1) return "à l'instant"
+        if (min < 60) return `il y a ${min} min`
+        const h = Math.floor(min / 60)
+        if (h < 24) return `il y a ${h} h`
+        const days = Math.floor(h / 24)
+        if (days < 30) return `il y a ${days} j`
+        const months = Math.floor(days / 30)
+        if (months < 12) return `il y a ${months} mois`
+        return `il y a ${Math.floor(months / 12)} an(s)`
     }
     function isActive(last: any) {
         return last && Date.now() - new Date(last).getTime() < 5 * 60 * 1000
@@ -104,6 +126,16 @@
                     <option value="google">Google</option>
                 </select>
             </div>
+            <div class="w-full sm:w-auto">
+                <label class="label">Tri</label>
+                <select
+                    v-model="sort"
+                    class="input"
+                >
+                    <option value="">Inscription récente</option>
+                    <option value="lastActive">Dernière activité</option>
+                </select>
+            </div>
         </div>
 
         <div
@@ -155,9 +187,11 @@
                             <td class="px-3 py-2 font-mono text-ink-300">{{ u.signupCountry || '—' }}</td>
                             <td class="px-3 py-2 text-ink-300">{{ fmtDate(u.createdAt) }}</td>
                             <td class="px-3 py-2">
-                                <span :class="isActive(u.lastActiveAt) ? 'text-ok' : 'text-ink-400'">{{
-                                    fmtDate(u.lastActiveAt)
-                                }}</span>
+                                <span
+                                    :class="isActive(u.lastActiveAt) ? 'text-ok' : 'text-ink-400'"
+                                    :title="fmtDate(u.lastActiveAt)"
+                                    >{{ fmtRelative(u.lastActiveAt) }}</span
+                                >
                             </td>
                         </tr>
                         <tr v-if="!data.items.length">
@@ -203,9 +237,11 @@
                     </div>
                     <div class="flex items-center justify-between gap-2">
                         <span class="text-ink-400">Dernière activité</span>
-                        <span :class="isActive(u.lastActiveAt) ? 'text-ok' : 'text-ink-400'">{{
-                            fmtDate(u.lastActiveAt)
-                        }}</span>
+                        <span
+                            :class="isActive(u.lastActiveAt) ? 'text-ok' : 'text-ink-400'"
+                            :title="fmtDate(u.lastActiveAt)"
+                            >{{ fmtRelative(u.lastActiveAt) }}</span
+                        >
                     </div>
                 </button>
                 <p
