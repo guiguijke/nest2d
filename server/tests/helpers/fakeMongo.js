@@ -35,6 +35,7 @@ export function matches(doc, filter) {
         if (cond && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
             return Object.entries(cond).every(([op, arg]) => {
                 if (op === '$gt') return value != null && value > arg
+                if (op === '$gte') return value != null && value >= arg
                 if (op === '$lt') return value != null && value < arg
                 if (op === '$lte') return value != null && value <= arg
                 if (op === '$ne') return value !== arg
@@ -84,8 +85,17 @@ function makeCollection(docs) {
             return {
                 project(proj) {
                     const included = Object.keys(proj || {}).filter((k) => proj[k])
+                    // Dot-path aware ('compute.level' → { compute: { level } }),
+                    // matching Mongo's inclusion projection semantics.
                     const projected = included.length
-                        ? matched.map((d) => Object.fromEntries(included.filter((k) => k in d).map((k) => [k, d[k]])))
+                        ? matched.map((d) => {
+                              const out = {}
+                              for (const k of included) {
+                                  const v = getPath(d, k)
+                                  if (v !== undefined) setPath(out, k, v)
+                              }
+                              return out
+                          })
                         : matched
                     return { toArray: async () => projected }
                 },
