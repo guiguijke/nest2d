@@ -142,6 +142,9 @@ const dict = {
         'plans.value.perMonth': '{n} / month',
         'plans.value.standard': 'Standard',
         'plans.value.priority': 'Priority',
+        'plans.measured.wait': 'Measured queue wait: median {p50} · p95 {p95}',
+        'plans.measured.wall': 'Compute time: median {p50} · p95 {p95} ({n} nestings, 30 days)',
+        'plans.measured.collecting': 'Live measurements being collected',
 
         'settings.nesting': 'Nesting settings',
         'settings.sheet': 'Sheet {n}',
@@ -632,6 +635,9 @@ const dict = {
         'plans.value.perMonth': '{n} / mois',
         'plans.value.standard': 'Standard',
         'plans.value.priority': 'Prioritaire',
+        'plans.measured.wait': "Attente mesurée : médiane {p50} · p95 {p95}",
+        'plans.measured.wall': "Temps de calcul : médiane {p50} · p95 {p95} ({n} nestings, 30 j)",
+        'plans.measured.collecting': "Mesures réelles en cours de collecte",
 
         'settings.nesting': "Réglages d'imbrication",
         'settings.sheet': 'Plaque {n}',
