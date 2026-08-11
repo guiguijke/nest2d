@@ -88,18 +88,18 @@ function statusCls(code: number) {
           <label class="label">Recherche (url / userId)</label>
           <input v-model="httpFilters.q" class="input" placeholder="/api/…" />
         </div>
-        <div>
+        <div class="w-full sm:w-auto">
           <label class="label">Méthode</label>
           <select v-model="httpFilters.method" class="input">
             <option value="">Toutes</option>
             <option>GET</option><option>POST</option><option>PATCH</option><option>DELETE</option>
           </select>
         </div>
-        <div>
+        <div class="w-full sm:w-auto">
           <label class="label">Statut ≥</label>
-          <input v-model="httpFilters.statusMin" type="number" class="input w-24" placeholder="400" />
+          <input v-model="httpFilters.statusMin" type="number" class="input w-full sm:w-24" placeholder="400" />
         </div>
-        <div>
+        <div class="w-full sm:w-auto">
           <label class="label">Fenêtre (jours)</label>
           <select v-model="httpFilters.windowDays" class="input">
             <option :value="1">24 h</option><option :value="2">2 j</option><option :value="7">7 j</option>
@@ -108,7 +108,8 @@ function statusCls(code: number) {
       </div>
 
       <div v-if="httpPending && !httpData" class="text-sm text-ink-400">Chargement…</div>
-      <div v-else-if="httpData" class="card overflow-x-auto p-0">
+      <!-- Desktop table -->
+      <div v-else-if="httpData" class="card overflow-x-auto p-0 hidden md:block">
         <table class="w-full text-xs">
           <thead class="border-b border-marine-700 text-left text-ink-400">
             <tr>
@@ -134,6 +135,30 @@ function statusCls(code: number) {
         </table>
       </div>
 
+      <!-- Mobile cards -->
+      <div v-if="httpData" class="space-y-2 md:hidden">
+        <div v-for="(l, i) in httpData.items" :key="i" class="card space-y-1.5 p-3 text-xs">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono">{{ l.method }}</span>
+            <span class="badge" :class="statusCls(l.statusCode)">{{ l.statusCode }}</span>
+          </div>
+          <div class="break-all font-mono text-ink-200">{{ l.url }}</div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-ink-400">Heure</span>
+            <span class="text-ink-300">{{ fmt(l.timestamp) }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-ink-400">User</span>
+            <span class="min-w-0 truncate font-mono text-ink-400">{{ l.userId ? l.userId.slice(0, 24) : '—' }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-ink-400">Durée</span>
+            <span class="font-mono text-ink-400">{{ l.duration }} ms</span>
+          </div>
+        </div>
+        <p v-if="!httpData.items.length" class="card p-3 text-center text-xs text-ink-400">Aucune requête.</p>
+      </div>
+
       <div v-if="httpData" class="flex items-center justify-between text-xs text-ink-400">
         <span>{{ httpData.total }} entrée(s) · {{ httpData.windowDays }}j · page {{ httpData.page }} / {{ httpData.pages }}</span>
         <div class="flex gap-2">
@@ -150,18 +175,19 @@ function statusCls(code: number) {
           <label class="label">Recherche (action / userId)</label>
           <input v-model="trFilters.q" class="input" placeholder="ex. nest_started" />
         </div>
-        <div>
+        <div class="w-full sm:w-auto">
           <label class="label">Action</label>
-          <input v-model="trFilters.action" class="input w-40" placeholder="exact" />
+          <input v-model="trFilters.action" class="input w-full sm:w-40" placeholder="exact" />
         </div>
-        <div>
+        <div class="w-full sm:w-auto">
           <label class="label">Pays</label>
-          <input v-model="trFilters.country" class="input w-20" placeholder="FR" />
+          <input v-model="trFilters.country" class="input w-full sm:w-20" placeholder="FR" />
         </div>
       </div>
 
       <div v-if="trPending && !trData" class="text-sm text-ink-400">Chargement…</div>
-      <div v-else-if="trData" class="card overflow-x-auto p-0">
+      <!-- Desktop table -->
+      <div v-else-if="trData" class="card overflow-x-auto p-0 hidden md:block">
         <table class="w-full text-xs">
           <thead class="border-b border-marine-700 text-left text-ink-400">
             <tr>
@@ -183,6 +209,29 @@ function statusCls(code: number) {
             <tr v-if="!trData.items.length"><td colspan="5" class="px-3 py-6 text-center text-ink-400">Aucun événement.</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Mobile cards -->
+      <div v-if="trData" class="space-y-2 md:hidden">
+        <div v-for="(l, i) in trData.items" :key="i" class="card space-y-1.5 p-3 text-xs">
+          <div class="flex items-center justify-between gap-2">
+            <span class="min-w-0 truncate font-mono text-ink-200">{{ l.action }}</span>
+            <span class="shrink-0 font-mono text-ink-400">{{ l.country || '—' }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-ink-400">Heure</span>
+            <span class="text-ink-300">{{ fmt(l.timestamp) }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-ink-400">User</span>
+            <span class="min-w-0 truncate font-mono text-ink-400">{{ l.userId ? l.userId.slice(0, 24) : '—' }}</span>
+          </div>
+          <div v-if="l.data" class="flex items-start justify-between gap-2">
+            <span class="shrink-0 text-ink-400">Données</span>
+            <span class="break-all font-mono text-ink-400">{{ JSON.stringify(l.data) }}</span>
+          </div>
+        </div>
+        <p v-if="!trData.items.length" class="card p-3 text-center text-xs text-ink-400">Aucun événement.</p>
       </div>
 
       <div v-if="trData" class="flex items-center justify-between text-xs text-ink-400">
