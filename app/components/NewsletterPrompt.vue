@@ -43,7 +43,25 @@ const isOpen = computed({
     },
 })
 
+// Tracking: `shown` fires once per real display (the component is mounted on
+// home but the dialog only opens for users with a null opt-in). `dismiss`
+// covers both the "no" answer and closing via X without answering — the
+// `answered` flag prevents a double event when an answer closes the dialog
+// (the PATCH refreshes the user, which flips isOpen back to false).
+const shownTracked = ref(false)
+const answered = ref(false)
+watch(isOpen, (open) => {
+    if (open && !unref(shownTracked)) {
+        shownTracked.value = true
+        trackEvent('newsletter_prompt_shown')
+    } else if (!open && unref(shownTracked) && !unref(answered)) {
+        trackEvent('newsletter_prompt_dismiss')
+    }
+})
+
 const answer = async (value) => {
+    answered.value = true
+    trackEvent(value ? 'newsletter_prompt_accept' : 'newsletter_prompt_dismiss')
     try {
         await $fetch('/api/user/preferences', {
             method: 'PATCH',

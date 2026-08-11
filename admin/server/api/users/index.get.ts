@@ -8,6 +8,7 @@ import { connectDB, COL } from '../../db/mongo'
 //   provider — 'local' | 'google'
 //   status   — 'active' | 'banned' | 'subscriber' | 'granted'
 //   country  — signup country code (exact)
+//   sort     — 'lastActive' (lastActiveAt desc) | default: createdAt desc
 //   page     — 1-based (default 1)
 //   limit    — page size (default 50, max 200)
 export default defineEventHandler(async (event) => {
@@ -30,6 +31,10 @@ export default defineEventHandler(async (event) => {
     if (q.status === 'granted') query.grantedUntil = { $gt: new Date() }
     if (q.status === 'active') query.lastActiveAt = { $gte: new Date(Date.now() - 5 * 60 * 1000) }
     if (q.country) query.signupCountry = String(q.country).toUpperCase()
+
+    // lastActiveAt is a plain user field maintained by the main app (touched
+    // on authenticated activity) — sorting on it needs no tracking lookup.
+    const sort: Record<string, 1 | -1> = q.sort === 'lastActive' ? { lastActiveAt: -1 } : { createdAt: -1 }
 
     const db = await connectDB()
     const users = db.collection(COL.users)
@@ -56,7 +61,7 @@ export default defineEventHandler(async (event) => {
                     isAdmin: 1,
                 },
             })
-            .sort({ createdAt: -1 })
+            .sort(sort)
             .skip(skip)
             .limit(limit)
             .toArray(),
