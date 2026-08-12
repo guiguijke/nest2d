@@ -165,10 +165,18 @@ fn ordered_float(v: f32) -> u64 {
 ///   ((strip_width, used_height) quantifiés à 1e-4, seed en tie-break) ;
 /// - [`SpMergeMode::Flat`] : tri qualité à plat (comparaison f32 exacte,
 ///   sans quantification — flux legacy pré-directions).
+///
+/// J-092 suite : le champion de la classe **balanced** est celui qui
+/// MINIMISE |free_top − free_right| (l'objectif de la classe : chutes haut /
+/// droite équilibrées), la qualité historique ne départageant qu'à delta
+/// égal. `max_strip_width` est nécessaire au calcul de `free_right` ; en son
+/// absence (strip libre) le rang balanced retombe sur la qualité pure.
+/// Les autres classes et le flux Flat sont inchangés.
 pub fn merge_sp_runs(
     ext_instance: &ExtSPInstance,
     runs: &[SpRun],
     mode: SpMergeMode,
+    max_strip_width: Option<f32>,
     n_alternatives: usize,
 ) -> Option<SpMergeOutcome> {
     if runs.is_empty() {
@@ -184,13 +192,24 @@ pub fn merge_sp_runs(
                     r.seed,
                 )
             };
+            // |free_top − free_right| quantifié à 1e-4 (0 quand la borne
+            // tôle est inconnue : repli qualité pure, déterministe).
+            let balance_delta = |r: &SpRun| -> u64 {
+                let Some(mw) = max_strip_width else { return 0 };
+                let free_top = ext_instance.strip_height - r.used_height;
+                let free_right = mw - r.solution.strip_width;
+                ordered_float((free_top - free_right).abs())
+            };
             let mut ordered: Vec<&SpRun> = DirBias::ALL
                 .into_iter()
                 .filter(|b| biases.contains(b))
                 .filter_map(|b| {
                     runs.iter()
                         .filter(|r| r.bias == Some(b))
-                        .min_by_key(|r| quality(r))
+                        .min_by_key(|r| match b {
+                            DirBias::Balanced => (balance_delta(r), quality(r)),
+                            _ => (0, quality(r)),
+                        })
                 })
                 .collect();
             let mut rest: Vec<&SpRun> = runs.iter().collect();
@@ -527,8 +546,14 @@ fn merge_sp_json(
     } else {
         SpMergeMode::Flat
     };
-    let merged = merge_sp_runs(&ext_instance, &sp_runs, mode, config.n_alternatives)
-        .context("no SPP runs to merge")?;
+    let merged = merge_sp_runs(
+        &ext_instance,
+        &sp_runs,
+        mode,
+        config.max_strip_width,
+        config.n_alternatives,
+    )
+    .context("no SPP runs to merge")?;
     Ok(serde_json::json!({
         "problem": "spp",
         "sol_instance": merged.output.sol_instance,
@@ -743,6 +768,7 @@ mod tests {
             &sp_instance(),
             &runs,
             SpMergeMode::Directions(&DirBias::ALL),
+            Some(100.0),
             10,
         )
         .unwrap()
@@ -773,6 +799,7 @@ mod tests {
             &sp_instance(),
             &runs,
             SpMergeMode::Directions(&biases),
+            Some(100.0),
             10,
         )
         .unwrap()
@@ -797,6 +824,7 @@ mod tests {
             &sp_instance(),
             &runs,
             SpMergeMode::Directions(&biases),
+            Some(100.0),
             10,
         )
         .unwrap()
@@ -816,6 +844,7 @@ mod tests {
             &sp_instance(),
             &runs,
             SpMergeMode::Directions(&DirBias::ALL),
+            Some(100.0),
             2,
         )
         .unwrap()
@@ -836,13 +865,14 @@ mod tests {
             &sp_instance(),
             &runs,
             SpMergeMode::Directions(&biases),
+            Some(100.0),
             10,
         )
         .unwrap()
         .output;
         assert_eq!(alt_seeds(&out), vec![1, 9]); // seed 1 gagne à clé égale
 
-        let flat = merge_sp_runs(&sp_instance(), &runs, SpMergeMode::Flat, 10)
+        let flat = merge_sp_runs(&sp_instance(), &runs, SpMergeMode::Flat, None, 10)
             .unwrap()
             .output;
         assert_eq!(alt_seeds(&flat), vec![9, 1]); // 80.00001 < 80.00002 brut
@@ -851,13 +881,82 @@ mod tests {
     // ---------------- SPP legacy (flat) mode ----------------
 
     #[test]
+    fn spp_directions_balanced_champion_prefers_smaller_delta() {
+        // J-092 suite : le champion balanced = min |free_top − free_right|,
+        // PAS min largeur. strip_height = 100, max_strip_width = 100.
+        // Run 11 : w=50, uh=20 → free_right=50, free_top=80  → delta 30.
+        // Run 22 : w=80, uh=60 → free_right=20, free_top=40  → delta 20.
+        // 22 gagne malgré sa largeur 80 > 50 (densité moindre).
+        let runs = vec![
+            sp_run(11, Some(DirBias::Balanced), 50.0, 20.0, LAYOUT_A),
+            sp_run(22, Some(DirBias::Balanced), 80.0, 60.0, LAYOUT_B),
+        ];
+        let biases = [DirBias::Balanced];
+        let out = merge_sp_runs(
+            &sp_instance(),
+            &runs,
+            SpMergeMode::Directions(&biases),
+            Some(100.0),
+            10,
+        )
+        .unwrap()
+        .output;
+        assert_eq!(alt_seeds(&out), vec![22, 11]);
+        assert_eq!(out.sol_instance["solution"]["strip_width"], 80.0);
+    }
+
+    #[test]
+    fn spp_directions_balanced_delta_fallback_without_sheet_bound() {
+        // Sans borne tôle (max_strip_width None), free_right est inconnu :
+        // repli sur le rang qualité historique (largeur d'abord).
+        let runs = vec![
+            sp_run(11, Some(DirBias::Balanced), 50.0, 20.0, LAYOUT_A),
+            sp_run(22, Some(DirBias::Balanced), 80.0, 60.0, LAYOUT_B),
+        ];
+        let biases = [DirBias::Balanced];
+        let out = merge_sp_runs(
+            &sp_instance(),
+            &runs,
+            SpMergeMode::Directions(&biases),
+            None,
+            10,
+        )
+        .unwrap()
+        .output;
+        assert_eq!(alt_seeds(&out), vec![11, 22]);
+    }
+
+    #[test]
+    fn spp_directions_other_classes_still_rank_by_quality() {
+        // Non-régression : left/bottom restent classés par (largeur, hauteur)
+        // même quand un autre run de la classe a un meilleur delta.
+        // Run 11 left : w=50, uh=20 (delta 30) ; run 22 left : w=80, uh=60
+        // (delta 20) → le champion left reste 11 (qualité).
+        let runs = vec![
+            sp_run(11, Some(DirBias::LeftFirst), 50.0, 20.0, LAYOUT_A),
+            sp_run(22, Some(DirBias::LeftFirst), 80.0, 60.0, LAYOUT_B),
+        ];
+        let biases = [DirBias::LeftFirst];
+        let out = merge_sp_runs(
+            &sp_instance(),
+            &runs,
+            SpMergeMode::Directions(&biases),
+            Some(100.0),
+            10,
+        )
+        .unwrap()
+        .output;
+        assert_eq!(alt_seeds(&out), vec![11, 22]);
+    }
+
+    #[test]
     fn spp_flat_sorts_by_quality_and_omits_bias() {
         let runs = vec![
             sp_run(11, None, 90.0, 40.0, LAYOUT_A),
             sp_run(22, None, 70.0, 50.0, LAYOUT_B),
             sp_run(33, None, 80.0, 30.0, LAYOUT_C),
         ];
-        let out = merge_sp_runs(&sp_instance(), &runs, SpMergeMode::Flat, 10)
+        let out = merge_sp_runs(&sp_instance(), &runs, SpMergeMode::Flat, None, 10)
             .unwrap()
             .output;
         assert_eq!(alt_seeds(&out), vec![22, 33, 11]);
@@ -872,7 +971,7 @@ mod tests {
             sp_run(5, None, 80.0, 30.0, LAYOUT_B),
             sp_run(7, None, 80.0, 50.0, LAYOUT_C),
         ];
-        let out = merge_sp_runs(&sp_instance(), &runs, SpMergeMode::Flat, 10)
+        let out = merge_sp_runs(&sp_instance(), &runs, SpMergeMode::Flat, None, 10)
             .unwrap()
             .output;
         // uh 30 < 50 ; à (w, uh) égaux, seed 7 < 9.
@@ -882,7 +981,7 @@ mod tests {
     #[test]
     fn sp_merge_empty_runs_is_none() {
         assert!(
-            merge_sp_runs(&sp_instance(), &[], SpMergeMode::Flat, 3).is_none()
+            merge_sp_runs(&sp_instance(), &[], SpMergeMode::Flat, None, 3).is_none()
         );
     }
 
