@@ -15,7 +15,7 @@ vi.mock('~~/server/features/payment/stripe', () => ({
     mapSubscription: vi.fn(),
 }))
 
-import { assertCanNest, effectiveFreeLimit, getEntitlement } from '~~/server/utils/entitlement'
+import { assertCanNest, effectiveFreeLimit, getComputeProfile, getComputeTier, getEntitlement } from '~~/server/utils/entitlement'
 import { fakeDb } from './helpers/fakeMongo'
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7)
@@ -168,5 +168,51 @@ describe('assertCanNest', () => {
         const charge = await assertCanNest('u1')
         expect(charge).toEqual({ type: 'subscription' })
         expect(user.freeNestingUsed).toBe(0)
+    })
+})
+
+describe('getComputeTier (admin grant tiers, D-PAY-11)', () => {
+    const day = 24 * 3600 * 1000
+
+    it('defaults a grant without grantedTier to standard (historical behaviour)', async () => {
+        state.db = fakeDb({ users: [freeUser({ grantedUntil: new Date(Date.now() + day) })] })
+        expect(await getComputeTier('u1', null)).toBe('standard')
+        const profile = await getComputeProfile('u1', null)
+        expect(profile).toMatchObject({ vcores: 4, priority: 20, maxDirections: 3, level: 'standard' })
+    })
+
+    it('grantedTier privacy promotes to the Pro compute profile', async () => {
+        state.db = fakeDb({
+            users: [freeUser({ grantedUntil: new Date(Date.now() + day), grantedTier: 'privacy' })],
+        })
+        expect(await getComputeTier('u1', null)).toBe('privacy')
+        const profile = await getComputeProfile('u1', null)
+        expect(profile).toMatchObject({ vcores: 8, priority: 10, maxDirections: 3, level: 'privacy' })
+    })
+
+    it('honors grantedTier on the enqueue path (charge type grant)', async () => {
+        state.db = fakeDb({
+            users: [freeUser({ grantedUntil: new Date(Date.now() + day), grantedTier: 'privacy' })],
+        })
+        expect(await getComputeTier('u1', { type: 'grant' })).toBe('privacy')
+    })
+
+    it('an expired grant falls back to free even with grantedTier set', async () => {
+        state.db = fakeDb({
+            users: [freeUser({ grantedUntil: new Date(Date.now() - day), grantedTier: 'privacy' })],
+        })
+        expect(await getComputeTier('u1', null)).toBe('free')
+    })
+
+    it('a real Stripe subscription always wins over a grant', async () => {
+        state.db = fakeDb({
+            users: [freeUser({
+                subscription: { status: 'active', currentPeriodEnd: new Date(Date.now() + day) },
+                grantedUntil: new Date(Date.now() + day),
+                grantedTier: 'privacy',
+            })],
+        })
+        // Unknown priceId → standard by default, never a silent premium.
+        expect(await getComputeTier('u1', null)).toBe('standard')
     })
 })

@@ -45,6 +45,29 @@
     const banReason = ref('')
     const freeMonthReason = ref('')
     const lastMsg = ref('')
+    // Tier de test (D-PAY-11) : promotion admin sans Stripe, réversible à
+    // volonté. 'standard' = Illimité (4 vcores/4 walks), 'privacy' = Pro
+    // (8 vcores/8 walks, file prioritaire).
+    const grantTier = ref<'standard' | 'privacy'>('standard')
+    const grantDays = ref(30)
+
+    const grantActive = computed(() => {
+        const g = data.value?.user?.grantedUntil
+        return g && new Date(g) > new Date()
+    })
+    const grantTierLabel = computed(() =>
+        data.value?.user?.grantedTier === 'privacy' ? 'Pro' : 'Illimité',
+    )
+
+    async function applyGrant() {
+        const days = Math.max(1, Math.min(3650, Number(grantDays.value) || 30))
+        const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+        await patch({ action: 'setGrantedUntil', until, tier: grantTier.value })
+    }
+
+    async function clearGrant() {
+        await patch({ action: 'setGrantedUntil', until: null })
+    }
 
     async function patch(body: any) {
         acting.value = true
@@ -182,7 +205,13 @@
                         </div>
                         <div class="flex justify-between">
                             <dt class="text-ink-400">Accès offert</dt>
-                            <dd>{{ u.grantedUntil ? `jusqu'au ${fmtDate(u.grantedUntil)}` : '—' }}</dd>
+                            <dd>
+                                <template v-if="u.grantedUntil">
+                                    <span class="badge bg-ok/15 text-ok">{{ grantTierLabel }}</span>
+                                    jusqu'au {{ fmtDate(u.grantedUntil) }}
+                                </template>
+                                <template v-else>—</template>
+                            </dd>
                         </div>
                     </dl>
                 </section>
@@ -445,6 +474,59 @@
                             Déconnecter (toutes sessions)
                         </button>
                     </div>
+                </div>
+
+                <div class="card space-y-3">
+                    <h2 class="text-sm font-semibold">Tier de test (sans Stripe)</h2>
+                    <p
+                        v-if="grantActive"
+                        class="text-[11px] text-ink-400"
+                    >
+                        Actif : <span class="badge bg-ok/15 text-ok">{{ grantTierLabel }}</span>
+                        jusqu'au {{ fmtDate(u.grantedUntil) }}
+                    </p>
+                    <div class="flex flex-col gap-2 sm:flex-row">
+                        <div class="flex-1">
+                            <label class="label">Tier</label>
+                            <select
+                                v-model="grantTier"
+                                class="input"
+                            >
+                                <option value="standard">Illimité (4 vcores · 4 walks · 3 directions)</option>
+                                <option value="privacy">Pro (8 vcores · 8 walks · file prioritaire)</option>
+                            </select>
+                        </div>
+                        <div class="sm:w-28">
+                            <label class="label">Jours</label>
+                            <input
+                                v-model.number="grantDays"
+                                type="number"
+                                min="1"
+                                max="3650"
+                                class="input"
+                            />
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-2 sm:flex-row">
+                        <button
+                            class="btn-primary flex-1"
+                            :disabled="acting"
+                            @click="applyGrant"
+                        >
+                            Appliquer le tier
+                        </button>
+                        <button
+                            v-if="grantActive"
+                            class="btn-secondary flex-1"
+                            :disabled="acting"
+                            @click="clearGrant"
+                        >
+                            Retirer (retour Gratuit)
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-ink-400">
+                        Grant local réversible, sans paiement — pour les tests. Un abonnement Stripe actif prime toujours sur le grant.
+                    </p>
                 </div>
 
                 <div class="card space-y-3">

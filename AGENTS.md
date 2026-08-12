@@ -207,6 +207,17 @@ admin/                 (back-office Nuxt)
     incompréhensible. Et le texte sur fond foncé utilise des couleurs
     explicites (#eef2f7 / #b8c2d0 / #6ea8ff), jamais les vars de thème
     (bleu sur bleu marine ici).
+24b. **Stats live en Mode Local = forwarding explicite** : engine.worker.js
+    ne poste au thread principal QUE les types d'événements explicitement
+    routés (layout, evals/heartbeat) — un nouveau type d'événement moteur
+    est droppé silencieusement et la stat correspondante ne s'affiche
+    jamais en local (le chemin serveur, lui, lit tout : l'écart passe
+    inaperçu tant que le local n'est pas le défaut). L'agrégation pool =
+    **banque anti-reset PAR SLOT** dans localPool.js (le compteur wasm
+    repart à zéro entre phases — miroir navigateur du #10). Et la page
+    doit fournir des `compute`/`progress` synthétiques à LiveNestingView :
+    ils étaient `null` en local → compteur de combinaisons et ×N cœurs
+    jamais visibles (constat 2026-08-12, la vue SSE avait tout).
 
 ### Unités (mm canonique + inches)
 25. **mm canonique interne, conversion aux 3 frontières seulement** :
@@ -334,6 +345,20 @@ admin/                 (back-office Nuxt)
     `panic = "abort"` en profile.release est redondant pour wasm32 (défaut)
     et casse `cargo test --release` natif dès qu'un test d'intégration
     (tests/) existe — ne pas le remettre (workers/geometry).
+37. **Grant admin à tier variable (D-PAY-11)** : `grantedUntil` +
+    `grantedTier` ('standard'|'privacy', absent = 'standard' — les grants
+    historiques sont inchangés). Un abonnement Stripe actif prime TOUJOURS
+    sur le grant (ordre de charge, #34). `free-month` écrase `grantedTier`
+    à 'standard' pour ne pas laisser survivre un Pro de test. Résolution
+    unique dans `getComputeTier` (projection Mongo incluant `grantedTier`).
+    Verrous : `server/tests/entitlement.test.js` (5 cas grant tier).
+38. **Chaîne « email fin de nesting » inatteignable** (constat 2026-08-12) :
+    `emailNotify: 'need_notify'` n'est produit QUE par
+    `nest/[slug]/notify.post.js` (zéro appelant nulle part) → le plugin
+    `2_nest-notify` ne déclenche jamais, alors que pricing/STRATEGY
+    annoncent les notifications email en paid. À trancher par le
+    propriétaire : recâbler (statut posé à l'enqueue selon le tier) ou
+    retirer le claim + les 3 maillons.
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 
@@ -393,5 +418,10 @@ Harnais A/B warm-start : `cargo test --release warm_start_160_ab -- --ignored --
 - Commits en français, conventional commits (`feat(nesting): …`), petits et
   par phase. Ne jamais committer le travail non sollicité des autres
   (vérifier `git status` avant `git add -A`; préférer des adds ciblés).
+- **Code mort déclaré par un agent ⇒ sweep résiduel avant suppression** :
+  le grep de vérification doit couvrir `scripts/`, les tests et `workers/`
+  — pas seulement le périmètre confié à l'agent (`fingerprint_key` marqué
+  mort alors que `scripts/crypto-interop/verify_vector.py` l'importe,
+  audit du 2026-08-12).
 - `main` direct (petit projet), merge requests pour les grosses branches.
 - i18n : `app/utils/i18n.js` (EN+FR, dict plat) ; site : `src/i18n/ui.ts`.
