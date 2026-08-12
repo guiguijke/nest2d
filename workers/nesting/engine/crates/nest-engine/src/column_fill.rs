@@ -11,9 +11,12 @@
 //! par la CDE exacte du layout (même pattern que `gravity::pull_axis` :
 //! retrait → sonde → re-placement). Garanties :
 //!   - jamais de collision (toute position acceptée est sondée) ;
-//!   - jamais de dépassement de la largeur incumbent (piège #6 fitsSheet) ;
+//!   - jamais de dépassement de la tôle (piège #6 fitsSheet) — la classe
+//!     « balanced » peut élargir au-delà de la largeur incumbent (c'est son
+//!     objet : rééquilibrer les chutes), mais jamais au-delà de la tôle ;
 //!   - jamais de régression : si la métrique finale ne s'améliore pas (ou si
-//!     la densité recule), le snapshot d'entrée est restauré.
+//!     la densité recule pour la classe « left »), le snapshot d'entrée est
+//!     restauré.
 //!   - déterminisme strict : tris total_cmp + tie-break (item_id, PItemKey),
 //!     aucune transcendantale (piège #14b), séquentiel pur (piège #14c).
 
@@ -36,7 +39,6 @@ const NOTCH_EPS_RATIO: f32 = 0.25;
 const RESTACK_STAIR_RATIO: f32 = 0.01;
 /// Régression de densité tolérée (points) avant restauration du snapshot.
 const DENSITY_TOL: f32 = 0.005;
-const DENSITY_TOL_BALANCED: f32 = 0.01;
 /// Pas de la marche ascendante grossière (fraction de la hauteur pièce) et
 /// nombre de pas de bisection de raffinement (comme gravity : contact =
 /// collision dans jagua, on converge vers la position de contact + ε).
@@ -593,21 +595,26 @@ fn restack_columns(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool
 
 /// Déplace des pièces vers la chute libre (droite si le layout est trop
 /// étroit/haut, haut s'il est trop large/bas), CDE-validé, sans jamais
-/// dépasser `max_strip_width` ni rogner la densité de plus de 1 pt.
+/// dépasser `max_strip_width` (fitsSheet, piège #6).
+///
+/// J-092 suite : l'élargissement était borné par une garde densité (−1 pt) —
+/// la densité strip (aire/(w×H)) chutant dès qu'on élargit, le plafond
+/// n'autorisait que ~+1,4 % de la largeur (~+9 mm au banc capsules) alors
+/// qu'une pièce fait ~200 mm : AUCUN déplacement n'était possible et
+/// |delta| restait ~140 mm. La borne est désormais purement PHYSIQUE : la
+/// largeur de tôle, jamais au-delà. Le corridor de la phase 2 n'est pas
+/// repris ici : il est saturé par construction (mesuré au banc : used_w
+/// 681,7 mm pour un corridor de 683 mm) — un plafond corridor serait un
+/// no-op. L'acceptation reste stricte : |delta| doit décroître à chaque
+/// déplacement ET à l'issue, sinon restore du snapshot d'entrée.
 fn rebalance_balanced(prob: &mut SPProblem, max_strip_width: Option<f32>) {
     let Some(sheet_w) = max_strip_width else {
         return; // pas de borne tôle : les directions n'ont pas de sens
     };
     let strip_h = prob.instance.base_strip.fixed_height;
     let snapshot = prob.save();
-    let density0 = prob.density();
-    if density0 <= DENSITY_TOL_BALANCED + 1e-6 {
-        return;
-    }
     let incumbent_w = prob.strip_width();
-    // Élargir fait baisser la densité (conteneur = largeur × hauteur fixe) :
-    // la largeur est cappée par la garde densité (−1 pt max).
-    let w_cap = sheet_w.min(incumbent_w * density0 / (density0 - DENSITY_TOL_BALANCED));
+    let w_cap = sheet_w;
     let delta = |boxes: &[Boxed]| {
         let free_top = strip_h - used_height(boxes);
         let free_right = sheet_w - used_width(boxes);
@@ -652,37 +659,73 @@ fn rebalance_balanced(prob: &mut SPProblem, max_strip_width: Option<f32>) {
                 }
                 let (w, h) = (cand.w(), cand.h());
                 let step = (h / WALK_STEPS as f32).max(1.0);
+                // Extrêmes sans le candidat (son retrait peut abaisser le
+                // sommet / le bord droit) — base du delta PRÉDIT.
+                let cand_fp = fingerprint(&cand);
+                let mut uw_rem = 0.0f32;
+                let mut uh_rem = 0.0f32;
+                for b in &boxes {
+                    if fingerprint(b) != cand_fp {
+                        uw_rem = uw_rem.max(b.x_max);
+                        uh_rem = uh_rem.max(b.y_max);
+                    }
+                }
                 prob.remove_item(cand.pk);
                 let mut prober = Prober::new(prob, &cand);
-                let mut target = None;
+                // Meilleure cible de la ladder au delta prédit. Itération dx
+                // croissant + amélioration stricte ⇒ tie-break au plus petit
+                // dx (moins d'élargissement, densité préservée).
+                let mut best: Option<(f32, f32, f32)> = None; // (delta, x, y)
                 for dx in [0.0f32, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0] {
                     let x = entry_used_w + dx;
                     if x + w > w_cap + 1e-3 {
                         break;
                     }
-                    if let Some(y) =
-                        settle_vertical(&mut prober, prob, x, 0.0, strip_h - h, step, &mut probes)
-                    {
-                        target = Some((x, y));
-                        break;
+                    // (a) tasser au bas de la bande libre.
+                    if let Some(y) = settle_vertical(
+                        &mut prober, prob, x, 0.0, strip_h - h, step, &mut probes,
+                    ) {
+                        let d = ((strip_h - uh_rem.max(y + h))
+                            - (sheet_w - uw_rem.max(x + w)))
+                        .abs();
+                        if best.is_none_or(|(bd, _, _)| d < bd - 1e-6) {
+                            best = Some((d, x, y));
+                        }
+                    }
+                    // (b) viser l'équilibre : la pièce devient le sommet avec
+                    // free_top == free_right (chutes équilibrées à epsilon).
+                    let fr = sheet_w - uw_rem.max(x + w);
+                    let y_bal = strip_h - fr - h;
+                    if y_bal >= 0.0 && y_bal + h > uh_rem + 1e-6 {
+                        probes += 1;
+                        if prober.valid(prob, x, y_bal) {
+                            let d = ((strip_h - (y_bal + h)) - fr).abs();
+                            if best.is_none_or(|(bd, _, _)| d < bd - 1e-6) {
+                                best = Some((d, x, y_bal));
+                            }
+                        }
                     }
                 }
-                let ok = if let Some((x, y)) = target {
-                    let dt = DTransformation::new(
-                        prober.rotation,
-                        (x - prober.x_off, y - prober.y_off),
-                    );
-                    let new_pk = prob.place_item(SPPlacement {
-                        item_id: cand.item_id,
-                        d_transf: dt,
-                    });
-                    let fits = delta(&placed_boxes(prob)) < delta_here - 1e-3;
-                    if !fits {
-                        prob.remove_item(new_pk);
+                // Pas d'amélioration stricte prédite : inutile de poser.
+                let ok = match best {
+                    Some((d, x, y)) if d < delta_here - 1e-3 => {
+                        let dt = DTransformation::new(
+                            prober.rotation,
+                            (x - prober.x_off, y - prober.y_off),
+                        );
+                        let new_pk = prob.place_item(SPPlacement {
+                            item_id: cand.item_id,
+                            d_transf: dt,
+                        });
+                        // Le delta RÉEL (post-pose) fait foi — la prédiction
+                        // ne sert qu'à choisir la cible.
+                        let fits = delta(&placed_boxes(prob)) < delta_here - 1e-3;
+                        if !fits {
+                            prob.remove_item(new_pk);
+                        }
+                        fits
                     }
-                    fits
-                } else {
-                    false
+                    _ => false,
                 };
                 if ok {
                     moves += 1;
@@ -720,38 +763,65 @@ fn rebalance_balanced(prob: &mut SPProblem, max_strip_width: Option<f32>) {
                     break 'outer;
                 }
                 let h = cand.h();
+                let cand_fp = fingerprint(&cand);
+                let mut uw_rem = 0.0f32;
+                let mut uh_rem = 0.0f32;
+                for b in &boxes {
+                    if fingerprint(b) != cand_fp {
+                        uw_rem = uw_rem.max(b.x_max);
+                        uh_rem = uh_rem.max(b.y_max);
+                    }
+                }
+                // La pièce garde son x : la largeur utilisée ne change pas.
+                let uw2 = uw_rem.max(cand.x_max);
                 prob.remove_item(cand.pk);
                 let mut prober = Prober::new(prob, &cand);
-                let mut target = None;
+                let mut best: Option<(f32, f32)> = None; // (delta, y)
                 for dy in [0.0f32, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0] {
                     let y = entry_used_h + dy;
                     if y + h > strip_h - 1e-3 {
                         break;
                     }
+                    // (a) poser juste au-dessus du blob.
                     probes += 1;
                     if prober.valid(prob, cand.x_min, y) {
-                        target = Some(y);
-                        break;
+                        let d = ((strip_h - uh_rem.max(y + h)) - (sheet_w - uw2)).abs();
+                        if best.is_none_or(|(bd, _)| d < bd - 1e-6) {
+                            best = Some((d, y));
+                        }
+                    }
+                    // (b) viser l'équilibre free_top == free_right.
+                    let fr = sheet_w - uw2;
+                    let y_bal = strip_h - fr - h;
+                    if y_bal >= 0.0 && y_bal + h > uh_rem + 1e-6 {
+                        probes += 1;
+                        if prober.valid(prob, cand.x_min, y_bal) {
+                            let d = ((strip_h - (y_bal + h)) - fr).abs();
+                            if best.is_none_or(|(bd, _)| d < bd - 1e-6) {
+                                best = Some((d, y_bal));
+                            }
+                        }
                     }
                 }
-                let ok = if let Some(y) = target {
-                    let dt = DTransformation::new(
-                        prober.rotation,
-                        (cand.x_min - prober.x_off, y - prober.y_off),
-                    );
-                    let new_pk = prob.place_item(SPPlacement {
-                        item_id: cand.item_id,
-                        d_transf: dt,
-                    });
-                    let after = placed_boxes(prob);
-                    let fits = used_width(&after) <= incumbent_w + 1e-3
-                        && delta(&after) < delta_here - 1e-3;
-                    if !fits {
-                        prob.remove_item(new_pk);
+                let ok = match best {
+                    Some((d, y)) if d < delta_here - 1e-3 => {
+                        let dt = DTransformation::new(
+                            prober.rotation,
+                            (cand.x_min - prober.x_off, y - prober.y_off),
+                        );
+                        let new_pk = prob.place_item(SPPlacement {
+                            item_id: cand.item_id,
+                            d_transf: dt,
+                        });
+                        let after = placed_boxes(prob);
+                        let fits = used_width(&after) <= incumbent_w + 1e-3
+                            && delta(&after) < delta_here - 1e-3;
+                        if !fits {
+                            prob.remove_item(new_pk);
+                        }
+                        fits
                     }
-                    fits
-                } else {
-                    false
+                    _ => false,
                 };
                 if ok {
                     moves += 1;
@@ -772,10 +842,7 @@ fn rebalance_balanced(prob: &mut SPProblem, max_strip_width: Option<f32>) {
     }
     prob.fit_strip();
     let delta1 = delta(&placed_boxes(prob));
-    if delta1 >= delta0 - 1e-3
-        || prob.strip_width() > w_cap + 1e-3
-        || prob.density() < density0 - DENSITY_TOL_BALANCED - 1e-6
-    {
+    if delta1 >= delta0 - 1e-3 || prob.strip_width() > w_cap + 1e-3 {
         prob.restore(&snapshot);
     }
     debug_assert!(prob.layout.is_feasible());
@@ -928,8 +995,10 @@ mod tests {
     }
 
     /// Balanced : pile étroite et haute dans une tôle large — le rééquilibrage
-    /// déplace des pièces vers la droite et |delta| diminue, sans casser la
-    /// densité au-delà d'1 pt ni dépasser la tôle.
+    /// déplace des pièces vers la droite et |delta| diminue, sans jamais
+    /// dépasser la tôle. (J-092 suite : la garde densité a été remplacée par
+    /// la borne physique — l'élargissement rogne la densité strip par
+    /// construction, c'est le prix assumé de l'équilibre des chutes.)
     #[test]
     fn rebalance_balanced_reduces_delta() {
         // Rects 50×50 empilés x∈[2.5,52.5], 4 hauteurs → used_h ≈ 200.
@@ -946,7 +1015,6 @@ mod tests {
             ((400.0 - used_height(&b)) - (600.0 - used_width(&b))).abs()
         };
         assert!(delta0 > 300.0, "delta0 {delta0}");
-        let d0 = prob.density();
 
         post_pass_for_bias(&mut prob, Some("balanced"), Some(600.0));
 
@@ -954,7 +1022,45 @@ mod tests {
         let delta1 = ((400.0 - used_height(&b)) - (600.0 - used_width(&b))).abs();
         assert!(delta1 < delta0 - 50.0, "delta {delta0} -> {delta1}");
         assert!(prob.strip_width() <= 600.0 + 1e-3);
-        assert!(prob.density() >= d0 - 0.01 - 1e-6);
+        assert!(feasibility_ok(&prob));
+    }
+
+    /// J-092 suite : le spread n'est plus bridé par la garde densité. Pièces
+    /// de 200×100 empilées (colonne de 16, used_w ≈ 202 mm) : l'ancienne
+    /// borne (densité −1 pt) plafonnait l'élargissement à ~+1,4 % (~213 mm)
+    /// — moins qu'UNE largeur de pièce, zéro déplacement possible. La borne
+    /// physique (tôle 1000 mm) laisse le spread déplacer des pièces de la
+    /// bande haute vers la chute de droite jusqu'à l'équilibre des chutes.
+    #[test]
+    fn rebalance_balanced_spreads_up_to_sheet() {
+        let (w_, h_) = (200.0, 100.0);
+        let mut prob = SPProblem::new(rect_instance(w_, h_, 16, 2000.0));
+        prob.change_strip_width(210.0);
+        for i in 0..16 {
+            place(&mut prob, w_, h_, 2.5, 2.5 + i as f32 * 102.0);
+        }
+        assert!(feasibility_ok(&prob));
+        let boxes0 = placed_boxes(&prob);
+        let used_w0 = used_width(&boxes0);
+        let delta0 = ((2000.0 - used_height(&boxes0)) - (1000.0 - used_w0)).abs();
+        assert!(delta0 > 400.0, "delta0 {delta0}");
+        // Ancien plafond (garde densité −1 pt) : ~1,014 × 210 ≈ 213 mm —
+        // documente ce que le test verrouille (le spread va bien au-delà).
+        let d0 = prob.density();
+        let old_cap = 1000.0f32.min(210.0 * d0 / (d0 - 0.01));
+        assert!(old_cap < 220.0, "old_cap {old_cap}");
+
+        post_pass_for_bias(&mut prob, Some("balanced"), Some(1000.0));
+
+        let b = placed_boxes(&prob);
+        let delta1 = ((2000.0 - used_height(&b)) - (1000.0 - used_width(&b))).abs();
+        assert!(delta1 < delta0 - 300.0, "delta {delta0} -> {delta1}");
+        assert!(
+            used_width(&b) > old_cap + 100.0,
+            "le spread dépasse l'ancienne borne : used_w {}",
+            used_width(&b)
+        );
+        assert!(prob.strip_width() <= 1000.0 + 1e-3, "fitsSheet");
         assert!(feasibility_ok(&prob));
     }
 
