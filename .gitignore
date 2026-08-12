@@ -69,3 +69,6 @@ workers/geometry/target
 workers/geometry/parity/__pycache__
 # dump de référence local (notes de reverse-engineering), jamais commité
 workers/geometry/parity/SVGELEMENTS-REFERENCE.txt
+
+# Scratch de replay du banc moteur (J-092)
+workers/nesting/bench/out*/
