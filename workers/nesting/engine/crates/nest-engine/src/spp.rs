@@ -473,12 +473,20 @@ sink,
                         // haute que large sur une tôle portrait → bras égaux.
                         // J-088 : corridor = largeur cible équilibrée (chute
                         // droite ≈ chute haut), bornée sur [min_width, mw].
-                        let corridor = balanced_width(
-                            total_part_area,
-                            ext_instance.strip_height,
-                            mw,
-                        )
-                        .clamp(s1.strip_width(), mw);
+                        // J-092 suite : si la phase 1 a dépassé la tôle
+                        // (piège #6 — une solution feasible peut dépasser
+                        // max_strip_width), le plancher du clamp serait >
+                        // mw (panic f32::clamp) : on cape à mw, comme left.
+                        let corridor = if s1.strip_width() > mw {
+                            mw
+                        } else {
+                            balanced_width(
+                                total_part_area,
+                                ext_instance.strip_height,
+                                mw,
+                            )
+                            .clamp(s1.strip_width(), mw)
+                        };
                         let t_ext = transpose_instance(&ext_instance, corridor);
                         let t_instance =
                             jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).ok()?;
@@ -492,8 +500,62 @@ sink,
                             max_width,
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
-                            // Corridor overshot the sheet height: fall back to
-                            // the phase-1 layout (legacy resilience).
+                            // J-092 suite : retry borné au lieu du fallback
+                            // dur (spec J-092 ③ — bisection du corridor) :
+                            // UNE re-tentative avec corridor élargi (milieu
+                            // entre corridor et tôle) si le budget restant le
+                            // permet, puis meilleur faisable. Un corridor plus
+                            // large relaxe la contrainte de largeur : la
+                            // compaction peut descendre sous la hauteur tôle.
+                            let corridor2 = (corridor + mw) / 2.0;
+                            let remaining = budget.saturating_sub(started.elapsed());
+                            // Le retry consomme le budget RESTANT (borné : le
+                            // job ne dépasse jamais son enveloppe totale).
+                            let retry_budget = remaining;
+                            if corridor2 > corridor + 1.0
+                                && (det_mode
+                                    || retry_budget >= Duration::from_millis(500))
+                            {
+                                sink(&format!(
+                                    "{{\"type\":\"retry\",\"worker\":{w},\"bias\":\"balanced\",\"corridor\":{corridor2:.3},\"budget_sec\":{:.3}}}",
+                                    retry_budget.as_secs_f32()
+                                ));
+                                let t_ext2 = transpose_instance(&ext_instance, corridor2);
+                                if let Ok(t_instance2) =
+                                    jagua_rs::probs::spp::io::import_instance(&importer, &t_ext2)
+                                {
+                                    let (s3, s3_evals) = optimize_one(
+                                        &t_instance2, &sparrow_config, retry_budget,
+                                        explore, seed ^ 0x5EED_5EED, w, started,
+                                        gravity_on, live, Some(corridor2), plateau,
+                                        Some(bias.as_str()),
+                                        sink,
+                                        column_fill_on,
+                                        max_width,
+                                    );
+                                    if s3.strip_width() <= ext_instance.strip_height + 1e-4 {
+                                        let mapped = map_back_solution(
+                                            &t_instance2, &s3, corridor2, &instance,
+                                        );
+                                        return Some(ClassRun {
+                                            seed,
+                                            bias,
+                                            solution: gravity_after(
+                                                &instance,
+                                                mapped,
+                                                Some(bias.as_str()),
+                                            ),
+                                            evals: s1_evals + s2_evals + s3_evals,
+                                        });
+                                    }
+                                }
+                            }
+                            // Fallback : la phase 1, seulement si ELLE tient
+                            // dans la tôle (piège #6) — sinon la classe est
+                            // perdue (None), comme left.
+                            if s1.strip_width() > mw + 1e-4 {
+                                return None;
+                            }
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals + s2_evals });
                         }
                         let mapped = map_back_solution(&t_instance, &s2, corridor, &instance);
@@ -536,6 +598,7 @@ sink,
             &ext_instance,
             &exported,
             SpMergeMode::Directions(&biases),
+            max_width,
             config.n_alternatives,
         )
         .expect("feasible solutions exist but none exported");
@@ -695,8 +758,14 @@ sink,
             solution: jagua_rs::probs::spp::io::export(&instance, &r.solution, epoch),
         })
         .collect();
-    let merged = merge_sp_runs(&ext_instance, &exported, SpMergeMode::Flat, config.n_alternatives)
-        .expect("feasible solutions exist but none exported");
+    let merged = merge_sp_runs(
+        &ext_instance,
+        &exported,
+        SpMergeMode::Flat,
+        max_width,
+        config.n_alternatives,
+    )
+    .expect("feasible solutions exist but none exported");
 
     sink(&format!(
         "{{\"type\":\"done\",\"best_strip_width\":{:.3},\"density\":{:.4},\"alternatives\":{},\"elapsed_sec\":{}}}",
