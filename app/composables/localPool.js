@@ -197,7 +197,7 @@ export function runPool(jobSlug, payload, { onLive, walks } = {}) {
         pools.set(jobSlug, pool)
 
         for (let w = 0; w < n; w++) {
-            const slot = { w, worker: null, outcome: null, mergeId: null }
+            const slot = { w, worker: null, outcome: null, mergeId: null, evals: 0, evalsBanked: 0 }
             pool.slots.push(slot)
             try {
                 slot.worker = new Worker('/workers/engine.worker.js', { type: 'module' })
@@ -252,6 +252,19 @@ function onWorkerMessage(jobSlug, pool, slot, event, payload) {
     // lock de LiveNestingView gère N workers comme le flux SSE serveur.
     if (data.live) {
         pool.onLive?.({ ...data.live, worker: slot.w, sheets: pool.sheets, isSpp: pool.isSpp })
+        return
+    }
+    // Compteur live de combinaisons (SPP 'evals', BPP 'heartbeat.iterations'
+    // — normalisé en amont par engine.worker.js). Le compteur d'une
+    // instance wasm repart à zéro à chaque nouvelle phase du solve : on
+    // banque le dernier total dès qu'un walk recule (miroir du pipeline
+    // Python, piège #10), puis on somme tous les walks du pool.
+    if (data.evals) {
+        const n = Number(data.evals.n) || 0
+        if (n < slot.evals) slot.evalsBanked += slot.evals
+        slot.evals = n
+        const total = pool.slots.reduce((acc, s) => acc + s.evals + s.evalsBanked, 0)
+        pool.onLive?.({ type: 'evals', evals: total, walks: pool.slots.length })
         return
     }
     // Réponse à l'op 'merge' (opération adressée par id, protocole worker).

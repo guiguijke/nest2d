@@ -58,10 +58,15 @@ self.onmessage = async (event) => {
                 (line) => {
                     try {
                         const evt = JSON.parse(line)
-                        // Seuls les snapshots de placements intéressent la
-                        // vue live (les scalaires progress/evals alimentent
-                        // éventuellement les compteurs).
-                        if (evt.type === 'layout') self.postMessage({ jobSlug, live: evt })
+                        if (evt.type === 'layout') {
+                            // Snapshots de placements pour la vue live.
+                            self.postMessage({ jobSlug, live: evt })
+                        } else if (evt.type === 'evals' || evt.type === 'heartbeat') {
+                            // Compteur de combinaisons (SPP: evals, BPP:
+                            // iterations SA, normalisé en `n`) — le pool
+                            // banque par walk et somme (piège #10).
+                            self.postMessage({ jobSlug, evals: { n: evt.evals ?? evt.iterations ?? 0 } })
+                        }
                     } catch {
                         // événement non-JSON : ignoré, jamais une rupture
                     }

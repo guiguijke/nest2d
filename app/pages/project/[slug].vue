@@ -166,11 +166,25 @@ const localComputeError = ref(null);
 // serveur (mêmes champs : worker/stage/feasible/strip_width/items/bias +
 // sheets/isSpp ajoutés par runInWorker).
 const localReveal = ref(null);
-const localLive = ref(null);
+// Frame layout brute + compteur de combinaisons (événements séparés du
+// moteur : layout ~2 Hz, evals ~1 Hz par walk, agrégés par le pool —
+// banque anti-reset, piège #10). Fusionnés dans `localLive` pour que la
+// vue affiche AUSSI les stats en mode local (progress/compute étaient
+// null → compteur et ×N cœurs jamais visibles).
+const localLiveFrame = ref(null);
+const localEvals = ref(null);
 // J-093 : taille effective du pool de walks (injectée dans les frames live).
 const localWalks = ref(1);
 const localElapsed = localModeCtl.elapsed;
 const localBudget = localModeCtl.BROWSER_BUDGET_SEC;
+const localLive = computed(() => {
+    if (!localLiveFrame.value) return null;
+    return {
+        ...localLiveFrame.value,
+        compute: { vcores: localWalks.value },
+        progress: { evals: localEvals.value, elapsed_sec: localElapsed.value },
+    };
+});
 const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value));
 const attemptedLocalJobs = new Set();
 watch(
@@ -180,21 +194,27 @@ watch(
         attemptedLocalJobs.add(job.slug);
         localComputeError.value = null;
         localComputeRunning.value = true;
-        localLive.value = null;
+        localLiveFrame.value = null;
+        localEvals.value = null;
+        localWalks.value = 1;
         localModeCtl.startTimer();
         try {
             const res = await runLocalJobPrivate(job.slug, {
                 projectSlug: route.params.slug,
                 onLive: (evt) => {
                     if (evt.walks) localWalks.value = evt.walks;
-                    localLive.value = {
+                    // Compteur de combinaisons : événement scalaire, la frame
+                    // affichée n'est pas touchée (fusionnée dans localLive).
+                    if (evt.type === 'evals') {
+                        localEvals.value = evt.evals;
+                        return;
+                    }
+                    localLiveFrame.value = {
                         slug: job.slug,
                         // J-090 : la frame porte l'itemMap pour les projets
                         // 100 % clients (le doc job n'en a pas).
                         itemMap: evt.itemMap || job.itemMap || [],
                         liveLayout: evt,
-                        compute: null,
-                        progress: null,
                     };
                 },
             });
@@ -215,8 +235,10 @@ watch(
                         slug: job.slug,
                         itemMap: res.itemMap || job.itemMap || [],
                         liveLayout: res.liveLayout,
-                        compute: null,
-                        progress: null,
+                        // Stats finales conservées sur le panel de reveal :
+                        // compteur total de combinaisons + walks du pool.
+                        compute: { vcores: localWalks.value },
+                        progress: { evals: localEvals.value },
                     };
                 }
             }

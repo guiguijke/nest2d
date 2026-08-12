@@ -291,24 +291,31 @@ export function resolveLocalMode(tier, hasDwg, userChoice, projectLocal = false)
 }
 
 /**
- * The user's compute tier: 'privacy' (Confidentialité+) > 'standard'
- * (subscription or admin grant) > 'free'.
+ * The user's compute tier: 'privacy' (Pro) > 'standard' (Unlimited —
+ * subscription or admin grant) > 'free'.
+ *
+ * An admin grant carries an optional `grantedTier` ('standard'|'privacy',
+ * absent = 'standard' — historical grants behave exactly as before): the
+ * admin panel can promote a test account to Unlimited or Pro and back to
+ * free at will, without Stripe (D-PAY-11). A real Stripe subscription
+ * always wins over a grant.
  * @param {string} userId
  * @param {{type: string}|null} charge the charge returned by assertCanNest (null on UI paths)
  * @returns {Promise<'free'|'standard'|'privacy'>}
  */
 export async function getComputeTier(userId, charge) {
     const db = await connectDB()
-    const user = await db.collection('users').findOne({ id: userId }, { projection: { subscription: 1, grantedUntil: 1 } })
+    const user = await db.collection('users').findOne({ id: userId }, { projection: { subscription: 1, grantedUntil: 1, grantedTier: 1 } })
 
     const tier = await getSubscriptionTier(user)
     if (tier === 'privacy') return 'privacy'
-    // Subscribers AND admin-granted users (free month from the admin panel)
-    // get the paid tier — checked from the subscription (UI path, charge is
-    // null), the grant, and the job's charge (enqueue path).
+    if (tier === 'standard' || charge?.type === 'subscription') return 'standard'
+    // Admin-granted users (free month / test tier from the admin panel) get
+    // the granted tier — checked from the grant and the job's charge
+    // (enqueue path).
     const granted = user?.grantedUntil && new Date(user.grantedUntil) > new Date()
-    if (tier === 'standard' || granted || charge?.type === 'subscription' || charge?.type === 'grant') {
-        return 'standard'
+    if (granted || charge?.type === 'grant') {
+        return user?.grantedTier === 'privacy' ? 'privacy' : 'standard'
     }
     return 'free'
 }

@@ -41,14 +41,14 @@ export default defineEventHandler(async (event) => {
     const { couponId } = await grantStripeFreeMonth(subId)
     await users.updateOne(
       { id },
-      { $set: { grantedUntil: until, grantedBy: admin.id, grantedAt: new Date(), grantedReason: reason || null } },
+      { $set: { grantedUntil: until, grantedBy: admin.id, grantedAt: new Date(), grantedReason: reason || null, grantedTier: 'standard' } },
     )
     result = { method: 'stripe_coupon', couponId, until }
   } else {
     // Local grant path.
     await users.updateOne(
       { id },
-      { $set: { grantedUntil: until, grantedBy: admin.id, grantedAt: new Date(), grantedReason: reason || null } },
+      { $set: { grantedUntil: until, grantedBy: admin.id, grantedAt: new Date(), grantedReason: reason || null, grantedTier: 'standard' } },
     )
     result = { method: 'local_grant', until }
   }
