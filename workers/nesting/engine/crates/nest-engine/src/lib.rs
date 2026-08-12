@@ -5,6 +5,7 @@
 //! une callback JS pour le wrapper wasm (vue live navigateur, J-084).
 
 pub mod bpp;
+pub mod column_fill;
 pub mod config;
 pub mod gravity;
 pub mod merge;

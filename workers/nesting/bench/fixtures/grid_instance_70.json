@@ -1,0 +1,1 @@
+{"name": "bench-grid-1786482766", "items": [{"id": 0, "demand": 70, "allowed_orientations": [0, 90], "shape": {"type": "simple_polygon", "data": [[0.0, 0.0], [200.0, 0.0], [200.0, 100.0], [0.0, 100.0], [0.0, 0.0]]}}], "strip_height": 2000.0}

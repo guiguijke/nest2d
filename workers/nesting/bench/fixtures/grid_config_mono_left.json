@@ -1,0 +1,1 @@
+{"time_budget_sec": 13, "prng_seed": 6520169418772123398, "n_alternatives": 1, "poly_simpl_tolerance": 0.001, "min_item_separation": 2.0, "narrow_concavity_cutoff": [0.01, 0.01], "live_events": true, "max_strip_width": 1000.0, "n_workers": 1, "biases": ["left"], "plateau_patience_sec": 4.133333333333333, "column_fill": true}

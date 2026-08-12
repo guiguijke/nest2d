@@ -48,6 +48,10 @@ pub struct EngineConfig {
     /// Apply the gravity post-pass (default true). Mainly a debug/ablation
     /// knob for benchmark comparisons.
     pub gravity: Option<bool>,
+    /// SPP only: J-092 fill post-pass after gravity (notch-fill / column
+    /// restack for "left", rebalance for "balanced"; "bottom" untouched).
+    /// Default true. Debug/ablation knob.
+    pub column_fill: Option<bool>,
     /// Emit full layout snapshots as JSON events on stdout (live_lab
     /// visualizer). Default false — heavy payload, dev/private use only.
     pub live_events: Option<bool>,
@@ -119,6 +123,9 @@ impl EngineConfig {
     }
     pub fn gravity(&self) -> bool {
         self.gravity.unwrap_or(true)
+    }
+    pub fn column_fill(&self) -> bool {
+        self.column_fill.unwrap_or(true)
     }
     pub fn live_events(&self) -> bool {
         self.live_events.unwrap_or(false)

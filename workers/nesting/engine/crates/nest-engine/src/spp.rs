@@ -71,6 +71,8 @@ fn optimize_one(
     plateau_patience: Option<Duration>,
     bias_tag: Option<&'static str>,
     sink: &EventSink,
+    column_fill: bool,
+    max_strip_width: Option<f32>,
 ) -> (SPSolution, usize) {
     let mut cfg = *sparrow_cfg;
     cfg.expl_cfg.time_limit = budget.mul_f32(explore_ratio);
@@ -99,6 +101,13 @@ fn optimize_one(
         // J-086 : gravité orientée par classe directionnelle (left/bottom/
         // balanced) pour laisser une grosse chute rectangulaire cohérente.
         crate::gravity::gravity_for_bias(&mut prob, bias_tag, instance.base_strip.fixed_height);
+        // J-092 : post-pass de remplissage (notch-fill/restack left,
+        // rééquilibrage balanced). Uniquement sur la frame FINALE : les runs
+        // transposés (map_back_height Some) reçoivent le post-pass après
+        // mapping, via gravity_after.
+        if column_fill && map_back_height.is_none() {
+            crate::column_fill::post_pass_for_bias(&mut prob, bias_tag, max_strip_width);
+        }
         let solution = prob.save();
         // Stream the post-gravity final state so the visualizer's
         // last frame matches the exported solution exactly.
@@ -127,6 +136,8 @@ fn optimize_multi(
     map_back_height: Option<f32>,
     plateau_patience: Option<Duration>,
     sink: &EventSink,
+    column_fill: bool,
+    max_strip_width: Option<f32>,
 ) -> Vec<WorkerRun> {
     map_workers(n_workers, |w| {
         let seed = derive_seed(master_seed, seed_offset + w);
@@ -144,6 +155,8 @@ fn optimize_multi(
             plateau_patience,
             None,
             sink,
+            column_fill,
+            max_strip_width,
         );
         WorkerRun { seed, solution, evals }
     })
@@ -282,6 +295,7 @@ pub fn run_spp_mem(
         let biases = config.dir_biases();
         let explore = config.explore_ratio;
         let gravity_on = config.gravity();
+        let column_fill_on = config.column_fill();
         let live = config.live_events();
         let slack = config.phase2_slack_mm();
         let plateau = config.plateau_patience();
@@ -294,6 +308,10 @@ pub fn run_spp_mem(
                     prob.restore(&mapped);
                     // J-086 : gravité orientée par classe (balanced équilibré).
                     crate::gravity::gravity_for_bias(&mut prob, bias, instance.base_strip.fixed_height);
+                    // J-092 : post-pass de remplissage sur la frame finale.
+                    if column_fill_on {
+                        crate::column_fill::post_pass_for_bias(&mut prob, bias, max_width);
+                    }
                     mapped = prob.save();
             }
             mapped
@@ -312,6 +330,8 @@ pub fn run_spp_mem(
                             explore, seed, w, started, gravity_on, live, None, plateau,
                             Some(bias.as_str()),
 sink,
+                            column_fill_on,
+                            max_width,
                         );
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
@@ -334,6 +354,8 @@ sink,
                             Some(corridor), plateau,
                             Some(bias.as_str()),
                             sink,
+                            column_fill_on,
+                            max_width,
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
                             // Phase 2 overshot the sheet height: fall back to
@@ -362,6 +384,8 @@ sink,
                                 seed, w, started, gravity_on, live, None, plateau,
                                 Some(bias.as_str()),
 sink,
+                            column_fill_on,
+                            max_width,
                             );
                             return Some(ClassRun { seed, bias, solution: s, evals });
                         };
@@ -375,6 +399,8 @@ sink,
                             Some(mw), plateau,
                             Some(bias.as_str()),
                             sink,
+                            column_fill_on,
+                            max_width,
                         );
                         if s1.strip_width() > ext_instance.strip_height + 1e-4 {
                             return None; // taller than the sheet: unusable
@@ -398,6 +424,8 @@ sink,
                             None, plateau,
                             Some(bias.as_str()),
 sink,
+                            column_fill_on,
+                            max_width,
                         );
                         if s2.strip_width() > mw + 1e-4 {
                             // Width overshot the sheet: keep the phase-1
@@ -422,6 +450,8 @@ sink,
                                 seed, w, started, gravity_on, live, None, plateau,
                                 Some(bias.as_str()),
 sink,
+                            column_fill_on,
+                            max_width,
                             );
                             return Some(ClassRun { seed, bias, solution: s, evals });
                         };
@@ -431,6 +461,8 @@ sink,
                             explore, seed, w, started, gravity_on, live, None, plateau,
                             Some(bias.as_str()),
 sink,
+                            column_fill_on,
+                            max_width,
                         );
                         if !two_phase {
                             return Some(ClassRun { seed, bias, solution: s1, evals: s1_evals });
@@ -456,6 +488,8 @@ sink,
                             Some(corridor), plateau,
                             Some(bias.as_str()),
                             sink,
+                            column_fill_on,
+                            max_width,
                         );
                         if s2.strip_width() > ext_instance.strip_height + 1e-4 {
                             // Corridor overshot the sheet height: fall back to
@@ -532,6 +566,8 @@ sink,
         None,
         config.plateau_patience(),
         sink,
+        config.column_fill(),
+        max_width,
     );
     let feasible1: Vec<&WorkerRun> = runs1
         .iter()
@@ -596,6 +632,8 @@ sink,
                     Some(corridor),
                     config.plateau_patience(),
                     sink,
+                    config.column_fill(),
+                    max_width,
                 );
                 let max_length = ext_instance.strip_height;
                 for run in runs2 {
@@ -613,6 +651,11 @@ sink,
                             jagua_rs::probs::spp::entities::SPProblem::new(instance.clone());
                         prob.restore(&mapped);
                         crate::gravity::gravity_compact(&mut prob);
+                        // J-092 : post-pass « left » (la gravité legacy est la
+                        // gravité gauche par défaut, J-088).
+                        if config.column_fill() {
+                            crate::column_fill::post_pass_for_bias(&mut prob, None, max_width);
+                        }
                         mapped = prob.save();
                     }
                     final_runs.push(WorkerRun {
