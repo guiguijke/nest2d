@@ -62,8 +62,8 @@ Correspondance des noms (le code n'est pas renommé à ce stade) :
   compute du tier code `privacy` : 8 vcores / 180 s / priority 10 [prod] ;
   repositionnement marketing « Pro = compute max », le vault ZK est sorti
   de l'exclusivité Pro (§2) [prod, PR#17].
-- **Turbo hybride** client + serveur (multi-thread wasm + budget serveur
-  max) [spéc — non codé, voir plan §6].
+- **Turbo hybride** client + serveur (pool navigateur + budget serveur
+  max, course au premier résultat) [spéc — non codé, voir plan §6].
 
 ## 2. Privacy — spectre à 3 modes
 
@@ -163,8 +163,7 @@ Quatre chantiers **indépendants, à traiter en PR séparées** :
 
 Déjà livrés : codes promo partenaires [prod], rapport matière [prod],
 admin mobile + tracking + métriques file mesurée [prod, PR#47-#49, #52],
-rework directionnel left/bottom [prod, PR#51 — balanced restant, voir
-journal].
+rework directionnel left/bottom/balanced [prod, PR#51 + #56, J-092].
 
 ### Phase 2 — Mode Local [prod, flag ON 2026-08-08]
 
@@ -186,16 +185,21 @@ PR#42), création « 100 % privé » par défaut (PR#50), pool multi-walks
 1/4/8 par tier (J-093, PR#43), métriques rapport client (J-082), QA prod
 zéro-upload au filet (POST create = `{"local":true}` 16 o, quota =
 3 scalaires). **Turbo hybride Pro** [spéc] : course client/serveur à
-l'enqueue (Chantier B du plan dédié — multi-thread rayon/COOP-COEP écarté,
-voir §6 et specs/80).
-wasm (COOP/COEP) + budget serveur max — voir plan dédié.
+l'enqueue (Chantier B du plan dédié, specs/80 — reporté 2026-08-12 au feu
+du propriétaire ; prérequis pool client livré, J-093).
 
 ### Phase 3 — pistes (non engagées)
 
-Multi-thread wasm navigateur (rayon + SharedArrayBuffer, exige en-têtes
-COOP/COEP cross-origin isolation — incompatible avec les intégrations
-tiers actuelles, à arbitrer), import client intégral, hybride Pro
-client+serveur.
+- **Turbo hybride Pro** : course client/serveur à l'enqueue (Chantier B du
+  plan dédié — seul chantier restant du plan 2026-08-10, reporté).
+- **Threads wasm natifs** (rayon + SharedArrayBuffer) : écartés au profit
+  du pool de Web Workers (J-093, option A2) — exigerait COOP/COEP
+  cross-origin isolation, incompatible avec les intégrations tiers
+  actuelles ; à revisiter seulement si le pool montre ses limites (gros
+  jobs BPP).
+- **Classes BPP directionnelles** : investigation non menée (hors scope du
+  rework J-092, qui ne couvrait que le SPP).
+- **G-code** : hors produit jusqu'à preuve de marché (§5, règle J-053).
 
 ## Hors scope de ce document
 
