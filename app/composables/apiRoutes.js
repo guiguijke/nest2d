@@ -8,7 +8,6 @@ export const API_ROUTES = {
     SUBSCRIPTION_CHANGE: '/api/payment/subscription/change',
     SUBSCRIBE: '/api/payment/subscribe',
     RESULTS: (slug) => slug ? `/api/project/${slug}/results` : '/api/results',
-    DXFFILE: (slug) => `/api/queue/${slug}/dxf`,
     AUTH: (slug) => `/api/auth/${slug}/redirect`,
     PROJECT: (slug) => slug ? `/api/project/${slug}` : '/api/project',
     NEST: (slug) => `/api/project/${slug}/nest`,

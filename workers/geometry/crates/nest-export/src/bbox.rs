@@ -57,12 +57,8 @@ fn entity_extrema(e: &Entity) -> Vec<[f64; 2]> {
             }
         }
         Entity::Arc(a) => {
-            let (s, mut e) = (a.start_angle, a.end_angle);
-            let mut e2 = e;
-            if e2 <= s {
-                e2 += 360.0;
-            }
-            let _ = e;
+            let s = a.start_angle;
+            let e2 = if a.end_angle <= s { a.end_angle + 360.0 } else { a.end_angle };
             for i in 0..=CURVE_N {
                 let t = s + (e2 - s) * i as f64 / CURVE_N as f64;
                 let rad = t * std::f64::consts::PI / 180.0;
