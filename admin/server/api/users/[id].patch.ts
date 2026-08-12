@@ -45,13 +45,19 @@ export default defineEventHandler(async (event) => {
             break
         }
         case 'setGrantedUntil': {
-            // null/empty clears the grant; otherwise set a date.
+            // null/empty clears the grant (back to free); otherwise set a
+            // date + an optional tier ('standard' = Illimité, 'privacy' =
+            // Pro — absent = 'standard', historical behaviour). Lets the
+            // admin promote a test account to any tier and back at will,
+            // without Stripe (D-PAY-11).
             const until = body.until ? new Date(body.until) : null
             if (until && isNaN(until.getTime())) throw createError({ statusCode: 400, statusMessage: 'until invalide' })
+            const tier = body.tier === 'privacy' ? 'privacy' : 'standard'
+            const tierLabel = tier === 'privacy' ? 'Pro' : 'Illimité'
             update = until
-                ? { $set: { grantedUntil: until, grantedBy: admin.id, grantedAt: new Date() } }
-                : { $unset: { grantedUntil: '', grantedBy: '', grantedAt: '' } }
-            summary = until ? `Accès offert jusqu'au ${until.toLocaleDateString('fr-FR')}` : 'Accès offert retiré'
+                ? { $set: { grantedUntil: until, grantedBy: admin.id, grantedAt: new Date(), grantedTier: tier } }
+                : { $unset: { grantedUntil: '', grantedBy: '', grantedAt: '', grantedTier: '' } }
+            summary = until ? `Accès ${tierLabel} offert jusqu'au ${until.toLocaleDateString('fr-FR')}` : 'Accès offert retiré (retour Gratuit)'
             break
         }
         default:
