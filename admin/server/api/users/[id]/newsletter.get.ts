@@ -34,27 +34,42 @@ export default defineEventHandler(async (event) => {
     const headers = { Authorization: `Basic ${auth}` }
 
     try {
-        // Subscriber lookup by exact email (listmonk SQL-ish query syntax).
+        // Subscriber lookup. listmonk's SQL-ish `query=` needs the elevated
+        // `subscribers:sql_query` permission (denied on typical API roles) —
+        // `search=` works with the basic role, so use it and match the exact
+        // email client-side (search is a fuzzy name/email match).
         const subsResp: any = await $fetch(`${base}/api/subscribers`, {
             headers,
-            query: { query: `subscribers.email='${String(user.email).replace(/'/g, "''")}'` },
+            query: { search: user.email },
         })
-        const sub = subsResp?.data?.results?.[0] || null
+        const emailLc = String(user.email).toLowerCase()
+        const sub =
+            (subsResp?.data?.results || []).find(
+                (s: any) => String(s?.email || '').toLowerCase() === emailLc
+            ) || null
 
         // Campaign aggregates (platform-wide, not per-subscriber). Map
         // defensively: field names follow listmonk's API (to_send, sent,
         // views, clicks) but a missing field must degrade to 0, not throw.
-        const campsResp: any = await $fetch(`${base}/api/campaigns`, { headers })
-        const campaigns = (campsResp?.data?.results || []).map((c: any) => ({
-            id: c?.id ?? null,
-            name: c?.name ?? '—',
-            status: c?.status ?? '—',
-            toSend: Number(c?.to_send) || 0,
-            sent: Number(c?.sent) || 0,
-            views: Number(c?.views) || 0,
-            clicks: Number(c?.clicks) || 0,
-            startedAt: c?.started_at || c?.created_at || null,
-        }))
+        // Separate try/catch: `campaigns:get` is often denied too — the
+        // subscriber status must still render when campaigns are forbidden.
+        let campaigns: any[] = []
+        let campaignsError: string | null = null
+        try {
+            const campsResp: any = await $fetch(`${base}/api/campaigns`, { headers })
+            campaigns = (campsResp?.data?.results || []).map((c: any) => ({
+                id: c?.id ?? null,
+                name: c?.name ?? '—',
+                status: c?.status ?? '—',
+                toSend: Number(c?.to_send) || 0,
+                sent: Number(c?.sent) || 0,
+                views: Number(c?.views) || 0,
+                clicks: Number(c?.clicks) || 0,
+                startedAt: c?.started_at || c?.created_at || null,
+            }))
+        } catch (err: any) {
+            campaignsError = err?.data?.message || err?.message || 'campaigns inaccessibles'
+        }
 
         return {
             configured: true,
@@ -74,6 +89,7 @@ export default defineEventHandler(async (event) => {
                   }
                 : null,
             campaigns,
+            campaignsError,
         }
     } catch (err: any) {
         return {
