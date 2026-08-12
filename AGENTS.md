@@ -231,6 +231,17 @@ admin/                 (back-office Nuxt)
     (`NUXT_PUBLIC_UNIT_SWITCH_ENABLED` → `unitSwitchEnabled`, pas
     `unitsEnabled`). Et l'override runtime arrive en **string** (`'true'`),
     jamais en booléen : tester `=== true || === 'true'`.
+29b. **Une clé partagée serveur+client exige DEUX mappings ou une vérité
+    serveur** : `NUXT_ADMIN_LAN_OPEN` ne mappait que la clé PRIVÉE — le
+    garde client (clé publique restée false) croyait le mode sécurisé et
+    bouclait /setup ↔ / à l'infini (needsSetup + admin virtuel `lan`),
+    page jamais hydratée, clics morts (panne prod 2026-08-12, fiches users
+    inaccessibles). Règle : le garde côté client doit trancher sur la
+    **réponse du serveur** (`/api/auth/me` renvoie l'admin `lan`) et/ou
+    miroir `NUXT_PUBLIC_*` explicite dans compose. Corollaire :
+    `runtimeConfig.public` est **figé** en Nitro récent — un plugin qui
+    assigne `config.public.x = …` crash le boot (Cannot assign to read
+    only).
 30. **`watch` dans un composable singleton = scope du 1er appelant** : il
     meurt au démontage du composant (changement de layout à la navigation)
     et un garde `initialized` empêche toute réinscription → enregistrer le
