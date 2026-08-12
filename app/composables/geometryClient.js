@@ -51,9 +51,6 @@ const parse = (r) => (r.ok ? JSON.parse(r.result) : r)
 export async function geoImportFile(bytes, tol = 0.01) {
     return parse(await call('import_file', { bytes: Array.from(bytes), tol }))
 }
-export async function geoImportSvg(bytes, tol = 0.01) {
-    return parse(await call('import_svg', { bytes: Array.from(bytes), tol }))
-}
 export async function geoOpenHoles(outer, holes, spaceMm) {
     return parse(await call('open_holes', { json: JSON.stringify({ outer, holes, space_mm: spaceMm }) }))
 }
@@ -64,10 +61,6 @@ export async function geoExportSvgSheet(spec) {
 export async function geoComputeReport(spec) {
     return parse(await call('compute_report', { json: JSON.stringify(spec) }))
 }
-export async function geoExportDxf(sourceBytes, spec) {
-    const r = await call('export_dxf', { source: Array.from(sourceBytes), json: JSON.stringify(spec) })
-    return r.ok ? r.result : r
-}
 /** J-082 : DXF combiné d'une tôle (multi-sources, jumeau de build_part). */
 export async function geoExportDxfSheet(slugs, sourcesBytes, spec) {
     const r = await call('export_dxf_sheet', {
@@ -76,10 +69,6 @@ export async function geoExportDxfSheet(slugs, sourcesBytes, spec) {
         json: JSON.stringify(spec),
     })
     return r.ok ? r.result : r
-}
-export async function geoMemoryPages() {
-    const r = await call('memory_pages', {})
-    return r.ok ? parseInt(r.result, 10) : 0
 }
 
 /** J-090 : bytes DXF canoniques mm (import 100 % client — contrat d'export

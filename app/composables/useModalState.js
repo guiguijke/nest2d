@@ -6,9 +6,6 @@ export const useResultDialog = () => {
 export const useResultScrollToReport = () => {
     return useState("resultScrollToReport", () => false);
 };
-export const useScreenshotDialog = () => {
-    return useState("screenshotDialog", () => false);
-};
 export const useFileDialog = () => {
     return useState("fileDialog", () => false);
 };

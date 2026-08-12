@@ -62,6 +62,9 @@ class VaultLockedError(Exception):
 
 
 def fingerprint_key(dek: bytes) -> str:
+    """SHA-256 hex of the DEK — miroir de fingerprintKey côté Node
+    (server/utils/crypto.js), consommé par scripts/crypto-interop/
+    verify_vector.py (champ dek_fingerprint des vecteurs)."""
     return hashlib.sha256(dek).hexdigest()
 
 
