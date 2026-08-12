@@ -45,9 +45,12 @@
         </MainButton>
         <FreeNestBanner v-if="!isDemo" />
         <!-- D-PRV-10 : disclosure purge 24 h — masquée pour les comptes
-             vault (exemptés : blobs chiffrés au repos). Défaut = afficher
-             (sur-divulgation si le statut vault est indisponible). -->
-        <p v-if="!vaultEnabled" class="content__purge-notice">
+             vault (exemptés : blobs chiffrés au repos). J-090 : un projet
+             100 % privé n'upload rien — message dédié. -->
+        <p v-if="isLocalProject" class="content__purge-notice">
+            {{ t('nest.localNotice') }}
+        </p>
+        <p v-else-if="!vaultEnabled" class="content__purge-notice">
             {{ t('nest.purgeNotice') }}
         </p>
         <div v-if="isDemo && demoQuotaReached" class="content__error">
