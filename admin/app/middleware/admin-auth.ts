@@ -17,6 +17,13 @@ export default defineNuxtRouteMiddleware(async (to) => {
     await fetchMe()
   }
 
+  // The server's answer is the source of truth: a virtual 'lan' admin means
+  // the server IS LAN-open, whatever the public runtime flag says (the two
+  // keys can desync — NUXT_ADMIN_LAN_OPEN only maps to the private key).
+  // Without this early return, LAN-open + needsSetup + a stale public flag
+  // loops /setup ↔ / forever and the page never hydrates (dead clicks).
+  if (admin.value?.id === 'lan') return
+
   // First-time setup: no admin at all → force the setup page.
   try {
     const status = await $fetch('/api/setup/status')
