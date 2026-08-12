@@ -186,6 +186,7 @@ const dict = {
         'nest.error.sheetCap': 'Sheet limit exceeded: the Free plan allows up to 2 sheets per job.',
         // Purge 24 h (D-PRV-10) : disclosure au nest + états « expiré ».
         'nest.purgeNotice': 'Privacy: uploaded files and nesting results are deleted automatically 24 h after nesting — download your DXF promptly.',
+        'nest.localNotice': '100% private project: your files and results exist only in this browser — nothing is uploaded, nothing to delete.',
         'results.expired': 'Expired (24 h purge)',
         'files.expired': 'Expired (24 h purge) — re-upload this file to nest it again',
         // J-090 — import 100 % client (projet « 100 % privé »).
@@ -680,6 +681,7 @@ const dict = {
         'nest.error.sheetCap': "Limite de tôles dépassée : l'offre Free permet jusqu'à 2 tôles par tâche.",
         // Purge 24 h (D-PRV-10) : disclosure au nest + états « expiré ».
         'nest.purgeNotice': "Confidentialité : fichiers importés et résultats sont supprimés automatiquement 24 h après le nesting — téléchargez vos DXF sans tarder.",
+        'nest.localNotice': "Projet 100 % privé : fichiers et résultats n'existent que dans ce navigateur — rien n'est envoyé, rien à supprimer.",
         'results.expired': "Expiré (purge 24 h)",
         'files.expired': "Expiré (purge 24 h) — réimportez ce fichier pour le nester à nouveau",
         // J-090 — import 100 % client (projet « 100 % privé »).

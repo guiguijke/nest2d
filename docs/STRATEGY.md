@@ -71,17 +71,23 @@ La privacy n'est **jamais une feature payante** : le vault ZK est opt-in
 sur TOUS les plans (gate `hasPrivacyTier` retiré, Phase 1) [prod, PR#17]. Chaque promesse publique doit être **exactement vraie** — détail
 des promesses et threat model dans `docs/THREAT-MODEL.md`.
 
-- **Mode Local** [prod, flag ON 2026-08-08 — périmètre exact] : le solve
-  tourne dans le navigateur (WASM mono-walk) et **les résultats ne quittent
-  jamais le navigateur** (IndexedDB ; quota = scalaires bornés). Les
-  fichiers sources, eux, sont uploadés pour le parsing serveur (DXF/SVG) —
-  la promesse « files never leave your machine » exige l'import 100 %
-  client [spéc] et ne doit JAMAIS être affichée avant (règle 4, §5).
-- **Mode Serveur** [spéc] : chiffré avec la clé de l'utilisateur ; RAM
-  volatile uniquement pendant le job ; le clair n'est jamais écrit sur
-  disque ; purge automatique des blobs après le délai affiché (24 h) ; la
-  clé n'est jamais stockée. **Jamais** de « nous ne pouvons pas vous lire »
-  en mode serveur (le serveur voit le clair en RAM pendant le job).
+- **Mode Local** [prod, import 100 % client vérifié en prod 2026-08-12,
+  J-090 + défaut « 100 % privé » PR#50] : par défaut, un nouveau projet est
+  **100 % privé** — le fichier source est parsé dans le navigateur (wasm)
+  et **ne quitte jamais la machine** ; le solve tourne dans le navigateur
+  (pool multi-walks par tier, J-093) et les résultats restent dans
+  IndexedDB ; le serveur ne voit que métadonnées + compteurs de quota
+  (vérifié onglet réseau : 16 o à la création, scalaires au nesting).
+  Opt-out cloud possible à la création (import DWG, multi-appareils) : les
+  sources sont alors uploadées puis purgées 24 h ; les résultats d'un
+  calcul local restent dans le navigateur dans tous les cas.
+- **Mode Serveur** [prod, purge active vérifiée 2026-08-12] : TLS en
+  transit ; traitement en RAM pendant le job ; au repos le fichier est
+  stocké **en clair** dans la base jusqu'à la **purge automatique 24 h**
+  (sources + résultats ; les rapports ne gardent que des scalaires) ;
+  suppression de projet en libre-service (J-095). **Jamais** de « nous ne
+  pouvons pas vous lire » en mode serveur (le serveur voit le clair en RAM
+  pendant le job).
 - **Vault ZK** [prod, opt-in tous plans] : chiffrement au repos
   avec une clé détenue par l'utilisateur seul (fichier-clé) — spec
   d'implémentation : `doc/encryption-premium.spec.md`.
@@ -144,19 +150,21 @@ Références : `specs/55-promo-codes.md` (local), AGENTS #34, verrous
 Quatre chantiers **indépendants, à traiter en PR séparées** :
 
 1. **Vault ZK opt-in sur tous les plans** (retrait du gate
-   `hasPrivacyTier`) [spéc]. À la mise en prod : mettre à jour la copy qui
-   présente le ZK comme exclusivité Pro (app : `plans.pro.f2/desc` ; site :
-   `pricing.pro.f2/description`) — la copy suit la prod, jamais l'inverse.
-2. **Durcissement vault niveau 1** : DEK en RAM seule, livraison ECDH
-   éphémère, suppression du wrap master key — TODO détaillé dans
-   `docs/THREAT-MODEL.md` §4. **Design à arrêter avant tout code**
-   (D-PRV-7) [spéc].
-3. **Purge 24 h du Mode Serveur** : la promesse (§2) n'est pas codée —
-   prérequis : rédiger la spec d'exécution (mécanisme, délai affiché où,
-   interaction vault) — voir `docs/THREAT-MODEL.md` §2 [spéc].
+   `hasPrivacyTier`) [prod, PR#17].
+2. **Durcissement vault niveau 1** (D-PRV-7) [prod, PR#46 — QA E2E 27/27,
+   `scripts/validate_vault_dprv7_e2e.sh`] : session DEK en RAM
+   process-local seule (plus de `session_keys`), livraison ECDH P-256
+   éphémère par job aux workers, wrap master key supprimé.
+3. **Purge 24 h du Mode Serveur** (D-PRV-10) [prod, PR#41 — sweeper
+   actif vérifié en prod 2026-08-12, log `purge: {...}` au boot] : blobs
+   sources + résultats supprimés par bucket (jamais de TTL seul — chunks
+   orphelins), vault et démo exemptés, scalaires de rapport conservés.
 4. **Cap 2 tôles/job en free** [prod, PR#18] (démo exemptée, D-DEM-11).
 
-Déjà livrés : codes promo partenaires [prod], rapport matière [prod].
+Déjà livrés : codes promo partenaires [prod], rapport matière [prod],
+admin mobile + tracking + métriques file mesurée [prod, PR#47-#49, #52],
+rework directionnel left/bottom [prod, PR#51 — balanced restant, voir
+journal].
 
 ### Phase 2 — Mode Local [prod, flag ON 2026-08-08]
 
@@ -172,11 +180,14 @@ parité verrouillée par diff client/serveur bloquant), résultats IndexedDB,
 vue live du solve navigateur (EventSink 2 Hz), trou-filling meta-pièces
 sécurisé (J-089).
 
-**Reste pour le claim complet « files never leave your machine »** [spéc] :
-import 100 % client (nest-import DXF/SVG + nest-preprocess canaux en wasm,
-crates livrées mais non câblées dans le flux d'upload), métriques rapport
-client (fait, J-082), tests mobiles (fiche bloquante docs/MOBILE-TEST-PR5.md),
-puis copy publique complète. **Turbo hybride Pro** [spéc] : multi-thread
+**Claim « files never leave your machine » = COMPLET** [prod, vérifié en
+prod 2026-08-12] : import 100 % client câblé dans le flux d'upload (J-090,
+PR#42), création « 100 % privé » par défaut (PR#50), pool multi-walks
+1/4/8 par tier (J-093, PR#43), métriques rapport client (J-082), QA prod
+zéro-upload au filet (POST create = `{"local":true}` 16 o, quota =
+3 scalaires). **Turbo hybride Pro** [spéc] : course client/serveur à
+l'enqueue (Chantier B du plan dédié — multi-thread rayon/COOP-COEP écarté,
+voir §6 et specs/80).
 wasm (COOP/COEP) + budget serveur max — voir plan dédié.
 
 ### Phase 3 — pistes (non engagées)
