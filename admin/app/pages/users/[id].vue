@@ -321,6 +321,14 @@
 
                     <!-- Campaign aggregates — listmonk exposes NO per-subscriber
                          opens/clicks, only per-campaign totals. -->
+                    <p
+                        v-if="newsletter.campaignsError"
+                        class="text-xs text-ink-400"
+                    >
+                        Campagnes inaccessibles pour cet utilisateur API listmonk
+                        ({{ newsletter.campaignsError }}) — le statut d'abonnement
+                        ci-dessus reste exact.
+                    </p>
                     <template v-if="newsletter.campaigns?.length">
                         <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-400">
                             Campagnes (agrégats plateforme)
