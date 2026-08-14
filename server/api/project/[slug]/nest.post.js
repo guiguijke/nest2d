@@ -182,7 +182,13 @@ export default defineEventHandler(async (event) => {
         // but the COMPUTE profile stays server-imposed (4 vcores, 90 s wall
         // cap, 3 directions max) so the free demo can never be abused into
         // more machine time.
-        charge = await assertCanNestDemo(userId)
+        // Local compute (flag ON) burns no server vcores — skip the monthly
+        // demo quota. Server-side demo still consumes it (anti-abuse).
+        const demoLocal =
+            resolveComputeLocation(config.public.localComputeEnabled, true, 'demo', project) === 'local'
+        charge = demoLocal
+            ? { type: 'demo', skippedQuota: true }
+            : await assertCanNestDemo(userId)
         const directions = validateDirections(params.directions, DEMO_MAX_DIRECTIONS)
         dbParams = sheets
             ? {

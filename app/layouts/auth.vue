@@ -27,19 +27,13 @@
             <UserResults @closeAside="close" :class="{'content__results--open': resultsIsOpen}" class="content__results" />
         </main>
         <ChatSupport v-if="supportDialog" />
-        <button 
-            @click="supportDialog = true"
+        <button
             v-if="!supportDialog"
+            type="button"
             class="main__btn btn"
+            @click="supportDialog = true"
         >
-            <span class="btn__icon">
-                <span class="btn__dots"> 
-                    •••
-                </span>
-            </span>
-            <span class="btn__label">
-                {{ t('common.support') }}
-            </span>
+            <span class="btn__label">{{ t('common.support') }}</span>
         </button>
         <Footer />
         <BuyCreditsDialog v-model:isModalOpen="buyCreditsDialog" />
@@ -104,13 +98,13 @@ const isHomePage = computed(() => {
     &__header {
         margin-left: auto;
         margin-right: auto;
-        max-width: 1300px;
+        max-width: 1760px;
         width: 100%;
     }
     &__content {
         flex-grow: 1;
-        margin: 40px auto;
-        max-width: 1300px;
+        margin: 24px auto;
+        max-width: 1760px;
         width: 100%;
     }
     &__line {
@@ -136,8 +130,9 @@ const isHomePage = computed(() => {
     
     @media (min-width: 1319px) {
         display: grid;
-        grid-template-columns: 1fr 640px 1fr;
-        gap: 40px;
+        grid-template-columns: 240px minmax(0, 1fr) 260px;
+        gap: 28px;
+        align-items: start;
     }
 
     &__controls {
@@ -253,66 +248,25 @@ const isHomePage = computed(() => {
     }
 }
 .btn {
-    $self: &;
     display: flex;
     align-items: center;
-    border-radius: 6px;
-    padding: 12px 32px 12px 12px;
-    transition: opacity 0.3s;
+    border-radius: 999px;
+    padding: 8px 16px;
+    transition: opacity 0.2s, box-shadow 0.2s;
     width: max-content;
     background-color: var(--background-secondary);
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--label-primary) 18%, transparent);
 
     &__label {
-        z-index: 1;
         color: var(--background-primary);
         display: block;
+        font-size: 13px;
         font-weight: 700;
-    }
-
-    &__dots {
-        position: absolute;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transform: translate(-50%, -50%);
-        line-height: 0;
-        background-color: var(--background-primary);
-        color: var(--background-secondary);
-        top: 47%;
-        left: 50%;
-        border-radius: 4px 4px 0 4px;
-        width: 30px;
-        height: 18px;   
-
-        &::after {
-            content: '';
-            position: absolute;
-            width: 0;
-            height: 0;
-            border-left: 10px solid transparent;
-            border-right: 10px solid var(--background-primary);
-            border-bottom: 10px solid transparent;
-            top: 100%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-    }
-
-    &__icon {
-        z-index: 2;
-        position: absolute;
-        background-color: var(--background-secondary);
-        width: 60px;
-        height: 60px;
-        transform: translate(-50%, -50%);
-        border-radius: 50%;
-        top: 50%;
-        left: 100%;
     }
 
     @media (hover:hover) {
         &:hover {
-            opacity: 0.8;
+            opacity: 0.88;
         }
     }
 }

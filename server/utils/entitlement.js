@@ -501,11 +501,16 @@ export async function assertCanNestDemo(userId) {
  * @param {string} userId
  * @returns {Promise<{demoRemaining: number}>}
  */
-export async function getDemoEntitlement(userId) {
+export async function getDemoEntitlement(userId, localComputeEnabled) {
+    const local = localComputeEnabled === true || localComputeEnabled === 'true'
+    // Local compute costs us no server vcores — the demo quota is an
+    // anti-abuse cap on SERVER time. When the flag routes demo to the
+    // browser, the allowance is unlimited.
+    if (local) return { demoRemaining: null, demoUnlimited: true }
     const db = await connectDB()
     const user = await db
         .collection('users')
         .findOne({ id: userId }, { projection: { demoNestingUsed: 1, demoNestingPeriod: 1 } })
     const used = user?.demoNestingPeriod === currentFreePeriod() ? user?.demoNestingUsed || 0 : 0
-    return { demoRemaining: Math.max(0, DEMO_NESTING_LIMIT - used) }
+    return { demoRemaining: Math.max(0, DEMO_NESTING_LIMIT - used), demoUnlimited: false }
 }

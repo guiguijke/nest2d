@@ -52,6 +52,23 @@
                 />
             </div>
             <div
+                v-if="!isHaveError"
+                class="modal__headline headline"
+            >
+                <p class="headline__title">{{ headlineTitle }}</p>
+                <p class="headline__slug" :title="t('result.copySlug')">{{ name }}</p>
+            </div>
+            <div
+                v-if="!isHaveError && activeReport"
+                class="modal__summary summary"
+            >
+                <span class="summary__label">{{ t('report.utilization') }}</span>
+                <div class="summary__bar">
+                    <div class="summary__bar-fill" :style="{ width: `${usedPct}%` }" />
+                </div>
+                <span class="summary__value">{{ usedPct.toFixed(1) }}%</span>
+            </div>
+            <div
                 v-if="hasColorPreview"
                 class="view-toggle"
             >
@@ -83,16 +100,17 @@
                     :class="placeholderClasses"
                     class="modal__placeholder"
                 >
-                    Err
+                    {{ t('result.failed') }}
                 </div>
                 <template v-else-if="resultModalData.isMultiSheet">
-                    <img
+                    <SheetSvgPreview
                         v-if="showColorPreview"
                         :key="`svg-${activeAlt}-${activePart}`"
                         :src="currentSvgs[activePart]"
+                        :width="previewSheet.w"
+                        :height="previewSheet.h"
                         :class="displayClasses"
                         class="modal__display modal__svg-preview"
-                        alt="colored sheet preview"
                     />
                     <DxfViewerComponent
                         v-else
@@ -124,13 +142,14 @@
                         @click="downloadLocalSheet"
                     />
                 </template>
-                <img
+                <SheetSvgPreview
                     v-else-if="showColorPreview"
                     :key="`svg-${activeAlt}-0`"
                     :src="currentSvgs[0]"
+                    :width="previewSheet.w"
+                    :height="previewSheet.h"
                     :class="displayClasses"
                     class="modal__display modal__svg-preview"
-                    alt="colored sheet preview"
                 />
                 <DxfViewerComponent
                     v-else
@@ -152,24 +171,19 @@
                     class="modal__fullscreen"
                 />
             </div>
-            <div class="modal__name modal__info info">
-                <template v-if="isHaveError">
-                    <span class="info__label">
-                        {{ t('result.noSolution') }}
-                    </span>
-                    <span v-if="resultModalData.information" class="info__label info__label--detail">
-                        {{ resultModalData.information }}
-                    </span>
-                    <span class="info__label">
-                        {{ t('result.neededToPlace', { n: resultModalData.requested }) }}
-                    </span>
-                    <span class="info__label">
-                        {{ t('result.placed', { n: resultModalData.placed }) }}
-                    </span>
-                </template>
-                <template v-else> 
-                    {{ name }}
-                </template>
+            <div v-if="isHaveError" class="modal__name modal__info info">
+                <span class="info__label">
+                    {{ t('result.noSolution') }}
+                </span>
+                <span v-if="resultModalData.information" class="info__label info__label--detail">
+                    {{ resultModalData.information }}
+                </span>
+                <span class="info__label">
+                    {{ t('result.neededToPlace', { n: resultModalData.requested }) }}
+                </span>
+                <span class="info__label">
+                    {{ t('result.placed', { n: resultModalData.placed }) }}
+                </span>
             </div>
             <div
                 v-if="!isHaveError"
@@ -372,6 +386,7 @@ import { themeType } from '~~/constants/theme.constants'
 import { statusType } from '~~/constants/status.constants'
 import { trackEvent } from '~/utils/track'
 import { SQMM_PER_SQIN } from '~/utils/units'
+import { displayDirectionArrow } from '~/utils/sheetView'
 import { onMounted, nextTick } from 'vue'
 import { reportExportState } from '~/utils/reportExport'
 
@@ -534,6 +549,15 @@ const activeOffcut = computed(() => {
 const reportSheets = computed(() => {
     const sheets = unref(activeReport)?.sheets
     return Array.isArray(sheets) ? sheets : []
+})
+const previewSheet = computed(() => {
+    const s = unref(reportSheets)[unref(activePart)] || unref(reportSheets)[0]
+    if (s?.widthMm && s?.heightMm) return { w: s.widthMm, h: s.heightMm }
+    const live = unref(resultModalData)?.liveLayout?.sheets?.[0]
+    if (Array.isArray(live) && live.length >= 2) return { w: Number(live[0]), h: Number(live[1]) }
+    const p = unref(resultModalData)?.params?.sheets?.[0]
+    if (p) return { w: Number(p.width) || 0, h: Number(p.height) || 0 }
+    return { w: 0, h: 0 }
 })
 const reportTotals = computed(() => unref(activeReport)?.totals || null)
 // Enriched offcut ({widthMm, heightMm, areaMm2, reusable}) — the legacy
@@ -708,7 +732,9 @@ const strategyLabel = (strategy) => {
     // when known, raw otherwise.
     const key = `alts.strategy.${strategy}`
     const translated = t(key)
-    return translated === key ? strategy : translated
+    const name = translated === key ? strategy : translated
+    const arrow = displayDirectionArrow(strategy, previewSheet.value.w, previewSheet.value.h)
+    return arrow ? `${arrow} ${name}` : name
 }
 const altTitle = (alt) => {
     const parts = []
@@ -726,8 +752,15 @@ const placeholderClasses = computed(() => ({
         unref(isFullScreen) && !unref(isHaveError)
 }))
 const name = computed(() => {
-    const endPart = unref(resultModalData).isMultiSheet ? `.zip` : `.dxf ` 
+    const endPart = unref(resultModalData).isMultiSheet ? `.zip` : `.dxf`
     return unref(resultModalData).slug + endPart
+})
+const headlineTitle = computed(() => {
+    const alts = unref(alternatives)
+    const alt = alts[unref(activeAlt)] || alts[0]
+    const strategy = alt?.strategy ? strategyLabel(alt.strategy) : t('result.option', { n: (alt?.altId ?? 0) + 1 })
+    const score = alt ? formatScore(alt) : ''
+    return score ? `${strategy} · ${score}` : strategy
 })
 const activePart = ref(0)
 const updatePartPage = (partIndex) => {
@@ -787,7 +820,7 @@ const updatePartPage = (partIndex) => {
 
         @media (min-width: 567px) {
             width: min(620px, 78vw);
-            height: min(460px, 58vh);
+            height: min(280px, 42vh);
         }
 
         &--is-fullscreen {
@@ -837,6 +870,16 @@ const updatePartPage = (partIndex) => {
         &>* {
             margin-bottom: 10px;
         }
+    }
+
+    &__headline {
+        margin: 0 auto 10px;
+        text-align: center;
+    }
+
+    &__summary {
+        margin: 0 auto 12px;
+        max-width: 520px;
     }
 
     &__list-sheets {
@@ -1082,6 +1125,57 @@ const updatePartPage = (partIndex) => {
         font-variant-numeric: tabular-nums;
     }
 }
+.headline {
+    &__title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--label-primary);
+    }
+
+    &__slug {
+        margin: 4px 0 0;
+        font-size: 11px;
+        color: var(--label-tertiary);
+        word-break: break-all;
+        font-family: $sf_mono;
+    }
+}
+
+.summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+
+    &__label {
+        flex-shrink: 0;
+        font-weight: 600;
+        color: var(--label-primary);
+    }
+
+    &__bar {
+        flex: 1;
+        height: 6px;
+        border-radius: 3px;
+        background-color: var(--fill-tertiary);
+        overflow: hidden;
+    }
+
+    &__bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        background-color: var(--accent-primary);
+    }
+
+    &__value {
+        flex-shrink: 0;
+        font-weight: 700;
+        color: var(--label-primary);
+        font-variant-numeric: tabular-nums;
+    }
+}
+
 .controls {
     display: flex;
     flex-wrap: wrap;

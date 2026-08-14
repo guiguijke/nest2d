@@ -24,7 +24,7 @@
             <!-- Main view: champion of the selected strategy (default: left). -->
             <svg
                 v-if="sheet"
-                :viewBox="`0 0 ${sheet[0]} ${sheet[1]}`"
+                :viewBox="viewBox"
                 class="live__sheet"
                 preserveAspectRatio="xMidYMid meet"
             >
@@ -33,29 +33,32 @@
                         <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" />
                     </clipPath>
                 </defs>
-                <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" class="live__sheet-bg" />
-                <g :clip-path="`url(#${clipId})`">
-                    <path
-                        v-for="(item, i) in mainItems"
-                        :key="i"
-                        :d="item.d"
-                        :transform="partTransform(item, sheet[1])"
-                        class="live__part"
-                        :fill="item.color"
-                        :fill-opacity="partFillOpacity"
-                        :stroke="item.color"
-                        fill-rule="evenodd"
-                    />
+                <g :transform="landscapeTransform">
+                    <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" class="live__sheet-bg" />
+                    <g :clip-path="`url(#${clipId})`">
+                        <path
+                            v-for="(item, i) in mainItems"
+                            :key="i"
+                            :d="item.d"
+                            :transform="partTransform(item, sheet[1])"
+                            class="live__part"
+                            :fill="item.color"
+                            :fill-opacity="partFillOpacity"
+                            :stroke="item.color"
+                            fill-rule="evenodd"
+                        />
+                    </g>
+                    <text
+                        v-if="!mainItems.length"
+                        :x="sheet[0] / 2"
+                        :y="sheet[1] / 2"
+                        text-anchor="middle"
+                        class="live__placeholder"
+                    >
+                        {{ t('live.waiting') }}
+                    </text>
                 </g>
-                <text
-                    v-if="!mainItems.length"
-                    :x="sheet[0] / 2"
-                    :y="sheet[1] / 2"
-                    text-anchor="middle"
-                    class="live__placeholder"
-                >
-                    {{ t('live.waiting') }}
-                </text>
+                <SheetAxes :width="sheet[0]" :height="sheet[1]" />
             </svg>
 
             <!-- One card per strategy: its own champion-locked track. Click
@@ -72,10 +75,11 @@
                     <span class="live__card-label">{{ t(`settings.directions.${card.cls}`) }}</span>
                     <svg
                         v-if="card.champ && sheet"
-                        :viewBox="`0 0 ${sheet[0]} ${sheet[1]}`"
+                        :viewBox="displayViewBoxFull"
                         class="live__card-sheet"
                         preserveAspectRatio="xMidYMid meet"
                     >
+                        <g :transform="landscapeTransform">
                         <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" class="live__sheet-bg" />
                         <g :clip-path="`url(#${clipId})`">
                             <path
@@ -89,6 +93,7 @@
                                 :stroke="item.color"
                                 fill-rule="evenodd"
                             />
+                        </g>
                         </g>
                     </svg>
                     <span v-if="card.champ" class="live__card-metric">
@@ -115,6 +120,12 @@
  * and everything is clipped to the sheet rect.
  */
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
+import {
+    engineToDisplay,
+    sheetAxesDisplay,
+    sheetDisplaySize,
+    sheetLandscapeTransform,
+} from '~/utils/sheetView';
 
 const props = defineProps({
     result: { type: Object, required: true },
@@ -329,6 +340,102 @@ const mainItems = computed(() =>
     buildItems(best.value, props.result?.itemMap, geometryCache.value)
 );
 
+function pathCoords(d) {
+    const nums = []
+    const re = /-?\d*\.?\d+(?:e[-+]?\d+)?/gi
+    let m
+    while ((m = re.exec(d || ''))) nums.push(Number(m[0]))
+    return nums
+}
+
+function itemLocalCorners(item) {
+    const nums = pathCoords(item.d)
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+        const x = nums[i]
+        const y = nums[i + 1]
+        if (x < minX) minX = x
+        if (y < minY) minY = y
+        if (x > maxX) maxX = x
+        if (y > maxY) maxY = y
+    }
+    if (!Number.isFinite(minX)) return []
+    return [
+        [minX, minY],
+        [maxX, minY],
+        [maxX, maxY],
+        [minX, maxY],
+    ]
+}
+
+function mapPlacedEngine(px, py, item) {
+    const rad = ((item.rot || 0) * Math.PI) / 180
+    const c = Math.cos(rad)
+    const s = Math.sin(rad)
+    const rx = px * c - py * s
+    const ry = px * s + py * c
+    return [item.x + rx, item.y + ry]
+}
+
+const landscapeTransform = computed(() => {
+    const s = sheet.value
+    if (!s) return ''
+    return sheetLandscapeTransform(s[0], s[1])
+})
+
+const displayViewBoxFull = computed(() => {
+    const s = sheet.value
+    if (!s) return '0 0 1 1'
+    const { viewW, viewH } = sheetDisplaySize(s[0], s[1])
+    return `0 0 ${viewW} ${viewH}`
+})
+
+// Zoom onto the used region in DISPLAY space. Axes stay in frame (origin
+// is always included). Export geometry is unchanged.
+const viewBox = computed(() => {
+    const s = sheet.value
+    if (!s) return '0 0 1 1'
+    const [W, H] = s
+    const { viewW, viewH } = sheetDisplaySize(W, H)
+    const full = `0 0 ${viewW} ${viewH}`
+    const items = mainItems.value
+    if (!items.length) return full
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    const include = (x, y) => {
+        if (x < minX) minX = x
+        if (y < minY) minY = y
+        if (x > maxX) maxX = x
+        if (y > maxY) maxY = y
+    }
+    const ax = sheetAxesDisplay(W, H)
+    include(ax.origin.x, ax.origin.y)
+    include(ax.xTo.x, ax.xTo.y)
+    include(ax.yTo.x, ax.yTo.y)
+    for (const item of items) {
+        for (const [px, py] of itemLocalCorners(item)) {
+            const [ex, ey] = mapPlacedEngine(px, py, item)
+            const [dx, dy] = engineToDisplay(ex, ey, W, H)
+            include(dx, dy)
+        }
+    }
+    if (!Number.isFinite(minX)) return full
+    const bw = Math.max(1, maxX - minX)
+    const bh = Math.max(1, maxY - minY)
+    if ((bw * bh) / (viewW * viewH) >= 0.4) return full
+    const pad = Math.max(bw, bh) * 0.14 + Math.max(viewW, viewH) * 0.02
+    const vx = Math.max(0, minX - pad)
+    const vy = Math.max(0, minY - pad)
+    const vw = Math.min(viewW - vx, bw + pad * 2)
+    const vh = Math.min(viewH - vy, bh + pad * 2)
+    return `${vx} ${vy} ${vw} ${vh}`
+});
+
 // One card per observed/declared strategy, each with its own champion.
 const classCards = computed(() => {
     const declared = props.result?.compute?.directions;
@@ -401,15 +508,12 @@ const formatElapsed = (sec) => {
         align-items: center;
         gap: 10px;
         font-size: 13px;
-        // The panel background is dark in this theme: force readable light
-        // text instead of relying on theme label vars (which can be blue
-        // on navy here).
-        color: #eef2f7;
+        color: var(--label-primary);
     }
 
     &__stage {
         font-weight: 700;
-        color: #eef2f7;
+        color: var(--label-primary);
     }
 
     &__badge {
@@ -434,19 +538,19 @@ const formatElapsed = (sec) => {
         align-items: center;
         gap: 4px;
         font-size: 12px;
-        color: #b8c2d0;
+        color: var(--label-secondary);
         font-variant-numeric: tabular-nums;
 
         &--accent {
             font-weight: 700;
-            color: #6ea8ff;
+            color: var(--accent-primary);
         }
     }
 
     &__stat-suffix {
         font-size: 10px;
         font-weight: 500;
-        color: #8b98ab;
+        color: var(--label-tertiary);
     }
 
     &__body {
@@ -455,10 +559,11 @@ const formatElapsed = (sec) => {
         align-items: stretch;
     }
 
-    // The CAD canvas: light, always.
+    // The CAD canvas: light, always (AGENTS #21 — never theme vars here).
     &__sheet {
         flex: 1;
-        min-height: 160px;
+        min-height: 280px;
+        max-height: min(52vh, 560px);
         border: 1px solid #d5dbe3;
         border-radius: 8px;
         background: #f8fafc;

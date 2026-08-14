@@ -693,8 +693,12 @@ def nesting_process(doc):
     # ------------------------------------------------------------------
     SPP_MAX_AREA_RATIO = float(os.environ.get("NEST_SPP_MAX_AREA_RATIO", "0.80"))
     single_sheet_area = (bin_dims[0][0] * bin_dims[0][1]) if bins else 0.0
+    total_stock = sum(int(s.get("count") or 1) for s in sheets)
+    # SPP cannot span sheets. Stock count > 1 (e.g. demo 3×3000×1500) must
+    # be BPP even when the part area would fit one plate on paper.
     is_spp = (
         len(bins) == 1
+        and total_stock == 1
         and single_sheet_area > 0
         and total_part_area <= single_sheet_area * SPP_MAX_AREA_RATIO
     )

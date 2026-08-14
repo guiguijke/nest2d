@@ -111,7 +111,7 @@ describe('POST nest — computeLocation written server-side (P3)', () => {
         expect(params.directions).toHaveLength(1)
     })
 
-    it('flag ON + demo: local regardless of tier (QA vehicle), demo quota consumed', async () => {
+    it('flag ON + demo: local regardless of tier, demo quota NOT consumed', async () => {
         state.config = { public: { localComputeEnabled: true } }
         const userDoc = freeUser({ demoNestingUsed: 0, demoNestingPeriod: currentPeriod() })
         state.db = fakeDb({
@@ -122,7 +122,8 @@ describe('POST nest — computeLocation written server-side (P3)', () => {
         await nestHandler(ev('u1', 'demo', nestBody([[3000, 1500, 2]])))
         expect(state.enqueued[0].params.computeLocation).toBe('local')
         expect(state.enqueued[0].params.computeLevel).toBe('browser')
-        expect(userDoc.demoNestingUsed).toBe(1)
+        expect(state.enqueued[0].charge).toEqual({ type: 'demo', skippedQuota: true })
+        expect(userDoc.demoNestingUsed).toBe(0)
     })
 })
 

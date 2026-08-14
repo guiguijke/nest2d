@@ -3,7 +3,7 @@
         <!-- D-PRV-10 : fichier expiré (géométrie purgée à 24 h) — compteur
              et preview masqués, réimport nécessaire pour renester. -->
         <template v-if="file.expired">
-            <div class="file__display file__placeholder">∅</div>
+            <div class="file__display file__placeholder" :title="t('files.expired')" />
             <p class="file__name">
                 {{ file.name }}
             </p>
@@ -64,28 +64,31 @@ const openModal = () => {
     flex-wrap: wrap;
     position: relative;
     $self: &;
-    padding: 15px;
-    border-radius: 8px;
+    padding: 12px;
+    border-radius: 12px;
     border: 1px solid var(--separator-secondary);
+    box-shadow:
+        0 1px 2px color-mix(in srgb, var(--label-primary) 4%, transparent),
+        0 4px 12px color-mix(in srgb, var(--label-primary) 5%, transparent);
     transition: border-color 0.3s;
 
     &__parts {
-        width: calc(100% - 100px);
-        margin-left: 16px;
-        height: 84px;
+        width: calc(100% - 80px);
+        margin-left: 12px;
+        height: 64px;
         position: relative;
         z-index: 1;
     }
 
     &__display {
-        width: 84px;
-        height: 84px;
+        width: 64px;
+        height: 64px;
     }
 
     &__name {
         width: 100%;
-        margin-top: 16px;
-        margin-bottom: 16px;
+        margin-top: 10px;
+        margin-bottom: 10px;
         color: var(--label-secondary);
         transition: color 0.3s;
         white-space: nowrap;
@@ -117,7 +120,9 @@ const openModal = () => {
         border-radius: 6px;
         background-color: var(--fill-tertiary, rgba(127, 127, 127, 0.12));
         color: var(--label-tertiary);
-        font-size: 20px;
+        font-size: 11px;
+        text-align: center;
+        padding: 4px;
     }
 
     &__expired {

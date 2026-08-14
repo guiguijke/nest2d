@@ -110,7 +110,7 @@
                     </div>
                     <p class="compute__hint">{{ directionsHint }}</p>
                 </div>
-                <label class="size__checkbox">
+                <label class="size__checkbox" :title="t('settings.addOutShapeHint')">
                     <input
                         type="checkbox"
                         v-model="localAddOutShape"
@@ -132,6 +132,7 @@
 <script setup>
     import { SHEET_PRESETS } from '~/utils/units'
     import { DEMO_MAX_DIRECTIONS, DEMO_PROJECT_SLUG } from '~~/shared/constants/demo.constants'
+    import { displayDirectionArrow } from '~/utils/sheetView'
 
     const { t } = useLocale()
     const { unit, unitLabel, enabled: unitsEnabled } = useUnit()
@@ -183,7 +184,6 @@
     // Allowance comes from the server (user.compute.maxDirections) and is
     // re-validated at enqueue — the client can never inflate it.
     const DIRECTION_ORDER = ['left', 'bottom', 'balanced']
-    const DIRECTION_ARROWS = { left: '←', bottom: '↓', balanced: '↙' }
     const { getters: authGetters } = authStore
     const route = useRoute()
     // The shared demo project runs at standard power (4 vcores) but computes
@@ -217,10 +217,17 @@
             })
         }
     }
+    const firstSheet = computed(() => {
+        const s = sheets.value[0] || {}
+        return {
+            width: Number(String(s.width).replace(',', '.')) || 0,
+            height: Number(String(s.height).replace(',', '.')) || 0,
+        }
+    })
     const directionOptions = computed(() =>
         DIRECTION_ORDER.map((value) => ({
             value,
-            arrow: DIRECTION_ARROWS[value],
+            arrow: displayDirectionArrow(value, firstSheet.value.width, firstSheet.value.height),
             label: t(`settings.directions.${value}`),
             hint: t(`settings.directions.${value}Hint`),
             active: localDirections.value.includes(value),
@@ -245,38 +252,34 @@
 
 <style lang="scss" scoped>
     .settings {
-        text-align: center;
+        text-align: left;
 
         &__title {
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
 
         &__content {
-            width: min(520px, 100%);
-            margin-left: auto;
-            margin-right: auto;
+            width: 100%;
         }
     }
 
     .content {
-        display: flex;
-        justify-content: center;
+        display: block;
 
         &__size {
             width: 100%;
-            max-width: 520px;
         }
     }
 
     .size {
         & > *:not(:last-child) {
-            margin-bottom: 12px;
+            margin-bottom: 10px;
         }
 
         &__line {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            grid-template-columns: 1fr;
+            gap: 8px;
         }
 
         &__input {
@@ -313,7 +316,7 @@
             align-items: center;
             gap: 8px;
             color: var(--label-primary);
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             cursor: pointer;
             padding: 0 4px;
@@ -321,6 +324,8 @@
             input {
                 width: 16px;
                 height: 16px;
+                margin-top: 2px;
+                flex-shrink: 0;
                 cursor: pointer;
                 accent-color: var(--accent-primary);
             }
@@ -329,8 +334,8 @@
 
     .sheet {
         border: 1px solid var(--separator-secondary);
-        border-radius: 14px;
-        padding: 14px;
+        border-radius: 12px;
+        padding: 12px;
         background-color: var(--background-primary);
         box-shadow:
             0 1px 2px color-mix(in srgb, var(--label-primary) 4%, transparent),

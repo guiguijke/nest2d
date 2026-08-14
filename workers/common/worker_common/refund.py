@@ -23,7 +23,7 @@ def refund_charge(jobs_collection, doc) -> None:
                 {"$inc": {"freeNestingUsed": -1}},
             )
             logger.info(f"Refunded free nesting slot to user {doc['ownerId']}")
-        elif charge_type == "demo":
+        elif charge_type == "demo" and not charge.get("skippedQuota"):
             db["users"].update_one(
                 {"id": doc["ownerId"], "demoNestingUsed": {"$gt": 0}},
                 {"$inc": {"demoNestingUsed": -1}},

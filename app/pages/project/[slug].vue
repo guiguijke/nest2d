@@ -1,65 +1,90 @@
 <template>
     <div class="content">
-        <MainTitle :label="pageTitle" class="content__title" />
+        <header class="content__head">
+            <h1 class="content__title">{{ pageTitle }}</h1>
+            <p v-if="!isDemo" class="content__count">{{ t('project.files', { n: filesCount }) }}</p>
+        </header>
         <div v-if="isDemo" class="demo-banner">
             <div class="demo-banner__head">
                 <span class="demo-banner__badge">{{ t('demo.badge') }}</span>
                 <span class="demo-banner__name">{{ t('demo.projectName') }}</span>
             </div>
             <p class="demo-banner__text">
-                {{ t('demo.banner', { n: DEMO_LIMIT }) }}
+                {{ demoUnlimited ? t('demo.bannerLocal') : t('demo.banner', { n: DEMO_LIMIT }) }}
             </p>
-            <p class="demo-banner__remaining">{{ t('demo.remaining', { n: demoRemaining, total: DEMO_LIMIT }) }}</p>
+            <p v-if="demoUnlimited" class="demo-banner__remaining">{{ t('demo.unlimitedLocal') }}</p>
+            <p v-else class="demo-banner__remaining">{{ t('demo.remaining', { n: demoRemaining, total: DEMO_LIMIT }) }}</p>
         </div>
-        <section v-if="liveResult || localReveal" ref="liveSection" class="content__live live-panel">
-            <h3 class="live-panel__title">{{ t('live.title') }}</h3>
-            <LiveNestingView :result="liveResult || localReveal" />
-        </section>
-        <section v-if="localComputeRunning" class="content__live live-panel">
-            <h3 class="live-panel__title">{{ t('localCompute.title') }}
-                <span class="live-panel__elapsed">{{ localElapsed }}s / {{ localBudget }}s</span>
-                <!-- J-093 : taille du pool (stat libellée, #24) — injectée
-                     dans les frames live par runLocalJobPrivate. -->
-                <span v-if="localWalks > 1" class="live-panel__elapsed"> · ×{{ localWalks }} walks</span>
-            </h3>
-            <!-- D-PRV-9 : la promesse « fichiers jamais envoyés » n'est vraie
-                 que pour un projet 100 % privé (import navigateur) — un projet
-                 cloud en calcul local a uploadé ses sources (purgées 24 h). -->
-            <p class="live-panel__status">{{ t(isLocalProject ? 'localCompute.runningLocal' : 'localCompute.running') }}</p>
-            <!-- J-084 : vue live du solve navigateur — les frames layout
-                 streamées par le moteur WASM alimentent LiveNestingView,
-                 exactement comme le flux SSE côté serveur. -->
-            <LiveNestingView v-if="localLive" :result="localLive" />
+        <section ref="liveSection" class="atelier">
+            <div class="atelier__stage stage">
+                <div class="stage__head">
+                    <h2 class="stage__title">
+                        {{ stageHeading }}
+                        <span v-if="localComputeRunning" class="stage__meta">
+                            {{ localElapsed }}s / {{ localBudget }}s
+                            <template v-if="localWalks > 1">
+                                · ×{{ localWalks }} {{ t('live.walks') }}
+                            </template>
+                        </span>
+                    </h2>
+                    <p v-if="localComputeRunning" class="stage__status">
+                        {{ t(isLocalProject ? 'localCompute.runningLocal' : 'localCompute.running') }}
+                    </p>
+                </div>
+                <LiveNestingView v-if="stageLive" :result="stageLive" />
+                <div v-else class="stage__idle">
+                    <svg
+                        :viewBox="idleViewBox"
+                        class="stage__sheet"
+                        preserveAspectRatio="xMidYMid meet"
+                    >
+                        <g :transform="idleTransform">
+                            <rect
+                                x="0"
+                                y="0"
+                                :width="idleSheet.w"
+                                :height="idleSheet.h"
+                                class="stage__sheet-bg"
+                            />
+                        </g>
+                        <SheetAxes :width="idleSheet.w" :height="idleSheet.h" />
+                    </svg>
+                    <p class="stage__dims">{{ idleSheet.w }} × {{ idleSheet.h }} {{ unitLabel }}</p>
+                </div>
+            </div>
+            <aside class="atelier__params">
+                <MainSettings />
+                <MainButton
+                    :theme="themeType.primary"
+                    :label="btnLabel"
+                    :isDisable="btnIsDisable"
+                    trackingTag="project_nest_start"
+                    @click="startsNest"
+                    class="atelier__nest"
+                >
+                    <template v-if="runningJob">
+                        <CoresSpinner :cores="runningCores" :size="16" show-count />
+                        {{ t('nest.computing') }}
+                    </template>
+                </MainButton>
+                <FreeNestBanner v-if="!isDemo" />
+                <p v-if="isLocalProject" class="content__purge-notice">
+                    {{ t('nest.localNotice') }}
+                </p>
+                <p v-else-if="!isDemo && !vaultEnabled" class="content__purge-notice">
+                    {{ t('nest.purgeNotice') }}
+                </p>
+            </aside>
         </section>
         <div v-if="localComputeError" class="content__error">
             {{ localErrorText }}
         </div>
-        <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
-        <MainSettings />
-        <MainButton :theme="themeType.primary" :label="btnLabel" :isDisable="btnIsDisable" trackingTag="project_nest_start"
-            @click="startsNest" class="content__btn">
-            <template v-if="runningJob">
-                <CoresSpinner :cores="runningCores" :size="16" show-count />
-                {{ t('nest.computing') }}
-            </template>
-        </MainButton>
-        <FreeNestBanner v-if="!isDemo" />
-        <!-- D-PRV-10 : disclosure purge 24 h — masquée pour les comptes
-             vault (exemptés : blobs chiffrés au repos). J-090 : un projet
-             100 % privé n'upload rien — message dédié. -->
-        <p v-if="isLocalProject" class="content__purge-notice">
-            {{ t('nest.localNotice') }}
-        </p>
-        <p v-else-if="!vaultEnabled" class="content__purge-notice">
-            {{ t('nest.purgeNotice') }}
-        </p>
-        <div v-if="isDemo && demoQuotaReached" class="content__error">
+        <div v-if="isDemo && demoQuotaReached && !demoUnlimited" class="content__error">
             {{ t('demo.quotaEmpty') }}
         </div>
         <div v-if="nestRequestError" class="content__error">
             {{ nestRequestError }}
         </div>
-        <!-- J-090 : erreur d'import navigateur (clé i18n renvoyée par le store) -->
         <div v-if="localImportError" class="content__error">
             {{ t(localImportError) }}
         </div>
@@ -72,9 +97,7 @@
         <div v-if="!sizesIsAvailable && !nestRequestError" class="content__error">
             {{ t('project.minSheet', { w: fmtLengthValue(biggestPartSizes.width), h: fmtLengthValue(biggestPartSizes.height), unit: unitLabel }) }}
         </div>
-        <div v-if="!isNewParams" class="content__text">
-            {{ t('project.changeToRegenerate') }}
-        </div>
+        <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
     </div>
 </template>
 
@@ -87,9 +110,11 @@ import { invalidateLocalRecords } from "~/composables/localHydrate";
 import { useLocalMode } from "~/composables/useLocalMode";
 import {
     DEMO_NESTING_LIMIT,
+    DEMO_PROJECT_SLUG,
     DEMO_SHEETS,
     DEMO_SPACE_MM,
 } from "~~/shared/constants/demo.constants";
+import { sheetDisplaySize, sheetLandscapeTransform } from "~/utils/sheetView";
 
 definePageMeta({
     layout: "auth",
@@ -268,12 +293,19 @@ const data = filesGetters.projectFiles || await $apiFetch(apiPath);
 // nesting settings are — the demo plays like a regular project. Only the
 // compute profile (4 vcores, 90 s, 3 directions) and the monthly demo quota
 // stay server-imposed.
-const isDemo = computed(() => Boolean(data.isDemo));
+const isDemo = computed(() =>
+    Boolean(filesGetters.projectDemo)
+    || Boolean(data?.isDemo)
+    || route.params.slug === DEMO_PROJECT_SLUG
+);
 // J-090 : projet « 100 % privé » — fichiers en IndexedDB, jamais uploadés.
-const isLocalProject = computed(() => Boolean(data.local));
+const isLocalProject = computed(() =>
+    Boolean(filesGetters.projectLocal) || Boolean(data?.local)
+);
 const DEMO_LIMIT = DEMO_NESTING_LIMIT;
 const user = computed(() => unref(authStore.getters.user) || {});
 const demoRemaining = computed(() => Number(user.value.demoRemaining ?? DEMO_LIMIT));
+const demoUnlimited = computed(() => Boolean(user.value.demoUnlimited));
 
 // Pre-fill the demo settings (converted to the user's display unit) — only
 // on the first visit of this page instance, so manual tweaks survive the
@@ -282,7 +314,7 @@ const demoDefaultsApplied = ref(false);
 const applyDemoDefaults = () => {
     // mm -> display unit, rounded for the input fields (the 0.001" precision
     // is a UI matter; canonical geometry stays mm server-side). The sheet is
-    // a metric standard (3000×1500): in inch mode, snap to the equivalent
+    // a metric standard (1500×3000, X×Y): in inch mode, snap to the equivalent
     // US standard (120×60, the 5×10 ft pair, orientation preserved) instead
     // of an unreadable 118.11×59.055.
     const mmToDisp = (mm) => {
@@ -313,10 +345,34 @@ watch(isDemo, (val) => {
 }, { immediate: true });
 
 const pageTitle = computed(() => {
-    return isDemo.value
-        ? `${t('demo.projectName')} · ${t('project.files', { n: unref(filesCount) })}`
-        : t('project.files', { n: unref(filesCount) });
+    if (isDemo.value) return t('demo.projectName')
+    return filesGetters.projectName || data?.name || t('project.files', { n: unref(filesCount) })
 });
+
+const stageLive = computed(() => {
+    if (unref(localComputeRunning) && unref(localLive)) return unref(localLive)
+    return unref(liveResult) || unref(localReveal) || null
+});
+
+const stageHeading = computed(() => {
+    if (unref(localComputeRunning)) return t('localCompute.title')
+    if (unref(stageLive)) return t('live.title')
+    return t('live.ready')
+});
+
+const idleSheet = computed(() => {
+    const s = unref(currentSheets)[0] || { width: 1000, height: 2000 }
+    const w = Number(String(s.width).replace(',', '.')) || 1000
+    const h = Number(String(s.height).replace(',', '.')) || 2000
+    return { w, h }
+});
+const idleViewBox = computed(() => {
+    const { viewW, viewH } = sheetDisplaySize(idleSheet.value.w, idleSheet.value.h)
+    return `0 0 ${viewW} ${viewH}`
+});
+const idleTransform = computed(() =>
+    sheetLandscapeTransform(idleSheet.value.w, idleSheet.value.h)
+);
 
 const projectFiles = computed(() => {
     return filesGetters.projectFiles || data.files.map(file => ({ ...file, count: file.demoQuantity ?? 1 }))
@@ -401,21 +457,34 @@ const startsNest = () => {
 </script>
 
 <style lang="scss" scoped>
-.wrapper {
-    &>*:not(:last-child) {
-        margin-bottom: 40px;
-    }
-}
-
 .content {
-    text-align: center;
+    text-align: left;
 
-    &__title {
+    &__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
         margin-bottom: 16px;
     }
 
+    &__title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--label-primary);
+    }
+
+    &__count {
+        margin: 0;
+        font-size: 13px;
+        color: var(--label-tertiary);
+        flex-shrink: 0;
+    }
+
     &__files {
-        margin-bottom: 40px;
+        margin-top: 28px;
+        margin-bottom: 24px;
     }
 
     &__error {
@@ -427,71 +496,114 @@ const startsNest = () => {
         border-radius: 8px;
     }
 
-    &__text {
-        color: var(--label-secondary);
-        margin-top: 16px;
-    }
-
     &__purge-notice {
         color: var(--label-tertiary);
-        margin-top: 12px;
+        margin-top: 10px;
         font-size: 12px;
-    }
-
-    &__live {
-        margin-bottom: 40px;
-    }
-
-    &__btn {
-        margin-top: 40px;
-        margin-right: auto;
-        margin-left: auto;
+        line-height: 1.4;
     }
 }
 
-.live-panel {
-    padding: 20px;
-    border: 1px solid var(--separator-secondary);
-    border-radius: 12px;
-    background: var(--background-secondary, rgba(127, 127, 127, 0.04));
+.atelier {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-bottom: 8px;
 
-    &__title {
-        margin: 0 0 12px;
-        font-size: 15px;
-        font-weight: 600;
-        // The live panel sits on a dark background in this theme — force a
-        // readable light tone (label-primary is blue-on-navy here).
-        color: #eef2f7;
-        text-align: left;
+    @media (min-width: 900px) {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 24px;
+        align-items: start;
     }
 
-    // Compteur de temps : chiffres tabulaires pour éviter le tremblement.
-    &__elapsed {
+    &__params {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    &__nest {
+        width: 100%;
+        margin-top: 4px;
+
+        :deep(.button) {
+            width: 100%;
+        }
+    }
+}
+
+.stage {
+    padding: 16px;
+    border: 1px solid var(--separator-secondary);
+    border-radius: 12px;
+    background: var(--background-primary);
+
+    &__head {
+        margin-bottom: 12px;
+    }
+
+    &__title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--label-primary);
+    }
+
+    &__meta {
         margin-left: 8px;
         font-size: 12px;
         font-weight: 500;
-        color: #6ea8ff;
+        color: var(--accent-primary);
         font-variant-numeric: tabular-nums;
     }
 
-    // Sous-titre d'état (texte secondaire lisible sur fond sombre, #24).
     &__status {
-        margin: -6px 0 12px;
+        margin: 6px 0 0;
         font-size: 13px;
-        color: #b8c2d0;
-        text-align: left;
+        color: var(--label-secondary);
     }
 
-    :deep(.live__sheet) {
-        min-height: 380px;
-        max-height: 60vh;
+    &__idle {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+
+    &__sheet {
+        width: 100%;
+        min-height: 280px;
+        max-height: min(52vh, 560px);
+        border: 1px solid #d5dbe3;
+        border-radius: 8px;
+        background: #f8fafc;
+    }
+
+    &__sheet-bg {
+        fill: #ffffff;
+        stroke: #3b82f6;
+        stroke-width: 1;
+    }
+
+    &__ready {
+        margin: 4px 0 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--label-primary);
+    }
+
+    &__dims {
+        margin: 0;
+        font-size: 12px;
+        color: var(--label-tertiary);
+        font-variant-numeric: tabular-nums;
     }
 }
 
 .demo-banner {
-    margin: 0 auto 24px;
-    padding: 14px 18px;
-    max-width: 640px;
+    margin: 0 0 16px;
+    padding: 10px 16px;
     text-align: left;
     border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
     border-radius: 12px;

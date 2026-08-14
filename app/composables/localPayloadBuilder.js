@@ -616,10 +616,17 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         totalPartArea += partArea(item.coords, item.holes) * item.count
     }
 
-    // SPP (une seule tôle = la bande, largeur minimisée) seulement si tout
-    // tient plausiblement sur une tôle ; sinon BPP (minimise les tôles).
+    // SPP (une seule tôle physique = la bande, largeur minimisée) seulement
+    // si le stock déclaré est UNE tôle ET que l'aire tient à 80 %. count > 1
+    // → BPP : sparrow ne peut pas répartir sur plusieurs tôles, et un job
+    // démo 3×3000×1500 en SPP échoue (« no feasible solution in directions
+    // mode ») même quand l'aire tient statistiquement sur une plaque.
     const sheetArea = sheets[0].width * sheets[0].height
-    const isSpp = sheets.length === 1 && totalPartArea > 0 && totalPartArea <= sheetArea * SPP_MAX_AREA_RATIO
+    const totalStock = sheets.reduce((n, s) => n + (Number(s.count) || 1), 0)
+    const isSpp = sheets.length === 1
+        && totalStock === 1
+        && totalPartArea > 0
+        && totalPartArea <= sheetArea * SPP_MAX_AREA_RATIO
 
     // Garde #2b : jagua initialise la bande à aire_totale/hauteur puis la
     // DÉFLATE de space/2 — si l'espacement dépasse cette largeur initiale,

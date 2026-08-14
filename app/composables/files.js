@@ -11,6 +11,7 @@ const state = reactive({
     projectFiles: null,
     projectSlug: null,
     projectName: '',
+    projectDemo: false,
     // J-090 : projet « 100 % privé » — fichiers en IndexedDB, jamais uploadés.
     projectLocal: false,
     // Clé i18n de la dernière erreur d'import navigateur (affichée en page).
@@ -143,6 +144,8 @@ async function getProject(path) {
     try {
         const data = await $fetch(path)
         state.projectLocal = Boolean(data.local)
+        state.projectDemo = Boolean(data.isDemo)
+        if (data.name) setProjectName(data.name)
         if (data.local) {
             // J-090 : les fichiers d'un projet « 100 % privé » vivent dans
             // IndexedDB — le serveur ne sert que le nom/slug du projet.
@@ -153,7 +156,6 @@ async function getProject(path) {
         } else {
             setProjectFiles(data.files, path)
         }
-        setProjectName(data.name)
     } catch (error) {
         if (error?.data?.statusMessage === 'vault_locked') {
             const vaultUnlockDialog = useVaultUnlockDialog();
@@ -408,6 +410,8 @@ async function nest(slug) {
 export const filesStore = readonly({
     getters: {
         projectFiles: computed(() => state.projectFiles),
+        projectName: computed(() => state.projectName),
+        projectDemo: computed(() => state.projectDemo),
         projectLocal: computed(() => state.projectLocal),
         localImportError: computed(() => state.localImportError),
         filesCount: computed(() =>

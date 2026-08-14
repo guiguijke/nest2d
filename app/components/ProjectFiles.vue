@@ -1,28 +1,35 @@
 <template>
     <div class="files">
-        <DxfUpload v-if="!readonly" @files="addFiles" />
-        <template
-            v-for="(file, fileIndex) in projectFiles"
-            :key="file.slug"
-        >
-            <FileDone
-                :file="file"
-                :fileIndex="fileIndex"
-                @openModal="openModal(file)"
-                v-if="fileIsDone(file.processingStatus)"
-                class="files__item file"
-            />
-            <FileInProgress
-                :file="file"
-                v-if="fileIsProcessing(file.processingStatus)"
-                class="files__item file"
-            />
-            <FileError
-                :file="file"
-                v-if="fileIsError(file.processingStatus)"
-                class="files__item file"
-            />
-        </template>
+        <DxfUpload
+            v-if="!readonly"
+            compact
+            class="files__upload"
+            @files="addFiles"
+        />
+        <div class="files__grid">
+            <template
+                v-for="(file, fileIndex) in projectFiles"
+                :key="file.slug"
+            >
+                <FileDone
+                    :file="file"
+                    :fileIndex="fileIndex"
+                    @openModal="openModal(file)"
+                    v-if="fileIsDone(file.processingStatus)"
+                    class="files__item file"
+                />
+                <FileInProgress
+                    :file="file"
+                    v-if="fileIsProcessing(file.processingStatus)"
+                    class="files__item file"
+                />
+                <FileError
+                    :file="file"
+                    v-if="fileIsError(file.processingStatus)"
+                    class="files__item file"
+                />
+            </template>
+        </div>
         <FileModal v-model:isModalOpen="fileDialog" />
     </div>
 </template>
@@ -62,13 +69,22 @@ const openModal = (file) => {
 
 <style lang="scss" scoped>
 .files {
-    display: grid;
-    grid-template-columns: repeat(2, calc(100% / 2 - 4px));
-    gap: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 
-    @media (min-width: 567px) {
-        grid-template-columns: repeat(3, calc(100% / 3 - 8px));
-        gap: 8px;
+    &__upload {
+        width: 100%;
+    }
+
+    &__grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+
+        @media (min-width: 880px) {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
     }
 }
 .file {

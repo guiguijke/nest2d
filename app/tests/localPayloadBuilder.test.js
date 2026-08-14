@@ -148,6 +148,34 @@ describe('feasibility pre-check (message exact main.py)', () => {
     })
 })
 
+describe('SPP vs BPP — stock count', () => {
+    const square = {
+        slug: 'sq-a1b2c3.dxf', name: 'sq.dxf', count: 2, rotations: [0],
+        parts: [{
+            coordinates: [[0, 0], [40, 0], [40, 40], [0, 40], [0, 0]],
+            holes: [], width: 40, height: 40, handles: [], color: null,
+        }],
+    }
+    it('une tôle physique (count 1) + aire faible → SPP', async () => {
+        const { payload } = await buildLocalPayload({
+            files: [square],
+            params: { sheets: [{ width: 1500, height: 1000, count: 1 }], space: 2, fillHoles: true, addOutShape: false, outputUnit: 'mm' },
+            profile: { timeBudgetSec: 13 },
+        }, {})
+        expect(payload.problem).toBe('spp')
+    })
+    it('même format en 3 exemplaires (démo) → BPP, sparrow ne peut pas enjamber', async () => {
+        const { payload } = await buildLocalPayload({
+            files: [square],
+            params: { sheets: [{ width: 1500, height: 1000, count: 3 }], space: 2, fillHoles: true, addOutShape: false, outputUnit: 'mm' },
+            profile: { timeBudgetSec: 13 },
+        }, {})
+        expect(payload.problem).toBe('bpp')
+        expect(payload.instance.bins?.[0]?.stock).toBe(3)
+        expect(payload.engineConfig.max_strip_width).toBeUndefined()
+    })
+})
+
 describe('garde #2b (strip initial deflate vide)', () => {
     it('espacement >= largeur initiale de bande → Error au format Python', async () => {
         const file = {

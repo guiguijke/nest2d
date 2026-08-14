@@ -15,12 +15,11 @@ export default defineEventHandler(async (event) => {
 
     const isStripFeatureEnable = user.isStripFeatureEnable || false
     const entitlement = await getEntitlement(userId)
-    const demo = await getDemoEntitlement(userId)
+    const config = useRuntimeConfig(event)
+    const demo = await getDemoEntitlement(userId, config.public.localComputeEnabled)
 
     const vault = await getVaultStatus(userId)
     const compute = await getComputeProfile(userId, null)
-
-    const config = useRuntimeConfig(event)
 
     // Env overrides arrive as strings ('true'), not booleans — same
     // defensive pattern as localAuthEnabled in register.post.js.
@@ -58,6 +57,7 @@ export default defineEventHandler(async (event) => {
         freeRemaining: entitlement.freeRemaining,
         // Demo project monthly allowance (separate from the free quota).
         demoRemaining: demo.demoRemaining,
+        demoUnlimited: Boolean(demo.demoUnlimited),
         subscriptionStatus: entitlement.subscriptionStatus,
         requiresPaywall: entitlement.requiresPaywall,
         compute: {

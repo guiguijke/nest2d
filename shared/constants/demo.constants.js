@@ -25,5 +25,8 @@ export const DEMO_MAX_DIRECTIONS = 1
 // OPEN (channel = space + 0.1, capped at 2.5 mm): the demo must showcase
 // hole filling, which a sealed channel (spacing >= 2.4 mm) would silently
 // disable.
-export const DEMO_SHEETS = [{ width: 3000, height: 1500, count: 3 }]
+// Physical stock: width (X, largeur) × length (Y, longueur). The live
+// view rotates portrait sheets so the long side is horizontal on 16:9
+// screens; engine axes are unchanged (left = –X, bottom = –Y).
+export const DEMO_SHEETS = [{ width: 1500, height: 3000, count: 3 }]
 export const DEMO_SPACE_MM = 2

@@ -45,6 +45,10 @@ const props = defineProps({
         type: Array,
         default: () => [".dxf", ".svg", ".dwg"],
     },
+    compact: {
+        type: Boolean,
+        default: false,
+    },
 });
 const emit = defineEmits(["files"]);
 
@@ -68,7 +72,10 @@ const onDXFChange = (event) => {
     setFiles(addedFiles);
 };
 
-const labelClasses = computed(() => ({ 'upload__label--hover': unref(isDragOver) }));
+const labelClasses = computed(() => ({
+    'upload__label--hover': unref(isDragOver),
+    'upload__label--compact': unref(props.compact),
+}));
 </script>
 
 <style lang="scss" scoped>
@@ -87,11 +94,28 @@ const labelClasses = computed(() => ({ 'upload__label--hover': unref(isDragOver)
         min-height: 164px;
         background-color: var(--fill-tertiary);
         border: dashed 1px var(--accent-primary);
-        border-radius: 8px;
+        border-radius: 12px;
         transition: background-color 0.3s;
 
         &--hover {
             background-color: var(--fill-secondary);
+        }
+
+        &--compact {
+            min-height: 88px;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            padding: 16px 20px;
+
+            .upload__btn {
+                margin-bottom: 0;
+            }
+
+            .upload__text--gray {
+                margin-top: 0;
+                flex-basis: 100%;
+            }
         }
     }
     &__btn {

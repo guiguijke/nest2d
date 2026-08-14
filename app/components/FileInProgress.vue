@@ -25,8 +25,8 @@ defineProps({
 .file {
     position: relative;
     $self: &;
-    padding: 15px;
-    border-radius: 8px;
+    padding: 12px;
+    border-radius: 12px;
     border: 1px solid var(--separator-secondary);
     transition: border-color 0.3s;
 

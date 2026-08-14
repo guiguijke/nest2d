@@ -37,7 +37,7 @@
         </template>
         <template v-else>
             <div v-if="isResultFailed" class="result__placeholder" :title="result.information || undefined">
-                Err
+                {{ failureTitle }}
             </div>
             <template v-else>
                 <div
@@ -45,19 +45,22 @@
                     :class="svgRowClasses"
                     class="result__svg-row"
                 >
-                    <SvgDisplay
+                    <SheetSvgPreview
                         v-for="(svg, svgIndex) in result.svgs"
                         :key="`svg-${svgIndex}`"
                         :src="svg"
-                        :size="sizeType.s"
+                        :width="sheetSizeAt(svgIndex).w"
+                        :height="sheetSizeAt(svgIndex).h"
                         class="result__display"
-                        preserve-colors
                     />
                 </div>
-                <div v-else class="result__placeholder">∅</div>
+                <div v-else class="result__placeholder" :title="t('results.expired')" />
             </template>
             <p class="result__name">
-                {{ result.slug }}.dxf
+                {{ resultTitle }}
+            </p>
+            <p v-if="timeAgo" class="result__when">
+                {{ timeAgo }}
             </p>
             <p v-if="isLocal" class="result__local" :title="t('localMode.done')">
                 {{ t('localMode.done') }}
@@ -180,6 +183,13 @@ const hasMultipleSvgs = computed(() => {
     return (props.result?.svgs?.length ?? 0) > 1;
 });
 
+const sheetSizeAt = (index) => {
+    const sheets = props.result?.alternatives?.[0]?.report?.sheets
+    const s = Array.isArray(sheets) ? sheets[index] || sheets[0] : null
+    if (s?.widthMm && s?.heightMm) return { w: s.widthMm, h: s.heightMm }
+    return { w: 0, h: 0 }
+}
+
 const svgRowClasses = computed(() => {
     return ['result__svg-row', { 'result__svg-row--multi': hasMultipleSvgs.value }];
 });
@@ -234,6 +244,55 @@ const isResultFailed = computed(() => {
     return props.result?.status === statusType.failed;
 });
 
+const primaryAlt = computed(() => {
+    const alts = props.result?.alternatives
+    return Array.isArray(alts) && alts.length ? alts[0] : null
+})
+
+const isNoFit = computed(() => {
+    const info = String(props.result?.information || '')
+    return /no feasible solution|Not all items could be placed/i.test(info)
+})
+const failureTitle = computed(() =>
+    isNoFit.value ? t('result.failed.nofit') : t('result.failed')
+)
+
+const resultTitle = computed(() => {
+    if (isResultFailed.value) {
+        return isNoFit.value ? t('result.failed.nofitHint') : t('result.failed')
+    }
+    const alt = primaryAlt.value
+    const share = alt?.usedSheetShare ?? alt?.density
+    const densityPct = share != null
+        ? share
+        : alt?.report?.totals?.densityPct != null
+            ? alt.report.totals.densityPct / 100
+            : null
+    const densityLabel = densityPct != null
+        ? `${(densityPct * 100).toFixed(1)}% ${t('result.used')}`
+        : t('results.title')
+    const sheetN = alt?.layoutCount
+        || (props.result?.isMultiSheet ? (props.result?.svgs?.length || 0) : 1)
+    const sheetsLabel = sheetN === 1
+        ? t('result.sheetCountOne')
+        : t('result.sheetCount', { n: sheetN })
+    return `${densityLabel} · ${sheetsLabel}`
+})
+
+const timeAgo = computed(() => {
+    const raw = props.result?.createdAt
+    if (!raw) return ''
+    const past = new Date(raw)
+    if (Number.isNaN(past.getTime())) return ''
+    const diffMinutes = Math.floor((Date.now() - past.getTime()) / 60000)
+    const diffHours = Math.floor(diffMinutes / 60)
+    const diffDays = Math.floor(diffMinutes / 1440)
+    if (diffMinutes < 1) return t('time.justNow')
+    if (diffHours >= 1 && diffHours < 24) return t('time.hoursAgo', { n: diffHours })
+    if (diffDays >= 1) return diffDays === 1 ? t('time.dayAgo') : t('time.daysAgo', { n: diffDays })
+    return t('time.minAgo', { n: diffMinutes })
+})
+
 const isResultCompleted = computed(() => {
     const status = props.result?.status;
     return status === statusType.completed || status === statusType.done;
@@ -272,9 +331,9 @@ const onDownload = () => {
     $self: &;
     position: relative;
     display: block;
-    padding: 15px;
+    padding: 14px;
     border: 1px solid var(--separator-secondary);
-    border-radius: 8px;
+    border-radius: 12px;
     transition: border-color 0.3s;
 
     &__cancel {
@@ -300,7 +359,7 @@ const onDownload = () => {
     }
 
     &__svg-row {
-        max-width: 128px;
+        max-width: 160px;
         display: grid;
         grid-template-columns: 1fr;
         gap: 4px;
@@ -313,7 +372,7 @@ const onDownload = () => {
 
     &__display,
     &__placeholder {
-        width: 40px;
+        width: 72px;
         height: 40px;
         min-height: 40px;
         overflow: hidden;
@@ -328,11 +387,28 @@ const onDownload = () => {
         background-color: var(--error-background);
         border: solid 1px var(--error-border);
         color: var(--label-primary);
+        font-size: 10px;
+        font-weight: 700;
+        padding: 4px;
+        line-height: 1.2;
+        width: auto;
+        min-width: 40px;
+        max-width: 120px;
+        height: auto;
+        min-height: 40px;
     }
 
     &__name {
         max-width: 240px;
-        word-break: break-all;
+        word-break: break-word;
+        font-weight: 600;
+        color: var(--label-primary);
+    }
+
+    &__when {
+        margin-top: 4px;
+        font-size: 12px;
+        color: var(--label-tertiary);
     }
 
     // J-082 : mention « calculé localement » des jobs Mode Local.

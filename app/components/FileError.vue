@@ -1,7 +1,7 @@
 <template>
     <div class="file">
         <div class="file__display">
-            Err
+            {{ t('files.importFailed') }}
         </div>
         <p class="file__name">
             {{ file.name }}
@@ -37,8 +37,8 @@ defineProps({
 .file {
     position: relative;
     $self: &;
-    padding: 15px;
-    border-radius: 8px;
+    padding: 12px;
+    border-radius: 12px;
     border: 1px solid var(--separator-secondary);
     transition: border-color 0.3s;
 
@@ -53,7 +53,8 @@ defineProps({
         background-color: var(--error-background);
         border: solid 1px var(--error-border);
         color: var(--label-primary);
-        font-size: 16px;
+        font-size: 11px;
+        padding: 4px;
     }
     &__name {
         margin-top: 16px;

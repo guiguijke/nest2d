@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
                 { id: job.ownerId, freeNestingUsed: { $gt: 0 } },
                 { $inc: { freeNestingUsed: -1 } }
             )
-        } else if (!alreadyRefunded && chargeType === 'demo') {
+        } else if (!alreadyRefunded && chargeType === 'demo' && !job.charge?.skippedQuota) {
             await db.collection('users').updateOne(
                 { id: job.ownerId, demoNestingUsed: { $gt: 0 } },
                 { $inc: { demoNestingUsed: -1 } }

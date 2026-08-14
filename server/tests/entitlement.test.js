@@ -15,7 +15,7 @@ vi.mock('~~/server/features/payment/stripe', () => ({
     mapSubscription: vi.fn(),
 }))
 
-import { assertCanNest, effectiveFreeLimit, getComputeProfile, getComputeTier, getEntitlement } from '~~/server/utils/entitlement'
+import { assertCanNest, effectiveFreeLimit, getComputeProfile, getComputeTier, getDemoEntitlement, getEntitlement } from '~~/server/utils/entitlement'
 import { fakeDb } from './helpers/fakeMongo'
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7)
@@ -214,5 +214,27 @@ describe('getComputeTier (admin grant tiers, D-PAY-11)', () => {
         })
         // Unknown priceId → standard by default, never a silent premium.
         expect(await getComputeTier('u1', null)).toBe('standard')
+    })
+})
+
+describe('getDemoEntitlement', () => {
+    it('is unlimited when local compute is on (string or boolean)', async () => {
+        state.db = fakeDb({ users: [freeUser({ demoNestingUsed: 10, demoNestingPeriod: currentPeriod() })] })
+        await expect(getDemoEntitlement('u1', true)).resolves.toEqual({
+            demoRemaining: null,
+            demoUnlimited: true,
+        })
+        await expect(getDemoEntitlement('u1', 'true')).resolves.toEqual({
+            demoRemaining: null,
+            demoUnlimited: true,
+        })
+    })
+
+    it('keeps the monthly cap when local compute is off', async () => {
+        state.db = fakeDb({ users: [freeUser({ demoNestingUsed: 3, demoNestingPeriod: currentPeriod() })] })
+        await expect(getDemoEntitlement('u1', false)).resolves.toEqual({
+            demoRemaining: 7,
+            demoUnlimited: false,
+        })
     })
 })
