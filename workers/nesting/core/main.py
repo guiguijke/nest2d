@@ -917,10 +917,10 @@ def nesting_process(doc):
                         # option (both come from the job params server-side).
                         "outputUnit": output_unit,
                         "addOutShape": add_out_shape,
-                        # J-093 : taille du pool de walks navigateur, imposée
-                        # à l'enqueue (le moteur l'ignore — serde, piège #11 —
-                        # le client pool la lit ; jamais hardwareConcurrency).
-                        "walks": int(params.get("browser_walks") or 1),
+                        # D-PAY-12 : walks = recherche (qualité, identique
+                        # pour tous) ; concurrency = vitesse (tier / démo).
+                        "walks": int(params.get("browser_walks") or 8),
+                        "concurrency": int(params.get("browser_concurrency") or params.get("vcores") or 1),
                     },
                     "update_ts": datetime.now(),
                 },

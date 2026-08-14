@@ -99,14 +99,16 @@ describe('POST nest — computeLocation written server-side (P3)', () => {
         expect(params.timeBudgetSec).toBe(600)
     })
 
-    it('flag ON + free: local + browser profile (13 s, 1 vcore, level browser)', async () => {
+    it('flag ON + free: local + same-quality search (600 s wall, 8 walks, 1 at a time)', async () => {
         state.config = { public: { localComputeEnabled: 'true' } }
         state.db = baseDb([freeUser()])
         await nestHandler(ev('u1', 'p1', nestBody([[3000, 1500, 1]])))
         const params = state.enqueued[0].params
         expect(params.computeLocation).toBe('local')
         expect(params.computeLevel).toBe('browser')
-        expect(params.timeBudgetSec).toBe(BROWSER_COMPUTE.timeBudgetSec)
+        expect(params.timeBudgetSec).toBe(600)
+        expect(params.browser_walks).toBe(8)
+        expect(params.browser_concurrency).toBe(1)
         expect(params.vcores).toBe(1)
         expect(params.directions).toHaveLength(1)
     })
@@ -121,9 +123,42 @@ describe('POST nest — computeLocation written server-side (P3)', () => {
         })
         await nestHandler(ev('u1', 'demo', nestBody([[3000, 1500, 2]])))
         expect(state.enqueued[0].params.computeLocation).toBe('local')
-        expect(state.enqueued[0].params.computeLevel).toBe('browser')
+        expect(state.enqueued[0].params.computeLevel).toBe('demo')
+        expect(state.enqueued[0].params.timeBudgetSec).toBe(600)
+        expect(state.enqueued[0].params.browser_walks).toBe(8)
+        expect(state.enqueued[0].params.browser_concurrency).toBe(1)
+        expect(state.enqueued[0].params.vcores).toBe(1)
         expect(state.enqueued[0].charge).toEqual({ type: 'demo', skippedQuota: true })
         expect(userDoc.demoNestingUsed).toBe(0)
+    })
+
+    it('flag ON + demo: picker sets concurrency only (search stays 8 walks)', async () => {
+        state.config = { public: { localComputeEnabled: true } }
+        const body4 = nestBody([[3000, 1500, 2]])
+        body4.params.demoWalks = 4
+        state.db = fakeDb({
+            users: [freeUser()],
+            projects: [{ slug: 'demo', isDemo: true }],
+            user_dxf_files: [{ slug: 'f1', name: 'marine.dxf', projectSlug: 'demo', isDemo: true }],
+        })
+        await nestHandler(ev('u1', 'demo', body4))
+        expect(state.enqueued[0].params.browser_walks).toBe(8)
+        expect(state.enqueued[0].params.browser_concurrency).toBe(4)
+        expect(state.enqueued[0].params.vcores).toBe(4)
+
+        const body8 = nestBody([[3000, 1500, 2]])
+        body8.params.demoWalks = 8
+        state.enqueued = []
+        await nestHandler(ev('u1', 'demo', body8))
+        expect(state.enqueued[0].params.browser_walks).toBe(8)
+        expect(state.enqueued[0].params.browser_concurrency).toBe(8)
+
+        const bodyBad = nestBody([[3000, 1500, 2]])
+        bodyBad.params.demoWalks = 99
+        state.enqueued = []
+        await nestHandler(ev('u1', 'demo', bodyBad))
+        expect(state.enqueued[0].params.browser_walks).toBe(8)
+        expect(state.enqueued[0].params.browser_concurrency).toBe(1)
     })
 })
 

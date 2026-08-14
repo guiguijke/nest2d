@@ -141,6 +141,9 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     // client ; payload.walks = préparé worker). Résolue ici pour les frames
     // live ; le swap runInWorker → runPool consomme la même valeur.
     const poolWalks = Math.max(1, Number(fetched?.localConfig?.walks ?? payload?.walks ?? 1) || 1)
+    const poolConc = Math.max(1, Number(
+        fetched?.localConfig?.concurrency ?? payload?.engineConfig?.browser_concurrency ?? poolWalks,
+    ) || 1)
 
     // J-085 : l'instance réduite est réindexée — les frames live du moteur
     // portent les ids réduits, la vue live (itemMap) les ids d'origine.
@@ -153,7 +156,7 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
               // 100 % client (pas d'itemMap sur le doc serveur).
               itemMap: itemMap || evt?.itemMap,
               // J-093 : taille du pool affichée par la vue (stat libellée).
-              walks: poolWalks,
+              walks: poolConc,
               items: Array.isArray(idMap)
                   ? (evt?.items || []).map((it) => [idMap[it[0]] ?? it[0], ...it.slice(1)])
                   : evt?.items,
@@ -162,7 +165,7 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     // J-093 : pool de walks (taille imposée serveur, 1 = chemin mono-walk
     // historique inchangé). runPool orchestre spawn/seeds/merge moteur.
     const { runPool } = await import('./localPool')
-    const outcome = await runPool(jobSlug, payload, { onLive: liveHandler, walks: poolWalks })
+    const outcome = await runPool(jobSlug, payload, { onLive: liveHandler, walks: poolWalks, concurrency: poolConc })
     if (!outcome.ok) {
         // J-093 : annulation — le serveur a déjà finalisé + refundé via
         // POST /cancel ; JAMAIS de local-fail ensuite.

@@ -201,7 +201,6 @@ const localEvals = ref(null);
 // J-093 : taille effective du pool de walks (injectée dans les frames live).
 const localWalks = ref(1);
 const localElapsed = localModeCtl.elapsed;
-const localBudget = localModeCtl.BROWSER_BUDGET_SEC;
 const localLive = computed(() => {
     if (!localLiveFrame.value) return null;
     return {
@@ -306,6 +305,9 @@ const DEMO_LIMIT = DEMO_NESTING_LIMIT;
 const user = computed(() => unref(authStore.getters.user) || {});
 const demoRemaining = computed(() => Number(user.value.demoRemaining ?? DEMO_LIMIT));
 const demoUnlimited = computed(() => Boolean(user.value.demoUnlimited));
+const localBudget = computed(() =>
+    isDemo.value ? DEMO_TIME_BUDGET_SEC : localModeCtl.BROWSER_BUDGET_SEC,
+)
 
 // Pre-fill the demo settings (converted to the user's display unit) — only
 // on the first visit of this page instance, so manual tweaks survive the

@@ -110,6 +110,32 @@
                     </div>
                     <p class="compute__hint">{{ directionsHint }}</p>
                 </div>
+                <div v-if="isDemoProject" class="size__compute compute">
+                    <span class="compute__label">
+                        {{ t('settings.demoPower') }}
+                        <span
+                            class="compute__help"
+                            :title="t('settings.demoPower.help')"
+                            >?</span
+                        >
+                    </span>
+                    <div class="compute__options">
+                        <button
+                            v-for="option in demoPowerOptions"
+                            :key="option.walks"
+                            :class="[
+                                'compute__option',
+                                { 'compute__option--active': option.active },
+                            ]"
+                            :title="option.hint"
+                            @click="setDemoWalks(option.walks)"
+                        >
+                            <span class="compute__arrow">×{{ option.walks }}</span>
+                            {{ option.label }}
+                        </button>
+                    </div>
+                    <p class="compute__hint">{{ t('settings.demoPower.hint') }}</p>
+                </div>
                 <label class="size__checkbox" :title="t('settings.addOutShapeHint')">
                     <input
                         type="checkbox"
@@ -131,7 +157,7 @@
 
 <script setup>
     import { SHEET_PRESETS } from '~/utils/units'
-    import { DEMO_MAX_DIRECTIONS, DEMO_PROJECT_SLUG } from '~~/shared/constants/demo.constants'
+    import { DEMO_MAX_DIRECTIONS, DEMO_PROJECT_SLUG, DEMO_WALK_CHOICES, resolveDemoWalks } from '~~/shared/constants/demo.constants'
     import { displayDirectionArrow } from '~/utils/sheetView'
 
     const { t } = useLocale()
@@ -237,6 +263,18 @@
         maxDirections.value === 1
             ? t('settings.directions.freeHint')
             : t('settings.directions.paidHint')
+    )
+
+    const DEMO_POWER_KEYS = { 1: 'free', 4: 'unlimited', 8: 'pro' }
+    const demoWalks = computed(() => resolveDemoWalks(unref(params).demoWalks))
+    const setDemoWalks = (n) => updateParams({ demoWalks: resolveDemoWalks(n) })
+    const demoPowerOptions = computed(() =>
+        DEMO_WALK_CHOICES.map((walks) => ({
+            walks,
+            label: t(`settings.demoPower.${DEMO_POWER_KEYS[walks]}`),
+            hint: t(`settings.demoPower.${DEMO_POWER_KEYS[walks]}Hint`),
+            active: demoWalks.value === walks,
+        })),
     )
 
     // Preview the angles that the current rotation count produces, so the user

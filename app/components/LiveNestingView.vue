@@ -11,8 +11,8 @@
             <span v-if="elapsedSec != null" class="live__stat" :title="t('live.elapsedTitle')">
                 {{ formatElapsed(elapsedSec) }}
             </span>
-            <span v-if="evalsCount" class="live__stat live__stat--accent" :title="t('live.evalsTitle')">
-                {{ evalsCount }} <span class="live__stat-suffix">{{ t('live.combinations') }}</span>
+            <span v-if="evalsCount" class="live__stat live__stat--accent" :title="evalsTitle">
+                {{ evalsCount }} <span class="live__stat-suffix">{{ evalsSuffix }}</span>
             </span>
             <span v-if="cores" class="live__stat" :title="t('nest.coresTitle', { n: cores })">
                 <CoresSpinner :cores="cores" :size="16" show-count />
@@ -470,13 +470,29 @@ const elapsedSec = computed(() => {
     return n != null ? Math.round(n) : null;
 });
 
+// BPP heartbeats report SA iterations (one full rebuild of every part);
+// SPP reports separator evaluations (millions). Same slot, different unit.
+const isBppEvals = computed(() => {
+    const live = best.value || props.result?.liveLayout
+    if (live?.isSpp === true) return false
+    if (typeof live?.stage === 'string' && live.stage.startsWith('bpp')) return true
+    const it = live?.items?.[0]
+    return Array.isArray(it) && it.length === 5
+})
 const evalsCount = computed(() => {
     const n = props.result?.progress?.evals;
     if (!n) return null;
+    if (isBppEvals.value) return `${n}`;
     if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
     if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
     return `${n}`;
 });
+const evalsSuffix = computed(() =>
+    isBppEvals.value ? t('live.layouts') : t('live.combinations'),
+)
+const evalsTitle = computed(() =>
+    isBppEvals.value ? t('live.layoutsTitle') : t('live.evalsTitle'),
+)
 
 const stageLabel = computed(() => {
     const stage = props.result?.progress?.stage || best.value?.stage;

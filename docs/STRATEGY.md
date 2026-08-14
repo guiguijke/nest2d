@@ -130,8 +130,9 @@ Références : `specs/55-promo-codes.md` (local), AGENTS #34, verrous
 
 ## 5. Règles gravées
 
-1. **Moteur jamais dégradé en free** — le budget temps est le luxe Pro,
-   pas la qualité de base (arrêt sur plateau pour tous, AGENTS §1).
+1. **Moteur jamais dégradé en free** — le budget temps / la concurrence
+   est le luxe Pro, pas la qualité de base (arrêt sur plateau pour tous,
+   `QUALITY_WALKS=8` partout, AGENTS §1, D-PAY-12).
 2. **Prix inchangés** : 0 / 19 / 39 €, garantie 30 jours, essai 7 jours.
 3. **G-code : hors produit** jusqu'à preuve de marché (surveiller Nestpact,
    24 $/mo avec G-code).

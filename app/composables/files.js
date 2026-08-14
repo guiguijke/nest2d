@@ -101,7 +101,10 @@ const state = reactive({
                 // against the tier allowance); undefined = server default.
                 directions: Array.isArray(state.params.directions) && state.params.directions.length
                     ? state.params.directions
-                    : undefined
+                    : undefined,
+                // Demo-only: 1 / 4 / 8 walks (Free / Unlimited / Pro preview).
+                // Server allow-lists; ignored on non-demo jobs.
+                demoWalks: Number(state.params.demoWalks) || undefined,
             }
         })
     })

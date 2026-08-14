@@ -366,6 +366,26 @@ describe('runPool walks=4 (pool + merge moteur)', () => {
         await runPool('job-w3', makePayload({ walks: 4 }))
         expect(MockWorker.instances).toHaveLength(4)
     })
+
+    it('concurrency=1 joue N walks l’un après l’autre (même recherche, plus lent)', async () => {
+        const liveAtFirst = []
+        MockWorker.respond = (worker, msg) => {
+            if (msg.op === 'merge') {
+                queueMicrotask(() => worker.emit({
+                    id: msg.id,
+                    ok: true,
+                    result: JSON.stringify({ alternatives: (msg.merge?.runs || []).map((r, i) => ({ ...r, rank: i })) }),
+                }))
+                return
+            }
+            liveAtFirst.push(MockWorker.instances.filter((w) => !w.terminated).length)
+            queueMicrotask(() => worker.emit({ ok: true, result: engineOut(msg.worker) }))
+        }
+        const out = await runPool('job-seq', makePayload({ walks: 3 }), { walks: 3, concurrency: 1 })
+        expect(out.ok).toBe(true)
+        expect(liveAtFirst[0]).toBe(1)
+        expect(MockWorker.instances).toHaveLength(3)
+    })
 })
 
 // ---------------------------------------------------------------------------

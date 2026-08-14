@@ -213,13 +213,12 @@ export function assertSheetCountWithinTier(totalSheets, tier) {
 }
 
 /**
- * Browser compute profile (Phase 2, flag-gated QA): written SERVER-SIDE at
- * enqueue when a job is routed to the browser WASM engine — the client can
- * never inflate its own budget (P3). The engine is anytime: wall ≈ budget +
- * overhead; 13 s lands a demo-size job under 15 s in the browser (spike
- * VERDICT, critère 1). Mono-walk shape (like the demo profile): 1 vcore,
- * 1 direction, plateau off (walks run to the explicit deadline — no hidden
- * wall backstop anywhere, spike lesson).
+ * Browser compute profile (Free local jobs): written SERVER-SIDE at
+ * enqueue — the client can never inflate its own budget (P3). Stop is
+ * plateau (no global improvement for patience sec); timeBudgetSec is the
+ * safety-net wall. 13 s is enough for small Free jobs; a 300-part BPP
+ * demo cannot reach the 200-iter plateau gate in 13 s (see D-DEM-4).
+ * Mono-walk: 1 vcore, 1 direction.
  */
 export const BROWSER_COMPUTE = {
     timeBudgetSec: 13,
@@ -230,8 +229,18 @@ export const BROWSER_COMPUTE = {
 }
 
 /**
- * J-093 — taille du pool de walks navigateur par tier : le parallélisme est
- * la VITESSE de délivrance, jamais la qualité (arrêt sur plateau partout).
+ * Same-quality search for every plan (D-PAY-12). Every job runs this many
+ * walks to plateau; the tier only sets how many run at once (speed).
+ * 8 = Pro search. Free does them one-by-one; Unlimited 4-wide; Pro 8-wide.
+ */
+export const QUALITY_WALKS = 8
+
+/**
+ * J-093 — CONCURRENCE du pool navigateur par tier (vitesse), jamais la
+ * taille de la recherche (QUALITY_WALKS). Jamais hardwareConcurrency —
+ * même job, même nombre de walks ⇒ même résultat ; un appareil plus lent
+ * est juste plus lent. Mobile plafonne la concurrence, pas le nombre de
+ * walks (effectiveWalks).
  * Taille FIXE par tier, jamais hardwareConcurrency côté client — même job,
  * même tier ⇒ même résultat sur toute machine (déterminisme cross-device).
  */

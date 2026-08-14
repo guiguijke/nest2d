@@ -16,10 +16,17 @@ export const DEMO_MAX_PARTS = 500
 // picks geometry (sheets, spacing, rotations, hole filling) and ONE of the
 // 3 layout directions — the 3 stay selectable so newcomers see them all,
 // but a demo nesting computes a single alternative (server cost control).
-export const DEMO_TIME_BUDGET_SEC = 90
+export const DEMO_TIME_BUDGET_SEC = 600
 export const DEMO_VCORES = 4
 export const DEMO_PRIORITY = 20
 export const DEMO_MAX_DIRECTIONS = 1
+// Demo-only walk picker (D-DEM-12): Free / Unlimited / Pro parallelism,
+// even on a Free account. Anything else falls back to 1 (never inflate).
+export const DEMO_WALK_CHOICES = [1, 4, 8]
+export function resolveDemoWalks(raw) {
+    const n = Math.trunc(Number(raw))
+    return DEMO_WALK_CHOICES.includes(n) ? n : 1
+}
 // Initial demo settings pre-filled in the UI (fully adjustable afterwards —
 // the demo plays like a regular project). 2 mm spacing keeps hole channels
 // OPEN (channel = space + 0.1, capped at 2.5 mm): the demo must showcase

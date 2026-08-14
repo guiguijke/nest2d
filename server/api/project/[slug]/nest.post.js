@@ -3,13 +3,14 @@ import { connectDB } from '~~/server/db/mongo'
 import { DOMAINS } from '~~/server/core/domains'
 import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
-import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, BROWSER_COMPUTE, browserWalksForTier, getComputeProfile, getComputeTier, resolveComputeLocation, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
+import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, BROWSER_COMPUTE, browserWalksForTier, COMPUTE_TIERS, QUALITY_WALKS, getComputeProfile, getComputeTier, resolveComputeLocation, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
 import {
     DEMO_MAX_DIRECTIONS,
     DEMO_MAX_PARTS,
     DEMO_PRIORITY,
     DEMO_TIME_BUDGET_SEC,
     DEMO_VCORES,
+    resolveDemoWalks,
 } from '~~/shared/constants/demo.constants'
 
 export default defineEventHandler(async (event) => {
@@ -252,7 +253,12 @@ export default defineEventHandler(async (event) => {
             : Math.max(1, Math.floor(Number(params.sheetCount) || 1))
         assertSheetCountWithinTier(totalSheets, tier)
         charge = await assertCanNest(userId)
-        compute = { priority: BROWSER_COMPUTE.priority, level: tier }
+        const tierProfile = COMPUTE_TIERS[tier] || COMPUTE_TIERS.free
+        compute = {
+            priority: tierProfile.priority,
+            level: tier,
+            maxDirections: tierProfile.maxDirections,
+        }
     } else {
         dbParams = sheets
             ? {
@@ -320,16 +326,25 @@ export default defineEventHandler(async (event) => {
         dbParams.computeLocation = computeLocation
     }
     if (computeLocation === 'local') {
-        const directions = validateDirections(params.directions, BROWSER_COMPUTE.maxDirections)
-        dbParams.timeBudgetSec = BROWSER_COMPUTE.timeBudgetSec
+        // D-PAY-12 : même recherche (QUALITY_WALKS jusqu'au plateau) pour
+        // tous. Le tier / le sélecteur démo ne règle que la CONCURRENCE
+        // (vitesse). Le mur est le filet COMPUTE_TIERS, plus le 13 s QA.
+        const concurrency = isDemo
+            ? resolveDemoWalks(params.demoWalks)
+            : browserWalksForTier(compute.level)
+        const wall = isDemo
+            ? COMPUTE_TIERS.free.wallCapSec
+            : (COMPUTE_TIERS[compute.level]?.wallCapSec ?? COMPUTE_TIERS.free.wallCapSec)
+        const maxDirs = isDemo ? DEMO_MAX_DIRECTIONS : (compute.maxDirections ?? 1)
+        const directions = validateDirections(params.directions, maxDirs)
+        dbParams.timeBudgetSec = wall
         dbParams.alternativesCount = directions.length
-        dbParams.computeLevel = BROWSER_COMPUTE.level
-        dbParams.vcores = BROWSER_COMPUTE.vcores
+        dbParams.computeLevel = isDemo ? 'demo' : (compute.level === 'free' ? 'browser' : compute.level)
+        dbParams.vcores = concurrency
         dbParams.directions = directions
-        compute.priority = BROWSER_COMPUTE.priority
-        // J-093 : taille du pool de walks navigateur, imposée serveur
-        // (jamais par le client — P3). compute.level = le tier ici.
-        dbParams.browser_walks = isDemo ? 1 : browserWalksForTier(compute.level)
+        compute.priority = isDemo ? DEMO_PRIORITY : (compute.priority ?? BROWSER_COMPUTE.priority)
+        dbParams.browser_walks = QUALITY_WALKS
+        dbParams.browser_concurrency = concurrency
     }
     // Unit for the exported result DXF, taken from the server-side user
     // profile (never the client). Internal geometry stays mm — the worker
@@ -362,13 +377,13 @@ export default defineEventHandler(async (event) => {
         initialStatus: project.local ? 'awaiting_local' : 'pending',
         localConfig: project.local
             ? {
-                  timeBudgetSec: BROWSER_COMPUTE.timeBudgetSec,
-                  vcores: BROWSER_COMPUTE.vcores,
-                  maxDirections: BROWSER_COMPUTE.maxDirections,
+                  timeBudgetSec: dbParams.timeBudgetSec,
+                  vcores: dbParams.vcores,
+                  maxDirections: dbParams.directions?.length || 1,
                   directions: dbParams.directions,
-                  level: BROWSER_COMPUTE.level,
-                  // J-093 : taille du pool (écrite par le bloc local commun).
-                  walks: dbParams.browser_walks ?? 1,
+                  level: dbParams.computeLevel,
+                  walks: dbParams.browser_walks ?? QUALITY_WALKS,
+                  concurrency: dbParams.browser_concurrency ?? 1,
               }
             : null,
     })

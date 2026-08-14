@@ -167,9 +167,16 @@ function poolMemory(pool) {
  *   runLocalJobPrivate ; en multi-walks, alternatives = sortie du merge
  *   moteur, jamais un rang JS).
  */
-export function runPool(jobSlug, payload, { onLive, walks } = {}) {
+export function runPool(jobSlug, payload, { onLive, walks, concurrency } = {}) {
     const requested = walks ?? payload?.engineConfig?.browser_walks ?? payload?.walks ?? 1
-    const n = effectiveWalks(requested)
+    const n = Math.max(1, Math.trunc(Number(requested) || 1))
+    const rawConc = concurrency
+        ?? payload?.engineConfig?.browser_concurrency
+        ?? payload?.concurrency
+        ?? n
+    // Mobile / low-RAM: cap how many run at once, NEVER how many we search
+    // (D-PAY-12 — same quality, just slower).
+    const conc = Math.min(n, effectiveWalks(rawConc))
     const masterSeed = String(payload?.engineConfig?.prng_seed ?? '0')
     const isSpp = !Array.isArray(payload?.instance?.bins)
 
@@ -177,6 +184,8 @@ export function runPool(jobSlug, payload, { onLive, walks } = {}) {
         const pool = {
             slots: [],
             settled: false,
+            nextWalk: 0,
+            conc,
             onLive: onLive || null,
             sheets: liveSheets(payload),
             isSpp,
@@ -197,33 +206,46 @@ export function runPool(jobSlug, payload, { onLive, walks } = {}) {
         pools.set(jobSlug, pool)
 
         for (let w = 0; w < n; w++) {
-            const slot = { w, worker: null, outcome: null, mergeId: null, evals: 0, evalsBanked: 0 }
-            pool.slots.push(slot)
-            try {
-                slot.worker = new Worker('/workers/engine.worker.js', { type: 'module' })
-            } catch (err) {
-                // Spawn impossible (navigator sans Worker, CSP…) : ce walk
-                // compte comme un échec — la politique survivants s'applique.
-                slot.outcome = { ok: false, error: String(err?.message || err) }
-                continue
-            }
-            slot.worker.onmessage = (event) => onWorkerMessage(jobSlug, pool, slot, event, payload)
-            slot.worker.onerror = (event) => {
-                failSlot(jobSlug, pool, slot, payload, event?.message || 'worker error')
-            }
-            slot.worker.postMessage({
-                jobSlug,
-                instance: payload.instance,
-                engineConfig: workerEngineConfig(payload, w, isSpp),
-                // walks === 1 : master telle quelle (chemin historique) ;
-                // sinon dérivation déterministe par walk (spp.rs).
-                seed: n === 1 ? masterSeed : deriveSeed(masterSeed, w).toString(),
-                live: Boolean(onLive),
-                worker: w,
-            })
+            pool.slots.push({ w, worker: null, outcome: null, mergeId: null, evals: 0, evalsBanked: 0 })
         }
+        pumpQueue(jobSlug, pool, payload, masterSeed)
         // Tous les spawns ont pu échouer synchronement.
         checkAllSettled(jobSlug, pool, payload)
+    })
+}
+
+function pumpQueue(jobSlug, pool, payload, masterSeed) {
+    if (pool.settled) return
+    const n = pool.slots.length
+    const running = pool.slots.filter((s) => s.worker && !s.outcome).length
+    let room = pool.conc - running
+    while (room > 0 && pool.nextWalk < n) {
+        const w = pool.nextWalk++
+        startWalk(jobSlug, pool, payload, masterSeed, w)
+        room -= 1
+    }
+}
+
+function startWalk(jobSlug, pool, payload, masterSeed, w) {
+    const slot = pool.slots[w]
+    const n = pool.slots.length
+    try {
+        slot.worker = new Worker('/workers/engine.worker.js', { type: 'module' })
+    } catch (err) {
+        slot.outcome = { ok: false, error: String(err?.message || err) }
+        return
+    }
+    slot.worker.onmessage = (event) => onWorkerMessage(jobSlug, pool, slot, event, payload, masterSeed)
+    slot.worker.onerror = (event) => {
+        failSlot(jobSlug, pool, slot, payload, event?.message || 'worker error', masterSeed)
+    }
+    slot.worker.postMessage({
+        jobSlug,
+        instance: payload.instance,
+        engineConfig: workerEngineConfig(payload, w, pool.isSpp),
+        seed: n === 1 ? masterSeed : deriveSeed(masterSeed, w).toString(),
+        live: Boolean(pool.onLive),
+        worker: w,
     })
 }
 
@@ -244,7 +266,7 @@ export function cancelPool(jobSlug) {
 // Internes.
 // ---------------------------------------------------------------------------
 
-function onWorkerMessage(jobSlug, pool, slot, event, payload) {
+function onWorkerMessage(jobSlug, pool, slot, event, payload, masterSeed) {
     if (pool.settled) return
     const data = event.data || {}
     // Frame live intermédiaire : re-taguée avec l'index du worker PHYSIQUE
@@ -264,7 +286,7 @@ function onWorkerMessage(jobSlug, pool, slot, event, payload) {
         if (n < slot.evals) slot.evalsBanked += slot.evals
         slot.evals = n
         const total = pool.slots.reduce((acc, s) => acc + s.evals + s.evalsBanked, 0)
-        pool.onLive?.({ type: 'evals', evals: total, walks: pool.slots.length })
+        pool.onLive?.({ type: 'evals', evals: total, walks: pool.conc })
         return
     }
     // Réponse à l'op 'merge' (opération adressée par id, protocole worker).
@@ -313,10 +335,11 @@ function onWorkerMessage(jobSlug, pool, slot, event, payload) {
             // déjà mort
         }
     }
+    pumpQueue(jobSlug, pool, payload, masterSeed ?? String(payload?.engineConfig?.prng_seed ?? '0'))
     checkAllSettled(jobSlug, pool, payload)
 }
 
-function failSlot(jobSlug, pool, slot, payload, message) {
+function failSlot(jobSlug, pool, slot, payload, message, masterSeed) {
     if (pool.settled) return
     if (!slot.outcome) slot.outcome = { ok: false, error: String(message || 'worker error') }
     try {
@@ -324,6 +347,7 @@ function failSlot(jobSlug, pool, slot, payload, message) {
     } catch {
         // déjà mort
     }
+    pumpQueue(jobSlug, pool, payload, masterSeed ?? String(payload?.engineConfig?.prng_seed ?? '0'))
     checkAllSettled(jobSlug, pool, payload)
 }
 
