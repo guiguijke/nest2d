@@ -225,7 +225,7 @@ def test_server_job_runs_normally(monkeypatch):
     )
     called = {}
 
-    def fake_run_engine(instance, config, problem_type, on_event=None, should_cancel=None):
+    def fake_run_engine(instance, config, problem_type, on_event=None, should_cancel=None, **_kw):
         called["yes"] = True
         # Simulate the engine raising infeasible so nesting_process exits the
         # engine stage quickly (we only assert it was REACHED).

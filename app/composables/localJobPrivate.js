@@ -19,6 +19,7 @@ import {
     buildSheetDxf,
     normalizeLayouts,
     sheetDims,
+    decorateLiveLayout,
 } from './localBridge'
 
 /** Bytes des fichiers sources (bucket validDxf, toujours DXF mm — piège #31),
@@ -151,17 +152,20 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     const idMap = payload?.meta?.idMap
     const liveHandler = !onLive
         ? undefined
-        : (evt) => onLive({
-              ...evt,
-              // J-090 : la vue puise itemMap dans la frame quand le job est
-              // 100 % client (pas d'itemMap sur le doc serveur).
-              itemMap: itemMap || evt?.itemMap,
-              // J-093 : taille du pool affichée par la vue (stat libellée).
-              walks: poolConc,
-              items: Array.isArray(idMap)
+        : (evt) => {
+              const remapped = Array.isArray(idMap)
                   ? (evt?.items || []).map((it) => [idMap[it[0]] ?? it[0], ...it.slice(1)])
-                  : evt?.items,
-          })
+                  : evt?.items
+              const decorated = decorateLiveLayout({ ...evt, items: remapped }, payload)
+              onLive({
+                  ...decorated,
+                  // J-090 : la vue puise itemMap dans la frame quand le job est
+                  // 100 % client (pas d'itemMap sur le doc serveur).
+                  itemMap: itemMap || evt?.itemMap,
+                  // J-093 : taille du pool affichée par la vue (stat libellée).
+                  walks: poolConc,
+              })
+          }
 
     // J-093 : pool de walks (taille imposée serveur, 1 = chemin mono-walk
     // historique inchangé). runPool orchestre spawn/seeds/merge moteur.

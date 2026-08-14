@@ -229,3 +229,98 @@ def _write_back(layouts, placed):
         for pi, e in zip(layout.get("placed_items", []), row):
             pi["transformation"]["rotation"] = e[1]
             pi["transformation"]["translation"] = [e[2], e[3]]
+
+
+def _ring_area(ring):
+    if not ring or len(ring) < 3:
+        return 0.0
+    a = 0.0
+    n = len(ring)
+    for i in range(n):
+        x1, y1 = ring[i]
+        x2, y2 = ring[(i + 1) % n]
+        a += x1 * y2 - x2 * y1
+    return abs(a) * 0.5
+
+
+def _part_area(item):
+    coords = item.get("coords") or item.get("coordinates") or []
+    holes = item.get("holes") or []
+    return _ring_area(coords) - sum(_ring_area(h) for h in holes)
+
+
+def decorate_live_items(items, input_items, space, meta=None, apply_fill=True, sheets=None):
+    """Clone a live item list, attach J-085 fillers, then optional post-pass.
+
+    Returns (items, stats) with holesFilled and measured density so the
+    live view matches the result modal (expand + hole-fill). Never mutates
+    the engine snapshot. Failures fall back to the original items.
+    """
+    if not items or not input_items:
+        return items, {"holesFilled": 0, "density": None}
+    is_bpp = any(isinstance(raw, (list, tuple)) and len(raw) >= 5 for raw in items)
+    by_bin = {}
+    for raw in items:
+        raw = list(raw)
+        if len(raw) >= 5:
+            pid, bin_i, rot, x, y = raw[0], raw[1], raw[2], raw[3], raw[4]
+        else:
+            pid, rot, x, y = raw[0], raw[1], raw[2], raw[3]
+            bin_i = 0
+        if bin_i not in by_bin:
+            by_bin[bin_i] = {"placed_items": []}
+        by_bin[bin_i]["placed_items"].append({
+            "item_id": pid,
+            "transformation": {
+                "rotation": rot,
+                "translation": [x, y],
+            },
+        })
+    layouts = [by_bin[b] for b in sorted(by_bin)]
+    added = 0
+    if meta:
+        before = sum(len(layout["placed_items"]) for layout in layouts)
+        layouts = expand_meta(
+            input_items,
+            meta["host"],
+            meta["fill"],
+            meta["slots"],
+            layouts,
+            meta.get("ringRotations"),
+        )
+        added = sum(len(layout["placed_items"]) for layout in layouts) - before
+        for bin_i, layout in zip(sorted(by_bin), layouts):
+            by_bin[bin_i] = layout
+    recovered = 0
+    if apply_fill:
+        try:
+            recovered = apply_hole_fill(input_items, layouts, space) or 0
+        except Exception:
+            recovered = 0
+    out = []
+    for bin_i in sorted(by_bin):
+        for pi in by_bin[bin_i]["placed_items"]:
+            t = pi.get("transformation") or {}
+            tr = t.get("translation") or [0, 0]
+            rot = t.get("rotation", 0)
+            if is_bpp:
+                out.append([pi.get("item_id"), bin_i, rot, tr[0], tr[1]])
+            else:
+                out.append([pi.get("item_id"), rot, tr[0], tr[1]])
+    density = None
+    if sheets:
+        by_id = {i["id"]: i for i in input_items}
+        parts_area = 0.0
+        bins = set()
+        for raw in out:
+            it = by_id.get(raw[0])
+            if it:
+                parts_area += _part_area(it)
+            if is_bpp and len(raw) >= 2:
+                bins.add(raw[1])
+        w, h = float(sheets[0][0]), float(sheets[0][1])
+        n_sheets = max(1, len(bins) or 1)
+        sheet_area = w * h * n_sheets
+        if sheet_area > 0:
+            density = parts_area / sheet_area
+    return out, {"holesFilled": added + recovered, "density": density}

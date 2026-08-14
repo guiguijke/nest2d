@@ -51,8 +51,8 @@ export function useLocalMode(projectSlug) {
         elapsed.value = 0
         stopTimer()
         timer = setInterval(() => {
-            elapsed.value = Math.round((Date.now() - startedAt.value) / 1000)
-        }, 1000)
+            elapsed.value = Math.round((Date.now() - startedAt.value) / 100) / 10
+        }, 100)
     }
     function stopTimer() {
         if (timer) clearInterval(timer)

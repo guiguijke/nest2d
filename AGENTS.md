@@ -35,6 +35,9 @@ admin/                 (back-office Nuxt)
   la largeur utilisée) si une seule tôle ET aire pièces ≤ 80 % de la tôle ;
   sinon BPP (recuit simulé maison sur la séquence + constructif
   `HoleFillEvaluator`, minimise le nombre de tôles).
+- **Qualité = 8 walks partout (D-PAY-12)** : `n_workers` BPP = `QUALITY_WALKS`
+  ; `RAYON_NUM_THREADS` = vcores du tier (1 / 4 / 8). Le navigateur fait
+  la même chose (`walks=8`, `concurrency` = tier).
 - **Le worker daemon traite UN job à la fois par processus**
   (`worker_common/worker_loop.py`). Le parallélisme inter-jobs = réplicas
   docker + pool de jetons.
@@ -101,8 +104,10 @@ admin/                 (back-office Nuxt)
    l'écran avec badge vert.
 7. **Champion lock monotone** : n'afficher qu'un layout s'il est
    *strictement meilleur* que l'incumbent ET `fitsSheet`, avec throttle
-   (600 ms). Sans ça, la vue flip-flope entre walks et « les pièces
-   tournent ».
+   (150 ms). Sans ça, la vue flip-flope entre walks et « les pièces
+   tournent ». Un frame hole-fill (plus de pièces dans les trous) bat
+   un incumbent de même largeur/densité — sinon la vue live ignore le
+   post-pass et le modal « n'a rien à voir ».
 8. **Two-phase = la machine à remplir les trous** : phase 1 (min largeur)
    puis phase 2 transposée (min hauteur dans un corridor) — le corridor
    serré force les pièces dans les trous. Toute classe directionnelle doit

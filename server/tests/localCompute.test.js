@@ -97,6 +97,8 @@ describe('POST nest — computeLocation written server-side (P3)', () => {
         expect(params.computeLocation).toBeUndefined()
         expect(params.computeLevel).toBe('free')
         expect(params.timeBudgetSec).toBe(600)
+        expect(params.walks).toBe(8)
+        expect(params.vcores).toBe(1)
     })
 
     it('flag ON + free: local + same-quality search (600 s wall, 8 walks, 1 at a time)', async () => {
@@ -159,6 +161,29 @@ describe('POST nest — computeLocation written server-side (P3)', () => {
         await nestHandler(ev('u1', 'demo', bodyBad))
         expect(state.enqueued[0].params.browser_walks).toBe(8)
         expect(state.enqueued[0].params.browser_concurrency).toBe(1)
+    })
+
+    it('flag OFF + Unlimited: 8 walks de recherche, 4 vcores de concurrence', async () => {
+        const day = 24 * 3600 * 1000
+        state.db = baseDb([freeUser({ grantedUntil: new Date(Date.now() + day) })])
+        await nestHandler(ev('u1', 'p1', nestBody([[3000, 1500, 1]])))
+        const params = state.enqueued[0].params
+        expect(params.computeLocation).toBeUndefined()
+        expect(params.computeLevel).toBe('standard')
+        expect(params.walks).toBe(8)
+        expect(params.vcores).toBe(4)
+        expect(params.browser_walks).toBeUndefined()
+    })
+
+    it('flag ON + paid serveur: même 8 walks, concurrence = vcores du tier', async () => {
+        const day = 24 * 3600 * 1000
+        state.config = { public: { localComputeEnabled: true } }
+        state.db = baseDb([freeUser({ grantedUntil: new Date(Date.now() + day) })])
+        await nestHandler(ev('u1', 'p1', nestBody([[3000, 1500, 1]])))
+        const params = state.enqueued[0].params
+        expect(params.computeLocation).toBe('server')
+        expect(params.walks).toBe(8)
+        expect(params.vcores).toBe(4)
     })
 })
 

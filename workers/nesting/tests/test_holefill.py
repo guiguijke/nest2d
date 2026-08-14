@@ -123,3 +123,20 @@ def test_meta_expand_uses_validated_rotations_only():
     expanded = expand_meta([HOST, FILL], 0, 1, [2], layouts, [[0.0, 180.0]])
     rots = sorted(pi["transformation"]["rotation"] for pi in expanded[0]["placed_items"][1:])
     assert rots == [0.0, 180.0]
+
+
+def test_decorate_live_items_expands_meta_without_mutating_source():
+    from core.holefill import decorate_live_items
+    src = [[0, 0.0, 0.0, 0.0]]
+    out, stats = decorate_live_items(
+        src,
+        [HOST, FILL],
+        2.0,
+        meta={"host": 0, "fill": 1, "slots": [2], "ringRotations": [[0.0, 180.0]]},
+        apply_fill=False,
+        sheets=[[200.0, 200.0]],
+    )
+    assert len(out) == 3
+    assert stats["holesFilled"] == 2
+    assert stats["density"] is not None and stats["density"] > 0
+    assert src == [[0, 0.0, 0.0, 0.0]]

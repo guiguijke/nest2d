@@ -21,7 +21,7 @@
                     <h2 class="stage__title">
                         {{ stageHeading }}
                         <span v-if="localComputeRunning" class="stage__meta">
-                            {{ localElapsed }}s / {{ localBudget }}s
+                            {{ Number(localElapsed).toFixed(1) }}s
                             <template v-if="localWalks > 1">
                                 · ×{{ localWalks }} {{ t('live.walks') }}
                             </template>
@@ -305,9 +305,6 @@ const DEMO_LIMIT = DEMO_NESTING_LIMIT;
 const user = computed(() => unref(authStore.getters.user) || {});
 const demoRemaining = computed(() => Number(user.value.demoRemaining ?? DEMO_LIMIT));
 const demoUnlimited = computed(() => Boolean(user.value.demoUnlimited));
-const localBudget = computed(() =>
-    isDemo.value ? DEMO_TIME_BUDGET_SEC : localModeCtl.BROWSER_BUDGET_SEC,
-)
 
 // Pre-fill the demo settings (converted to the user's display unit) — only
 // on the first visit of this page instance, so manual tweaks survive the

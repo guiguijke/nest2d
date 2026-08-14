@@ -217,6 +217,106 @@ export function expandMeta(parts, hostId, fillId, slots, layouts, ringRotations 
     return layouts
 }
 
+function _ringArea(ring) {
+    if (!ring || ring.length < 3) return 0
+    let a = 0
+    for (let i = 0; i < ring.length; i++) {
+        const [x1, y1] = ring[i]
+        const [x2, y2] = ring[(i + 1) % ring.length]
+        a += x1 * y2 - x2 * y1
+    }
+    return Math.abs(a) * 0.5
+}
+
+function _partArea(part) {
+    const coords = part?.coords || part?.coordinates || []
+    const holes = part?.holes || []
+    return _ringArea(coords) - holes.reduce((s, h) => s + _ringArea(h), 0)
+}
+
+function _cloneLiveLayouts(items) {
+    const isBpp = items.some((raw) => Array.isArray(raw) && raw.length >= 5)
+    const byBin = new Map()
+    for (const raw of items) {
+        let id, bin, rot, x, y
+        if (raw.length >= 5) [id, bin, rot, x, y] = raw
+        else {
+            [id, rot, x, y] = raw
+            bin = 0
+        }
+        if (!byBin.has(bin)) byBin.set(bin, { placed_items: [] })
+        byBin.get(bin).placed_items.push({
+            item_id: id,
+            transformation: { rotation: rot, translation: [x, y] },
+        })
+    }
+    const bins = [...byBin.keys()].sort((a, b) => a - b)
+    return { isBpp, bins, layouts: bins.map((b) => byBin.get(b)) }
+}
+
+function _layoutsToLiveItems(layouts, bins, isBpp) {
+    const out = []
+    layouts.forEach((layout, i) => {
+        const bin = bins[i] ?? i
+        for (const pi of layout.placed_items || []) {
+            const t = pi.transformation || {}
+            const tr = t.translation || [0, 0]
+            const rot = t.rotation ?? 0
+            if (isBpp) out.push([pi.item_id, bin, rot, tr[0], tr[1]])
+            else out.push([pi.item_id, rot, tr[0], tr[1]])
+        }
+    })
+    return out
+}
+
+/**
+ * J-085 on a live engine snapshot: remap is already applied by the
+ * caller. Clones items, expands meta-pieces, relocates free fillers into
+ * holes, and measures density so the atelier matches the result modal
+ * *during* the search (not only after finalization).
+ */
+export function decorateLiveLayout(evt, payload) {
+    if (!evt || !Array.isArray(evt.items) || !evt.items.length) return evt
+    const parts = payload?.parts || []
+    if (!parts.length) return evt
+    try {
+        const { isBpp, bins, layouts } = _cloneLiveLayouts(evt.items)
+        let holesFilled = 0
+        if (payload?.meta) {
+            const before = layouts.reduce((n, l) => n + (l.placed_items?.length || 0), 0)
+            expandMeta(
+                parts,
+                payload.meta.host,
+                payload.meta.fill,
+                payload.meta.slots,
+                layouts,
+                payload.meta.ringRotations,
+            )
+            holesFilled += layouts.reduce((n, l) => n + (l.placed_items?.length || 0), 0) - before
+        }
+        const space = Number(payload?.engineConfig?.min_item_separation) || 0
+        holesFilled += applyHoleFill(parts, layouts, space) || 0
+        const items = _layoutsToLiveItems(layouts, bins, isBpp)
+        const byId = new Map(parts.map((p) => [String(p.id), p]))
+        let partsArea = 0
+        const usedBins = new Set()
+        for (const raw of items) {
+            const part = byId.get(String(raw[0]))
+            if (part) partsArea += _partArea(part)
+            if (isBpp) usedBins.add(raw[1])
+        }
+        const sheets = evt.sheets || []
+        const w = Number(sheets[0]?.[0]) || 0
+        const h = Number(sheets[0]?.[1]) || 0
+        const nSheets = Math.max(1, usedBins.size || 1)
+        const sheetArea = w * h * nSheets
+        const density = sheetArea > 0 ? partsArea / sheetArea : (evt.density ?? null)
+        return { ...evt, items, holesFilled, density }
+    } catch {
+        return evt
+    }
+}
+
 export async function buildAlternativeArtifacts(result, payload) {
     try {
         const alternatives = result?.alternatives || []

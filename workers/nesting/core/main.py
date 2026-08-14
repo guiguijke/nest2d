@@ -807,14 +807,18 @@ def nesting_process(doc):
         "budget": time_budget_sec,
     })
 
-    # Tier vcores -> engine threads. BPP walks are single-threaded (1 walk
-    # per vcore, floor 3: strict quality parity — the free tier runs the
-    # same multi-start diversity, just oversubscribed and therefore slower).
-    # SPP runs use a 3-thread separator each; floor 3 so every directional
-    # class (left/bottom/balanced) gets at least one worker.
-    # vcores == 0: legacy job, let the engine auto-size from the host CPUs.
+    # D-PAY-12 : la recherche BPP fait toujours QUALITY_WALKS (8) walks
+    # jusqu'au plateau. vcores = concurrence rayon seulement (Free 1,
+    # Unlimited 4, Pro 8) — même résultat, plus lent. SPP garde un
+    # multi-start plancher 3 (une classe directionnelle par walk) ; le
+    # separator interne reste à 3 threads, borné par RAYON_NUM_THREADS.
+    # vcores == 0 : job legacy, le moteur dimensionne sur les CPU hôte.
+    QUALITY_WALKS = 8
+    search_walks = int(params.get("walks") or params.get("browser_walks") or QUALITY_WALKS)
+    rayon_threads = None
     if vcores:
-        n_workers = max(3, vcores) if not is_spp else max(3, vcores // 3)
+        n_workers = search_walks if not is_spp else max(3, vcores // 3)
+        rayon_threads = max(1, int(vcores))
     else:
         n_workers = None
     separator_workers = None
@@ -862,6 +866,8 @@ def nesting_process(doc):
                 "compute": {
                     "vcores": vcores or None,
                     "workers": n_workers,
+                    "walks": search_walks,
+                    "concurrency": rayon_threads,
                     "directions": directions,
                 },
                 "update_ts": datetime.now(),
@@ -940,7 +946,7 @@ def nesting_process(doc):
         stage = event.get("stage", "")
         # Stage changes always pass (they mark phase transitions), otherwise
         # one write per 2s max.
-        if stage == _current_progress.get("stage") and now - _last_live_write[0] < 2.0:
+        if stage == _current_progress.get("stage") and now - _last_live_write[0] < 0.35:
             return
         _last_live_write[0] = now
         try:
@@ -953,19 +959,34 @@ def nesting_process(doc):
                     [id_map[i[0]] if isinstance(i[0], int) and 0 <= i[0] < len(id_map) else i[0], *i[1:]]
                     for i in items
                 ]
+            sheet_pairs = [[float(s.get("width")), float(s.get("height"))] for s in sheets]
+            holes_filled = 0
+            density = event.get("density")
+            if items and (meta or (is_spp and has_holes)):
+                from core.holefill import decorate_live_items
+                items, live_stats = decorate_live_items(
+                    items, input_items, space,
+                    meta=meta,
+                    apply_fill=bool(is_spp and has_holes),
+                    sheets=sheet_pairs,
+                )
+                holes_filled = live_stats.get("holesFilled") or 0
+                if live_stats.get("density") is not None:
+                    density = live_stats["density"]
             live = {
                 "stage": stage,
                 "worker": event.get("worker"),
                 "bias": event.get("bias"),
                 "feasible": event.get("feasible"),
                 "strip_width": event.get("strip_width"),
-                "density": event.get("density"),
+                "density": density,
                 "bins": event.get("bins"),
                 "unplaced": event.get("unplaced"),
                 "remnant": event.get("remnant"),
+                "holesFilled": holes_filled,
                 "elapsed_ms": event.get("elapsed_ms"),
                 # Sheet frame(s) so the browser can draw the sheet(s).
-                "sheets": [[float(s.get("width")), float(s.get("height"))] for s in sheets],
+                "sheets": sheet_pairs,
                 "isSpp": is_spp,
                 "items": items,
             }
@@ -1014,6 +1035,7 @@ def nesting_process(doc):
         engine_alternatives = run_engine(
             solve_instance, engine_config, problem_type, on_event=_on_engine_event,
             should_cancel=should_cancel,
+            rayon_threads=rayon_threads,
         )
     except EngineCancelled:
         _heartbeat_stop.set()
@@ -1079,6 +1101,21 @@ def nesting_process(doc):
                 input_items, meta["host"], meta["fill"], meta["slots"],
                 layouts, meta["ringRotations"],
             )
+
+    # J-085 (post-pass hole-fill) : AVANT le reveal, pour que la vue live
+    # finisse sur le même agencement que le modal (fillers dans les trous).
+    # SPP à trous uniquement — le client BPP applique le même filet de son
+    # côté (localBridge.applyHoleFill).
+    if is_spp and has_holes:
+        from core.holefill import apply_hole_fill
+        for engine_alt in engine_alternatives:
+            sol = engine_alt.get("solution") or {}
+            if "layouts" not in sol and "layout" in sol:
+                sol = {**sol, "layouts": [sol["layout"]]}
+                engine_alt["solution"] = sol
+            n = apply_hole_fill(input_items, sol.get("layouts", []), space)
+            if n:
+                logger.info("hole-fill post-pass relocated fillers", extra={"n": n})
 
     # Strategy-labelled alternatives — the engine already returns its best
     # distinct layouts, ranked. SPP layouts are inherently max-offcut (used
@@ -1213,22 +1250,6 @@ def nesting_process(doc):
         if rank == 0:
             return "max offcut" if is_spp else "compact"
         return "balanced"
-
-    # J-085 (post-pass hole-fill) : à l'échelle, l'exploration laisse des
-    # fillers empilés hors des trous alors que la capacité existe (la hauteur
-    # est dominée par la colonne d'hôtes → aucune incitation à finir). Après
-    # le solve (rien ne peut le défaire), on complète chaque trou en pinwheel.
-    # Déterministe, validé (overlap/spacing), SPP à trous uniquement.
-    if is_spp and has_holes:
-        from core.holefill import apply_hole_fill
-        for engine_alt in engine_alternatives:
-            sol = engine_alt.get("solution") or {}
-            if "layouts" not in sol and "layout" in sol:
-                sol = {**sol, "layouts": [sol["layout"]]}
-                engine_alt["solution"] = sol
-            n = apply_hole_fill(input_items, sol.get("layouts", []), space)
-            if n:
-                logger.info("hole-fill post-pass relocated fillers", extra={"n": n})
 
     for rank, engine_alt in enumerate(engine_alternatives):
         _finalize_alternative(engine_alt, _strategy_for(engine_alt, rank), rank)

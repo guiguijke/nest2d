@@ -149,10 +149,11 @@ export async function getSubscriptionTier(user) {
  *
  * EVERY tier gets a fully optimized result
  * (the engine computes until convergence, see plateau stop in nest-engine);
- * the plan only caps the compute THROUGHPUT (vcores = parallel SA walks /
- * threads) and therefore the delivery time, plus the number of layout
- * directions explorable per nesting (free: 1 — the other directions cost
- * one nesting credit each; paid: all 3, unselectable for a faster result).
+ * the plan only caps the compute THROUGHPUT (vcores = how many of the
+ * QUALITY_WALKS=8 SA walks run at once) and therefore the delivery time,
+ * plus the number of layout directions explorable per nesting (free: 1 —
+ * the other directions cost one nesting credit each; paid: all 3,
+ * unselectable for a faster result).
  *
  * wallCapSec is a worst-case wall-clock cap (plateau stop usually ends the
  * job much earlier). priority: lower = dequeued first.

@@ -60,7 +60,7 @@ def _normalize_solution(problem_type, solution):
     }
 
 
-def run_engine(instance, config, problem_type, on_event=None, should_cancel=None):
+def run_engine(instance, config, problem_type, on_event=None, should_cancel=None, rayon_threads=None):
     """Runs the engine and returns a list of normalized alternatives:
     [{"rank", "seed", "solution": {...normalized...}, "metrics": {...}}],
     best first. Raises EngineError when nothing feasible was produced.
@@ -82,12 +82,19 @@ def run_engine(instance, config, problem_type, on_event=None, should_cancel=None
         with open(config_path, "w") as f:
             json.dump(config, f)
 
+        env = os.environ.copy()
+        # D-PAY-12 : n_workers = taille de la recherche (8 walks) ;
+        # RAYON_NUM_THREADS = concurrence du tier (1 / 4 / 8). Sans ça
+        # Unlimited lancerait 8 walks en parallèle comme Pro.
+        if rayon_threads:
+            env["RAYON_NUM_THREADS"] = str(int(rayon_threads))
         proc = subprocess.Popen(
             [ENGINE_BIN, "-i", instance_path, "-s", out_dir,
              "-c", config_path, "-p", problem_type],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
 
         stderr_lines = []

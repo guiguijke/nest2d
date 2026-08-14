@@ -11,7 +11,10 @@
             <span v-if="elapsedSec != null" class="live__stat" :title="t('live.elapsedTitle')">
                 {{ formatElapsed(elapsedSec) }}
             </span>
-            <span v-if="evalsCount" class="live__stat live__stat--accent" :title="evalsTitle">
+            <span v-if="scoreLabel" class="live__stat live__stat--accent" :title="t('live.scoreTitle')">
+                {{ scoreLabel }} <span class="live__stat-suffix">{{ t('live.score') }}</span>
+            </span>
+            <span v-if="evalsCount" class="live__stat" :title="evalsTitle">
                 {{ evalsCount }} <span class="live__stat-suffix">{{ evalsSuffix }}</span>
             </span>
             <span v-if="cores" class="live__stat" :title="t('nest.coresTitle', { n: cores })">
@@ -97,7 +100,8 @@
                         </g>
                     </svg>
                     <span v-if="card.champ" class="live__card-metric">
-                        <template v-if="card.champ.strip_width != null">{{ fmtLength(card.champ.strip_width) }}</template>
+                        <template v-if="card.champ.density != null">{{ formatScore(card.champ.density) }}</template>
+                        <template v-else-if="card.champ.strip_width != null">{{ fmtLength(card.champ.strip_width) }}</template>
                         <template v-else-if="card.champ.bins != null">{{ t('live.sheets') }} {{ card.champ.bins }}</template>
                     </span>
                     <span v-else class="live__card-metric live__card-metric--pending">…</span>
@@ -242,7 +246,14 @@ function isBetter(a, b) {
     if (aw !== bw) return aw < bw;
     const ab = a.bins ?? Infinity, bb = b.bins ?? Infinity;
     if (ab !== bb) return ab < bb;
-    return (a.density || 0) > (b.density || 0) + 1e-9;
+    if ((a.density || 0) > (b.density || 0) + 1e-9) return true;
+    if ((b.density || 0) > (a.density || 0) + 1e-9) return false;
+    // Same packing quality: prefer the hole-filled frame so the live
+    // view matches the result modal (fillers in cutouts).
+    if ((a.holesFilled || 0) !== (b.holesFilled || 0)) {
+        return (a.holesFilled || 0) > (b.holesFilled || 0);
+    }
+    return (a.items?.length || 0) > (b.items?.length || 0);
 }
 
 function offerChampion(live) {
@@ -262,7 +273,7 @@ function offerChampion(live) {
         }
         champions.value = next;
         pendingChamps = {};
-    }, 600);
+    }, 150);
 }
 
 // The displayed strategy: 'left' by default when directions exist (option 1
@@ -467,7 +478,18 @@ const cores = computed(() => {
 // event timestamp (an early near-optimal champion would freeze it at 0s).
 const elapsedSec = computed(() => {
     const n = props.result?.progress?.elapsed_sec;
-    return n != null ? Math.round(n) : null;
+    return n != null ? Number(n) : null;
+});
+
+function formatScore(density) {
+    const n = Number(density);
+    if (!Number.isFinite(n)) return null;
+    return `${(n * 100).toFixed(1)} %`;
+}
+
+const scoreLabel = computed(() => {
+    const live = best.value || props.result?.liveLayout;
+    return live?.density != null ? formatScore(live.density) : null;
 });
 
 // BPP heartbeats report SA iterations (one full rebuild of every part);
@@ -503,9 +525,12 @@ const stageLabel = computed(() => {
 });
 
 const formatElapsed = (sec) => {
-    if (sec < 60) return `${sec}s`;
-    const min = Math.floor(sec / 60);
-    return `${min}m${String(sec % 60).padStart(2, '0')}`;
+    const n = Number(sec);
+    if (!Number.isFinite(n) || n < 0) return '0.0s';
+    if (n < 60) return `${n.toFixed(1)}s`;
+    const min = Math.floor(n / 60);
+    const rem = n - min * 60;
+    return `${min}m${rem.toFixed(1).padStart(4, '0')}`;
 };
 </script>
 
@@ -595,7 +620,7 @@ const formatElapsed = (sec) => {
         // fill/stroke come from the per-part color bound inline — a CSS rule
         // here would override the SVG presentation attributes.
         stroke-width: 1.2;
-        transition: transform 0.6s ease, fill 0.3s ease, stroke 0.3s ease;
+        transition: transform 0.18s ease, fill 0.2s ease, stroke 0.2s ease;
     }
 
     &__cards {

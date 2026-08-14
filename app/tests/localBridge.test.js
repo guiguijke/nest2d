@@ -5,6 +5,8 @@ import {
     layoutTransforms,
     toServerShapeAlternatives,
     expandMeta,
+    applyHoleFill,
+    decorateLiveLayout,
 } from '../composables/localBridge'
 
 // Sortie moteur brute (forme jagua) : SPP = solution.layout (singulier),
@@ -176,5 +178,44 @@ describe('expandMeta (miroir holefill.py, J-085)', () => {
         }])
         expect(out[0].placed_items).toHaveLength(5)
         expect(out[0].placed_items.slice(1).map((p) => p.transformation.rotation)).toEqual([0, 90, 180, 270])
+    })
+})
+
+describe('decorateLiveLayout (vue live = modal après J-085)', () => {
+    const ring = Array.from({ length: 8 }, (_, i) => {
+        const a = (2 * Math.PI * i) / 8
+        return [35 * Math.cos(a), 35 * Math.sin(a)]
+    })
+    const fill = { id: 0, coords: [[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]], holes: [] }
+    const host = { id: 1, coords: [[-50, -50], [50, -50], [50, 50], [-50, 50], [-50, -50]], holes: [ring] }
+
+    it('rattache les fillers meta sur une frame live (SPP)', () => {
+        const evt = {
+            feasible: true,
+            isSpp: true,
+            sheets: [[200, 200]],
+            items: [[1, 0, 100, 100]],
+        }
+        const out = decorateLiveLayout(evt, {
+            parts: [fill, host],
+            engineConfig: { min_item_separation: 0 },
+            meta: { host: 1, fill: 0, slots: [2], ringRotations: [[0, 180]] },
+        })
+        expect(out.items.length).toBeGreaterThan(evt.items.length)
+        expect(out.holesFilled).toBeGreaterThan(0)
+        expect(out.density).toBeGreaterThan(0)
+        // l'événement moteur n'est pas muté
+        expect(evt.items).toHaveLength(1)
+    })
+
+    it('frame sans pièces / sans parts : renvoyée telle quelle', () => {
+        expect(decorateLiveLayout({ items: [] }, { parts: [fill] })).toEqual({ items: [] })
+        expect(decorateLiveLayout({ items: [[0, 0, 0, 0]] }, { parts: [] }).items).toHaveLength(1)
+    })
+})
+
+describe('applyHoleFill (exporté pour le live)', () => {
+    it('ne jette jamais sur un layout vide', () => {
+        expect(applyHoleFill([], [{ placed_items: [] }], 2)).toBe(0)
     })
 })

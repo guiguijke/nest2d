@@ -211,6 +211,7 @@ export default defineEventHandler(async (event) => {
         dbParams.computeLevel = 'demo'
         dbParams.vcores = DEMO_VCORES
         dbParams.directions = directions
+        dbParams.walks = QUALITY_WALKS
         compute = { priority: DEMO_PRIORITY }
     } else if (project.local) {
         // J-090 — projet 100 % client : la géométrie n'est JAMAIS côté
@@ -305,6 +306,9 @@ export default defineEventHandler(async (event) => {
         dbParams.computeLevel = compute.level
         dbParams.vcores = compute.vcores
         dbParams.directions = directions
+        // D-PAY-12 : taille de recherche identique (8 walks) ; vcores =
+        // concurrence rayon seulement. Le chemin local écrase plus bas.
+        dbParams.walks = QUALITY_WALKS
     }
 
     // Phase 2 (flag-gated internal QA — NOT a privacy feature): route the job
@@ -345,6 +349,7 @@ export default defineEventHandler(async (event) => {
         compute.priority = isDemo ? DEMO_PRIORITY : (compute.priority ?? BROWSER_COMPUTE.priority)
         dbParams.browser_walks = QUALITY_WALKS
         dbParams.browser_concurrency = concurrency
+        dbParams.walks = QUALITY_WALKS
     }
     // Unit for the exported result DXF, taken from the server-side user
     // profile (never the client). Internal geometry stays mm — the worker
