@@ -140,10 +140,11 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     // J-093 : taille du pool imposée serveur (localConfig = projet 100 %
     // client ; payload.walks = préparé worker). Résolue ici pour les frames
     // live ; le swap runInWorker → runPool consomme la même valeur.
-    const poolWalks = Math.max(1, Number(fetched?.localConfig?.walks ?? payload?.walks ?? 1) || 1)
-    const poolConc = Math.max(1, Number(
-        fetched?.localConfig?.concurrency ?? payload?.engineConfig?.browser_concurrency ?? poolWalks,
-    ) || 1)
+    const { resolvePoolShape } = await import('./localPool')
+    const { walks: poolWalks, concurrency: poolConc } = resolvePoolShape({
+        localConfig: fetched?.localConfig,
+        payload,
+    })
 
     // J-085 : l'instance réduite est réindexée — les frames live du moteur
     // portent les ids réduits, la vue live (itemMap) les ids d'origine.

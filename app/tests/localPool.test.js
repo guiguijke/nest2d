@@ -5,6 +5,7 @@ import {
     deriveSeed,
     dirBiases,
     effectiveWalks,
+    resolvePoolShape,
 } from '../composables/localPool'
 
 // ---------------------------------------------------------------------------
@@ -225,6 +226,19 @@ describe('effectiveWalks (plafond mobile / mémoire)', () => {
 // ---------------------------------------------------------------------------
 // runPool — mono-walk (chemin historique)
 // ---------------------------------------------------------------------------
+
+describe('resolvePoolShape — concurrence ≠ nombre de walks', () => {
+    it('ne reprend jamais walks comme concurrence (démo Free = 8 walks / 1 à la fois)', () => {
+        expect(resolvePoolShape({ payload: { walks: 8, concurrency: 1 } })).toEqual({
+            walks: 8,
+            concurrency: 1,
+        })
+        expect(resolvePoolShape({ payload: { walks: 8, concurrency: 4 } }).concurrency).toBe(4)
+        expect(resolvePoolShape({ payload: { walks: 8 } }).concurrency).toBe(8)
+        expect(resolvePoolShape({ payload: { walks: 8, concurrency: 1 } }).concurrency).toBe(1)
+        expect(resolvePoolShape({ localConfig: { walks: 8, concurrency: 4 } }).concurrency).toBe(4)
+    })
+})
 
 describe('runPool walks=1 (chemin actuel tel quel)', () => {
     it('1 worker, seed = master telle quelle, résultat direct sans merge', async () => {

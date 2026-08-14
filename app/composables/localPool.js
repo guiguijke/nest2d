@@ -167,16 +167,41 @@ function poolMemory(pool) {
  *   runLocalJobPrivate ; en multi-walks, alternatives = sortie du merge
  *   moteur, jamais un rang JS).
  */
+/**
+ * Walks = search size (quality). Concurrency = how many at once (speed).
+ * Never default concurrency to walks: a demo Free job has walks=8 and
+ * concurrency=1 — falling back to walks would spawn 8 cores.
+ */
+export function resolvePoolShape({ localConfig, payload, walks, concurrency } = {}) {
+    const n = Math.max(
+        1,
+        Math.trunc(Number(
+            walks
+            ?? localConfig?.walks
+            ?? payload?.engineConfig?.browser_walks
+            ?? payload?.walks
+            ?? 1,
+        )) || 1,
+    )
+    const hasConc = concurrency != null
+        || localConfig?.concurrency != null
+        || payload?.concurrency != null
+        || payload?.engineConfig?.browser_concurrency != null
+    const rawConc = hasConc
+        ? (concurrency
+            ?? localConfig?.concurrency
+            ?? payload?.concurrency
+            ?? payload?.engineConfig?.browser_concurrency)
+        : n
+    const conc = Math.max(1, Math.trunc(Number(rawConc)) || 1)
+    return { walks: n, concurrency: Math.min(conc, n) }
+}
+
 export function runPool(jobSlug, payload, { onLive, walks, concurrency } = {}) {
-    const requested = walks ?? payload?.engineConfig?.browser_walks ?? payload?.walks ?? 1
-    const n = Math.max(1, Math.trunc(Number(requested) || 1))
-    const rawConc = concurrency
-        ?? payload?.engineConfig?.browser_concurrency
-        ?? payload?.concurrency
-        ?? n
-    // Mobile / low-RAM: cap how many run at once, NEVER how many we search
-    // (D-PAY-12 — same quality, just slower).
-    const conc = Math.min(n, effectiveWalks(rawConc))
+    const shape = resolvePoolShape({ payload, walks, concurrency })
+    const n = shape.walks
+    // Mobile / low-RAM: cap how many run at once, NEVER how many we search.
+    const conc = Math.min(n, effectiveWalks(shape.concurrency))
     const masterSeed = String(payload?.engineConfig?.prng_seed ?? '0')
     const isSpp = !Array.isArray(payload?.instance?.bins)
 
