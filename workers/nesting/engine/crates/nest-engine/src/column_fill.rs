@@ -323,32 +323,80 @@ fn restore_item(prob: &mut SPProblem, b: &Boxed) {
 }
 
 // ---------------------------------------------------------------------------
-// Classe « left » : notch-fill puis restack colonnes si l'escalier persiste
+// Classe « left » : X- (largeur) d'abord, puis combler les vrais trous
 // ---------------------------------------------------------------------------
 
 fn column_fill_left(prob: &mut SPProblem) {
     let n = prob.n_placed_items();
     let snapshot = prob.save();
     let density0 = prob.density();
+    let width0 = used_width(&placed_boxes(prob));
     let incumbent_w = prob.strip_width();
     let strip_h = prob.instance.base_strip.fixed_height;
 
+    // 1. Encoches à GAUCHE comblées depuis la droite (X-).
     let moves = notch_fill(prob, incumbent_w, strip_h, 2 * n);
-    let restacked = restack_columns(prob, incumbent_w, strip_h);
+    // 2. Restack seulement si le corps n'est pas déjà une bande X-
+    //    (colonnes gauches alignées + reste à droite). L'égalisation
+    //    4 hautes + 5e courte vole des pièces à gauche et annule le X-.
+    let restacked = if leftover_column_only(prob) {
+        false
+    } else {
+        restack_columns(prob, incumbent_w, strip_h)
+    };
+    // 3. Crans internes d'une cellule, donneurs = droite seulement.
     let filled = fill_column_notches(prob, incumbent_w, strip_h);
+    // 4. Tasser les gaps > space dans chaque colonne.
     let tightened = tighten_loose_gaps(prob, incumbent_w, strip_h);
+    // 5. Pièce qui dépasse en haut du corps → reste à droite (pas l'inverse).
+    let leveled = level_protrusions(prob, incumbent_w, strip_h);
+    // 6. Vider la colonne droite seulement si ça RÉDUIT la largeur.
     let collapsed = collapse_rightmost(prob, incumbent_w, strip_h);
 
-    if moves == 0 && !restacked && !filled && !tightened && !collapsed {
-        return; // rien touché — pas même un fit_strip
+    if moves == 0 && !restacked && !filled && !tightened && !leveled && !collapsed {
+        return;
     }
-    // Garde finale : jamais de dépassement ni de régression de densité.
-    if prob.strip_width() > incumbent_w + 1e-3 || prob.density() < density0 - DENSITY_TOL {
+    // X- : jamais plus large qu'à l'entrée. Densité strip = f(largeur) :
+    // une largeur égale ou moindre suffit.
+    if used_width(&placed_boxes(prob)) > width0 + 1e-3
+        || prob.strip_width() > incumbent_w + 1e-3
+        || prob.density() < density0 - DENSITY_TOL
+    {
         prob.restore(&snapshot);
         return;
     }
-    prob.fit_strip(); // resserre si le remplissage a libéré de la largeur
+    crate::gravity::gravity_for_bias(prob, Some("left"), strip_h);
+    if used_width(&placed_boxes(prob)) > width0 + 1e-3 {
+        prob.restore(&snapshot);
+        return;
+    }
+    prob.fit_strip();
     debug_assert!(prob.layout.is_feasible());
+}
+
+/// Bande X- déjà formée : les colonnes de gauche ont le même sommet
+/// (± une demi-cellule) et seule la dernière est plus courte. Restacker
+/// ça casserait le X- sans gagner de largeur.
+fn leftover_column_only(prob: &SPProblem) -> bool {
+    let boxes = placed_boxes(prob);
+    let cols = cluster_columns(&boxes);
+    if cols.len() < 2 {
+        return false;
+    }
+    // Au moins 3 colonnes de corps + 1 reste. Une protubérance d'une
+    // cellule sur le corps est ignorée (level_protrusions s'en charge).
+    if cols.len() < 4 {
+        return false;
+    }
+    let mut heights: Vec<f32> = boxes.iter().map(|b| b.h()).collect();
+    let cell = median(&mut heights) * 0.5 + 10.0;
+    let body_tops: Vec<f32> = cols[..cols.len() - 1].iter().map(|c| col_top(c)).collect();
+    let mut sorted = body_tops.clone();
+    sorted.sort_by(f32::total_cmp);
+    let med = sorted[sorted.len() / 2];
+    let similar = body_tops.iter().filter(|t| (**t - med).abs() < cell).count();
+    let last = col_top(cols.last().unwrap());
+    similar + 1 >= body_tops.len() && med - last > cell
 }
 
 /// Comble les encoches hautes des bandes de gauche avec des pièces prises
@@ -685,15 +733,12 @@ fn fill_column_notches(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> 
             }
             let x0 = col_x0(col);
             let floor = tops[i];
-            // Donneurs = sommet des colonnes PLUS HAUTES (gauche ou droite).
-            // L'ancienne restriction « à droite seulement » laissait le cran
-            // intact quand la colonne courte est la dernière (cas utilisateur :
-            // 4 colonnes pleines + 5e partielle en bas).
-            let mut donors: Vec<Boxed> = cols
+            // Donneurs à DROITE seulement (X-) : on ne vole pas le corps
+            // gauche pour gonfler la colonne de reste.
+            let mut donors: Vec<Boxed> = cols[i + 1..]
                 .iter()
-                .enumerate()
-                .filter(|(j, _)| *j != i && tops[*j] > floor + cell)
-                .flat_map(|(_, c)| c.iter().copied())
+                .flatten()
+                .copied()
                 .filter(|b| !protected.contains(&fingerprint(b)))
                 .collect();
             donors.sort_by(|a, b| {
@@ -776,9 +821,6 @@ fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> 
     if boxes.len() < 2 {
         return false;
     }
-    if !protected_fingerprints(&boxes).is_empty() {
-        return false;
-    }
     let cols = cluster_columns(&boxes);
     let snapshot = prob.save();
     let w0 = incumbent_w;
@@ -794,9 +836,13 @@ fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> 
                 .total_cmp(&b.y_min)
                 .then(a.item_id.cmp(&b.item_id))
         });
+        let protected = protected_fingerprints(&boxes);
         for i in 1..ordered.len() {
             let gap = ordered[i].y_min - ordered[i - 1].y_max;
             if gap < LOOSE_GAP_MM {
+                continue;
+            }
+            if protected.contains(&fingerprint(&ordered[i])) {
                 continue;
             }
             let Some(live) = find_by_fingerprint(prob, &fingerprint(&ordered[i])) else {
@@ -841,6 +887,107 @@ fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> 
     if any && used_width(&placed_boxes(prob)) > w0 + 1e-3 {
         prob.restore(&snapshot);
         return false;
+    }
+    any
+}
+
+/// Une colonne du corps dépasse ses voisines d'une cellule (pièce isolée
+/// en haut, capture 2026-08-18) : on la pose sur le reste à droite, pas
+/// l'inverse — le X- (bande gauche compacte) est conservé.
+fn level_protrusions(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool {
+    let mut any = false;
+    let mut probes = 0usize;
+    loop {
+        let boxes = placed_boxes(prob);
+        if boxes.len() < 3 {
+            break;
+        }
+        let protected = protected_fingerprints(&boxes);
+        let cols = cluster_columns(&boxes);
+        if cols.len() < 2 {
+            break;
+        }
+        let mut heights: Vec<f32> = boxes.iter().map(|b| b.h()).collect();
+        let cell = median(&mut heights) * 0.5 + 10.0;
+        let last = cols.len() - 1;
+        let body_tops: Vec<f32> = cols[..last].iter().map(|c| col_top(c)).collect();
+        let mut sorted_tops = body_tops.clone();
+        sorted_tops.sort_by(f32::total_cmp);
+        let median_top = sorted_tops[sorted_tops.len() / 2];
+        let dest_x = col_x0(&cols[last]);
+        let dest_floor = col_top(&cols[last]);
+
+        let mut moved = false;
+        for (i, col) in cols[..last].iter().enumerate() {
+            if body_tops[i] < median_top + cell {
+                continue;
+            }
+            let mut tops: Vec<Boxed> = col
+                .iter()
+                .copied()
+                .filter(|b| !protected.contains(&fingerprint(b)))
+                .collect();
+            if tops.is_empty() {
+                continue;
+            }
+            tops.sort_by(|a, b| b.y_max.total_cmp(&a.y_max).then(a.item_id.cmp(&b.item_id)));
+            let donor = tops[0];
+            if donor.h() > strip_h - dest_floor + 1e-3 {
+                continue;
+            }
+            let Some(live) = find_by_fingerprint(prob, &fingerprint(&donor)) else {
+                continue;
+            };
+            let y_hi = strip_h - live.h();
+            if dest_floor > y_hi + 1e-3 {
+                continue;
+            }
+            let w0 = used_width(&boxes);
+            prob.remove_item(live.pk);
+            let mut prober = Prober::new(prob, &live);
+            let mut target = None;
+            let step = (live.h() / WALK_STEPS as f32).max(1.0);
+            for dx in [0.0f32, 1.0, 2.0, -1.0, 4.0, -2.0, 8.0] {
+                let x = dest_x + dx;
+                if x < 0.0 {
+                    continue;
+                }
+                if let Some(y) =
+                    settle_vertical(&mut prober, prob, x, dest_floor, y_hi, step, &mut probes)
+                {
+                    target = Some((x, y));
+                    break;
+                }
+            }
+            let ok = if let Some((x, y)) = target {
+                let dt = DTransformation::new(
+                    prober.rotation,
+                    (x - prober.x_off, y - prober.y_off),
+                );
+                let new_pk = prob.place_item(SPPlacement {
+                    item_id: live.item_id,
+                    d_transf: dt,
+                });
+                let after = placed_boxes(prob);
+                let fits = used_width(&after) <= w0 + 1e-3
+                    && used_width(&after) <= incumbent_w + 1e-3;
+                if !fits {
+                    prob.remove_item(new_pk);
+                }
+                fits
+            } else {
+                false
+            };
+            if ok {
+                any = true;
+                moved = true;
+                break;
+            }
+            restore_item(prob, &live);
+        }
+        if !moved {
+            break;
+        }
     }
     any
 }
@@ -1211,8 +1358,14 @@ mod tests {
     use jagua_rs::probs::spp::io::ext_repr::ExtSPInstance;
     use jagua_rs::probs::spp::io::import_instance;
 
-    /// Instance mono-type rectangle `w`×`h`, demande `n`, sans séparation.
-    fn rect_instance(w: f32, h: f32, demand: usize, strip_h: f32) -> jagua_rs::probs::spp::entities::SPInstance {
+    /// Instance mono-type rectangle `w`×`h`, demande `n`.
+    fn rect_instance_sep(
+        w: f32,
+        h: f32,
+        demand: usize,
+        strip_h: f32,
+        sep: Option<f32>,
+    ) -> jagua_rs::probs::spp::entities::SPInstance {
         let json = serde_json::json!({
             "name": "column-fill-test",
             "strip_height": strip_h,
@@ -1227,10 +1380,14 @@ mod tests {
         let importer = Importer::new(
             sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
             Some(0.001),
-            None,
+            sep,
             Some((0.01, 0.01)),
         );
         import_instance(&importer, &ext).unwrap()
+    }
+
+    fn rect_instance(w: f32, h: f32, demand: usize, strip_h: f32) -> jagua_rs::probs::spp::entities::SPInstance {
+        rect_instance_sep(w, h, demand, strip_h, None)
     }
 
     /// Pose une pièce en visant le coin bas-gauche (x, y) de sa bbox monde —
@@ -1455,45 +1612,72 @@ mod tests {
         );
     }
 
-    /// Capture 2026-08-18 : 4 colonnes hautes + 5e partielle en bas.
-    /// L'escalier doit s'égaliser — plus de cran d'une colonne entière.
+    /// X- : 4 colonnes hautes + reste à droite + une pièce qui dépasse
+    /// en haut. On garde la bande gauche (pas d'égalisation) et on
+    /// redescend / décale la protubérance. Largeur non accrue.
     #[test]
-    fn rightmost_short_column_is_equalized() {
+    fn left_pack_keeps_width_and_levels_protrusion() {
         let (w_, h_) = (100.0, 50.0);
-        let mut prob = SPProblem::new(rect_instance(w_, h_, 14, 1000.0));
+        let mut prob = SPProblem::new(rect_instance(w_, h_, 15, 1000.0));
         prob.change_strip_width(600.0);
-        // 4 colonnes × 3 (tops 156.5) + 2 pièces en bas de la 5e.
         for x in [2.5, 104.5, 206.5, 308.5] {
             for y in [2.5, 54.5, 106.5] {
                 place(&mut prob, w_, h_, x, y);
             }
         }
+        // reste X- en bas à droite
         place(&mut prob, w_, h_, 410.5, 2.5);
         place(&mut prob, w_, h_, 410.5, 54.5);
+        // protubérance en haut de la 3e colonne (capture utilisateur)
+        place(&mut prob, w_, h_, 206.5, 158.5);
         assert!(feasibility_ok(&prob));
-        let imb0 = column_imbalance(&placed_boxes(&prob));
-        assert!(imb0 > 40.0, "imbalance setup {imb0}");
+        let w0 = used_width(&placed_boxes(&prob));
+        let top0 = used_height(&placed_boxes(&prob));
 
         post_pass_for_bias(&mut prob, Some("left"), Some(600.0));
 
         let after = placed_boxes(&prob);
-        let imb1 = column_imbalance(&after);
         let cols = cluster_columns(&after);
         let counts: Vec<usize> = cols.iter().map(|c| c.len()).collect();
         assert!(feasibility_ok(&prob));
-        assert_eq!(after.len(), 14);
-        assert!(prob.strip_width() <= 600.0 + 1e-3);
+        assert_eq!(after.len(), 15);
         assert!(
-            imb1 < imb0 - 1.0,
-            "imbalance {imb0} -> {imb1}, counts={counts:?}"
+            used_width(&after) <= w0 + 1e-3,
+            "X- regress: {} -> {}",
+            w0,
+            used_width(&after)
         );
-        let max_c = counts.iter().copied().max().unwrap_or(0);
-        let min_c = counts.iter().copied().min().unwrap_or(0);
-        assert!(
-            max_c - min_c <= 1,
-            "column counts still stepped: {counts:?}"
-        );
+        // La protubérance a disparu : plus de colonne du corps plus haute
+        // d'une cellule que la médiane.
+        let body_tops: Vec<f32> = cols[..cols.len().saturating_sub(1)]
+            .iter()
+            .map(|c| col_top(c))
+            .collect();
+        if body_tops.len() >= 2 {
+            let mut t = body_tops.clone();
+            t.sort_by(f32::total_cmp);
+            let med = t[t.len() / 2];
+            let max_t = t.iter().copied().fold(0.0f32, f32::max);
+            assert!(
+                max_t - med < 40.0,
+                "protrusion remains: max={max_t} med={med} counts={counts:?} top0={top0}"
+            );
+        }
+        // Gaps internes ≤ 8 mm (space de pose 2 mm).
+        for col in &cols {
+            let mut ys: Vec<(f32, f32)> = col.iter().map(|b| (b.y_min, b.y_max)).collect();
+            ys.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for w in ys.windows(2) {
+                let gap = w[1].0 - w[0].1;
+                assert!(
+                    gap < LOOSE_GAP_MM,
+                    "internal gap {gap} in col counts={counts:?}"
+                );
+            }
+        }
     }
+
+
 
     /// La classe bottom n'est jamais touchée par le post-pass.
     #[test]
