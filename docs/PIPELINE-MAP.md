@@ -92,9 +92,12 @@ premier/dernier < tol → Polygon sinon LineString.
   `buffer(width/2, cap=flat)` = rectangle → **une seule** `difference(unary_union)`
   (fallback set_precision 1e-6) → `make_valid` si dégénéré (plus grand morceau).
   `narrow_concavity_cutoff: null` dans la config moteur (D-MOT-1).
+- D-MOT-16 : remplir les trous **avant** le solve (`plan_hole_fills` :
+  pinwheel même type + glouton aire-d'abord, pièces mixtes ; repli J-085
+  1+1). Hôtes remplis → trous fermés, ids réindexés 0..n-1 + `idMap`.
 - Instance jagua : items (id, demand, allowed_orientations, simple_polygon),
-  SPP si 1 tôle ET aire ≤ 80 %, sinon BPP ; seed = SHA-256(instance+space+budget)
-  tronqué 63 bits.
+  SPP si 1 format, aire ≤ 80 %, ET (`stock === 1` OU –X seul) ; sinon BPP.
+  Seed = SHA-256(instance+space+budget) tronqué 63 bits.
 - Config : time_budget, workers, biases, plateau, min_item_separation=space.
 
 ### 1.6 Exports + rapport

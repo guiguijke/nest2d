@@ -59,7 +59,8 @@ export default defineEventHandler(async (event) => {
                 fillHoles: p.fillHoles !== false,
                 addOutShape: Boolean(p.addOutShape),
                 outputUnit: p.outputUnit || 'mm',
-                directions: p.directions || null,
+                directions: p.directions || ['left'],
+                alternativesCount: p.alternativesCount || (Array.isArray(p.directions) ? p.directions.length : 1),
             },
             localConfig: job.localConfig,
         }

@@ -202,13 +202,9 @@
         set: (value) => updateParams({ rotationCount: value }),
     })
 
-    // Layout directions selector: which way(s) the engine should optimize
-    // the packing (left edge, bottom edge, or a mix). Every direction is a
-    // full optimization — paid plans get all 3 alternatives in one nesting
-    // (unchecking skips a direction for a faster result); the free plan
-    // gets 1 direction per nesting (3 nestings = all 3 directions).
-    // Allowance comes from the server (user.compute.maxDirections) and is
-    // re-validated at enqueue — the client can never inflate it.
+    // Layout directions: each checked direction is one result option.
+    // Default is 1 (left) = the best of that search. Paid can check up to
+    // 3 to compare. Free is radio (1 per nesting). Server re-validates.
     const DIRECTION_ORDER = ['left', 'bottom', 'balanced']
     const { getters: authGetters } = authStore
     const route = useRoute()
@@ -225,7 +221,7 @@
     const localDirections = computed(() => {
         const dirs = unref(params).directions
         const valid = Array.isArray(dirs) ? dirs.filter((d) => DIRECTION_ORDER.includes(d)) : []
-        return valid.length ? valid : DIRECTION_ORDER.slice(0, maxDirections.value)
+        return valid.length ? valid : ['left']
     })
     const toggleDirection = (value) => {
         const current = localDirections.value

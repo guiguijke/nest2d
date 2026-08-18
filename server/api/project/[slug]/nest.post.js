@@ -11,7 +11,7 @@ import {
     DEMO_TIME_BUDGET_SEC,
     DEMO_VCORES,
     resolveDemoWalks,
-} from '~~/shared/constants/demo.constants'
+} from '../../../../shared/constants/demo.constants'
 
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId

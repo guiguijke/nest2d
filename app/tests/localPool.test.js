@@ -6,6 +6,7 @@ import {
     dirBiases,
     effectiveWalks,
     resolvePoolShape,
+    championIdleMs,
 } from '../composables/localPool'
 
 // ---------------------------------------------------------------------------
@@ -125,6 +126,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
 })
 
@@ -478,6 +480,87 @@ describe('runPool — politique d’échec (le walk perdu ne vide pas le job)', 
 // ---------------------------------------------------------------------------
 // Annulation
 // ---------------------------------------------------------------------------
+
+describe('championIdleMs (fenêtre d’arrêt ~ f(n))', () => {
+    it('plancher 2 s sur un petit job ; +20 ms/pièce ; plafond = patience', () => {
+        expect(championIdleMs(0)).toBe(2000)
+        expect(championIdleMs(1)).toBe(2020)
+        expect(championIdleMs(20)).toBe(2400)
+        expect(championIdleMs(100)).toBe(4000)
+        expect(championIdleMs(500)).toBe(12_000)
+        expect(championIdleMs(500, 8000)).toBe(8000)
+        expect(championIdleMs(2000, 30_000)).toBe(30_000)
+    })
+
+    it('l’écart live observé relève le plancher (fréquence réelle)', () => {
+        expect(championIdleMs(20, 30_000, 8000)).toBe(16_000)
+        expect(championIdleMs(500, 10_000, 8000)).toBe(10_000)
+        expect(championIdleMs(20, 30_000, 100)).toBe(2400)
+    })
+
+    it('valeurs invalides → 2 s', () => {
+        expect(championIdleMs(undefined)).toBe(2000)
+        expect(championIdleMs(-4)).toBe(2000)
+        expect(championIdleMs('x', 'nope')).toBe(2000)
+    })
+})
+
+describe('runPool — arrêt champion après idle qui suit n', () => {
+    it('un layout faisable complet à n=1 s’arrête ~2 s après la dernière amélioration', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const payload = makePayload({ walks: 1 })
+        payload.instance.items = [{ id: 0, demand: 1 }]
+        const promise = runPool('job-idle-small', payload, { onLive: () => {} })
+        MockWorker.instances[0].emit({
+            live: {
+                feasible: true,
+                strip_width: 400,
+                density: 0.5,
+                bias: 'left',
+                items: [[0, 0, 0, 10, 10]],
+            },
+        })
+        let settled = false
+        promise.then(() => { settled = true })
+        await vi.advanceTimersByTimeAsync(1990)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(50)
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives[0].strip_width).toBe(400)
+        vi.useRealTimers()
+    })
+
+    it('à n=500, 2 s ne suffisent pas : la fenêtre suit le nombre de pièces', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const payload = makePayload({ walks: 1 })
+        payload.instance.items = [{ id: 0, demand: 500 }]
+        payload.engineConfig.plateau_patience_sec = 20
+        const promise = runPool('job-idle-big', payload, { onLive: () => {} })
+        MockWorker.instances[0].emit({
+            live: {
+                feasible: true,
+                strip_width: 900,
+                density: 0.7,
+                bias: 'left',
+                items: Array.from({ length: 500 }, (_, i) => [i, 0, 0, 0, 0]),
+            },
+        })
+        let settled = false
+        promise.then(() => { settled = true })
+        await vi.advanceTimersByTimeAsync(2000)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(9990)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(20)
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives[0].strip_width).toBe(900)
+        vi.useRealTimers()
+    })
+})
 
 describe('cancelPool', () => {
     it('termine tous les workers et settle cancelled (sans refund local)', async () => {

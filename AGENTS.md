@@ -31,10 +31,12 @@ workers/nesting/engine (Rust workspace: nest-engine + sparrow vendorisé,
 admin/                 (back-office Nuxt)
 ```
 
-- **Deux modes moteur** : SPP (mono-tôle, sparrow = strip packing, minimise
-  la largeur utilisée) si une seule tôle ET aire pièces ≤ 80 % de la tôle ;
-  sinon BPP (recuit simulé maison sur la séquence + constructif
-  `HoleFillEvaluator`, minimise le nombre de tôles).
+- **Deux modes moteur** : SPP (sparrow = strip packing, minimise la
+  largeur utilisée) si **un seul format** de tôle, aire pièces ≤ 80 %
+  d'une tôle, ET (`stock === 1` OU directions = `['left']` seulement) —
+  un stock déclaré 100 + –X coché doit rester SPP (sinon BPP « rangées »,
+  pas une bande). Sinon BPP (recuit simulé maison sur la séquence +
+  constructif `HoleFillEvaluator`, minimise le nombre de tôles).
 - **Qualité = 8 walks partout (D-PAY-12)** : `n_workers` BPP = `QUALITY_WALKS`
   ; `RAYON_NUM_THREADS` = vcores du tier (1 / 4 / 8). Le navigateur fait
   la même chose (`walks=8`, `concurrency` = tier).
@@ -107,7 +109,20 @@ admin/                 (back-office Nuxt)
    (150 ms). Sans ça, la vue flip-flope entre walks et « les pièces
    tournent ». Un frame hole-fill (plus de pièces dans les trous) bat
    un incumbent de même largeur/densité — sinon la vue live ignore le
-   post-pass et le modal « n'a rien à voir ».
+   post-pass et le modal « n'a rien à voir ». **Le merge wasm n'est pas
+   le champion lock** : il peut rendre un layout plus large que le live.
+   `preferChampion` préfixe l'incumbent live s'il bat le rang 0 ; le
+   pool s'arrête dès que le champion faisable ne s'améliore plus
+   (`championIdleMs`, pas un mur 2 s).
+7b. **Arrêt idle champion = f(n), jamais 2 s fixes** : un grand n baisse
+    la fréquence des frames live (une eval plus lente). Formule :
+    plancher 2 s + 20 ms/pièce, au moins 2× l'écart live observé,
+    plafond = `plateau_patience_sec` (J-083). 20 pièces ≈ 2,4 s ;
+    500 pièces ≈ 12 s. Un 2 s fixe sur 100 hôtes + 400 fillers coupe
+    après 0–1 eval. Mesuré 2026-08-17 : 100 carrés 100 mm / 1000×2000 /
+    space 2 / –X = bande 614,03 mm (plancher géométrique 610 + 2+2 mm
+    de marge tôle) — 6 rangées à 2,00 mm, déjà compact ; un post-pass
+    de plus ne gagne rien.
 8. **Two-phase = la machine à remplir les trous** : phase 1 (min largeur)
    puis phase 2 transposée (min hauteur dans un corridor) — le corridor
    serré force les pièces dans les trous. Toute classe directionnelle doit
@@ -258,6 +273,12 @@ admin/                 (back-office Nuxt)
     `runtimeConfig.public` est **figé** en Nitro récent — un plugin qui
     assigne `config.public.x = …` crash le boot (Cannot assign to read
     only).
+29c. **Alias `~~/shared` sur Windows hôte** : Nitro réécrit trop de `../`
+    et résout `C:\Users\…\shared\…` (module introuvable, boot mort).
+    Imports serveur = chemins relatifs ; `nuxt.config.js` déclare
+    `#shared` / `~~/shared` + `nitro.externals.inline` pour
+    `shared/constants`. Les SFC Vue gardent `~~/shared` (le build
+    Docker Linux casse si on les convertit en relatifs trop profonds).
 30. **`watch` dans un composable singleton = scope du 1er appelant** : il
     meurt au démontage du composant (changement de layout à la navigation)
     et un garde `initialized` empêche toute réinscription → enregistrer le

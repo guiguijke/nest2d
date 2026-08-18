@@ -107,8 +107,317 @@ const _polyRingDist = (poly, ring) => {
     }
     return best
 }
+const _polyPolyDist = (a, b) => {
+    let best = Infinity
+    for (const p of a) for (let i = 0; i < b.length - 1; i++) best = Math.min(best, _ptSeg(p, b[i], b[i + 1]))
+    for (const p of b) for (let i = 0; i < a.length - 1; i++) best = Math.min(best, _ptSeg(p, a[i], a[i + 1]))
+    return best
+}
 const PINWHEEL = [0, 90, 180, 270]
 const CAPACITY = 4
+const PACK_GRID = 8
+const PACK_BUDGET_MS = 400
+const _SPACE_EPS = 1e-6
+
+function _itemCoords(item) {
+    return item?.coords || item?.coordinates || []
+}
+
+function _jsPinwheelCapacity(holeRing, fillerCoords, space, allowed) {
+    const rots = PINWHEEL.filter((r) => !allowed || allowed.includes(r))
+    const c = _centroid(holeRing)
+    const valid = []
+    const placed = []
+    for (const rot of rots) {
+        const cand = _placedPoly(fillerCoords, rot, c[0], c[1])
+        if (!cand.every((v) => _pin(v, holeRing)) || _polyRingDist(cand, holeRing) < space - _SPACE_EPS) continue
+        if (placed.some((q) => _polyPolyDist(cand, q) + _SPACE_EPS < space)) continue
+        valid.push(rot)
+        placed.push(cand)
+    }
+    return valid
+}
+
+/** Maximise l'aire de fillers dans un trou. Repli pinwheel si le glouton
+ * n'améliore pas ou si `deadlineMs` est dépassé. */
+export function packHole(holeRing, candidates, space, deadlineMs) {
+    const margin = Math.max(0, Number(space) || 0)
+    const c = _centroid(holeRing)
+    const timedOut = () => deadlineMs != null && Date.now() > deadlineMs
+
+    const tryPose = (coords, rot, tx, ty, placed) => {
+        const cand = _placedPoly(coords, rot, tx, ty)
+        if (!cand.every((v) => _pin(v, holeRing))) return null
+        if (margin > 0 && _polyRingDist(cand, holeRing) < margin - _SPACE_EPS) return null
+        if (placed.some((q) => _polyPolyDist(cand, q) + _SPACE_EPS < margin)) return null
+        return cand
+    }
+
+    let best = []
+    let bestArea = 0
+    for (const cand of candidates || []) {
+        if ((cand.remaining || 0) <= 0) continue
+        const rots = _jsPinwheelCapacity(holeRing, cand.coords, margin, cand.rotations)
+        const n = Math.min(rots.length, cand.remaining)
+        if (n <= 0) continue
+        const area = n * cand.area
+        if (area > bestArea) {
+            bestArea = area
+            best = rots.slice(0, n).map((rot) => ({
+                fillId: cand.id, rot, lx: c[0], ly: c[1], area: cand.area,
+            }))
+        }
+    }
+    if (timedOut()) return best
+    // Un seul type de filler + pinwheel déjà utile : le glouton grille
+    // n'améliore pas (cas x4) et coûte trop sur N hôtes.
+    const activeTypes = (candidates || []).filter((c) => (c.remaining || 0) > 0)
+    if (activeTypes.length <= 1 && best.length > 0) return best
+
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const p of holeRing) {
+        if (p[0] < minX) minX = p[0]
+        if (p[1] < minY) minY = p[1]
+        if (p[0] > maxX) maxX = p[0]
+        if (p[1] > maxY) maxY = p[1]
+    }
+    const positions = () => {
+        const out = [[c[0], c[1]]]
+        if (maxX > minX && maxY > minY) {
+            for (let i = 0; i < PACK_GRID; i++) {
+                for (let j = 0; j < PACK_GRID; j++) {
+                    out.push([
+                        minX + (i + 0.5) * (maxX - minX) / PACK_GRID,
+                        minY + (j + 0.5) * (maxY - minY) / PACK_GRID,
+                    ])
+                }
+            }
+        }
+        return out
+    }
+
+    const stock = Object.fromEntries((candidates || []).map((x) => [x.id, x.remaining || 0]))
+    const order = [...(candidates || [])].sort((a, b) => b.area - a.area)
+    const greedy = []
+    const greedyPolys = []
+    const pts = positions()
+    let progressed = true
+    while (progressed && !timedOut()) {
+        progressed = false
+        for (const cand of order) {
+            if ((stock[cand.id] || 0) <= 0) continue
+            const rots = cand.rotations?.length ? cand.rotations : PINWHEEL
+            let placedOne = false
+            for (const rot of rots) {
+                for (const [tx, ty] of pts) {
+                    const poly = tryPose(cand.coords, rot, tx, ty, greedyPolys)
+                    if (!poly) continue
+                    greedy.push({ fillId: cand.id, rot, lx: tx, ly: ty, area: cand.area })
+                    greedyPolys.push(poly)
+                    stock[cand.id] -= 1
+                    placedOne = true
+                    progressed = true
+                    break
+                }
+                if (placedOne || timedOut()) break
+            }
+            if (timedOut()) break
+        }
+    }
+    const greedyArea = greedy.reduce((n, p) => n + p.area, 0)
+    return greedyArea > bestArea + 1e-9 ? greedy : best
+}
+
+function _fillCandidates(fillItems, stock) {
+    const out = []
+    for (const it of fillItems) {
+        const rem = stock[it.id] || 0
+        if (rem <= 0) continue
+        const coords = _itemCoords(it)
+        out.push({
+            id: it.id,
+            coords,
+            rotations: it.rotations?.length ? it.rotations : PINWHEEL,
+            remaining: rem,
+            area: _partArea(it),
+        })
+    }
+    return out
+}
+
+function _planLegacyFullPinwheel(inputItems, space) {
+    const hosts = inputItems.filter((i) => (i.holes || []).length)
+    const fills = inputItems.filter((i) => !(i.holes || []).length)
+    if (hosts.length !== 1 || fills.length !== 1) return null
+    const host = hosts[0]
+    const fill = fills[0]
+    const allowed = (fill.rotations || PINWHEEL).filter((r) => PINWHEEL.includes(r))
+    const ringRotations = (host.holes || []).map((ring) =>
+        _jsPinwheelCapacity(ring, _itemCoords(fill), space, allowed),
+    )
+    const capacity = ringRotations.reduce((n, rr) => n + rr.length, 0)
+    const full = ringRotations.length > 0 && ringRotations.every((rr) => rr.length === allowed.length)
+    if (!capacity || !full) return null
+    const hostQty = host.count || 1
+    const fillQty = fill.count || 0
+    const slots = []
+    let remaining = fillQty
+    for (let h = 0; h < hostQty; h++) {
+        const k = Math.min(capacity, remaining)
+        slots.push(k)
+        remaining -= k
+    }
+    const area = _partArea(fill)
+    const packs = slots.map((k) => {
+        const poses = []
+        let left = k
+        for (let ri = 0; ri < (host.holes || []).length && left > 0; ri++) {
+            const [cx, cy] = _centroid(host.holes[ri])
+            for (const rot of ringRotations[ri] || []) {
+                if (left <= 0) break
+                poses.push({ fillId: fill.id, rot, lx: cx, ly: cy, area })
+                left -= 1
+            }
+        }
+        return { hostId: host.id, fills: poses }
+    })
+    return packs.some((p) => p.fills.length) ? packs : null
+}
+
+function _planGeneric(inputItems, space, deadlineMs) {
+    const hosts = inputItems.filter((i) => (i.holes || []).length)
+    const fills = inputItems.filter((i) => !(i.holes || []).length)
+    if (!hosts.length || !fills.length) return null
+    const stock = Object.fromEntries(fills.map((i) => [i.id, i.count || 0]))
+    const packs = []
+    for (const host of hosts) {
+        for (let n = 0; n < (host.count || 0); n++) {
+            const poses = []
+            for (const ring of host.holes || []) {
+                if (deadlineMs != null && Date.now() > deadlineMs) break
+                const cands = _fillCandidates(fills, stock)
+                if (!cands.length) break
+                const seen = new Set()
+                const uniq = []
+                for (const c of cands) {
+                    if (seen.has(c.id)) continue
+                    seen.add(c.id)
+                    uniq.push(c)
+                }
+                for (const pose of packHole(ring, uniq, space, deadlineMs)) {
+                    if ((stock[pose.fillId] || 0) <= 0) continue
+                    stock[pose.fillId] -= 1
+                    poses.push(pose)
+                }
+            }
+            packs.push({ hostId: host.id, fills: poses })
+        }
+    }
+    return packs.some((p) => p.fills.length) ? packs : null
+}
+
+function _packsArea(packs) {
+    return (packs || []).reduce((n, p) => n + (p.fills || []).reduce((a, f) => a + (f.area || 0), 0), 0)
+}
+
+/** Plan de remplissage (packs) ou null. Repli J-085 si le générique lève /
+ * est plus pauvre / dépasse le budget. */
+export function planHoleFills(inputItems, space, budgetMs = PACK_BUDGET_MS) {
+    if (!inputItems?.length) return null
+    const deadline = Date.now() + Math.max(50, budgetMs)
+    let generic = null
+    try {
+        generic = _planGeneric(inputItems, space, deadline)
+    } catch {
+        generic = null
+    }
+    let legacy = null
+    try {
+        legacy = _planLegacyFullPinwheel(inputItems, space)
+    } catch {
+        legacy = null
+    }
+    if (_packsArea(legacy) > _packsArea(generic) + 1e-9) return legacy
+    return generic || legacy
+}
+
+export function reduceForSolve(inputItems, jaguarItems, packs, space = 0) {
+    const used = {}
+    const closed = new Set()
+    for (const pack of packs || []) {
+        if (pack.fills?.length) closed.add(pack.hostId)
+        for (const f of pack.fills || []) used[f.fillId] = (used[f.fillId] || 0) + 1
+    }
+    const reduced = []
+    const idMap = []
+    for (let i = 0; i < inputItems.length; i++) {
+        const it = inputItems[i]
+        const ji = jaguarItems[i]
+        const d = (ji.demand || 0) - (used[it.id] || 0)
+        if (d <= 0) continue
+        const entry = { ...ji, demand: d, id: reduced.length }
+        if (closed.has(it.id)) {
+            entry.shape = { type: 'simple_polygon', data: it.coords }
+        }
+        reduced.push(entry)
+        idMap.push(it.id)
+    }
+    const hostIds = new Set((packs || []).map((p) => p.hostId))
+    const fillIds = new Set((packs || []).flatMap((p) => (p.fills || []).map((f) => f.fillId)))
+    if (hostIds.size === 1 && fillIds.size === 1) {
+        const hid = [...hostIds][0]
+        const fid = [...fillIds][0]
+        const host = inputItems.find((i) => i.id === hid)
+        const fill = inputItems.find((i) => i.id === fid)
+        const allowed = fill?.rotations?.length ? fill.rotations : PINWHEEL
+        const ringRotations = (host?.holes || []).map((ring) =>
+            _jsPinwheelCapacity(ring, _itemCoords(fill), space, allowed),
+        )
+        return {
+            meta: {
+                host: hid,
+                fill: fid,
+                slots: (packs || []).map((p) => (p.fills || []).length),
+                ringRotations,
+                idMap,
+            },
+            reduced,
+        }
+    }
+    return { meta: { packs, idMap }, reduced }
+}
+
+export function expandPacks(parts, packs, layouts) {
+    const unused = [...(packs || [])]
+    for (const layout of layouts) {
+        const added = []
+        for (const pi of layout.placed_items || []) {
+            const idx = unused.findIndex((p) => p.hostId === pi.item_id || String(p.hostId) === String(pi.item_id))
+            if (idx < 0) continue
+            const pack = unused.splice(idx, 1)[0]
+            const t = pi.transformation || {}
+            const hrot = t.rotation ?? 0
+            const hx = t.translation?.[0] ?? 0
+            const hy = t.translation?.[1] ?? 0
+            const r = (hrot * Math.PI) / 180
+            const cosR = Math.cos(r)
+            const sinR = Math.sin(r)
+            for (const f of pack.fills || []) {
+                const wx = cosR * f.lx - sinR * f.ly + hx
+                const wy = sinR * f.lx + cosR * f.ly + hy
+                added.push({
+                    item_id: Number(f.fillId),
+                    transformation: { rotation: hrot + f.rot, translation: [wx, wy] },
+                })
+            }
+        }
+        layout.placed_items = [...(layout.placed_items || []), ...added]
+    }
+    return layouts
+}
 
 /** Recomplète chaque trou en pinwheel après le solve (rien ne le défait).
  * Mutate les transforms des layouts ; déterministe. Miroir de holefill.py.
@@ -146,7 +455,39 @@ export function applyHoleFill(parts, layouts, space) {
         else holes[hi].members.push(e)
     }
     let recovered = 0
+    const deadline = Date.now() + PACK_BUDGET_MS
     for (const h of holes) {
+        if (!free.length) break
+        const stock = {}
+        for (const e of free) stock[e.item.id] = (stock[e.item.id] || 0) + 1
+        const cands = _fillCandidates(free.map((e) => e.item), stock)
+        const seen = new Set()
+        const uniq = []
+        for (const c of cands) {
+            if (seen.has(c.id)) continue
+            seen.add(c.id)
+            uniq.push(c)
+        }
+        const poses = uniq.length ? packHole(h.ring, uniq, margin, deadline) : []
+        if (poses.length) {
+            const byId = new Map()
+            for (const e of free) {
+                const list = byId.get(e.item.id) || []
+                list.push(e)
+                byId.set(e.item.id, list)
+            }
+            for (const pose of poses) {
+                const pool = byId.get(pose.fillId) || []
+                if (!pool.length) continue
+                const e = pool.shift()
+                e.pi.transformation.rotation = pose.rot
+                e.pi.transformation.translation = [pose.lx, pose.ly]
+                e.poly = _placedPoly(_itemCoords(e.item), pose.rot, pose.lx, pose.ly)
+                const fi = free.indexOf(e)
+                if (fi >= 0) { free.splice(fi, 1); recovered++ }
+            }
+            continue
+        }
         const cur = h.members
         if (cur.length >= CAPACITY || free.length < CAPACITY - cur.length) continue
         const c = _centroid(h.ring)
@@ -155,8 +496,6 @@ export function applyHoleFill(parts, layouts, space) {
         let ok = true
         for (let i = 0; i < pool.length; i++) {
             const cand = _placedPoly(pool[i].item.coords, PINWHEEL[i], c[0], c[1])
-            // dans le trou (sommets) + marge `space` à la paroi + spacing
-            // `space` entre fillers du trou (miroir holefill.py, piège #3)
             if (!cand.every((v) => _pin(v, h.ring)) || _polyRingDist(cand, h.ring) < margin) { ok = false; break }
             if (polys.some((q) => _polyPolyDist(cand, q) < margin)) { ok = false; break }
             polys.push(cand)
@@ -171,12 +510,6 @@ export function applyHoleFill(parts, layouts, space) {
         })
     }
     return recovered
-}
-const _polyPolyDist = (a, b) => {
-    let best = Infinity
-    for (const p of a) for (let i = 0; i < b.length - 1; i++) best = Math.min(best, _ptSeg(p, b[i], b[i + 1]))
-    for (const p of b) for (let i = 0; i < a.length - 1; i++) best = Math.min(best, _ptSeg(p, a[i], a[i + 1]))
-    return best
 }
 
 /** J-085 expansion meta-pièces (miroir de core/holefill.py expand_meta) :
@@ -284,14 +617,18 @@ export function decorateLiveLayout(evt, payload) {
         let holesFilled = 0
         if (payload?.meta) {
             const before = layouts.reduce((n, l) => n + (l.placed_items?.length || 0), 0)
-            expandMeta(
-                parts,
-                payload.meta.host,
-                payload.meta.fill,
-                payload.meta.slots,
-                layouts,
-                payload.meta.ringRotations,
-            )
+            if (payload.meta.packs) {
+                expandPacks(parts, payload.meta.packs, layouts)
+            } else {
+                expandMeta(
+                    parts,
+                    payload.meta.host,
+                    payload.meta.fill,
+                    payload.meta.slots,
+                    layouts,
+                    payload.meta.ringRotations,
+                )
+            }
             holesFilled += layouts.reduce((n, l) => n + (l.placed_items?.length || 0), 0) - before
         }
         const space = Number(payload?.engineConfig?.min_item_separation) || 0
@@ -358,7 +695,11 @@ export async function buildAlternativeArtifacts(result, payload) {
                         }
                     }
                 }
-                expandMeta(parts, payload.meta.host, payload.meta.fill, payload.meta.slots, layouts, payload.meta.ringRotations)
+                if (payload.meta.packs) {
+                    expandPacks(parts, payload.meta.packs, layouts)
+                } else {
+                    expandMeta(parts, payload.meta.host, payload.meta.fill, payload.meta.slots, layouts, payload.meta.ringRotations)
+                }
             }
             applyHoleFill(parts, layouts, space)
             const containers = []

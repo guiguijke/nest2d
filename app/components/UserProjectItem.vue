@@ -192,7 +192,13 @@ onBeforeUnmount(() => {
     }
 
     &__label {
-        display: block;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        // Room for the trash (absolute, top-right) so the local-project
+        // badge never sits on top of it on a narrow aside.
+        padding-right: 36px;
         color: var(--label-secondary);
         transition: color 0.3s;
 
@@ -208,7 +214,7 @@ onBeforeUnmount(() => {
 
     &__badge {
         display: inline-block;
-        margin-left: 6px;
+        flex-shrink: 0;
         padding: 1px 7px;
         border-radius: 999px;
         background: var(--accent-primary);
@@ -218,6 +224,8 @@ onBeforeUnmount(() => {
         text-transform: uppercase;
         letter-spacing: 0.04em;
         vertical-align: middle;
+        position: relative;
+        z-index: 0;
     }
 
     &__btn {
@@ -225,7 +233,7 @@ onBeforeUnmount(() => {
         position: absolute;
         top: 8px;
         right: 8px;
-        z-index: 1;
+        z-index: 2;
         transition: opacity 0.3s;
 
         // Tactile : pas de survol — la poubelle reste visible en permanence.

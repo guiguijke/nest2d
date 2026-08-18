@@ -25,13 +25,16 @@ const state = reactive({
     // normally disables the launch before this can happen.
     sheetCapError: false,
     params: {
-        sheets: [{ width: '1000', height: '2000', count: '100' }],
+        sheets: [{ width: '1000', height: '2000', count: '1' }],
         space: '0.1',
         addOutShape: false,
         // Allow nesting smaller parts inside the cutouts of holed parts
         // (engine opens them with a hairline channel; off = sealed cutouts).
         fillHoles: true,
-        rotationCount: 4
+        rotationCount: 4,
+        // D-MOT-5 amendé : 1 sens = 1 layout (le meilleur). Cocher plus
+        // de sens = plus de propositions.
+        directions: ['left'],
     },
     isSvgLoaded: computed(
         () =>

@@ -15,7 +15,7 @@ vi.mock('~~/server/features/payment/stripe', () => ({
     mapSubscription: vi.fn(),
 }))
 
-import { assertCanNest, effectiveFreeLimit, getComputeProfile, getComputeTier, getDemoEntitlement, getEntitlement } from '~~/server/utils/entitlement'
+import { assertCanNest, effectiveFreeLimit, getComputeProfile, getComputeTier, getDemoEntitlement, getEntitlement, validateDirections } from '~~/server/utils/entitlement'
 import { fakeDb } from './helpers/fakeMongo'
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7)
@@ -236,5 +236,16 @@ describe('getDemoEntitlement', () => {
             demoRemaining: 7,
             demoUnlimited: false,
         })
+    })
+})
+
+describe('validateDirections (D-MOT-5 amendé)', () => {
+    it('defaults to left when the client sends nothing', () => {
+        expect(validateDirections(undefined, 3)).toEqual(['left'])
+        expect(validateDirections([], 3)).toEqual(['left'])
+    })
+
+    it('keeps a requested subset in canonical order', () => {
+        expect(validateDirections(['balanced', 'left'], 3)).toEqual(['left', 'balanced'])
     })
 })

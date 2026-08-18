@@ -694,13 +694,15 @@ def nesting_process(doc):
     SPP_MAX_AREA_RATIO = float(os.environ.get("NEST_SPP_MAX_AREA_RATIO", "0.80"))
     single_sheet_area = (bin_dims[0][0] * bin_dims[0][1]) if bins else 0.0
     total_stock = sum(int(s.get("count") or 1) for s in sheets)
-    # SPP cannot span sheets. Stock count > 1 (e.g. demo 3×3000×1500) must
-    # be BPP even when the part area would fit one plate on paper.
+    # SPP cannot span sheets. Stock count > 1 is BPP — sauf –X / left seul
+    # (l'utilisateur demande une bande, pas un remplissage de stock).
+    dirs = params.get("directions") or []
+    left_only = isinstance(dirs, (list, tuple)) and list(dirs) == ["left"]
     is_spp = (
         len(bins) == 1
-        and total_stock == 1
         and single_sheet_area > 0
         and total_part_area <= single_sheet_area * SPP_MAX_AREA_RATIO
+        and (total_stock == 1 or left_only)
     )
     problem_type = "spp" if is_spp else "bpp"
     logger.info(
@@ -735,71 +737,26 @@ def nesting_process(doc):
         instance = build_bpp_instance(jaguar_items, bins, name=slug)
         max_strip_width = None
 
-    # J-085 (pre-pass meta-pièces) : pour un job SPP à trous « 1 type d'hôte +
-    # 1 type de filler », on résout UNE fois des blocs déjà pleins (hôtes +
-    # fillers figés en pinwheel validé dans le trou) plutôt que de disperser
-    # les fillers puis re-compacter (CPU gaspillé, colonne espacée). L'instance
-    # résolue ne porte que les hôtes (+ fillers restants) ; l'expansion
-    # rattache les fillers après le solve. Compact ET trous pleins, un seul
-    # passage de solve. Trois invariants, tous verrouillés au banc
-    # (seed_holes) et par test_holefill/test_local_compute :
-    #  - capacité pinwheel VALIDÉE (pinwheel_capacity, sémantique exacte du
-    #    moteur, piège #3) — jamais de filler attaché en chevauchement ;
-    #  - hôte résolu TROUS FERMÉS : les trous sont pré-remplis par l'expansion,
-    #    les laisser ouverts dans l'instance réduite laisserait le moteur y
-    #    placer les fillers restants (double-remplissage = overlaps réels) ;
-    #    corollaire : le pre-pass ne s'engage que si le pinwheel validé remplit
-    #    TOUT le trou (toutes les rotations permises, tous les anneaux) — une
-    #    capacité partielle relèverait du solve à trous ouverts + post-pass
-    #    (sinon les slots non pré-remplis restent vides : trou sous-rempli) ;
-    #  - ids RÉINDEXÉS consécutifs : jagua droppe les items à demande 0 puis
-    #    exige des ids 0..n-1 (import error « consecutive IDs » quand le filler
-    #    droppé n'est pas le dernier id — panne prod 2026-08-09). meta["idMap"]
-    #    (index = id réduit → id d'origine) re-mappe solutions et live frames.
+    # D-MOT-16 : trous d'abord (SPP et BPP, pièces mixtes). Packer générique
+    # + repli J-085 (1 hôte + 1 filler, pinwheel 4/4) si le packer lève,
+    # dépasse son budget ou score moins bien. Hôtes avec au moins un filler
+    # → trous FERMÉS (piège #3b). Ids RÉINDEXÉS 0..n-1 (piège #3b).
     meta = None
     solve_instance = instance
-    if is_spp and has_holes:
-        host_ids = [i["id"] for i in input_items if i.get("holes")]
-        fill_ids = [i["id"] for i in input_items if not i.get("holes")]
-        if len(host_ids) == 1 and len(fill_ids) == 1:
-            from core.holefill import PINWHEEL, meta_slots, pinwheel_capacity
-            host_item = next(i for i in input_items if i["id"] == host_ids[0])
-            fill_item = next(i for i in input_items if i["id"] == fill_ids[0])
-            fill_rotations = set(fill_item.get("rotations") or PINWHEEL)
-            allowed_rots = [r for r in PINWHEEL if r in fill_rotations]
-            ring_rotations = [
-                pinwheel_capacity(ring, fill_item["coords"], space, allowed=fill_rotations)
-                for ring in (host_item["holes"] or [])
-            ]
-            capacity = sum(len(rr) for rr in ring_rotations)
-            full = bool(ring_rotations) and all(len(rr) == len(allowed_rots) for rr in ring_rotations)
-            if capacity and full:
-                slots, remaining = meta_slots(
-                    input_items, host_ids[0], fill_ids[0], capacity
-                )
-                reduced = []
-                id_map = []  # index = id dans l'instance réduite → id d'origine
-                for it, ji_ in zip(input_items, jaguar_items):
-                    d = remaining if it["id"] == fill_ids[0] else ji_["demand"]
-                    if d <= 0:
-                        continue  # jagua dropperait l'item : ne jamais l'émettre
-                    entry = {**ji_, "demand": d, "id": len(reduced)}
-                    if it["id"] == host_ids[0]:
-                        # Hôte fermé : anneau externe propre, sans canal — le
-                        # trou est pré-rempli par l'expansion.
-                        entry["shape"] = {"type": "simple_polygon", "data": it["coords"]}
-                    reduced.append(entry)
-                    id_map.append(it["id"])
-                meta = {
-                    "host": host_ids[0],
-                    "fill": fill_ids[0],
-                    "slots": slots,
-                    "ringRotations": ring_rotations,
-                    "idMap": id_map,
-                }
-                solve_instance = build_spp_instance(
-                    reduced, bin_dims[0][0], bin_dims[0][1], name=slug
-                )
+    if has_holes:
+        from core.holefill import plan_hole_fills, reduce_for_solve
+        packs = plan_hole_fills(input_items, space)
+        if packs:
+            meta, reduced = reduce_for_solve(input_items, jaguar_items, packs, space)
+            if reduced:
+                if is_spp:
+                    solve_instance = build_spp_instance(
+                        reduced, bin_dims[0][0], bin_dims[0][1], name=slug
+                    )
+                else:
+                    solve_instance = build_bpp_instance(reduced, bins, name=slug)
+            else:
+                meta = None
 
     seed = deterministic_seed({
         "instance": solve_instance,
@@ -962,12 +919,12 @@ def nesting_process(doc):
             sheet_pairs = [[float(s.get("width")), float(s.get("height"))] for s in sheets]
             holes_filled = 0
             density = event.get("density")
-            if items and (meta or (is_spp and has_holes)):
+            if items and (meta or has_holes):
                 from core.holefill import decorate_live_items
                 items, live_stats = decorate_live_items(
                     items, input_items, space,
                     meta=meta,
-                    apply_fill=bool(is_spp and has_holes),
+                    apply_fill=bool(has_holes),
                     sheets=sheet_pairs,
                 )
                 holes_filled = live_stats.get("holesFilled") or 0
@@ -1079,10 +1036,10 @@ def nesting_process(doc):
         )
         raise Exception(information) from e
 
-    # J-085 : expansion meta-pièces — rattache les fillers figés (pinwheel
-    # validé) aux hôtes posés par le solve réduit, avant reveal + finalisation.
+    # J-085 / D-MOT-16 : expansion meta — rattache les fillers figés aux
+    # hôtes posés par le solve réduit, avant reveal + finalisation.
     if meta:
-        from core.holefill import expand_meta
+        from core.holefill import expand_meta, expand_packs
         id_map = meta["idMap"]
         for engine_alt in engine_alternatives:
             sol = engine_alt.get("solution") or {}
@@ -1097,16 +1054,16 @@ def nesting_process(doc):
                     pid = pi.get("item_id")
                     if isinstance(pid, int) and 0 <= pid < len(id_map):
                         pi["item_id"] = id_map[pid]
-            sol["layouts"] = expand_meta(
-                input_items, meta["host"], meta["fill"], meta["slots"],
-                layouts, meta["ringRotations"],
-            )
+            if meta.get("packs"):
+                sol["layouts"] = expand_packs(input_items, meta["packs"], layouts)
+            else:
+                sol["layouts"] = expand_meta(
+                    input_items, meta["host"], meta["fill"], meta["slots"],
+                    layouts, meta.get("ringRotations"),
+                )
 
-    # J-085 (post-pass hole-fill) : AVANT le reveal, pour que la vue live
-    # finisse sur le même agencement que le modal (fillers dans les trous).
-    # SPP à trous uniquement — le client BPP applique le même filet de son
-    # côté (localBridge.applyHoleFill).
-    if is_spp and has_holes:
+    # Post-pass hole-fill (SPP et BPP) : AVANT le reveal.
+    if has_holes:
         from core.holefill import apply_hole_fill
         for engine_alt in engine_alternatives:
             sol = engine_alt.get("solution") or {}

@@ -1,14 +1,14 @@
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { connectDB } from '~~/server/db/mongo'
-import { DEMO_OWNER_ID } from '~~/shared/constants/demo.constants'
+import { connectDB } from '../db/mongo'
+import { DEMO_OWNER_ID } from '../../shared/constants/demo.constants'
 import {
     ENC_FLAG,
     createDecryptStream,
     createEncryptStream,
     decryptBuffer,
     polygonPartsAadId,
-} from '~~/server/utils/crypto'
+} from './crypto'
 
 /**
  * Vault session cache (D-PRV-7) — the only place a DEK exists server-side.

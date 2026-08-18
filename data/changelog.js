@@ -8,6 +8,26 @@ export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
         {
+            title: 'Hole nesting first, one direction = the best layout',
+            datetime: '2026-08-17',
+            sections: [
+                {
+                    title: 'Nesting in cutouts',
+                    content: [
+                        'Smaller parts are packed into holes first (any mix of shapes, not just a hardcoded pair), then the filled hosts and leftovers are nested on the sheet.',
+                        'Default direction is –X (left): one direction returns the single best layout of 8 walks. Tick more directions to compare alternatives.',
+                    ],
+                },
+                {
+                    title: 'Local compute',
+                    content: [
+                        'A finished layout that stops improving ends the search sooner on small jobs, and waits longer when there are many parts (large jobs compute fewer frames per second).',
+                        'The result you see live is the one you get — a later merge cannot replace it with a worse packing.',
+                    ],
+                },
+            ],
+        },
+        {
             title: 'NestorCut rebrand',
             datetime: '2026-08-05',
             sections: [

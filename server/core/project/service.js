@@ -12,7 +12,7 @@ import { resolvePartColor } from "~~/server/utils/colors";
 import {
   DEMO_OWNER_ID,
   DEMO_PROJECT_SLUG,
-} from "~~/shared/constants/demo.constants";
+} from "../../../shared/constants/demo.constants";
 
 /**
  * Shared services for the bin (workspace projects) and strip domains. Every

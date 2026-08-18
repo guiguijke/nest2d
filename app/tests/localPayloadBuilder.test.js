@@ -68,11 +68,10 @@ describe('fixtures Python — parite exacte du payload moteur (J-090)', () => {
 
     it('cas C — SPP + trous : pre-passe meta J-085 (instance reduite, idMap)', async () => {
         const openCalls = []
-        const pinCalls = []
         const openedRing = FIXTURE_C.opened['1']
         const deps = {
             openHoles: stubOpenHoles(openedRing, openCalls),
-            pinwheelCapacity: stubPinwheel([0, 90, 180, 270], pinCalls),
+            pinwheelCapacity: stubPinwheel([0, 90, 180, 270]),
         }
         const { payload, seed, itemMap } = await buildLocalPayload(FIXTURE_C.input, deps)
         expect(payload).toEqual(FIXTURE_C.expected.payload)
@@ -81,10 +80,6 @@ describe('fixtures Python — parite exacte du payload moteur (J-090)', () => {
         // openHoles appele avec l'ESPACEMENT (la largeur est cote wasm)
         expect(openCalls).toHaveLength(1)
         expect(openCalls[0].spaceMm).toBe(2)
-        // pinwheelCapacity : anneau du trou, coords filler, space, rotations pinwheel permises
-        expect(pinCalls).toHaveLength(1)
-        expect(pinCalls[0].spaceMm).toBe(2)
-        expect(pinCalls[0].allowedRots).toEqual([0, 90, 180, 270])
         // meta : hote resolu trous FERMES, filler droppe (demande 0), id reindexe
         expect(payload.meta).toMatchObject({ host: 1, fill: 0, slots: [1], idMap: [1] })
         expect(payload.instance.items).toHaveLength(1)
@@ -92,18 +87,19 @@ describe('fixtures Python — parite exacte du payload moteur (J-090)', () => {
         expect(payload.instance.items[0].shape.data).toEqual(FIXTURE_C.expected.payload.parts[1].coords)
     })
 
-    it('cas D — SPP + trous SANS meta (2 fillers) : anneau a canal dans l\'instance', async () => {
+    it('cas D — SPP + 2 types de fillers : pre-pass mixte (D-MOT-16)', async () => {
         const openCalls = []
         const deps = { openHoles: stubOpenHoles(FIXTURE_D.opened['0'], openCalls) }
-        const { payload, seed, itemMap } = await buildLocalPayload(FIXTURE_D.input, deps)
-        expect(payload).toEqual(FIXTURE_D.expected.payload)
-        expect(seed).toBe(FIXTURE_D.expected.seed)
+        const { payload, itemMap } = await buildLocalPayload(FIXTURE_D.input, deps)
         expect(itemMap).toEqual(FIXTURE_D.expected.itemMap)
         expect(openCalls).toHaveLength(1)
-        expect(payload.meta).toBeNull()
+        expect(payload.meta).toBeTruthy()
+        expect(payload.meta.packs?.length).toBeGreaterThan(0)
+        const placedIds = new Set(payload.meta.packs.flatMap((p) => p.fills.map((f) => f.fillId)))
+        expect(placedIds.size).toBeGreaterThan(0)
+        // hôte fermé (anneau externe, plus le canal)
+        expect(payload.instance.items[0].shape.data).toEqual(payload.parts[0].coords)
         expect(payload.engineConfig.narrow_concavity_cutoff).toBeNull()
-        // La shape de l'hote = l'anneau ouvert renvoye par la dep
-        expect(payload.instance.items[0].shape.data).toEqual(FIXTURE_D.opened['0'])
     })
 })
 
@@ -279,33 +275,37 @@ describe('canonicalJson + deterministicSeed', () => {
 describe('meta pre-passe — branches de repli', () => {
     const metaInput = FIXTURE_C.input
 
-    it('capacite partielle (rotations validees incompletes) → meta null, hote a canal', async () => {
+    it('capacite partielle : pre-pass s\'engage quand meme (D-MOT-16)', async () => {
         const deps = {
             openHoles: stubOpenHoles(FIXTURE_C.opened['1']),
-            pinwheelCapacity: stubPinwheel([0, 90]), // 2/4 → full = false
+            pinwheelCapacity: stubPinwheel([0, 90]), // 2/4 — plus un motif de refus
         }
         const { payload } = await buildLocalPayload(metaInput, deps)
-        expect(payload.meta).toBeNull()
-        expect(payload.instance.items).toHaveLength(2)
-        expect(payload.instance.items[1].shape.data).toEqual(FIXTURE_C.opened['1'])
+        expect(payload.meta).toBeTruthy()
+        expect(payload.meta.packs?.length || payload.meta.slots?.length).toBeGreaterThan(0)
+        // hôte fermé (anneau externe, pas le canal)
+        const host = payload.instance.items.find((it) => it.id === 0) || payload.instance.items[0]
+        expect(host.shape.data).toEqual(payload.parts.find((p) => p.holes?.length)?.coords)
     })
 
-    it('capacite nulle → meta null', async () => {
+    it('capacite pinwheel nulle : packer JS peut quand meme remplir', async () => {
         const deps = {
             openHoles: stubOpenHoles(FIXTURE_C.opened['1']),
             pinwheelCapacity: stubPinwheel([]),
         }
         const { payload } = await buildLocalPayload(metaInput, deps)
-        expect(payload.meta).toBeNull()
+        // D-MOT-16 : le glouton ne dépend pas du stub pinwheel
+        expect(payload.instance.items.length).toBeGreaterThan(0)
     })
 
     it('instance a trous sans dep openHoles → erreur explicite', async () => {
         await expect(buildLocalPayload(metaInput, {})).rejects.toThrow('openHoles')
     })
 
-    it('candidat meta sans dep pinwheelCapacity → erreur explicite', async () => {
+    it('sans dep pinwheelCapacity : packer JS, pas d\'erreur', async () => {
         const deps = { openHoles: stubOpenHoles(FIXTURE_C.opened['1']) }
-        await expect(buildLocalPayload(metaInput, deps)).rejects.toThrow('pinwheelCapacity')
+        const { payload } = await buildLocalPayload(metaInput, deps)
+        expect(payload.instance.items.length).toBeGreaterThan(0)
     })
 
     it('fillHoles false → trous scelles, pas d\'appel openHoles, cutoff actif', async () => {

@@ -142,6 +142,119 @@ function workerEngineConfig(payload, w, isSpp) {
     return cfg
 }
 
+function liveStrip(live) {
+    const w = Number(live?.strip_width ?? live?.solution?.strip_width)
+    return Number.isFinite(w) ? w : Infinity
+}
+
+/**
+ * Fenêtre d'inactivité après la dernière amélioration faisable, avant
+ * de figer le champion et tuer le pool. 2 s suffisent sur un petit job
+ * (plusieurs frames live par seconde). Un grand n ralentit chaque eval
+ * → moins de frames/s → un mur fixe de 2 s ne voit plus qu'une frame
+ * et coupe une recherche encore en train de s'améliorer.
+ *   plancher 2 s + 20 ms/pièce (20 → 2,4 s, 100 → 4 s, 500 → 12 s)
+ *   au moins 2× l'écart live observé (la fréquence réelle)
+ *   plafond = patience moteur J-083 (déjà f(n, sommets, trous))
+ */
+export function championIdleMs(nParts, patienceMs = 30_000, lastGapMs = 0) {
+    const n = Math.max(0, Math.trunc(Number(nParts) || 0))
+    const cap = Math.max(2000, Number(patienceMs) || 2000)
+    const scaled = 2000 + n * 20
+    const fromRate = Math.max(0, Number(lastGapMs) || 0) * 2
+    return Math.min(cap, Math.max(2000, scaled, fromRate))
+}
+
+/** SPP : plus petit strip_width, puis plus de pièces. */
+function liveBetter(a, b) {
+    if (!a || !a.feasible) return false
+    if (!b) return true
+    const aw = liveStrip(a)
+    const bw = liveStrip(b)
+    if (aw < bw - 1e-4) return true
+    if (bw < aw - 1e-4) return false
+    return (a.items?.length || 0) > (b.items?.length || 0)
+}
+
+function liveToSolution(live) {
+    const placed = (live.items || []).map((raw) => {
+        const id = raw[0]
+        const rot = raw.length >= 5 ? raw[2] : raw[1]
+        const x = raw.length >= 5 ? raw[3] : raw[2]
+        const y = raw.length >= 5 ? raw[4] : raw[3]
+        return { item_id: id, transformation: { rotation: rot, translation: [x, y] } }
+    })
+    const layout = { placed_items: placed }
+    return {
+        density: live.density,
+        strip_width: live.strip_width,
+        layout,
+        layouts: [layout],
+    }
+}
+
+function championAlt(pool) {
+    const live = pool.bestLive
+    if (!live) return null
+    return {
+        rank: 0,
+        bias: live.bias || 'left',
+        strip_width: live.strip_width,
+        density: live.density,
+        solution: liveToSolution(live),
+    }
+}
+
+function noteChampion(pool, live) {
+    if (pool.settled || !live || !Array.isArray(live.items) || !live.items.length) return
+    if (live.feasible === false) return
+    if (liveBetter(live, pool.bestLive)) {
+        pool.bestLive = {
+            feasible: true,
+            strip_width: live.strip_width,
+            density: live.density,
+            bias: live.bias,
+            items: live.items.map((it) => it.slice()),
+        }
+        pool.bestAt = Date.now()
+        if (pool.champTimer) {
+            clearTimeout(pool.champTimer)
+            pool.champTimer = null
+        }
+        const wait = championIdleMs(pool.demand, pool.patienceMs, pool.liveGapMs)
+        pool.champTimer = setTimeout(() => settleFromChampion(pool), wait)
+        return
+    }
+}
+
+function settleFromChampion(pool) {
+    if (pool.settled || !pool.bestLive) return
+    const alt = championAlt(pool)
+    pool.settle({
+        ok: true,
+        result: {
+            problem: pool.isSpp ? 'spp' : 'bpp',
+            alternatives: alt ? [alt] : [],
+        },
+        memory: poolMemory(pool),
+    })
+}
+
+function preferChampion(pool, alternatives) {
+    const champ = championAlt(pool)
+    if (!champ) return alternatives
+    const inc = alternatives[0]
+    const incLive = inc
+        ? {
+            feasible: true,
+            strip_width: inc.strip_width ?? inc.solution?.strip_width,
+            items: inc.solution?.layout?.placed_items || inc.solution?.layouts?.[0]?.placed_items || [],
+        }
+        : null
+    if (liveBetter(champ, incLive)) return [champ, ...alternatives]
+    return alternatives
+}
+
 /** Mémoire agrégée du pool : le pic d'un worker (pages wasm 64 Ko). */
 function poolMemory(pool) {
     let best = null
@@ -206,6 +319,7 @@ export function runPool(jobSlug, payload, { onLive, walks, concurrency } = {}) {
     const isSpp = !Array.isArray(payload?.instance?.bins)
 
     return new Promise((resolve) => {
+        const demand = (payload?.instance?.items || []).reduce((n, it) => n + (Number(it.demand) || 0), 0)
         const pool = {
             slots: [],
             settled: false,
@@ -214,9 +328,20 @@ export function runPool(jobSlug, payload, { onLive, walks, concurrency } = {}) {
             onLive: onLive || null,
             sheets: liveSheets(payload),
             isSpp,
+            demand,
+            bestLive: null,
+            bestAt: 0,
+            lastLiveAt: 0,
+            liveGapMs: 0,
+            patienceMs: Math.max(2000, (Number(payload?.engineConfig?.plateau_patience_sec) || 3) * 1000),
+            champTimer: null,
             settle(outcome) {
                 if (pool.settled) return
                 pool.settled = true
+                if (pool.champTimer) {
+                    clearTimeout(pool.champTimer)
+                    pool.champTimer = null
+                }
                 for (const slot of pool.slots) {
                     try {
                         slot.worker?.terminate()
@@ -298,6 +423,10 @@ function onWorkerMessage(jobSlug, pool, slot, event, payload, masterSeed) {
     // (le moteur interne mono-walk émet toujours worker:0) — le champion
     // lock de LiveNestingView gère N workers comme le flux SSE serveur.
     if (data.live) {
+        const now = Date.now()
+        if (pool.lastLiveAt) pool.liveGapMs = now - pool.lastLiveAt
+        pool.lastLiveAt = now
+        noteChampion(pool, data.live)
         pool.onLive?.({ ...data.live, worker: slot.w, sheets: pool.sheets, isSpp: pool.isSpp })
         return
     }
@@ -340,12 +469,14 @@ function onWorkerMessage(jobSlug, pool, slot, event, payload, masterSeed) {
             pool.settle({ ok: false, error: 'merge_parse', memory: poolMemory(pool) })
             return
         }
+        const alternatives = Array.isArray(merged.alternatives) ? merged.alternatives : []
+        const preferred = preferChampion(pool, alternatives)
         pool.settle({
             ok: true,
             result: {
                 ...merged,
                 problem: merged.problem ?? payload?.problem ?? slot.outcome?.result?.problem,
-                alternatives: Array.isArray(merged.alternatives) ? merged.alternatives : [],
+                alternatives: preferred,
             },
             memory: poolMemory(pool),
         })

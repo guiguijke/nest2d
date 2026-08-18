@@ -125,6 +125,82 @@ def test_meta_expand_uses_validated_rotations_only():
     assert rots == [0.0, 180.0]
 
 
+def test_pack_hole_real_dxf_fillx4_trou_at_2mm():
+    """Cas fondateur : fixtures Piece_Trou + Piece_Fillx4, 4 fillers, 2 mm."""
+    from pathlib import Path
+    import sys
+    fp = Path(__file__).resolve().parents[2] / "fileprocessing"
+    sys.path.insert(0, str(fp))
+    try:
+        import ezdxf
+        from core.geometry.build_geometry import build_geometry
+    except Exception as exc:
+        import pytest
+        pytest.skip(f"import pipeline unavailable: {exc}")
+    from core.holefill import plan_hole_fills
+    fixtures = fp / "tests" / "fixtures"
+    if not (fixtures / "Piece_Trou.DXF").exists():
+        import pytest
+        pytest.skip("DXF fixtures missing")
+
+    def load(name, count):
+        doc = ezdxf.readfile(str(fixtures / name))
+        parts = [p.to_mongo_dict() for p in build_geometry(doc, 0.01) if p.to_mongo_dict()]
+        assert len(parts) == 1
+        part = parts[0]
+        return {
+            "id": 0 if "Trou" in name else 1,
+            "coords": part["coordinates"],
+            "holes": part.get("holes") or [],
+            "count": count,
+            "rotations": [0, 90, 180, 270],
+        }
+
+    host = load("Piece_Trou.DXF", 1)
+    fill = load("Piece_Fillx4.DXF", 4)
+    packs = plan_hole_fills([host, fill], 2.0)
+    assert packs, "pre-pass must engage on the founding DXFs"
+    assert sum(len(p["fills"]) for p in packs) == 4
+
+
+def test_pack_hole_four_sectors_at_2mm():
+    from core.holefill import pack_hole
+    area = 28.0 * 28.0 * math.pi / 4
+    poses = pack_hole(
+        HOST["holes"][0],
+        [{"id": 1, "coords": FILL["coords"], "rotations": [0, 90, 180, 270], "remaining": 4, "area": area}],
+        2.0,
+    )
+    assert len(poses) == 4
+
+
+def test_plan_hole_fills_founding_case_and_legacy_fallback():
+    from core.holefill import plan_hole_fills, reduce_for_solve
+    items = [dict(HOST, count=1), dict(FILL, count=4, rotations=[0, 90, 180, 270])]
+    packs = plan_hole_fills(items, 2.0)
+    assert packs and len(packs[0]["fills"]) == 4
+    jaguar = [
+        {"id": 0, "demand": 1, "shape": {"type": "simple_polygon", "data": HOST["coords"]}},
+        {"id": 1, "demand": 4, "shape": {"type": "simple_polygon", "data": FILL["coords"]}},
+    ]
+    meta, reduced = reduce_for_solve(items, jaguar, packs, 2.0)
+    assert meta["host"] == 0 and meta["fill"] == 1
+    assert meta["slots"] == [4]
+    # filler entièrement consommé
+    assert all(r["id"] != 1 for r in reduced)
+
+
+def test_plan_hole_fills_mixed_types_maximises_area():
+    from core.holefill import plan_hole_fills
+    small = {"id": 2, "coords": [[0, 0], [6, 0], [6, 6], [0, 6], [0, 0]], "holes": [], "count": 2, "rotations": [0, 90]}
+    items = [dict(HOST, count=1), dict(FILL, count=1, rotations=[0, 90, 180, 270]), small]
+    packs = plan_hole_fills(items, 2.0)
+    assert packs
+    fill_ids = {f["fillId"] for f in packs[0]["fills"]}
+    # au moins un filler placé (secteur et/ou petits carrés)
+    assert fill_ids
+
+
 def test_decorate_live_items_expands_meta_without_mutating_source():
     from core.holefill import decorate_live_items
     src = [[0, 0.0, 0.0, 0.0]]

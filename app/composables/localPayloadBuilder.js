@@ -510,12 +510,19 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
 
     // Profil navigateur (valeurs de l'appelant ; défauts documentés).
     const timeBudgetSec = Math.trunc(Number(profile.timeBudgetSec ?? DEFAULT_TIME_BUDGET_SEC))
-    const nAlternatives = Math.max(1, Math.trunc(Number(params.alternativesCount ?? N_ALTERNATIVES_DEFAULT)))
-    let directions = Array.isArray(params.directions) && params.directions.length
-        ? params.directions.slice()
-        : null
+    const explicitDirs = Array.isArray(params.directions) && params.directions.length
+    let directions = explicitDirs ? params.directions.slice() : null
     const maxDirections = Math.trunc(Number(profile.maxDirections ?? 0))
     if (directions && maxDirections > 0) directions = directions.slice(0, maxDirections)
+    // Production (UI / local-payload) envoie alternativesCount ou directions.
+    // Sans les deux : défaut historique 3 (fixtures de parité Python).
+    const nAlternatives = Math.max(
+        1,
+        Math.trunc(Number(
+            params.alternativesCount
+            ?? (explicitDirs ? directions.length : N_ALTERNATIVES_DEFAULT),
+        )),
+    )
 
     // a) input_items : ids séquentiels fichier × pièce, géométrie simplifiée
     //    AVANT tout (miroir de convert_files_to_input_items).
@@ -623,10 +630,16 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
     // mode ») même quand l'aire tient statistiquement sur une plaque.
     const sheetArea = sheets[0].width * sheets[0].height
     const totalStock = sheets.reduce((n, s) => n + (Number(s.count) || 1), 0)
+    // –X (left seul) = strip : on minimise la largeur même si le stock
+    // déclaré est > 1 (défaut UI historique 100 tôles → BPP, packing en
+    // rangées, pas un –X). Démo count=3 sans left-only reste BPP.
+    const leftOnly = Array.isArray(directions)
+        && directions.length === 1
+        && directions[0] === 'left'
     const isSpp = sheets.length === 1
-        && totalStock === 1
         && totalPartArea > 0
         && totalPartArea <= sheetArea * SPP_MAX_AREA_RATIO
+        && (totalStock === 1 || leftOnly)
 
     // Garde #2b : jagua initialise la bande à aire_totale/hauteur puis la
     // DÉFLATE de space/2 — si l'espacement dépasse cette largeur initiale,
@@ -654,60 +667,73 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         maxStripWidth = undefined
     }
 
-    // f) Pré-passe meta-pièces (J-085/J-089) : SPP à trous « 1 type d'hôte +
-    //    1 type de filler » — on résout les hôtes TROUS FERMÉS (+ fillers
-    //    restants), l'expansion rattache les fillers figés en pinwheel
-    //    validé. Ids RÉINDEXÉS 0..n-1 (jagua droppe les demandes 0 puis
-    //    exige des ids consécutifs — piège #3b).
+    // D-MOT-16 : trous d'abord (SPP et BPP, pièces mixtes). Packer générique
+    // + repli J-085. Ids RÉINDEXÉS 0..n-1 (piège #3b).
     let meta = null
     let solveInstance = instance
-    if (isSpp && hasHoles) {
-        const hosts = inputItems.filter((it) => it.holes?.length)
-        const fills = inputItems.filter((it) => !it.holes?.length)
-        if (hosts.length === 1 && fills.length === 1) {
-            if (typeof deps.pinwheelCapacity !== 'function') {
-                throw new Error('buildLocalPayload: dep pinwheelCapacity requise (pré-passe meta)')
-            }
-            const hostItem = hosts[0]
-            const fillItem = fills[0]
-            const fillRotations = fillItem.rotations?.length ? fillItem.rotations : PINWHEEL
-            const allowedRots = PINWHEEL.filter((r) => fillRotations.includes(r))
-            const ringRotations = []
-            for (const ring of hostItem.holes) {
-                const res = await deps.pinwheelCapacity(ring, fillItem.coords, space, allowedRots)
-                ringRotations.push(res?.rotations || [])
-            }
-            const capacity = ringRotations.reduce((n, rr) => n + rr.length, 0)
-            // Le pre-pass ne s'engage que si le pinwheel validé remplit TOUT
-            // le trou (toutes les rotations permises, tous les anneaux).
-            const full = ringRotations.length > 0
-                && ringRotations.every((rr) => rr.length === allowedRots.length)
-            if (capacity && full) {
-                const { slots, remaining } = metaSlots(inputItems, hostItem.id, fillItem.id, capacity)
-                const reduced = []
-                const idMap = [] // index = id dans l'instance réduite → id d'origine
-                for (let k = 0; k < inputItems.length; k++) {
-                    const it = inputItems[k]
-                    const ji = jaguarItems[k]
-                    const d = it.id === fillItem.id ? remaining : ji.demand
-                    if (d <= 0) continue // jagua dropperait l'item : ne jamais l'émettre
-                    const entry = { ...ji, demand: d, id: reduced.length }
-                    if (it.id === hostItem.id) {
-                        // Hôte fermé : anneau externe propre, sans canal —
-                        // le trou est pré-rempli par l'expansion.
-                        entry.shape = { type: 'simple_polygon', data: it.coords }
+    if (hasHoles) {
+        const { planHoleFills, reduceForSolve } = await import('./localBridge')
+        let packs = null
+        try {
+            packs = planHoleFills(inputItems, space)
+        } catch {
+            packs = null
+        }
+        // Repli test/prod : si le packer JS n'a rien et qu'une dep pinwheel
+        // est fournie, tenter le chemin 1+1 historique (stubs de test).
+        if (!packs && typeof deps.pinwheelCapacity === 'function') {
+            const hosts = inputItems.filter((it) => it.holes?.length)
+            const fills = inputItems.filter((it) => !it.holes?.length)
+            if (hosts.length === 1 && fills.length === 1) {
+                const hostItem = hosts[0]
+                const fillItem = fills[0]
+                const fillRotations = fillItem.rotations?.length ? fillItem.rotations : PINWHEEL
+                const allowedRots = PINWHEEL.filter((r) => fillRotations.includes(r))
+                const ringRotations = []
+                for (const ring of hostItem.holes) {
+                    const res = await deps.pinwheelCapacity(ring, fillItem.coords, space, allowedRots)
+                    ringRotations.push(res?.rotations || [])
+                }
+                const capacity = ringRotations.reduce((n, rr) => n + rr.length, 0)
+                const full = ringRotations.length > 0
+                    && ringRotations.every((rr) => rr.length === allowedRots.length)
+                if (capacity && full) {
+                    const { slots } = metaSlots(inputItems, hostItem.id, fillItem.id, capacity)
+                    const cxcy = (ring) => {
+                        let sx = 0; let sy = 0
+                        for (const p of ring) { sx += p[0]; sy += p[1] }
+                        return [sx / ring.length, sy / ring.length]
                     }
-                    reduced.push(entry)
-                    idMap.push(it.id)
+                    const area = (fillItem.coords || []).reduce((a, p, i, arr) => {
+                        const q = arr[(i + 1) % arr.length]
+                        return a + p[0] * q[1] - q[0] * p[1]
+                    }, 0)
+                    const fillArea = Math.abs(area) * 0.5
+                    packs = slots.map((k) => {
+                        const poses = []
+                        let left = k
+                        for (let ri = 0; ri < hostItem.holes.length && left > 0; ri++) {
+                            const [cx, cy] = cxcy(hostItem.holes[ri])
+                            for (const rot of ringRotations[ri] || []) {
+                                if (left <= 0) break
+                                poses.push({ fillId: fillItem.id, rot, lx: cx, ly: cy, area: fillArea })
+                                left -= 1
+                            }
+                        }
+                        return { hostId: hostItem.id, fills: poses }
+                    })
                 }
-                meta = {
-                    host: hostItem.id,
-                    fill: fillItem.id,
-                    slots,
-                    ringRotations,
-                    idMap,
-                }
-                solveInstance = { name, items: reduced, strip_height: sheets[0].height }
+            }
+        }
+        if (packs) {
+            const reduced = reduceForSolve(inputItems, jaguarItems, packs, space)
+            meta = reduced.meta
+            if (reduced.reduced.length) {
+                solveInstance = isSpp
+                    ? { name, items: reduced.reduced, strip_height: sheets[0].height }
+                    : { name, items: reduced.reduced, bins: instance.bins }
+            } else {
+                meta = null
             }
         }
     }

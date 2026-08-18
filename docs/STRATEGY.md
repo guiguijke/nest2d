@@ -178,7 +178,9 @@ serveur), Web Worker, profil browser 13 s mono-walk, refund à l'échec,
 **rendu 100 % client** (SVG/rapport/DXF via crate géométrie dual-cible,
 parité verrouillée par diff client/serveur bloquant), résultats IndexedDB,
 vue live du solve navigateur (EventSink 2 Hz), trou-filling meta-pièces
-sécurisé (J-089).
+sécurisé (J-089), packer générique trous-d'abord pièces mixtes
+(D-MOT-16, 2026-08-17) + 1 sens = 1 meilleur (défaut `left`, D-MOT-5
+amendé) + arrêt idle champion f(n) [prod].
 
 **Claim « files never leave your machine » = COMPLET** [prod, vérifié en
 prod 2026-08-12] : import 100 % client câblé dans le flux d'upload (J-090,

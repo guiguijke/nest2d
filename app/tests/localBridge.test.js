@@ -219,3 +219,35 @@ describe('applyHoleFill (exporté pour le live)', () => {
         expect(applyHoleFill([], [{ placed_items: [] }], 2)).toBe(0)
     })
 })
+
+describe('packHole / planHoleFills (D-MOT-16)', () => {
+    const hole = Array.from({ length: 32 }, (_, i) => {
+        const a = (2 * Math.PI * i) / 32
+        return [35 * Math.cos(a), 35 * Math.sin(a)]
+    })
+    const sector = (() => {
+        const pts = [[2.83, 2.83]]
+        for (let i = 0; i <= 8; i++) {
+            const a = (5 * Math.PI) / 180 + ((80 * Math.PI) / 180) * (i / 8)
+            pts.push([28 * Math.cos(a), 28 * Math.sin(a)])
+        }
+        pts.push([2.83, 2.83])
+        return pts
+    })()
+
+    it('4 secteurs r=28 dans Ø70 à space 2 → 4 poses', async () => {
+        const { packHole } = await import('../composables/localBridge')
+        const area = 28 * 28 * Math.PI / 4
+        const poses = packHole(hole, [{ id: 1, coords: sector, rotations: [0, 90, 180, 270], remaining: 4, area }], 2)
+        expect(poses.length).toBe(4)
+    })
+
+    it('planHoleFills 1 hôte + 4 fillers → 4 fills, repli si vide', async () => {
+        const { planHoleFills } = await import('../composables/localBridge')
+        const host = { id: 0, coords: [[-50, -50], [50, -50], [50, 50], [-50, 50], [-50, -50]], holes: [hole], count: 1 }
+        const fill = { id: 1, coords: sector, holes: [], count: 4, rotations: [0, 90, 180, 270] }
+        const packs = planHoleFills([host, fill], 2)
+        expect(packs).toBeTruthy()
+        expect(packs[0].fills.length).toBe(4)
+    })
+})

@@ -1,9 +1,9 @@
 import { createError } from 'h3'
-import { connectDB } from '~~/server/db/mongo'
-import { FREE_NESTING_LIMIT } from '~~/server/features/payment/const'
-import { isPromoActive } from '~~/server/utils/promo'
-import { DEMO_NESTING_LIMIT } from '~~/shared/constants/demo.constants'
-import { ACTIVE_SUBSCRIPTION_STATUSES, getSubscription, mapSubscription } from '~~/server/features/payment/stripe'
+import { connectDB } from '../db/mongo'
+import { FREE_NESTING_LIMIT } from '../features/payment/const'
+import { isPromoActive } from './promo'
+import { DEMO_NESTING_LIMIT } from '../../shared/constants/demo.constants'
+import { ACTIVE_SUBSCRIPTION_STATUSES, getSubscription, mapSubscription } from '../features/payment/stripe'
 import logger from './logger'
 
 /**
@@ -358,8 +358,9 @@ export function validateDirections(requested, maxDirections) {
         : []
     list = [...new Set(list)]
     if (list.length === 0) {
-        // Default: everything the tier allows, in canonical order.
-        list = NEST_DIRECTIONS.slice(0, Math.max(1, maxDirections))
+        // D-MOT-5 : 1 layout demandé = 1 sens (left). L'utilisateur coche
+        // plus de sens pour comparer plus de propositions.
+        list = ['left']
     }
     if (list.length > maxDirections) {
         throw createError({

@@ -6,6 +6,9 @@ const scssDir = fileURLToPath(new URL('./app/assets/scss/', import.meta.url)).re
 // Absolute path: nitro resolves serverAssets.dir against its own srcDir
 // (<root>/server), so a relative './server/...' would point nowhere.
 const demoSeedDir = fileURLToPath(new URL('./server/seed/demo', import.meta.url))
+// Windows host: Nitro rewrites `~~/shared` to too many `../` and lands in
+// the user home (`C:\Users\…\shared\…`). Pin the alias to the repo folder.
+const sharedDir = fileURLToPath(new URL('./shared', import.meta.url))
 
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
@@ -195,7 +198,20 @@ export default defineNuxtConfig({
         }
     },
 
+    alias: {
+        '#shared': sharedDir,
+    },
     nitro: {
+        alias: {
+            '#shared': sharedDir,
+            '~~/shared': sharedDir,
+        },
+        // Dev Windows: keep shared/ inlined. Otherwise Nitro emits
+        // `../../../../../../shared/...` from .nuxt/dev/index.mjs and
+        // Node looks in the user home (piège #36).
+        externals: {
+            inline: [/[/\\]shared[/\\]constants[/\\]/],
+        },
         compressPublicAssets: true,
         // Demo project assets (generated DXF + manifest, committed under
         // server/seed/demo): bundled into .output so the seed plugin works
