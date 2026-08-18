@@ -37,6 +37,12 @@ const NOTCH_EPS_RATIO: f32 = 0.25;
 /// Le restack colonnes ne se déclenche que si l'escalier dépasse 1 % de la
 /// bbox utilisée (en dessous, le notch-fill suffit ou le gain est négligeable).
 const RESTACK_STAIR_RATIO: f32 = 0.01;
+/// Encoche « une cellule » (clustering x_min, pas les bandes 100 mm —
+/// un carré 100 mm + space 2 chevauche deux bandes et devenait invisible).
+/// Seuil = 0,5 × hauteur médiane + 10 mm (50 mm → 35, 100 mm → 60).
+/// Trou interne dans une colonne : on tasse si le gap dépasse 8 mm
+/// (les 2 mm de space des tests / de la gravité restent intacts).
+const LOOSE_GAP_MM: f32 = 8.0;
 /// Régression de densité tolérée (points) avant restauration du snapshot.
 const DENSITY_TOL: f32 = 0.005;
 /// Pas de la marche ascendante grossière (fraction de la hauteur pièce) et
@@ -329,8 +335,10 @@ fn column_fill_left(prob: &mut SPProblem) {
 
     let moves = notch_fill(prob, incumbent_w, strip_h, 2 * n);
     let restacked = restack_columns(prob, incumbent_w, strip_h);
+    let filled = fill_column_notches(prob, incumbent_w, strip_h);
+    let tightened = tighten_loose_gaps(prob, incumbent_w, strip_h);
 
-    if moves == 0 && !restacked {
+    if moves == 0 && !restacked && !filled && !tightened {
         return; // rien touché — pas même un fit_strip
     }
     // Garde finale : jamais de dépassement ni de régression de densité.
@@ -587,6 +595,217 @@ fn restack_columns(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool
     }
     prob.restore(&snapshot);
     false
+}
+
+/// Colonnes visuelles : même clustering que `restack_columns` (x_min, seuil
+/// = demi-largeur médiane). `boxes` doit être trié par x_min.
+fn cluster_columns(boxes: &[Boxed]) -> Vec<Vec<Boxed>> {
+    if boxes.is_empty() {
+        return Vec::new();
+    }
+    let mut widths: Vec<f32> = boxes.iter().map(|b| b.w()).collect();
+    let threshold = (median(&mut widths) / 2.0).max(1.0);
+    let mut cols: Vec<Vec<Boxed>> = Vec::new();
+    let mut prev = f32::NEG_INFINITY;
+    for b in boxes {
+        if cols.is_empty() || b.x_min - prev > threshold {
+            cols.push(vec![*b]);
+        } else {
+            cols.last_mut().unwrap().push(*b);
+        }
+        prev = b.x_min;
+    }
+    cols
+}
+
+fn col_top(col: &[Boxed]) -> f32 {
+    col.iter().map(|b| b.y_max).fold(0.0f32, f32::max)
+}
+
+fn col_x0(col: &[Boxed]) -> f32 {
+    col.iter().map(|b| b.x_min).fold(f32::INFINITY, f32::min)
+}
+
+/// Rebouche les crans d'une cellule : une colonne plus basse que ses
+/// voisines de droite récupère la pièce la plus haute à droite.
+/// Clustering x_min (pas les bandes 100 mm) — c'est le cran visible sur
+/// la grille régulière 100 mm + 2 mm d'écart.
+fn fill_column_notches(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool {
+    let mut any = false;
+    let mut probes = 0usize;
+    loop {
+        let boxes = placed_boxes(prob);
+        if boxes.len() < 3 {
+            break;
+        }
+        let protected = protected_fingerprints(&boxes);
+        let cols = cluster_columns(&boxes);
+        if cols.len() < 2 {
+            break;
+        }
+        let mut heights: Vec<f32> = boxes.iter().map(|b| b.h()).collect();
+        let cell = median(&mut heights) * 0.5 + 10.0;
+        let tops: Vec<f32> = cols.iter().map(|c| col_top(c)).collect();
+        let max_top = tops.iter().copied().fold(0.0f32, f32::max);
+
+        let mut moved = false;
+        'cols: for (i, col) in cols.iter().enumerate() {
+            if max_top - tops[i] < cell {
+                continue;
+            }
+            let x0 = col_x0(col);
+            let floor = tops[i];
+            let mut donors: Vec<Boxed> = cols[i + 1..]
+                .iter()
+                .flatten()
+                .copied()
+                .filter(|b| !protected.contains(&fingerprint(b)))
+                .collect();
+            donors.sort_by(|a, b| {
+                b.y_max
+                    .total_cmp(&a.y_max)
+                    .then(b.x_min.total_cmp(&a.x_min))
+                    .then(a.item_id.cmp(&b.item_id))
+            });
+            for donor in donors {
+                if probes > PROBE_CAP {
+                    return any;
+                }
+                if donor.h() > max_top - floor + 1e-3 {
+                    continue;
+                }
+                let y_hi = (max_top - donor.h()).min(strip_h - donor.h());
+                if y_hi < floor - 1e-3 {
+                    continue;
+                }
+                let Some(live) = find_by_fingerprint(prob, &fingerprint(&donor)) else {
+                    continue;
+                };
+                prob.remove_item(live.pk);
+                let mut prober = Prober::new(prob, &live);
+                let mut target = None;
+                for dx in [0.0f32, 1.0, 2.0, -1.0, 4.0, -2.0, 8.0] {
+                    let x = x0 + dx;
+                    if x < 0.0 {
+                        continue;
+                    }
+                    if let Some(y) =
+                        settle_vertical(&mut prober, prob, x, floor, y_hi, (donor.h() / WALK_STEPS as f32).max(1.0), &mut probes)
+                    {
+                        target = Some((x, y));
+                        break;
+                    }
+                }
+                let ok = if let Some((x, y)) = target {
+                    let dt = DTransformation::new(
+                        prober.rotation,
+                        (x - prober.x_off, y - prober.y_off),
+                    );
+                    let new_pk = prob.place_item(SPPlacement {
+                        item_id: live.item_id,
+                        d_transf: dt,
+                    });
+                    let after = placed_boxes(prob);
+                    let cols_after = cluster_columns(&after);
+                    let dest_top = cols_after.get(i).map(|c| col_top(c)).unwrap_or(0.0);
+                    let fits = used_width(&after) <= incumbent_w + 1e-3
+                        && dest_top > floor + 1.0;
+                    if !fits {
+                        prob.remove_item(new_pk);
+                    }
+                    fits
+                } else {
+                    false
+                };
+                if ok {
+                    any = true;
+                    moved = true;
+                    break 'cols;
+                }
+                restore_item(prob, &live);
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
+    any
+}
+
+/// Tasse les gaps internes d'une colonne (> LOOSE_GAP_MM). La gravité
+/// Down peut rester bloquée par un décalage X / emboîtement.
+fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> bool {
+    let boxes = placed_boxes(prob);
+    if boxes.len() < 2 {
+        return false;
+    }
+    if !protected_fingerprints(&boxes).is_empty() {
+        return false;
+    }
+    let cols = cluster_columns(&boxes);
+    let snapshot = prob.save();
+    let w0 = incumbent_w;
+    let mut any = false;
+    let mut probes = 0usize;
+    for col in cols {
+        if col.len() < 2 {
+            continue;
+        }
+        let mut ordered = col;
+        ordered.sort_by(|a, b| {
+            a.y_min
+                .total_cmp(&b.y_min)
+                .then(a.item_id.cmp(&b.item_id))
+        });
+        for i in 1..ordered.len() {
+            let gap = ordered[i].y_min - ordered[i - 1].y_max;
+            if gap < LOOSE_GAP_MM {
+                continue;
+            }
+            let Some(live) = find_by_fingerprint(prob, &fingerprint(&ordered[i])) else {
+                continue;
+            };
+            let floor = ordered[i - 1].y_max;
+            let x0 = live.x_min;
+            prob.remove_item(live.pk);
+            let mut prober = Prober::new(prob, &live);
+            let step = (live.h() / WALK_STEPS as f32).max(1.0);
+            let y = settle_vertical(
+                &mut prober,
+                prob,
+                x0,
+                floor,
+                live.y_min,
+                step,
+                &mut probes,
+            );
+            if let Some(y) = y {
+                if y < live.y_min - 0.5 {
+                    let dt = DTransformation::new(
+                        prober.rotation,
+                        (x0 - prober.x_off, y - prober.y_off),
+                    );
+                    let pk = prob.place_item(SPPlacement {
+                        item_id: live.item_id,
+                        d_transf: dt,
+                    });
+                    if let Some(pi) = prob.layout.placed_items.get(pk) {
+                        ordered[i].y_min = pi.shape.bbox.y_min;
+                        ordered[i].y_max = pi.shape.bbox.y_max;
+                        ordered[i].pk = pk;
+                    }
+                    any = true;
+                    continue;
+                }
+            }
+            restore_item(prob, &live);
+        }
+    }
+    if any && used_width(&placed_boxes(prob)) > w0 + 1e-3 {
+        prob.restore(&snapshot);
+        return false;
+    }
+    any
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,6 +1281,45 @@ mod tests {
         );
         assert!(prob.strip_width() <= 1000.0 + 1e-3, "fitsSheet");
         assert!(feasibility_ok(&prob));
+    }
+
+    /// Cran d'une cellule sur une grille régulière (colonne du milieu plus
+    /// courte, pièce isolée à droite) : les bandes 100 mm ne le voient pas
+    /// (pièce 100 mm + space 2 chevauche deux bandes). Le clustering x_min
+    /// doit reboucher le cran.
+    #[test]
+    fn one_cell_notch_on_regular_grid_is_filled() {
+        let (w_, h_) = (100.0, 50.0);
+        let mut prob = SPProblem::new(rect_instance(w_, h_, 12, 1000.0));
+        prob.change_strip_width(600.0);
+        // 4 colonnes × 3, sauf col 1 à 2 pièces ; + 1 pièce isolée à droite.
+        for (x, ys) in [
+            (2.5, &[2.5, 54.5, 106.5][..]),
+            (104.5, &[2.5, 54.5][..]),
+            (206.5, &[2.5, 54.5, 106.5][..]),
+            (308.5, &[2.5, 54.5, 106.5][..]),
+        ] {
+            for &y in ys {
+                place(&mut prob, w_, h_, x, y);
+            }
+        }
+        place(&mut prob, w_, h_, 410.5, 106.5);
+        assert!(feasibility_ok(&prob));
+        let cols0 = cluster_columns(&placed_boxes(&prob));
+        assert_eq!(cols0.len(), 5);
+        assert_eq!(cols0[1].len(), 2, "notch setup");
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(600.0));
+
+        let cols1 = cluster_columns(&placed_boxes(&prob));
+        assert!(feasibility_ok(&prob));
+        assert!(prob.strip_width() <= 600.0 + 1e-3);
+        // La colonne 1 a récupéré la pièce isolée (plus de cran d'une cellule).
+        assert!(
+            cols1.get(1).map(|c| c.len()).unwrap_or(0) >= 3,
+            "col1 still short: {:?}",
+            cols1.iter().map(|c| c.len()).collect::<Vec<_>>()
+        );
     }
 
     /// La classe bottom n'est jamais touchée par le post-pass.
