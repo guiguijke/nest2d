@@ -347,6 +347,7 @@ const dict = {
         'result.tryAgain': 'Try again',
         'result.colorView': 'Color preview',
         'result.dxfView': 'DXF view',
+        'result.dxfMissing': 'DXF file is not available for this result.',
 
         'progress.stage.preparing': 'Preparing geometry',
         'progress.stage.explore': 'Exploring layouts',
@@ -874,6 +875,7 @@ const dict = {
         'result.tryAgain': 'Réessayer',
         'result.colorView': "Aperçu couleur",
         'result.dxfView': "Vue DXF",
+        'result.dxfMissing': "Le fichier DXF n'est pas disponible pour ce résultat.",
 
         'progress.stage.preparing': 'Préparation de la géométrie',
         'progress.stage.explore': 'Exploration des imbrications',

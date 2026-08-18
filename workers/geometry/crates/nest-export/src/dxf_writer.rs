@@ -33,15 +33,19 @@ fn fmt_dxf(v: f64) -> String {
     crate::pyfloat::py_str(v)
 }
 
-/// Émet une entité transformée. Retourne false si type non supporté.
-fn write_entity(s: &mut String, e: &Entity, aff: &Affine) -> bool {
+/// Émet une entité transformée. Retourne false si type non supporté
+/// ou coordonnée non finie (dxf-viewer lève sur `nan`/`inf`).
+fn write_entity(s: &mut String, e: &Entity, aff: &Affine, handle: &str) -> bool {
     match e {
         Entity::Line(l) => {
-            grp(s, 0, "LINE");
-            common(s, &l.common);
-            grp(s, 100, "AcDbLine");
             let a = aff.apply(l.start);
             let b = aff.apply(l.end);
+            if !finite_pt(a) || !finite_pt(b) {
+                return false;
+            }
+            grp(s, 0, "LINE");
+            common(s, &l.common, handle);
+            grp(s, 100, "AcDbLine");
             num(s, 10, a[0]);
             num(s, 20, a[1]);
             num(s, 11, b[0]);
@@ -49,13 +53,16 @@ fn write_entity(s: &mut String, e: &Entity, aff: &Affine) -> bool {
             true
         }
         Entity::LwPolyline(p) => {
+            let pts: Vec<_> = p.points.iter().map(|pt| aff.apply(*pt)).collect();
+            if pts.iter().any(|q| !finite_pt(*q)) {
+                return false;
+            }
             grp(s, 0, "LWPOLYLINE");
-            common(s, &p.common);
+            common(s, &p.common, handle);
             grp(s, 100, "AcDbPolyline");
             num(s, 90, p.points.len() as f64);
             num(s, 70, if p.closed { 1.0 } else { 0.0 });
-            for (i, pt) in p.points.iter().enumerate() {
-                let q = aff.apply(*pt);
+            for (i, q) in pts.iter().enumerate() {
                 num(s, 10, q[0]);
                 num(s, 20, q[1]);
                 let b = p.bulges.get(i).copied().unwrap_or(0.0);
@@ -67,7 +74,7 @@ fn write_entity(s: &mut String, e: &Entity, aff: &Affine) -> bool {
         }
         Entity::Polyline(p) => {
             grp(s, 0, "POLYLINE");
-            common(s, &p.common);
+            common(s, &p.common, handle);
             num(s, 70, if p.closed { 1.0 } else { 0.0 });
             num(s, 66, 1.0);
             for pt in &p.points {
@@ -81,10 +88,13 @@ fn write_entity(s: &mut String, e: &Entity, aff: &Affine) -> bool {
             true
         }
         Entity::Arc(a) => {
-            grp(s, 0, "ARC");
-            common(s, &a.common);
-            grp(s, 100, "AcDbCircle");
             let c = aff.apply(a.center);
+            if !finite_pt(c) || !a.radius.is_finite() {
+                return false;
+            }
+            grp(s, 0, "ARC");
+            common(s, &a.common, handle);
+            grp(s, 100, "AcDbCircle");
             num(s, 10, c[0]);
             num(s, 20, c[1]);
             num(s, 40, a.radius * aff.scale);
@@ -93,20 +103,26 @@ fn write_entity(s: &mut String, e: &Entity, aff: &Affine) -> bool {
             true
         }
         Entity::Circle(c) => {
-            grp(s, 0, "CIRCLE");
-            common(s, &c.common);
-            grp(s, 100, "AcDbCircle");
             let ce = aff.apply(c.center);
+            if !finite_pt(ce) || !c.radius.is_finite() {
+                return false;
+            }
+            grp(s, 0, "CIRCLE");
+            common(s, &c.common, handle);
+            grp(s, 100, "AcDbCircle");
             num(s, 10, ce[0]);
             num(s, 20, ce[1]);
             num(s, 40, c.radius * aff.scale);
             true
         }
         Entity::Ellipse(e) => {
-            grp(s, 0, "ELLIPSE");
-            common(s, &e.common);
-            grp(s, 100, "AcDbEllipse");
             let ce = aff.apply(e.center);
+            if !finite_pt(ce) {
+                return false;
+            }
+            grp(s, 0, "ELLIPSE");
+            common(s, &e.common, handle);
+            grp(s, 100, "AcDbEllipse");
             // vecteur majeur tourné + scalé.
             let m0 = aff.apply([0.0, 0.0]);
             let m1 = aff.apply(e.major);
@@ -121,7 +137,7 @@ fn write_entity(s: &mut String, e: &Entity, aff: &Affine) -> bool {
         }
         Entity::Spline(sp) => {
             grp(s, 0, "SPLINE");
-            common(s, &sp.common);
+            common(s, &sp.common, handle);
             grp(s, 100, "AcDbSpline");
             num(s, 70, 0.0);
             num(s, 71, sp.degree as f64);
@@ -143,7 +159,7 @@ fn write_entity(s: &mut String, e: &Entity, aff: &Affine) -> bool {
         }
         Entity::Point(p) => {
             grp(s, 0, "POINT");
-            common(s, &p.common);
+            common(s, &p.common, handle);
             grp(s, 100, "AcDbPoint");
             let q = aff.apply(p.at);
             num(s, 10, q[0]);
@@ -154,15 +170,22 @@ fn write_entity(s: &mut String, e: &Entity, aff: &Affine) -> bool {
     }
 }
 
-fn common(s: &mut String, c: &entities::Common) {
-    if !c.handle.is_empty() {
-        grp(s, 5, &c.handle);
-    }
+fn next_handle(n: &mut u64) -> String {
+    *n += 1;
+    format!("{n:X}")
+}
+
+fn common(s: &mut String, c: &entities::Common, handle: &str) {
+    grp(s, 5, handle);
     grp(s, 100, "AcDbEntity");
     grp(s, 8, if c.layer.is_empty() { "0" } else { &c.layer });
     if c.color != 256 {
         num(s, 62, c.color as f64);
     }
+}
+
+fn finite_pt(p: [f64; 2]) -> bool {
+    p[0].is_finite() && p[1].is_finite()
 }
 
 /// Sources : file_slug -> (entities, blocks). Construit le DXF de tôle.
@@ -180,6 +203,7 @@ pub fn build_part_dxf(
     let mut body = String::new();
     let mut layers: Vec<(String, i32)> = Vec::new();
     let mut out_bbox: Option<[f64; 4]> = None;
+    let mut hid = 0u64;
 
     // Group by file, preserve order.
     let mut by_file: Vec<(String, Vec<&Placement>)> = Vec::new();
@@ -208,7 +232,8 @@ pub fn build_part_dxf(
                 if !layers.iter().any(|(n, _)| *n == layer_of(e)) {
                     layers.push((layer_of(e), 7));
                 }
-                write_entity(&mut body, e, &aff);
+                let hnd = next_handle(&mut hid);
+                write_entity(&mut body, e, &aff, &hnd);
             }
             // OUT_SHAPE bbox (avant scale unité : on accumule en mm puis on
             // scale à l'émission).
@@ -234,6 +259,7 @@ pub fn build_part_dxf(
             layers.push(("BIN_BOUNDARY".into(), 5));
         }
         grp(&mut body, 0, "LWPOLYLINE");
+        grp(&mut body, 5, &next_handle(&mut hid));
         grp(&mut body, 100, "AcDbEntity");
         grp(&mut body, 8, "BIN_BOUNDARY");
         grp(&mut body, 100, "AcDbPolyline");
@@ -258,6 +284,7 @@ pub fn build_part_dxf(
                 (bb[3] + space) * unit_scale,
             );
             grp(&mut body, 0, "LWPOLYLINE");
+            grp(&mut body, 5, &next_handle(&mut hid));
             grp(&mut body, 100, "AcDbEntity");
             grp(&mut body, 8, "OUT_SHAPE");
             grp(&mut body, 100, "AcDbPolyline");

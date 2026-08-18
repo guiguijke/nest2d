@@ -47,15 +47,31 @@ export function svgToDataUri(svg) {
     return `data:image/svg+xml,${encodeURIComponent(svg).replace(/'/g, '%27').replace(/"/g, '%22')}`
 }
 
+/** Handles DXF uniques (hex). ezdxf réassigne à chaque copie ; notre writer
+ * historique répétait le handle source — dxf-viewer indexe par handle et
+ * peut lever sur un gros job (100+ copies). */
+export function uniquifyDxfHandles(dxf) {
+    if (typeof dxf !== 'string' || !dxf) return dxf
+    const lines = dxf.split(/\r\n|\r|\n/)
+    let n = 1
+    for (let i = 0; i < lines.length - 1; i++) {
+        if (lines[i].trim() === '5') {
+            lines[i + 1] = (n++).toString(16).toUpperCase()
+        }
+    }
+    return lines.join('\n')
+}
+
 /** Contenu DXF → blob: URL (DxfViewerComponent fetch l'URL). Les URLs sont
  * créées paresseusement et mises en cache ; elles vivent le temps de la
  * session (révoquer casserait la vue ouverte). */
 const blobUrls = new Map()
 export function dxfToBlobUrl(content) {
-    if (!blobUrls.has(content)) {
-        blobUrls.set(content, URL.createObjectURL(new Blob([content], { type: 'image/vnd.dxf' })))
+    const text = uniquifyDxfHandles(typeof content === 'string' ? content : String(content || ''))
+    if (!blobUrls.has(text)) {
+        blobUrls.set(text, URL.createObjectURL(new Blob([text], { type: 'application/dxf' })))
     }
-    return blobUrls.get(content)
+    return blobUrls.get(text)
 }
 
 /**

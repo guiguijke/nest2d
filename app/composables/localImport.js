@@ -149,7 +149,7 @@ export async function importLocalFile(file, projectSlug) {
         projectSlug,
         name,
         addedAt: new Date().toISOString(),
-        dxfBytes: canonical.buffer,
+        dxfBytes: canonical.slice().buffer,
         parts,
         sourceUnits: imported.source_units ?? 0,
         entityCount: imported.entity_count ?? 0,

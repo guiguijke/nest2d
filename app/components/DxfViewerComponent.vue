@@ -14,7 +14,8 @@
             v-if="error"
             class="error-overlay"
         >
-            Err
+            <span class="error-overlay__title">{{ t('result.dxfView') }}</span>
+            <span class="error-overlay__msg">{{ error }}</span>
         </div>
     </div>
 </template>
@@ -47,22 +48,44 @@ const props = defineProps({
         default: false
     }
 })
+const { t } = useLocale()
 const containerRef = ref(null)
 const isLoading = ref(false)
 const error = ref(null)
 let dxfViewer = null
 
+const waitForSize = async () => {
+    const el = containerRef.value
+    if (!el) return
+    if (el.clientWidth > 8 && el.clientHeight > 8) return
+    await new Promise((resolve) => {
+        const ro = new ResizeObserver(() => {
+            if (el.clientWidth > 8 && el.clientHeight > 8) {
+                ro.disconnect()
+                resolve()
+            }
+        })
+        ro.observe(el)
+        setTimeout(() => { ro.disconnect(); resolve() }, 800)
+    })
+}
+
 const loadDxf = async (url) => {
-    if (!url || !dxfViewer) return
+    if (!dxfViewer) return
+    if (!url) {
+        error.value = t('result.dxfMissing')
+        return
+    }
 
     isLoading.value = true
     error.value = null
 
     try {
+        await waitForSize()
         await dxfViewer.Load({ url })
     } catch (err) {
         console.error('DXF loading error:', err)
-        error.value = err.message || err.toString()
+        error.value = String(err?.message || err)
     } finally {
         isLoading.value = false
     }
@@ -181,12 +204,25 @@ $error: '.error-overlay';
     right: 0;
     bottom: 0;
     display: flex;
+    flex-direction: column;
+    gap: 8px;
     align-items: center;
     justify-content: center;
     text-align: center;
+    padding: 16px;
     border-radius: 8px;
     background-color: var(--error-background);
     border: solid 1px var(--error-border);
     color: var(--label-primary);
+
+    &__title {
+        font-weight: 600;
+    }
+    &__msg {
+        max-width: 36rem;
+        font-size: 0.85rem;
+        color: var(--label-secondary, #5b6570);
+        word-break: break-word;
+    }
 }
 </style>

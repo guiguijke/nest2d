@@ -8,6 +8,7 @@ import {
     applyHoleFill,
     decorateLiveLayout,
 } from '../composables/localBridge'
+import { uniquifyDxfHandles } from '../composables/localHydrate'
 
 // Sortie moteur brute (forme jagua) : SPP = solution.layout (singulier),
 // BPP = solution.layouts ; rotations en DEGRÉS (jagua 0.7.x).
@@ -211,6 +212,19 @@ describe('decorateLiveLayout (vue live = modal après J-085)', () => {
     it('frame sans pièces / sans parts : renvoyée telle quelle', () => {
         expect(decorateLiveLayout({ items: [] }, { parts: [fill] })).toEqual({ items: [] })
         expect(decorateLiveLayout({ items: [[0, 0, 0, 0]] }, { parts: [] }).items).toHaveLength(1)
+    })
+})
+
+describe('uniquifyDxfHandles', () => {
+    it('réécrit les handles 5 en séquence unique', () => {
+        const src = '0\nCIRCLE\n5\n2F\n10\n0\n0\nCIRCLE\n5\n2F\n10\n1\n'
+        const out = uniquifyDxfHandles(src)
+        const handles = []
+        const lines = out.split('\n')
+        for (let i = 0; i < lines.length - 1; i++) {
+            if (lines[i] === '5') handles.push(lines[i + 1])
+        }
+        expect(handles).toEqual(['1', '2'])
     })
 })
 
