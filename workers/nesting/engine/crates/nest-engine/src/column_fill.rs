@@ -337,8 +337,9 @@ fn column_fill_left(prob: &mut SPProblem) {
     let restacked = restack_columns(prob, incumbent_w, strip_h);
     let filled = fill_column_notches(prob, incumbent_w, strip_h);
     let tightened = tighten_loose_gaps(prob, incumbent_w, strip_h);
+    let collapsed = collapse_rightmost(prob, incumbent_w, strip_h);
 
-    if moves == 0 && !restacked && !filled && !tightened {
+    if moves == 0 && !restacked && !filled && !tightened && !collapsed {
         return; // rien touché — pas même un fit_strip
     }
     // Garde finale : jamais de dépassement ni de régression de densité.
@@ -474,8 +475,14 @@ fn restack_columns(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool
         return false;
     }
     let stair0 = band_stair(&boxes);
+    let imbalance0 = column_imbalance(&boxes);
+    let mut heights0: Vec<f32> = boxes.iter().map(|b| b.h()).collect();
+    let cell = median(&mut heights0) * 0.5 + 10.0;
     let bbox_area = used_width(&boxes) * used_height(&boxes);
-    if stair0 <= RESTACK_STAIR_RATIO * bbox_area {
+    // band_stair rate le cran 100+2 mm (chevauchement de bandes). L'écart
+    // de sommets par clustering x_min le voit : 4 colonnes pleines + une
+    // courte à droite (capture utilisateur 2026-08-18).
+    if stair0 <= RESTACK_STAIR_RATIO * bbox_area && imbalance0 < cell {
         return false;
     }
     // Nichage (fillers dans des trous d'hôtes) : reconstruire éjecterait les
@@ -502,10 +509,11 @@ fn restack_columns(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool
 
     let snapshot = prob.save();
     let density0 = prob.density();
-    // La liberté en x ne doit pas pousser une pièce dans une NOUVELLE bande
-    // de 100 mm : la métrique d'escalier la compterait occupée même pour un
-    // dépassement d'un mm (piège mesuré : une poche à droite ruine le score).
-    let band_cap = (used_width(&boxes) / BAND_W).floor() * BAND_W;
+    // Plafond = largeur déjà utilisée, PAS l'alignement sur 100 mm.
+    // floor(used_w/100)*100 coupe la dernière colonne d'une grille
+    // 100+2 mm (used_w=510 → cap=500, pièce à x=410 refusée) et le
+    // restack restaurait le cran.
+    let width_cap = used_width(&boxes);
 
     // Ordre de pose : bas-haut, gauche-droite, tie-breaks déterministes.
     let mut order = boxes.clone();
@@ -545,7 +553,7 @@ fn restack_columns(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool
             let mut best: Option<(f32, f32)> = None; // (y, x)
             for dx in [0.0f32, 2.0, -2.0, 4.0, -4.0, 6.0, -6.0, 8.0, -8.0, 12.0, -12.0] {
                 let x = col_x[c] + dx;
-                if x < 0.0 || x + b.w() > band_cap + 1e-3 {
+                if x < 0.0 || x + b.w() > width_cap + 1e-3 {
                     continue;
                 }
                 if let Some(y) = settle_vertical(
@@ -585,8 +593,10 @@ fn restack_columns(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool
 
     if !failed {
         prob.fit_strip();
-        let stair1 = band_stair(&placed_boxes(prob));
-        if stair1 < stair0 - 1e-3
+        let after = placed_boxes(prob);
+        let stair1 = band_stair(&after);
+        let imbalance1 = column_imbalance(&after);
+        if (stair1 < stair0 - 1e-3 || imbalance1 < imbalance0 - 1.0)
             && prob.strip_width() <= incumbent_w + 1e-3
             && prob.density() >= density0 - DENSITY_TOL
         {
@@ -626,6 +636,25 @@ fn col_x0(col: &[Boxed]) -> f32 {
     col.iter().map(|b| b.x_min).fold(f32::INFINITY, f32::min)
 }
 
+/// Écart de hauteur entre la colonne la plus haute et la plus basse
+/// (clustering x_min). 0 = rectangle parfait. C'est la métrique qui
+/// voit le cran du cas 100 mm + space 2 — `band_stair` le manque
+/// (chaque pièce chevauche deux bandes de 100 mm).
+fn column_imbalance(boxes: &[Boxed]) -> f32 {
+    let cols = cluster_columns(boxes);
+    if cols.len() < 2 {
+        return 0.0;
+    }
+    let mut max_t = 0.0f32;
+    let mut min_t = f32::INFINITY;
+    for c in &cols {
+        let t = col_top(c);
+        max_t = max_t.max(t);
+        min_t = min_t.min(t);
+    }
+    (max_t - min_t).max(0.0)
+}
+
 /// Rebouche les crans d'une cellule : une colonne plus basse que ses
 /// voisines de droite récupère la pièce la plus haute à droite.
 /// Clustering x_min (pas les bandes 100 mm) — c'est le cran visible sur
@@ -647,6 +676,7 @@ fn fill_column_notches(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> 
         let cell = median(&mut heights) * 0.5 + 10.0;
         let tops: Vec<f32> = cols.iter().map(|c| col_top(c)).collect();
         let max_top = tops.iter().copied().fold(0.0f32, f32::max);
+        let imb_before = column_imbalance(&boxes);
 
         let mut moved = false;
         'cols: for (i, col) in cols.iter().enumerate() {
@@ -655,10 +685,15 @@ fn fill_column_notches(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> 
             }
             let x0 = col_x0(col);
             let floor = tops[i];
-            let mut donors: Vec<Boxed> = cols[i + 1..]
+            // Donneurs = sommet des colonnes PLUS HAUTES (gauche ou droite).
+            // L'ancienne restriction « à droite seulement » laissait le cran
+            // intact quand la colonne courte est la dernière (cas utilisateur :
+            // 4 colonnes pleines + 5e partielle en bas).
+            let mut donors: Vec<Boxed> = cols
                 .iter()
-                .flatten()
-                .copied()
+                .enumerate()
+                .filter(|(j, _)| *j != i && tops[*j] > floor + cell)
+                .flat_map(|(_, c)| c.iter().copied())
                 .filter(|b| !protected.contains(&fingerprint(b)))
                 .collect();
             donors.sort_by(|a, b| {
@@ -708,8 +743,10 @@ fn fill_column_notches(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> 
                     let after = placed_boxes(prob);
                     let cols_after = cluster_columns(&after);
                     let dest_top = cols_after.get(i).map(|c| col_top(c)).unwrap_or(0.0);
+                    let imb1 = column_imbalance(&after);
                     let fits = used_width(&after) <= incumbent_w + 1e-3
-                        && dest_top > floor + 1.0;
+                        && dest_top > floor + 1.0
+                        && imb1 < imb_before - 1.0;
                     if !fits {
                         prob.remove_item(new_pk);
                     }
@@ -804,6 +841,102 @@ fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> 
     if any && used_width(&placed_boxes(prob)) > w0 + 1e-3 {
         prob.restore(&snapshot);
         return false;
+    }
+    any
+}
+
+/// Vide la colonne la plus à droite sur le sommet des colonnes de gauche
+/// tant qu'il reste de la place (SPP left = minimiser la largeur). Sans
+/// ça, un reste de 5-6 pièces reste collé en bas à droite alors que les
+/// colonnes de gauche ont encore de la tête (capture 2026-08-18).
+fn collapse_rightmost(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool {
+    let mut any = false;
+    let mut probes = 0usize;
+    loop {
+        let boxes = placed_boxes(prob);
+        if boxes.len() < 3 {
+            break;
+        }
+        let protected = protected_fingerprints(&boxes);
+        let cols = cluster_columns(&boxes);
+        if cols.len() < 2 {
+            break;
+        }
+        let last = cols.len() - 1;
+        let mut donors: Vec<Boxed> = cols[last]
+            .iter()
+            .copied()
+            .filter(|b| !protected.contains(&fingerprint(b)))
+            .collect();
+        if donors.is_empty() {
+            break;
+        }
+        donors.sort_by(|a, b| {
+            b.y_max
+                .total_cmp(&a.y_max)
+                .then(a.item_id.cmp(&b.item_id))
+        });
+        let donor = donors[0];
+        let w0 = used_width(&boxes);
+        let mut dests: Vec<(usize, f32, f32)> = cols
+            .iter()
+            .enumerate()
+            .take(last)
+            .map(|(i, c)| (i, col_x0(c), col_top(c)))
+            .collect();
+        dests.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.cmp(&b.0)));
+
+        let Some(live) = find_by_fingerprint(prob, &fingerprint(&donor)) else {
+            break;
+        };
+        let y_hi = strip_h - live.h();
+        prob.remove_item(live.pk);
+        let mut prober = Prober::new(prob, &live);
+        let mut target = None;
+        let step = (live.h() / WALK_STEPS as f32).max(1.0);
+        'dests: for (_, x0, floor) in dests {
+            if floor > y_hi + 1e-3 {
+                continue;
+            }
+            for dx in [0.0f32, 1.0, 2.0, -1.0, 4.0, -2.0] {
+                let x = x0 + dx;
+                if x < 0.0 {
+                    continue;
+                }
+                if let Some(y) =
+                    settle_vertical(&mut prober, prob, x, floor, y_hi, step, &mut probes)
+                {
+                    target = Some((x, y));
+                    break 'dests;
+                }
+            }
+        }
+        let ok = if let Some((x, y)) = target {
+            let dt = DTransformation::new(
+                prober.rotation,
+                (x - prober.x_off, y - prober.y_off),
+            );
+            let new_pk = prob.place_item(SPPlacement {
+                item_id: live.item_id,
+                d_transf: dt,
+            });
+            let after = placed_boxes(prob);
+            let fits = used_width(&after) <= w0 + 1e-3
+                && used_width(&after) <= incumbent_w + 1e-3
+                && (used_width(&after) < w0 - 1.0 || column_imbalance(&after) < column_imbalance(&boxes) - 1.0);
+            if !fits {
+                prob.remove_item(new_pk);
+            }
+            fits
+        } else {
+            false
+        };
+        if ok {
+            any = true;
+            continue;
+        }
+        restore_item(prob, &live);
+        break;
     }
     any
 }
@@ -1319,6 +1452,46 @@ mod tests {
             cols1.get(1).map(|c| c.len()).unwrap_or(0) >= 3,
             "col1 still short: {:?}",
             cols1.iter().map(|c| c.len()).collect::<Vec<_>>()
+        );
+    }
+
+    /// Capture 2026-08-18 : 4 colonnes hautes + 5e partielle en bas.
+    /// L'escalier doit s'égaliser — plus de cran d'une colonne entière.
+    #[test]
+    fn rightmost_short_column_is_equalized() {
+        let (w_, h_) = (100.0, 50.0);
+        let mut prob = SPProblem::new(rect_instance(w_, h_, 14, 1000.0));
+        prob.change_strip_width(600.0);
+        // 4 colonnes × 3 (tops 156.5) + 2 pièces en bas de la 5e.
+        for x in [2.5, 104.5, 206.5, 308.5] {
+            for y in [2.5, 54.5, 106.5] {
+                place(&mut prob, w_, h_, x, y);
+            }
+        }
+        place(&mut prob, w_, h_, 410.5, 2.5);
+        place(&mut prob, w_, h_, 410.5, 54.5);
+        assert!(feasibility_ok(&prob));
+        let imb0 = column_imbalance(&placed_boxes(&prob));
+        assert!(imb0 > 40.0, "imbalance setup {imb0}");
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(600.0));
+
+        let after = placed_boxes(&prob);
+        let imb1 = column_imbalance(&after);
+        let cols = cluster_columns(&after);
+        let counts: Vec<usize> = cols.iter().map(|c| c.len()).collect();
+        assert!(feasibility_ok(&prob));
+        assert_eq!(after.len(), 14);
+        assert!(prob.strip_width() <= 600.0 + 1e-3);
+        assert!(
+            imb1 < imb0 - 1.0,
+            "imbalance {imb0} -> {imb1}, counts={counts:?}"
+        );
+        let max_c = counts.iter().copied().max().unwrap_or(0);
+        let min_c = counts.iter().copied().min().unwrap_or(0);
+        assert!(
+            max_c - min_c <= 1,
+            "column counts still stepped: {counts:?}"
         );
     }
 
