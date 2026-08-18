@@ -95,7 +95,7 @@ async function refreshSubscription(db, user) {
 /**
  * Read-only entitlement summary for UI (banner, paywall state).
  * @param {string} userId
- * @returns {Promise<{freeRemaining: number, subscriptionStatus: string|null, requiresPaywall: boolean}>}
+ * @returns {Promise<{freeRemaining: number, subscriptionStatus: string|null, granted: boolean, requiresPaywall: boolean}>}
  */
 export async function getEntitlement(userId) {
     const db = await connectDB()
@@ -117,6 +117,10 @@ export async function getEntitlement(userId) {
     return {
         freeRemaining,
         subscriptionStatus,
+        // Admin grant (D-PAY-11) is not a Stripe status — the banner and
+        // profile must treat it as paid access, otherwise a user at 10/10
+        // free still sees the quota wall after « Appliquer le tier ».
+        granted,
         // An active grant (admin "mois gratuit") bypasses the paywall.
         requiresPaywall: !granted && !active && freeRemaining === 0,
     }

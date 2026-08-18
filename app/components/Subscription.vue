@@ -2,7 +2,7 @@
     <div class="subscription">
         <MainTitle :label="t('profile.subscription')" class="subscription__title" />
 
-        <div v-if="isActive" class="subscription__card">
+        <div v-if="isStripeActive" class="subscription__card">
             <div class="subscription__status">
                 <span class="subscription__badge">{{ statusLabel }}</span>
             </div>
@@ -22,6 +22,13 @@
                 class="subscription__btn subscription__btn--cancel"
                 @click="cancelSubscription"
             />
+        </div>
+
+        <div v-else-if="isGranted" class="subscription__card">
+            <div class="subscription__status">
+                <span class="subscription__badge">{{ t('sub.grantActive') }}</span>
+            </div>
+            <p class="subscription__desc">{{ t('sub.grantDesc') }}</p>
         </div>
 
         <div v-if="isActive && data?.isPrivacyTier" class="subscription__card">
@@ -63,7 +70,7 @@
             />
         </div>
 
-        <div v-else class="subscription__card">
+        <div v-else-if="!isGranted" class="subscription__card">
             <div v-if="data?.plan" class="subscription__plan">
                 <div class="subscription__plan-title">{{ data.plan.title || t('sub.monthlyPlan') }}</div>
                 <div class="subscription__price">
@@ -136,10 +143,18 @@ const formatDate = (iso) => {
     })
 }
 
-const isActive = computed(() => {
+const { data: userMe } = useNuxtData('user')
+const isStripeActive = computed(() => {
     const status = unref(data)?.subscriptionStatus
     return status === 'active' || status === 'trialing'
 })
+const isGranted = computed(() => {
+    if (isStripeActive.value) return false
+    if (unref(data)?.granted) return true
+    const level = unref(userMe)?.compute?.level
+    return level === 'standard' || level === 'privacy'
+})
+const isActive = computed(() => isStripeActive.value || isGranted.value)
 
 const statusLabel = computed(() => {
     const status = unref(data)?.subscriptionStatus

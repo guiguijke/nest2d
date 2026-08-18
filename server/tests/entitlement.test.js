@@ -108,6 +108,20 @@ describe('getEntitlement', () => {
         expect(res.freeRemaining).toBe(0)
         expect(res.requiresPaywall).toBe(true)
     })
+
+    it('grant admin : pas de paywall même si le quota free est à 0', async () => {
+        state.db = fakeDb({
+            users: [freeUser({
+                freeNestingUsed: 10,
+                grantedUntil: new Date(Date.now() + 24 * 3600 * 1000),
+                grantedTier: 'standard',
+            })],
+        })
+        const res = await getEntitlement('u1')
+        expect(res.freeRemaining).toBe(0)
+        expect(res.granted).toBe(true)
+        expect(res.requiresPaywall).toBe(false)
+    })
 })
 
 describe('assertCanNest', () => {

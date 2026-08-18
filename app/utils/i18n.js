@@ -74,6 +74,8 @@ const dict = {
         'newsletter.no': 'No thanks',
 
         'sub.active': 'Active',
+        'sub.grantActive': 'Unlimited (test grant)',
+        'sub.grantDesc': 'An admin grant is active on this account — no monthly quota, same as Unlimited. It is not a Stripe subscription.',
         'sub.trialActive': 'Free trial active',
         'sub.proPrivacy': 'Pro — Privacy+',
         'sub.activeDesc': 'You have unlimited nesting while your subscription is active.',
@@ -602,6 +604,8 @@ const dict = {
         'newsletter.no': 'Non merci',
 
         'sub.active': 'Actif',
+        'sub.grantActive': 'Illimité (accès de test)',
+        'sub.grantDesc': "Un accès offert par l'admin est actif sur ce compte — pas de quota mensuel, comme Illimité. Ce n'est pas un abonnement Stripe.",
         'sub.trialActive': 'Essai gratuit en cours',
         'sub.proPrivacy': 'Pro — Confidentialité+',
         'sub.activeDesc': "Vous bénéficiez d'imbrications illimitées pendant votre abonnement.",

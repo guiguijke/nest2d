@@ -50,6 +50,7 @@
 <script setup>
     import { FREE_NESTING_LIMIT } from '~~/shared/constants/payment.constants'
     import { formatQuotaReset } from '~/utils/quotaReset'
+    import { hasPaidAccess } from '~/utils/entitlementUi'
 
     const { getters } = authStore
     const { t, locale } = useLocale()
@@ -71,14 +72,11 @@
             : FREE_NESTING_LIMIT
     })
 
-    const isSubscribed = computed(() => {
-        const status = user.value.subscriptionStatus
-        return status === 'active' || status === 'trialing'
-    })
+    const isSubscribed = computed(() => hasPaidAccess(user.value))
 
     const freeRemaining = computed(() => Number(user.value.freeRemaining || 0))
 
-    // Only relevant for users who are not yet subscribed.
+    // Hide once Stripe OR an admin grant (D-PAY-11) unlocks Unlimited/Pro.
     const show = computed(() => !isSubscribed.value)
 
     const isEmpty = computed(() => freeRemaining.value <= 0)

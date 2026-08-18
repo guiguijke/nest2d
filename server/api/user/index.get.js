@@ -59,6 +59,7 @@ export default defineEventHandler(async (event) => {
         demoRemaining: demo.demoRemaining,
         demoUnlimited: Boolean(demo.demoUnlimited),
         subscriptionStatus: entitlement.subscriptionStatus,
+        granted: Boolean(entitlement.granted),
         requiresPaywall: entitlement.requiresPaywall,
         compute: {
             level: compute.level,
