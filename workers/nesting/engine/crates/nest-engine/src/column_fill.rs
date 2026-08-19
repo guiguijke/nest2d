@@ -14,9 +14,10 @@
 //!   - jamais de dépassement de la tôle (piège #6 fitsSheet) — la classe
 //!     « balanced » peut élargir au-delà de la largeur incumbent (c'est son
 //!     objet : rééquilibrer les chutes), mais jamais au-delà de la tôle ;
-//!   - jamais de régression : si la métrique finale ne s'améliore pas (ou si
-//!     la densité recule pour la classe « left »), le snapshot d'entrée est
-//!     restauré.
+//!   - jamais de régression : chaque sous-passe est snapshotée et restaurée
+//!     indépendamment si les métriques d'entrée reculent (garde granulaire —
+//!     la garde globale unique annulait un tassement réussi à cause d'une
+//!     autre passe, trou interne figé, seed trou100 5594320138289656320) ;
 //!   - déterminisme strict : tris total_cmp + tie-break (item_id, PItemKey),
 //!     aucune transcendantale (piège #14b), séquentiel pur (piège #14c).
 
@@ -52,6 +53,43 @@ const WALK_STEPS: usize = 8;
 const REFINE_STEPS: usize = 12;
 /// Budget global de sondes CDE du notch-fill (borne le coût pire cas).
 const PROBE_CAP: usize = 200_000;
+
+/// Trace de debug (NEST_DEBUG_CF=1) — diagnostic des passes et des gardes.
+macro_rules! cf_dbg {
+    ($($arg:tt)*) => {
+        if std::env::var_os("NEST_DEBUG_CF").is_some() {
+            eprintln!("[cf] {}", format!($($arg)*));
+        }
+    };
+}
+
+/// État des colonnes pour le diagnostic : tops, gaps internes > 2.5 mm.
+#[allow(dead_code)]
+fn dbg_cols(tag: &str, prob: &SPProblem) {
+    if std::env::var_os("NEST_DEBUG_CF").is_none() {
+        return;
+    }
+    let boxes = placed_boxes(prob);
+    let cols = cluster_columns(&boxes);
+    let mut desc = String::new();
+    for (i, c) in cols.iter().enumerate() {
+        let mut ivals: Vec<(f32, f32)> = c.iter().map(|b| (b.y_min, b.y_max)).collect();
+        ivals.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let gaps: Vec<String> = ivals
+            .windows(2)
+            .filter(|w| w[1].0 - w[0].1 > 2.5)
+            .map(|w| format!("gap {:.1}@[{:.1},{:.1}]", w[1].0 - w[0].1, w[0].1, w[1].0))
+            .collect();
+        desc.push_str(&format!(
+            " c{i}(x0={:.1},n={},top={:.1}{})",
+            col_x0(c),
+            c.len(),
+            col_top(c),
+            if gaps.is_empty() { String::new() } else { format!(" {}", gaps.join(",")) }
+        ));
+    }
+    eprintln!("[cf] {tag}: cols={}{}", cols.len(), desc);
+}
 
 /// Point d'entrée : dispatche par classe directionnelle. Appelé après la
 /// gravité aux mêmes endroits qu'elle (spp.rs). « bottom » n'est jamais
@@ -328,48 +366,94 @@ fn restore_item(prob: &mut SPProblem, b: &Boxed) {
 
 fn column_fill_left(prob: &mut SPProblem) {
     let n = prob.n_placed_items();
-    let snapshot = prob.save();
     let density0 = prob.density();
     let width0 = used_width(&placed_boxes(prob));
     let incumbent_w = prob.strip_width();
     let strip_h = prob.instance.base_strip.fixed_height;
 
+    cf_dbg!("entry: n={n} width0={width0:.3} density0={density0:.4} incumbent_w={incumbent_w:.3} strip_h={strip_h:.1}");
+    dbg_cols("entry", prob);
+
+    // Garde GRANULAIRE : chaque sous-passe est snapshotée indépendamment et
+    // restaurée si ELLE régresse les métriques d'entrée (largeur utilisée,
+    // strip, densité). La garde globale unique annulait un tassement réussi
+    // à cause d'une passe ultérieure — plus possible.
+    macro_rules! guarded {
+        ($name:literal, $pass:expr) => {{
+            let snap = prob.save();
+            let r = $pass;
+            let w = used_width(&placed_boxes(prob));
+            let regressed = w > width0 + 1e-3
+                || prob.strip_width() > incumbent_w + 1e-3
+                || prob.density() < density0 - DENSITY_TOL;
+            if regressed {
+                cf_dbg!(
+                    "{}: GUARD RESTORE (width {:.3}>{:.3}={}, strip {:.3}>{:.3}={}, density {:.4}<{:.4}={})",
+                    $name, w, width0, w > width0 + 1e-3,
+                    prob.strip_width(), incumbent_w, prob.strip_width() > incumbent_w + 1e-3,
+                    prob.density(), density0 - DENSITY_TOL, prob.density() < density0 - DENSITY_TOL
+                );
+                prob.restore(&snap);
+                Default::default()
+            } else {
+                cf_dbg!("{}: width={:.3} density={:.4}", $name, w, prob.density());
+                r
+            }
+        }};
+    }
+
     // 1. Encoches à GAUCHE comblées depuis la droite (X-).
-    let moves = notch_fill(prob, incumbent_w, strip_h, 2 * n);
+    let moves = guarded!("notch_fill", notch_fill(prob, incumbent_w, strip_h, 2 * n));
     // 2. Restack seulement si le corps n'est pas déjà une bande X-
     //    (colonnes gauches alignées + reste à droite). L'égalisation
     //    4 hautes + 5e courte vole des pièces à gauche et annule le X-.
-    let restacked = if leftover_column_only(prob) {
-        false
-    } else {
-        restack_columns(prob, incumbent_w, strip_h)
-    };
+    let restacked = !leftover_column_only(prob)
+        && guarded!("restack", restack_columns(prob, incumbent_w, strip_h));
     // 3. Crans internes d'une cellule, donneurs = droite seulement.
-    let filled = fill_column_notches(prob, incumbent_w, strip_h);
-    // 4. Tasser les gaps > space dans chaque colonne.
-    let tightened = tighten_loose_gaps(prob, incumbent_w, strip_h);
-    // 5. Pièce qui dépasse en haut du corps → reste à droite (pas l'inverse).
-    let leveled = level_protrusions(prob, incumbent_w, strip_h);
-    // 6. Vider la colonne droite seulement si ça RÉDUIT la largeur.
-    let collapsed = collapse_rightmost(prob, incumbent_w, strip_h);
+    let filled = guarded!("fill_notches", fill_column_notches(prob, incumbent_w, strip_h));
+    // 3b. Réaligne les pièces latéralement décalées sur leur colonne (jitter
+    //     ≥ 1 mm du solveur) — des lignes droites réduisent les verrous
+    //     latéraux pour le tassement qui suit.
+    let realigned = guarded!("realign", realign_column_lanes(prob));
+    // 4. Tasser les gaps > space dans chaque colonne (trou interne d'une
+    //    cellule : la pièce au-dessus du trou redescend en cascade).
+    let tightened = guarded!("tighten", tighten_loose_gaps(prob, incumbent_w, strip_h));
+    // 5. Consolider les cellules de reste au bord droit (le « L » X-) :
+    //    plus aucune colonne courte au milieu du corps.
+    let consolidated =
+        guarded!("consolidate", consolidate_leftover_right(prob, incumbent_w, strip_h));
+    // 6. Pièce qui dépasse en haut du corps → reste à droite (pas l'inverse).
+    let leveled = guarded!("level", level_protrusions(prob, incumbent_w, strip_h));
+    // 7. Vider la colonne droite seulement si ça RÉDUIT la largeur.
+    let collapsed = guarded!("collapse", collapse_rightmost(prob, incumbent_w, strip_h));
 
-    if moves == 0 && !restacked && !filled && !tightened && !leveled && !collapsed {
+    if moves == 0
+        && !restacked
+        && !filled
+        && !realigned
+        && !tightened
+        && !consolidated
+        && !leveled
+        && !collapsed
+    {
+        cf_dbg!("no moves at all → return unchanged");
         return;
     }
-    // X- : jamais plus large qu'à l'entrée. Densité strip = f(largeur) :
-    // une largeur égale ou moindre suffit.
-    if used_width(&placed_boxes(prob)) > width0 + 1e-3
+    // Gravité finale best-effort : si elle régressait les métriques d'entrée
+    // (elle ne devrait jamais — Left/Down ne font que tasser), on restaure
+    // l'état pré-gravité (les passes, déjà validées, sont conservées).
+    let snap_gravity = prob.save();
+    crate::gravity::gravity_for_bias(prob, Some("left"), strip_h);
+    let w_g = used_width(&placed_boxes(prob));
+    if w_g > width0 + 1e-3
         || prob.strip_width() > incumbent_w + 1e-3
         || prob.density() < density0 - DENSITY_TOL
     {
-        prob.restore(&snapshot);
-        return;
+        cf_dbg!("post-gravity regression → restore pre-gravity state");
+        prob.restore(&snap_gravity);
     }
-    crate::gravity::gravity_for_bias(prob, Some("left"), strip_h);
-    if used_width(&placed_boxes(prob)) > width0 + 1e-3 {
-        prob.restore(&snapshot);
-        return;
-    }
+    cf_dbg!("COMMIT: width={:.3} density={:.4}", used_width(&placed_boxes(prob)), prob.density());
+    dbg_cols("commit", prob);
     prob.fit_strip();
     debug_assert!(prob.layout.is_feasible());
 }
@@ -644,12 +728,24 @@ fn restack_columns(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool
         let after = placed_boxes(prob);
         let stair1 = band_stair(&after);
         let imbalance1 = column_imbalance(&after);
-        if (stair1 < stair0 - 1e-3 || imbalance1 < imbalance0 - 1.0)
+        // La métrique (sommets) est aveugle aux trous INTERNES : un restack
+        // qui « égalise » en posant des pièces décalées de ±2 mm (ladder dx
+        // sur une grille tassée au contact) crée des trous d'une cellule et
+        // des pièces hors colonne (seed trou100 8578442985024929247). On
+        // exige des colonnes compactes pour accepter.
+        let compact = cluster_columns(&after).iter().all(|c| {
+            let mut ys: Vec<(f32, f32)> = c.iter().map(|b| (b.y_min, b.y_max)).collect();
+            ys.sort_by(|a, b| a.0.total_cmp(&b.0));
+            ys.windows(2).all(|w| w[1].0 - w[0].1 < LOOSE_GAP_MM)
+        });
+        if compact
+            && (stair1 < stair0 - 1e-3 || imbalance1 < imbalance0 - 1.0)
             && prob.strip_width() <= incumbent_w + 1e-3
             && prob.density() >= density0 - DENSITY_TOL
         {
             return true;
         }
+        cf_dbg!("restack: rejeté (stair {stair1:.0} vs {stair0:.0}, imb {imbalance1:.1} vs {imbalance0:.1}, compact={compact})");
     }
     prob.restore(&snapshot);
     false
@@ -814,8 +910,226 @@ fn fill_column_notches(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> 
     any
 }
 
+/// Fenêtre horizontale exacte pour une pièce verrouillée latéralement par le
+/// jitter sub-mm des colonnes voisines : sur des grilles tassées au contact
+/// (gap réel = space ± 0,01 mm), une voisine peut laisser un gap de 1,998 mm
+/// < space → les formes inflatées se chevauchent de 0,002 mm et TOUTE descente
+/// à x fixe collisionne (trou interne d'une cellule figé, seed trou100
+/// 5594320138289656320). La fenêtre [L, R−w] pour x_min est calculée depuis
+/// les bboxes inflatées des voisins qui recouvrent la plage y traversée
+/// ([y_lo, y_hi + h]), RELATIVEMENT au span de destination [x0, x0 + w] (PAS
+/// à la position d'origine de la pièce — un donneur venu d'une autre colonne
+/// classerait ses anciennes voisines) : L = max(x_max) des voisins à gauche,
+/// R = min(x_min) des voisins à droite. Sans voisin d'un côté (colonne de
+/// bord) : corridor ± w/2 autour de x0, et toujours borné par la largeur
+/// utilisée courante (jamais d'élargissement). Candidats déterministes avec
+/// marge anti-contact : x0 clampé (déplacement minimal), puis le centre de
+/// la fenêtre (dégagement maximal). Vide si un chevauchant (« brique »)
+/// interdit toute garantie — la CDE reste l'arbitre final, ces candidats ne
+/// sont que des sondes.
+fn lateral_window_candidates(
+    prob: &SPProblem,
+    live: &Boxed,
+    y_lo: f32,
+    y_hi: f32,
+    x0: f32,
+) -> Vec<f32> {
+    let (w, h) = (live.w(), live.h());
+    let y_top = y_hi + h; // union des spans sondés : [y_lo, y_hi + h]
+    let tol = w / 2.0; // même esprit que le clustering (demi-largeur)
+    let mut l = f32::NEG_INFINITY;
+    let mut r = f32::INFINITY;
+    for b in &placed_boxes(prob) {
+        // Recouvrement vertical strict avec la plage traversée : les pièces
+        // de la propre colonne (en dessous de y_lo / au-dessus de y_hi + h)
+        // sont exclues — le contact vertical est l'objet même du settle.
+        if b.y_min >= y_top - 1e-3 || b.y_max <= y_lo + 1e-3 {
+            continue;
+        }
+        if b.x_max <= x0 + tol {
+            l = l.max(b.x_max); // voisin à gauche de la destination
+        } else if b.x_min >= x0 + w - tol {
+            r = r.min(b.x_min); // voisin à droite de la destination
+        } else {
+            return Vec::new(); // chevauchant : pas de fenêtre sûre
+        }
+    }
+    // Borne droite : voisin, corridor, et ne jamais dépasser la largeur
+    // d'entrée (garde granulaire) — la pièce peut toujours revenir à x0.
+    let w_now = used_width(&placed_boxes(prob));
+    let x_cap = w_now.max(live.x_max) + 1e-3 - w;
+    let l_bound = l.max(x0 - tol);
+    let r_bound = (if r.is_finite() { r - w } else { f32::INFINITY })
+        .min(x0 + tol)
+        .min(x_cap);
+    // Les deux côtés doivent contraindre (sinon le blocage n'est pas
+    // latéral) et la fenêtre doit être strictement positive (un ajustement
+    // exact = contact pile = collision coin-sur-arête).
+    if l_bound + 1e-9 >= r_bound {
+        return Vec::new();
+    }
+    // Marge anti-contact : jamais de sonde pile au bord de la fenêtre.
+    let shrink = ((r_bound - l_bound) / 4.0).min(1e-3);
+    let (lo, hi) = (l_bound + shrink, r_bound - shrink);
+    let (lo, hi) = if lo <= hi { (lo, hi) } else { let c = (l_bound + r_bound) / 2.0; (c, c) };
+    // x0 clampé d'abord (déplacement minimal, reste dans la colonne), puis
+    // le centre de la fenêtre (dégagement maximal).
+    let clamped = x0.clamp(lo, hi);
+    let center = (lo + hi) / 2.0;
+    let mut out = vec![clamped];
+    if (center - clamped).abs() > 1e-9 {
+        out.push(center);
+    }
+    out
+}
+
+/// Settle vertical à x0, puis (si échec OU gain insuffisant) sondes DIRECTES
+/// aux x de la fenêtre latérale exacte. Un candidat n'est retenu que s'il
+/// descend sous `y_accept` (sinon la sonde à x fixe « réussirait » à la
+/// position d'origine et le trou resterait figé).
+///
+/// Le repli fenêtre NE passe PAS par la marche de `settle_vertical` : les
+/// déplacements du post-pass sont des téléportations (retrait → pose), seule
+/// la position FINALE doit être valide. Sous une chicane de jitter (deux
+/// voisines dont les fenêtres ligne à ligne sont disjointes), la bande valide
+/// au contact peut faire < 1 mm — la marche (pas h/8) la survole toujours.
+/// On sonde donc y_lo + ε avec ε croissant, la CDE arbitre.
+fn settle_with_lateral_window(
+    prober: &mut Prober,
+    prob: &SPProblem,
+    live: &Boxed,
+    x0: f32,
+    y_lo: f32,
+    y_hi: f32,
+    step: f32,
+    probes: &mut usize,
+    y_accept: f32,
+) -> Option<(f32, f32)> {
+    if let Some(y) = settle_vertical(prober, prob, x0, y_lo, y_hi, step, probes) {
+        if y < y_accept {
+            return Some((x0, y));
+        }
+    }
+    // Cible = au plus près de y_lo (c'est là que le trou se ferme). La
+    // fenêtre est calculée sur le span final MINIMAL [y_lo, y_lo + h] —
+    // l'élargir à y_lo + LOOSE_GAP_MM + h inclurait les voisines de la
+    // rangée AU-DESSUS du trou (jamais chevauchées par la pose à y_lo + ε),
+    // ce qui viderait la fenêtre (chicane, seed prod-like 8578442985024929237).
+    // Les sondes ε > 0 sont arbitrées par la CDE de toute façon.
+    let y_cap = y_hi.min(y_lo + LOOSE_GAP_MM);
+    if y_lo > y_cap + 1e-6 {
+        return None;
+    }
+    for x in lateral_window_candidates(prob, live, y_lo, y_lo, x0) {
+        for eps in [0.001f32, 0.01, 0.1, 0.5, 2.0, 8.0] {
+            if *probes > PROBE_CAP {
+                return None;
+            }
+            let y = y_lo + eps;
+            if y > y_cap + 1e-6 || y >= y_accept {
+                break;
+            }
+            *probes += 1;
+            if prober.valid(prob, x, y) {
+                cf_dbg!("settle: x0={x0:.3} bloqué, fenêtre latérale → x={x:.4} y={y:.3}");
+                return Some((x, y));
+            }
+        }
+    }
+    None
+}
+
+/// Réaligne sur leur colonne les pièces décalées latéralement (jitter ≥ 1 mm
+/// laissé par le solveur, ex. rangée du bas posée à +1,02 mm — « escalier
+/// 9 colonnes » du seed trou100 2806985829419873653, qui ÉLARGIT aussi la
+/// bande d'autant). Seul x change (y figé) : sonde CDE directe à la x de
+/// référence (médiane des x_min de la colonne, robuste aux quelques pièces
+/// décalées). Jamais d'élargissement ; le jitter < 0,05 mm n'est pas touché
+/// (no-op sur une grille propre).
+fn realign_column_lanes(prob: &mut SPProblem) -> bool {
+    /// Déviation minimale traitée (le jitter sub-mm du solveur reste en place).
+    const DEV_MIN: f32 = 0.05;
+    let boxes = placed_boxes(prob);
+    if boxes.len() < 3 {
+        return false;
+    }
+    let protected = protected_fingerprints(&boxes);
+    let cols = cluster_columns(&boxes);
+    let w_now = used_width(&boxes);
+    let mut any = false;
+    let mut probes = 0usize;
+    for col in cols {
+        if col.len() < 2 {
+            continue;
+        }
+        let mut xs: Vec<f32> = col.iter().map(|b| b.x_min).collect();
+        let lane = median(&mut xs);
+        let mut ordered = col;
+        ordered.sort_by(|a, b| a.y_min.total_cmp(&b.y_min).then(a.item_id.cmp(&b.item_id)));
+        for b in ordered {
+            if probes > PROBE_CAP {
+                return any;
+            }
+            if (b.x_min - lane).abs() <= DEV_MIN {
+                continue;
+            }
+            if protected.contains(&fingerprint(&b)) {
+                continue;
+            }
+            let Some(live) = find_by_fingerprint(prob, &fingerprint(&b)) else {
+                continue;
+            };
+            // Jamais d'élargissement : la cible reste sous la largeur courante
+            // (la pièce peut toujours revenir à sa position d'origine).
+            if lane + live.w() > w_now.max(live.x_max) + 1e-3 {
+                cf_dbg!("realign: piece x {:.3} → lane {:.3} SKIP (width cap)", live.x_min, lane);
+                continue;
+            }
+            prob.remove_item(live.pk);
+            let mut prober = Prober::new(prob, &live);
+            probes += 1;
+            // Sonde à y inchangé d'abord ; micro-soulèvement en repli : la
+            // gravité laisse certaines pièces au contact EXACT d'un bord de
+            // tôle (hazard Exterior inflaté — collision formelle à y_min =
+            // 1.0 pile), le réalignement est alors impossible à y constant.
+            // ε limité au µm/mm : au-delà la pièce du dessus (posée à
+            // contact + ~0,002 mm) entrerait en collision.
+            let mut target_y = None;
+            for dy in [0.0f32, 0.001, 0.01] {
+                if probes > PROBE_CAP {
+                    break;
+                }
+                let y = live.y_min + dy;
+                if prober.valid(prob, lane, y) {
+                    target_y = Some(y);
+                    break;
+                }
+            }
+            if let Some(y) = target_y {
+                cf_dbg!("realign: piece x {:.3} → lane {:.3} (y {:.3} → {:.3})", live.x_min, lane, live.y_min, y);
+                let dt = DTransformation::new(
+                    prober.rotation,
+                    (lane - prober.x_off, y - prober.y_off),
+                );
+                prob.place_item(SPPlacement {
+                    item_id: live.item_id,
+                    d_transf: dt,
+                });
+                any = true;
+            } else {
+                cf_dbg!("realign: piece x {:.3} → lane {:.3} PROBE FAILED (y={:.2})", live.x_min, lane, live.y_min);
+                restore_item(prob, &live);
+            }
+        }
+    }
+    any
+}
+
 /// Tasse les gaps internes d'une colonne (> LOOSE_GAP_MM). La gravité
-/// Down peut rester bloquée par un décalage X / emboîtement.
+/// Down peut rester bloquée par un décalage X / emboîtement — et par le
+/// jitter sub-mm des colonnes voisines (fenêtre latérale, voir
+/// `lateral_window_candidates`). Cascade vers le bas jusqu'au point fixe
+/// (chaque pièce tassée réduit le gap de la suivante, traitée juste après).
 fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> bool {
     let boxes = placed_boxes(prob);
     if boxes.len() < 2 {
@@ -826,7 +1140,7 @@ fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> 
     let w0 = incumbent_w;
     let mut any = false;
     let mut probes = 0usize;
-    for col in cols {
+    'cols: for col in cols {
         if col.len() < 2 {
             continue;
         }
@@ -838,14 +1152,19 @@ fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> 
         });
         let protected = protected_fingerprints(&boxes);
         for i in 1..ordered.len() {
+            if probes > PROBE_CAP {
+                break 'cols;
+            }
             let gap = ordered[i].y_min - ordered[i - 1].y_max;
             if gap < LOOSE_GAP_MM {
                 continue;
             }
             if protected.contains(&fingerprint(&ordered[i])) {
+                cf_dbg!("tighten: col x0={:.1} i={} gap={:.1} → PROTECTED, skip", col_x0(&ordered), i, gap);
                 continue;
             }
             let Some(live) = find_by_fingerprint(prob, &fingerprint(&ordered[i])) else {
+                cf_dbg!("tighten: col x0={:.1} i={} gap={:.1} → fingerprint not found", col_x0(&ordered), i, gap);
                 continue;
             };
             let floor = ordered[i - 1].y_max;
@@ -853,33 +1172,37 @@ fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> 
             prob.remove_item(live.pk);
             let mut prober = Prober::new(prob, &live);
             let step = (live.h() / WALK_STEPS as f32).max(1.0);
-            let y = settle_vertical(
+            let target = settle_with_lateral_window(
                 &mut prober,
                 prob,
+                &live,
                 x0,
                 floor,
                 live.y_min,
                 step,
                 &mut probes,
+                live.y_min - 0.5,
             );
-            if let Some(y) = y {
-                if y < live.y_min - 0.5 {
-                    let dt = DTransformation::new(
-                        prober.rotation,
-                        (x0 - prober.x_off, y - prober.y_off),
-                    );
-                    let pk = prob.place_item(SPPlacement {
-                        item_id: live.item_id,
-                        d_transf: dt,
-                    });
-                    if let Some(pi) = prob.layout.placed_items.get(pk) {
-                        ordered[i].y_min = pi.shape.bbox.y_min;
-                        ordered[i].y_max = pi.shape.bbox.y_max;
-                        ordered[i].pk = pk;
-                    }
-                    any = true;
-                    continue;
+            cf_dbg!(
+                "tighten: col x0={:.1} i={} gap={:.1} floor={:.2} x0={:.2} y_min={:.2} → settle={:?}",
+                col_x0(&ordered), i, gap, floor, x0, live.y_min, target
+            );
+            if let Some((x, y)) = target {
+                let dt = DTransformation::new(
+                    prober.rotation,
+                    (x - prober.x_off, y - prober.y_off),
+                );
+                let pk = prob.place_item(SPPlacement {
+                    item_id: live.item_id,
+                    d_transf: dt,
+                });
+                if let Some(pi) = prob.layout.placed_items.get(pk) {
+                    ordered[i].y_min = pi.shape.bbox.y_min;
+                    ordered[i].y_max = pi.shape.bbox.y_max;
+                    ordered[i].pk = pk;
                 }
+                any = true;
+                continue;
             }
             restore_item(prob, &live);
         }
@@ -890,6 +1213,159 @@ fn tighten_loose_gaps(prob: &mut SPProblem, incumbent_w: f32, _strip_h: f32) -> 
     }
     any
 }
+
+/// Consolide les cellules de reste au bord droit (le « L » X-) : tant qu'une
+/// colonne i est plus courte qu'une colonne j > i (inversion de sommets, à
+/// l'échelle d'une cellule), le sommet de la colonne j la plus à droite
+/// parmi les plus hautes est déplacé sur le sommet de i (settle sondé CDE).
+/// Après compactage, c'est ce qui transforme des créneaux au milieu du corps
+/// en reste adjacent au bord droit — sans jamais élargir la bande.
+///
+/// Terminaison garantie : chaque déplacement accepté fait STRICTEMENT
+/// décroître le nombre d'inversions (sinon annulation immédiate), borné par
+/// n placements et PROBE_CAP sondes. No-op sur un layout déjà consolidé
+/// (tops non décroissants gauche→droite à ± une cellule).
+fn consolidate_leftover_right(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool {
+    /// Nombre d'inversions : paires (i < j) avec top_i < top_j − cell.
+    fn inversions(tops: &[f32], cell: f32) -> usize {
+        let mut cnt = 0;
+        for i in 0..tops.len() {
+            for j in i + 1..tops.len() {
+                if tops[i] < tops[j] - cell {
+                    cnt += 1;
+                }
+            }
+        }
+        cnt
+    }
+
+    let n0 = prob.n_placed_items();
+    let mut any = false;
+    let mut probes = 0usize;
+    let mut moves = 0usize;
+    loop {
+        let boxes = placed_boxes(prob);
+        if boxes.len() < 3 || moves >= n0 || probes > PROBE_CAP {
+            break;
+        }
+        let protected = protected_fingerprints(&boxes);
+        let cols = cluster_columns(&boxes);
+        if cols.len() < 2 {
+            break;
+        }
+        // Ne consolider que des colonnes compactes : déplacer le sommet d'une
+        // colonne trouée exposerait le trou (tighten_loose_gaps, qui tourne
+        // avant, est le seul pass chargé des gaps internes).
+        let compact = cols.iter().all(|c| {
+            let mut ys: Vec<(f32, f32)> = c.iter().map(|b| (b.y_min, b.y_max)).collect();
+            ys.sort_by(|a, b| a.0.total_cmp(&b.0));
+            ys.windows(2).all(|w| {
+                let ok = w[1].0 - w[0].1 < LOOSE_GAP_MM;
+                if !ok {
+                    cf_dbg!(
+                        "consolidate: col x0={:.1} gap interne {:.2}@[{:.2},{:.2}]",
+                        col_x0(c),
+                        w[1].0 - w[0].1,
+                        w[0].1,
+                        w[1].0
+                    );
+                }
+                ok
+            })
+        });
+        if !compact {
+            cf_dbg!("consolidate: colonnes non compactes → skip");
+            break;
+        }
+        let mut heights: Vec<f32> = boxes.iter().map(|b| b.h()).collect();
+        let cell = median(&mut heights) * 0.5 + 10.0;
+        let tops: Vec<f32> = cols.iter().map(|c| col_top(c)).collect();
+        let inv0 = inversions(&tops, cell);
+        if inv0 == 0 {
+            break;
+        }
+        // i = colonne la plus à gauche en inversion ; j = colonne la plus à
+        // droite parmi les plus hautes à droite de i.
+        let Some(i) = (0..tops.len())
+            .find(|&i| (i + 1..tops.len()).any(|j| tops[i] < tops[j] - cell))
+        else {
+            break;
+        };
+        let j = (i + 1..tops.len())
+            .max_by(|&a, &b| tops[a].total_cmp(&tops[b]).then(a.cmp(&b)))
+            .unwrap();
+        let floor = tops[i];
+        let x0 = col_x0(&cols[i]);
+        // Donneur = sommet de la colonne j.
+        let mut tops_j: Vec<Boxed> = cols[j]
+            .iter()
+            .copied()
+            .filter(|b| !protected.contains(&fingerprint(b)))
+            .collect();
+        tops_j.sort_by(|a, b| {
+            b.y_max
+                .total_cmp(&a.y_max)
+                .then(a.item_id.cmp(&b.item_id))
+                .then(a.pk.cmp(&b.pk))
+        });
+        let mut accepted = false;
+        for donor in tops_j {
+            if probes > PROBE_CAP {
+                break;
+            }
+            if floor + donor.h() > strip_h + 1e-3 {
+                continue; // dépasserait la hauteur de tôle
+            }
+            let Some(live) = find_by_fingerprint(prob, &fingerprint(&donor)) else {
+                continue;
+            };
+            prob.remove_item(live.pk);
+            let mut prober = Prober::new(prob, &live);
+            let step = (live.h() / WALK_STEPS as f32).max(1.0);
+            // La pose doit atterrir SUR le sommet de la colonne i : sans ce
+            // plafond, la marche ascendante pourrait se poser une cellule
+            // entière au-dessus (x0 latéralement verrouillé sur toute la
+            // hauteur) et créer un trou interne neuf.
+            let y_hi = (strip_h - live.h()).min(floor + LOOSE_GAP_MM);
+            let target = settle_with_lateral_window(
+                &mut prober, prob, &live, x0, floor, y_hi, step, &mut probes,
+                y_hi + 1.0, // toute position valide dans la fenêtre est candidate
+            );
+            let ok = if let Some((x, y)) = target {
+                let dt =
+                    DTransformation::new(prober.rotation, (x - prober.x_off, y - prober.y_off));
+                let new_pk = prob.place_item(SPPlacement {
+                    item_id: live.item_id,
+                    d_transf: dt,
+                });
+                let after = placed_boxes(prob);
+                let tops_after: Vec<f32> =
+                    cluster_columns(&after).iter().map(|c| col_top(c)).collect();
+                let fits = used_width(&after) <= incumbent_w + 1e-3
+                    && inversions(&tops_after, cell) < inv0;
+                if !fits {
+                    prob.remove_item(new_pk);
+                }
+                fits
+            } else {
+                false
+            };
+            if ok {
+                cf_dbg!("consolidate: col {j} top → col {i} (inv {inv0} → …)");
+                accepted = true;
+                any = true;
+                moves += 1;
+                break;
+            }
+            restore_item(prob, &live);
+        }
+        if !accepted {
+            break; // aucun donneur valide pour cette inversion : point fixe
+        }
+    }
+    any
+}
+
 
 /// Une colonne du corps dépasse ses voisines d'une cellule (pièce isolée
 /// en haut, capture 2026-08-18) : on la pose sur le reste à droite, pas
@@ -1757,6 +2233,143 @@ mod tests {
 
         let boxes1 = placed_boxes(&prob);
         assert_eq!(band_stair(&boxes1), stair0, "aucun déplacement accepté");
+        for (a, b) in boxes0.iter().zip(boxes1.iter()) {
+            assert_eq!(a.d_transf.translation(), b.d_transf.translation());
+        }
+    }
+
+    /// Trou interne d'une cellule au milieu d'une colonne, AVEC inflation
+    /// (2 mm — sans elle des sondes qui échouent en prod passeraient ici,
+    /// mémo §4.5). Le pas est 102.1 et non 102.0 pile : au contact exact
+    /// (gap réel = space), les coins inflatés touchent les arêtes voisines
+    /// (collision), le layout de départ serait infaisable. Origine à 2.1 :
+    /// l'inflation déflate aussi la tôle (marge space/2 = 1 mm de chaque
+    /// côté). Le restack est volontairement neutralisé (corps aligné + reste
+    /// court à droite ⇒ `leftover_column_only`) : c'est bien
+    /// `tighten_loose_gaps` qui doit fermer le trou, en cascade.
+    #[test]
+    fn internal_cell_hole_is_closed() {
+        let (w_, h_) = (100.0, 100.0);
+        let pitch = 102.1;
+        let mut prob = SPProblem::new(rect_instance_sep(w_, h_, 22, 800.0, Some(2.0)));
+        prob.change_strip_width(600.0);
+        let xs = [2.1, 104.2, 206.3, 308.4, 410.5];
+        let y = |r: usize| 2.1 + r as f32 * pitch;
+        // Corps : c0..c3. Trou interne en c2 (3e pièce absente), la pièce du
+        // trou est posée en haut de c1 (6 pièces). Reste court en c4.
+        for r in 0..5 {
+            place(&mut prob, w_, h_, xs[0], y(r));
+        }
+        for r in 0..6 {
+            place(&mut prob, w_, h_, xs[1], y(r));
+        }
+        for &r in &[0usize, 1, 3, 4] {
+            place(&mut prob, w_, h_, xs[2], y(r));
+        }
+        for r in 0..5 {
+            place(&mut prob, w_, h_, xs[3], y(r));
+        }
+        for r in 0..2 {
+            place(&mut prob, w_, h_, xs[4], y(r));
+        }
+        assert!(feasibility_ok(&prob));
+        let w0 = used_width(&placed_boxes(&prob));
+        let cols0 = cluster_columns(&placed_boxes(&prob));
+        assert_eq!(cols0.len(), 5);
+        assert_eq!(cols0[2].len(), 4, "trou interne en place");
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(600.0));
+
+        let after = placed_boxes(&prob);
+        assert!(feasibility_ok(&prob));
+        assert_eq!(after.len(), 22);
+        assert!(
+            used_width(&after) <= w0 + 1e-3,
+            "X- regress: {} -> {}",
+            w0,
+            used_width(&after)
+        );
+        // Toutes les colonnes sont compactes (gaps internes ≤ space + marge).
+        let cols = cluster_columns(&after);
+        for col in &cols {
+            let mut ys: Vec<(f32, f32)> = col.iter().map(|b| (b.y_min, b.y_max)).collect();
+            ys.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for w in ys.windows(2) {
+                let gap = w[1].0 - w[0].1;
+                assert!(
+                    gap <= 2.5,
+                    "internal gap {gap} in col counts={:?}",
+                    cols.iter().map(|c| c.len()).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+
+    /// Créneaux (colonnes hautes/basses alternées) : les cellules de reste
+    /// doivent être consolidées au bord droit — plus aucune inversion de
+    /// sommets (une colonne courte n'a de colonnes plus hautes qu'à sa
+    /// gauche). AVEC inflation 2 mm.
+    #[test]
+    fn leftover_cells_consolidate_right() {
+        let (w_, h_) = (100.0, 100.0);
+        let pitch = 102.1;
+        let mut prob = SPProblem::new(rect_instance_sep(w_, h_, 18, 800.0, Some(2.0)));
+        prob.change_strip_width(600.0);
+        for (c, &rows) in [5usize, 4, 5, 4].iter().enumerate() {
+            for r in 0..rows {
+                place(&mut prob, w_, h_, 2.1 + c as f32 * pitch, 2.1 + r as f32 * pitch);
+            }
+        }
+        assert!(feasibility_ok(&prob));
+        let w0 = used_width(&placed_boxes(&prob));
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(600.0));
+
+        let after = placed_boxes(&prob);
+        assert!(feasibility_ok(&prob));
+        assert_eq!(after.len(), 18);
+        assert!(
+            used_width(&after) <= w0 + 1e-3,
+            "X- regress: {} -> {}",
+            w0,
+            used_width(&after)
+        );
+        let cols = cluster_columns(&after);
+        let tops: Vec<f32> = cols.iter().map(|c| col_top(c)).collect();
+        for i in 0..tops.len() {
+            for j in i + 1..tops.len() {
+                assert!(
+                    tops[i] >= tops[j] - 1.0,
+                    "inversion: tops[{i}]={} < tops[{j}]={} (tops={tops:?})",
+                    tops[i],
+                    tops[j]
+                );
+            }
+        }
+    }
+
+    /// Grille parfaite AVEC inflation : le post-pass est un no-op strict
+    /// (translations à l'identique — verrou pixel-identical).
+    #[test]
+    fn perfect_grid_with_inflation_is_untouched() {
+        let (w_, h_) = (100.0, 100.0);
+        let pitch = 102.1;
+        let mut prob = SPProblem::new(rect_instance_sep(w_, h_, 20, 800.0, Some(2.0)));
+        prob.change_strip_width(600.0);
+        for c in 0..4 {
+            for r in 0..5 {
+                place(&mut prob, w_, h_, 2.1 + c as f32 * pitch, 2.1 + r as f32 * pitch);
+            }
+        }
+        assert!(feasibility_ok(&prob));
+        let boxes0 = placed_boxes(&prob);
+        let w0 = prob.strip_width();
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(600.0));
+
+        assert_eq!(prob.strip_width(), w0);
+        let boxes1 = placed_boxes(&prob);
+        assert_eq!(boxes0.len(), boxes1.len());
         for (a, b) in boxes0.iter().zip(boxes1.iter()) {
             assert_eq!(a.d_transf.translation(), b.d_transf.translation());
         }
