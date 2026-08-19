@@ -44,6 +44,14 @@ const RESTACK_STAIR_RATIO: f32 = 0.01;
 /// Trou interne dans une colonne : on tasse si le gap dépasse 8 mm
 /// (les 2 mm de space des tests / de la gravité restent intacts).
 const LOOSE_GAP_MM: f32 = 8.0;
+/// Snap des lanes : respiration cible par gap inter-colonnes (mm) et
+/// élargissement total maximal de la bande (mm) — la dérive µm cumulative
+/// des lanes crée des contacts exacts à 2,0000 mm (collision des formes
+/// inflatées) qui verrouillent toute sonde verticale ; réaligner sur une
+/// grille canonique uniforme les supprime (seed sweep_fixed
+/// 1000000000000000010).
+const SNAP_EPS: f32 = 0.005;
+const SNAP_WIDEN_MAX: f32 = 0.004;
 /// Régression de densité tolérée (points) avant restauration du snapshot.
 const DENSITY_TOL: f32 = 0.005;
 /// Pas de la marche ascendante grossière (fraction de la hauteur pièce) et
@@ -366,32 +374,37 @@ fn restore_item(prob: &mut SPProblem, b: &Boxed) {
 
 fn column_fill_left(prob: &mut SPProblem) {
     let n = prob.n_placed_items();
-    let density0 = prob.density();
     let width0 = used_width(&placed_boxes(prob));
     let incumbent_w = prob.strip_width();
     let strip_h = prob.instance.base_strip.fixed_height;
 
-    cf_dbg!("entry: n={n} width0={width0:.3} density0={density0:.4} incumbent_w={incumbent_w:.3} strip_h={strip_h:.1}");
+    cf_dbg!("entry: n={n} width0={width0:.3} density0={:.4} incumbent_w={incumbent_w:.3} strip_h={strip_h:.1}", prob.density());
     dbg_cols("entry", prob);
 
     // Garde GRANULAIRE : chaque sous-passe est snapshotée indépendamment et
-    // restaurée si ELLE régresse les métriques d'entrée (largeur utilisée,
-    // strip, densité). La garde globale unique annulait un tassement réussi
-    // à cause d'une passe ultérieure — plus possible.
+    // restaurée si ELLE régresse (largeur utilisée / strip / densité) PAR
+    // RAPPORT À SON ENTRÉE — la garde globale unique annulait un tassement
+    // réussi à cause d'une passe ultérieure, et une référence figée à
+    // l'entrée rejetterait toute passe après un snap légèrement élargissant.
+    // `widen` = élargissement toléré de la passe (0 partout sauf le snap de
+    // lanes, borné à SNAP_WIDEN_MAX — la bande a du mou, cf. piste snap).
     macro_rules! guarded {
-        ($name:literal, $pass:expr) => {{
+        ($name:literal, $widen:expr, $pass:expr) => {{
+            let widen: f32 = $widen;
             let snap = prob.save();
+            let w_pre = used_width(&placed_boxes(prob));
+            let s_pre = prob.strip_width();
+            let d_pre = prob.density();
             let r = $pass;
             let w = used_width(&placed_boxes(prob));
-            let regressed = w > width0 + 1e-3
-                || prob.strip_width() > incumbent_w + 1e-3
-                || prob.density() < density0 - DENSITY_TOL;
+            let regressed = w > w_pre + widen + 1e-3
+                || prob.strip_width() > s_pre + widen + 1e-3
+                || prob.density() < d_pre - DENSITY_TOL
+                || w > incumbent_w + 1e-3; // jamais au-delà de la bande courante
             if regressed {
                 cf_dbg!(
-                    "{}: GUARD RESTORE (width {:.3}>{:.3}={}, strip {:.3}>{:.3}={}, density {:.4}<{:.4}={})",
-                    $name, w, width0, w > width0 + 1e-3,
-                    prob.strip_width(), incumbent_w, prob.strip_width() > incumbent_w + 1e-3,
-                    prob.density(), density0 - DENSITY_TOL, prob.density() < density0 - DENSITY_TOL
+                    "{}: GUARD RESTORE (width {:.3}>{:.3}+{}, strip {:.3}>{:.3}, density {:.4}<{:.4})",
+                    $name, w, w_pre, widen, prob.strip_width(), s_pre, prob.density(), d_pre - DENSITY_TOL
                 );
                 prob.restore(&snap);
                 Default::default()
@@ -403,51 +416,76 @@ fn column_fill_left(prob: &mut SPProblem) {
     }
 
     // 1. Encoches à GAUCHE comblées depuis la droite (X-).
-    let moves = guarded!("notch_fill", notch_fill(prob, incumbent_w, strip_h, 2 * n));
+    let moves = guarded!("notch_fill", 0.0, notch_fill(prob, incumbent_w, strip_h, 2 * n));
     // 2. Restack seulement si le corps n'est pas déjà une bande X-
     //    (colonnes gauches alignées + reste à droite). L'égalisation
     //    4 hautes + 5e courte vole des pièces à gauche et annule le X-.
     let restacked = !leftover_column_only(prob)
-        && guarded!("restack", restack_columns(prob, incumbent_w, strip_h));
+        && guarded!("restack", 0.0, restack_columns(prob, incumbent_w, strip_h));
     // 3. Crans internes d'une cellule, donneurs = droite seulement.
-    let filled = guarded!("fill_notches", fill_column_notches(prob, incumbent_w, strip_h));
+    let filled = guarded!("fill_notches", 0.0, fill_column_notches(prob, incumbent_w, strip_h));
     // 3b. Réaligne les pièces latéralement décalées sur leur colonne (jitter
     //     ≥ 1 mm du solveur) — des lignes droites réduisent les verrous
     //     latéraux pour le tassement qui suit.
-    let realigned = guarded!("realign", realign_column_lanes(prob));
+    let realigned = guarded!("realign", 0.0, realign_column_lanes(prob));
     // 4. Tasser les gaps > space dans chaque colonne (trou interne d'une
     //    cellule : la pièce au-dessus du trou redescend en cascade).
-    let tightened = guarded!("tighten", tighten_loose_gaps(prob, incumbent_w, strip_h));
+    let tightened = guarded!("tighten", 0.0, tighten_loose_gaps(prob, incumbent_w, strip_h));
     // 5. Consolider les cellules de reste au bord droit (le « L » X-) :
     //    plus aucune colonne courte au milieu du corps.
     let consolidated =
-        guarded!("consolidate", consolidate_leftover_right(prob, incumbent_w, strip_h));
+        guarded!("consolidate", 0.0, consolidate_leftover_right(prob, incumbent_w, strip_h));
+    // 5b. FALLBACK : un défaut persiste (trou interne ou inversion) alors que
+    //     tighten/consolidate ont échoué — la dérive µm cumulative des lanes
+    //     a créé des contacts exacts à 2,0000 mm qui verrouillent toute sonde
+    //     (seed sweep_fixed 1000000000000010). Snap des lanes sur une grille
+    //     canonique (élargissement ≤ SNAP_WIDEN_MAX) puis re-tassement. Le
+    //     snap ne se déclenche QU'ICI, en dernier recours : un layout déjà
+    //     propre n'est jamais retouché (no-op).
+    let snapped = has_column_defect(prob)
+        && guarded!("snap", SNAP_WIDEN_MAX, snap_lanes_with_breathing(prob, width0));
+    let (tightened2, consolidated2) = if snapped {
+        (
+            guarded!("tighten2", 0.0, tighten_loose_gaps(prob, incumbent_w, strip_h)),
+            guarded!("consolidate2", 0.0, consolidate_leftover_right(prob, incumbent_w, strip_h)),
+        )
+    } else {
+        (false, false)
+    };
     // 6. Pièce qui dépasse en haut du corps → reste à droite (pas l'inverse).
-    let leveled = guarded!("level", level_protrusions(prob, incumbent_w, strip_h));
+    let leveled = guarded!("level", 0.0, level_protrusions(prob, incumbent_w, strip_h));
     // 7. Vider la colonne droite seulement si ça RÉDUIT la largeur.
-    let collapsed = guarded!("collapse", collapse_rightmost(prob, incumbent_w, strip_h));
+    let collapsed = guarded!("collapse", 0.0, collapse_rightmost(prob, incumbent_w, strip_h));
 
     if moves == 0
         && !restacked
         && !filled
+        && !snapped
         && !realigned
         && !tightened
         && !consolidated
+        && !tightened2
+        && !consolidated2
         && !leveled
         && !collapsed
     {
         cf_dbg!("no moves at all → return unchanged");
         return;
     }
-    // Gravité finale best-effort : si elle régressait les métriques d'entrée
-    // (elle ne devrait jamais — Left/Down ne font que tasser), on restaure
-    // l'état pré-gravité (les passes, déjà validées, sont conservées).
+    // Gravité finale best-effort : si elle régressait par rapport à l'état
+    // pré-gravité (elle ne devrait jamais — Left/Down ne font que tasser),
+    // on restaure l'état pré-gravité (les passes, déjà validées, sont
+    // conservées). Référence = pré-gravité (le snap a pu élargir de
+    // SNAP_WIDEN_MAX, c'est voulu et borné).
     let snap_gravity = prob.save();
+    let w_pre_g = used_width(&placed_boxes(prob));
+    let s_pre_g = prob.strip_width();
+    let d_pre_g = prob.density();
     crate::gravity::gravity_for_bias(prob, Some("left"), strip_h);
     let w_g = used_width(&placed_boxes(prob));
-    if w_g > width0 + 1e-3
-        || prob.strip_width() > incumbent_w + 1e-3
-        || prob.density() < density0 - DENSITY_TOL
+    if w_g > w_pre_g + 1e-3
+        || prob.strip_width() > s_pre_g + 1e-3
+        || prob.density() < d_pre_g - DENSITY_TOL
     {
         cf_dbg!("post-gravity regression → restore pre-gravity state");
         prob.restore(&snap_gravity);
@@ -1037,6 +1075,161 @@ fn settle_with_lateral_window(
         }
     }
     None
+}
+
+/// Défaut de structure colonnes : trou interne (> LOOSE_GAP_MM) ou
+/// inversion de sommets (colonne courte à gauche d'une plus haute).
+/// Condition d'activation du snap des lanes (dernier recours) — un layout
+/// sans défaut n'est jamais retouché (no-op).
+fn has_column_defect(prob: &SPProblem) -> bool {
+    let boxes = placed_boxes(prob);
+    let cols = cluster_columns(&boxes);
+    let has_hole = cols.iter().any(|c| {
+        let mut ys: Vec<(f32, f32)> = c.iter().map(|b| (b.y_min, b.y_max)).collect();
+        ys.sort_by(|a, b| a.0.total_cmp(&b.0));
+        ys.windows(2).any(|w| w[1].0 - w[0].1 > LOOSE_GAP_MM)
+    });
+    if has_hole {
+        return true;
+    }
+    let mut heights: Vec<f32> = boxes.iter().map(|b| b.h()).collect();
+    let cell = median(&mut heights) * 0.5 + 10.0;
+    let tops: Vec<f32> = cols.iter().map(|c| col_top(c)).collect();
+    (0..cols.len()).any(|i| (i + 1..cols.len()).any(|j| tops[i] < tops[j] - cell))
+}
+
+/// Snap des lanes avec respiration : réaligne TOUTES les pièces sur une
+/// grille canonique x_k = lane0 + k × step (step = pitch moyen + ε borné),
+/// atomiquement — si une seule pièce ne sonde pas valide à sa cible, le
+/// layout d'entrée est restauré intégralement.
+///
+/// Pourquoi : la dérive µm cumulative des colonnes (pitch 102,0000 →
+/// 102,0024 mm) laisse des gaps réels tombant à 2,0000 mm pile — contact
+/// exact des formes inflatées = collision — et la fenêtre latérale de
+/// `tighten_loose_gaps` devient vide ou sub-µm (trou interne figé, seed
+/// sweep_fixed 1000000000000000010). Après snap, chaque gap inter-lane
+/// vaut step − w > 0 uniformément : les sondes ont des µm de marge.
+///
+/// Conditionné à un défaut réel (trou interne > LOOSE_GAP_MM ou inversion
+/// de sommets) — un layout propre n'est pas touché (no-op). Jamais de
+/// pièce protégée déplacée (le snap est forclos dès qu'une existe).
+/// Élargissement borné à SNAP_WIDEN_MAX via le cap sur step. y figés,
+/// déterministe (ordre fixe), aucune transcendantale.
+fn snap_lanes_with_breathing(prob: &mut SPProblem, width0: f32) -> bool {
+    let boxes = placed_boxes(prob);
+    if boxes.len() < 3 {
+        return false;
+    }
+    let cols = cluster_columns(&boxes);
+    let ncols = cols.len();
+    if ncols < 2 {
+        return false;
+    }
+    // Conditionné à un défaut réel (déjà vérifié par l'appelant en pratique
+    // via has_column_defect — revérifié ici pour un usage direct).
+    if !has_column_defect(prob) {
+        return false;
+    }
+    if !protected_fingerprints(&boxes).is_empty() {
+        cf_dbg!("snap: pièces protégées → skip");
+        return false;
+    }
+
+    let lanes: Vec<f32> = cols
+        .iter()
+        .map(|c| {
+            let mut xs: Vec<f32> = c.iter().map(|b| b.x_min).collect();
+            median(&mut xs)
+        })
+        .collect();
+    let lane0 = lanes[0];
+    let mut widths: Vec<f32> = boxes.iter().map(|b| b.w()).collect();
+    let w = median(&mut widths);
+    let pitch = (lanes[ncols - 1] - lane0) / (ncols - 1) as f32;
+    // Cap : ne jamais dépasser width0 + SNAP_WIDEN_MAX au total.
+    let cap_breathe = (width0 + SNAP_WIDEN_MAX - lane0 - w) / (ncols - 1) as f32;
+    // Grille déjà respirante (margins > 0,5 µm) → réaligner SANS élargir
+    // (step = pitch conserve la dernière lane à sa position exacte) — le
+    // snap supprime la dérive µm, c'est tout ce qu'il faut. La respiration
+    // (+ε par gap) n'est engagée que si le pitch moyen est quasi au contact.
+    let mut step = if pitch > w + 5e-4 {
+        pitch
+    } else {
+        (pitch + SNAP_EPS).min(cap_breathe)
+    };
+    if step < pitch {
+        step = pitch; // jamais de compression sous le pitch courant
+    }
+    if step > cap_breathe {
+        step = cap_breathe;
+    }
+    if step < w + 1e-4 {
+        cf_dbg!("snap: pas de place pour une grille uniforme (step={step:.4} < w={w:.2}) → skip");
+        return false;
+    }
+
+    let snapshot = prob.save();
+    // Phase 1 : poser toutes les pièces à leur cible (x = lane0 + k×step,
+    // y inchangé). Colonnes gauche→droite, pièces bas→haut (déterministe).
+    let mut placed_new: Vec<PItemKey> = Vec::with_capacity(boxes.len());
+    for (k, col) in cols.iter().enumerate() {
+        let target = lane0 + k as f32 * step;
+        let mut ordered = col.clone();
+        ordered.sort_by(|a, b| {
+            a.y_min
+                .total_cmp(&b.y_min)
+                .then(a.item_id.cmp(&b.item_id))
+                .then(a.pk.cmp(&b.pk))
+        });
+        for b in ordered {
+            let Some(live) = find_by_fingerprint(prob, &fingerprint(&b)) else {
+                prob.restore(&snapshot);
+                return false;
+            };
+            prob.remove_item(live.pk);
+            let prober = Prober::new(prob, &live);
+            let dt = DTransformation::new(
+                prober.rotation,
+                (target - prober.x_off, live.y_min - prober.y_off),
+            );
+            let pk = prob.place_item(SPPlacement {
+                item_id: live.item_id,
+                d_transf: dt,
+            });
+            placed_new.push(pk);
+        }
+    }
+    // Phase 2 : validation CDE de chaque pièce à sa cible (atomique).
+    for &pk in &placed_new {
+        let Some(pi) = prob.layout.placed_items.get(pk) else {
+            prob.restore(&snapshot);
+            return false;
+        };
+        let b = Boxed {
+            pk,
+            item_id: pi.item_id,
+            d_transf: pi.d_transf,
+            x_min: pi.shape.bbox.x_min,
+            y_min: pi.shape.bbox.y_min,
+            x_max: pi.shape.bbox.x_max,
+            y_max: pi.shape.bbox.y_max,
+        };
+        prob.remove_item(pk);
+        let mut prober = Prober::new(prob, &b);
+        let ok = prober.valid(prob, b.x_min, b.y_min);
+        // Re-pose systématique (la restore globale gère l'échec).
+        prob.place_item(SPPlacement {
+            item_id: b.item_id,
+            d_transf: b.d_transf,
+        });
+        if !ok {
+            cf_dbg!("snap: sonde invalide à ({:.4}, {:.4}) → restore global", b.x_min, b.y_min);
+            prob.restore(&snapshot);
+            return false;
+        }
+    }
+    cf_dbg!("snap: {} colonnes réalignées (pitch {pitch:.4} → step {step:.4})", ncols);
+    true
 }
 
 /// Réaligne sur leur colonne les pièces décalées latéralement (jitter ≥ 1 mm
@@ -2372,6 +2565,88 @@ mod tests {
         assert_eq!(boxes0.len(), boxes1.len());
         for (a, b) in boxes0.iter().zip(boxes1.iter()) {
             assert_eq!(a.d_transf.translation(), b.d_transf.translation());
+        }
+    }
+
+    /// Survivant sweep_fixed seed 1000000000000000010 : la dérive µm
+    /// cumulative des lanes crée un gap réel < 2,000 mm entre la cellule du
+    /// trou et sa voisine de gauche (contact/overlap des formes inflatées) —
+    /// la fenêtre latérale est VIDE (L > R−w) et tighten échoue à x fixe.
+    /// Le snap des lanes (pitch uniforme, sans élargir) doit déverrouiller
+    /// la cascade. Setup : 5 colonnes au pitch 102,0008, trou interne dans
+    /// la colonne 2, voisine de gauche protrudante (+2,4 µm) qui vide la
+    /// fenêtre (R−w < L).
+    #[test]
+    fn lane_drift_exact_contact_hole_is_closed() {
+        let (w_, h_) = (100.0, 100.0);
+        let pitch = 102.0008;
+        let mut prob = SPProblem::new(rect_instance_sep(w_, h_, 18, 800.0, Some(2.0)));
+        prob.change_strip_width(600.0);
+        let lane = |c: usize| 2.1 + c as f32 * pitch;
+        let yrow = |r: usize| 2.1 + r as f32 * pitch;
+        // c0 : 5 pièces (accueille la pièce du trou, corps aligné + reste).
+        for r in 0..5 {
+            place(&mut prob, w_, h_, lane(0), yrow(r));
+        }
+        // c1 : 4 pièces, celle de la rangée 2 protrude de +2,4 µm vers le
+        // trou (gap réel 2,0008 − 0,0024 < 2,000 → verrou latéral).
+        for r in 0..4 {
+            let x = if r == 2 { lane(1) + 0.0024 } else { lane(1) };
+            place(&mut prob, w_, h_, x, yrow(r));
+        }
+        // c2 : trou interne à la rangée 2 (pièces rangées 0,1,3).
+        for &r in &[0usize, 1, 3] {
+            place(&mut prob, w_, h_, lane(2), yrow(r));
+        }
+        // c3 : 4 pièces.
+        for r in 0..4 {
+            place(&mut prob, w_, h_, lane(3), yrow(r));
+        }
+        // c4 : reste court à droite (2 pièces) — restack neutralisé
+        // (leftover_column_only).
+        for r in 0..2 {
+            place(&mut prob, w_, h_, lane(4), yrow(r));
+        }
+        assert!(feasibility_ok(&prob));
+        let w0 = used_width(&placed_boxes(&prob));
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(600.0));
+
+        let after = placed_boxes(&prob);
+        assert!(feasibility_ok(&prob));
+        assert_eq!(after.len(), 18);
+        // Le snap peut élargir d'au plus SNAP_WIDEN_MAX.
+        assert!(
+            used_width(&after) <= w0 + SNAP_WIDEN_MAX + 1e-3,
+            "X- regress: {} -> {}",
+            w0,
+            used_width(&after)
+        );
+        // Toutes les colonnes sont compactes : le trou est fermé.
+        let cols = cluster_columns(&after);
+        for col in &cols {
+            let mut ys: Vec<(f32, f32)> = col.iter().map(|b| (b.y_min, b.y_max)).collect();
+            ys.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for w in ys.windows(2) {
+                let gap = w[1].0 - w[0].1;
+                assert!(
+                    gap <= 2.5,
+                    "internal gap {gap} in col counts={:?}",
+                    cols.iter().map(|c| c.len()).collect::<Vec<_>>()
+                );
+            }
+        }
+        // Plus aucune inversion de sommets.
+        let tops: Vec<f32> = cols.iter().map(|c| col_top(c)).collect();
+        for i in 0..tops.len() {
+            for j in i + 1..tops.len() {
+                assert!(
+                    tops[i] >= tops[j] - 1.0,
+                    "inversion: tops[{i}]={} < tops[{j}]={}",
+                    tops[i],
+                    tops[j]
+                );
+            }
         }
     }
 }
