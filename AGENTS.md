@@ -169,6 +169,20 @@ admin/                 (back-office Nuxt)
     dans nest-engine). La forme navigateur = **mono-walk**
     (`n_workers=1`, `separator_workers=1`, 1 direction) — identique au
     profil démo produit.
+14d. **Verrou latéral sub-mm sur grille serrée** : à space 2 mm, les gaps
+    réels du solve tombent à ~1,998 mm → les shapes inflatées (±1 mm) se
+    chevauchent de ~0,002 mm et TOUTE sonde verticale à x fixe collisionne
+    (tighten/gravité no-op sur un trou interne de grille) ; pire, les
+    fenêtres x valides ligne à ligne peuvent être disjointes (chicane).
+    Les moves post-pass sont des téléportations : sonder la cible exacte
+    via la fenêtre latérale calculée sur le span de destination
+    (`settle_with_lateral_window` dans `column_fill.rs`), jamais un settle
+    à x unique. Et gardes **granulaires par sous-passe** : une garde
+    globale multi-passes jette le travail d'une passe réussie pour la
+    régression d'une autre (restore pixel-identical — la cause réelle des
+    « même DXF après plusieurs déploiments » de PACKING-X-100-TROU.md).
+    Un restack accepté sans exiger des colonnes compactes commit des
+    layouts troués (métriques de sommets aveugles aux trous internes).
 
 ### Métriques & pipeline Python
 15. **largest_empty_rectangle : compter les sommets DES TROUS** dans le
@@ -423,10 +437,10 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 
 ```bash
 npx vitest run                                             # server (33)
-cd workers/nesting/engine && cargo test --release          # 17 + 1 ignore
-cd workers/nesting && python -m pytest tests/ -q           # 36 (PYTHONPATH=workers/common)
-cd workers/common && python -m pytest tests/ -q            # 19
-cd workers/fileprocessing && python -m pytest tests/ -q    # 11
+cd workers/nesting/engine && cargo test --release          # 58 + 1 ignore
+cd workers/nesting && python -m pytest tests/ -q           # 70 (PYTHONPATH=workers/common)
+cd workers/common && python -m pytest tests/ -q            # 46
+cd workers/fileprocessing && python -m pytest tests/ -q    # 32 (+2 skipped)
 npx nuxt build                                             # app
 cd nestorcut-website && npm run build                      # site marketing
 ```
