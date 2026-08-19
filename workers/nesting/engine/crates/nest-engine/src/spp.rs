@@ -165,7 +165,7 @@ fn optimize_multi(
 /// Rotates an external instance -90° (x, y) -> (y, -x) and sets the strip
 /// height. Allowed orientations are unchanged: rotating the problem frame
 /// preserves the items' relative angles.
-fn transpose_instance(ext: &ExtSPInstance, strip_height: f32) -> ExtSPInstance {
+pub(crate) fn transpose_instance(ext: &ExtSPInstance, strip_height: f32) -> ExtSPInstance {
     let rotate_poly = |poly: &jagua_rs::io::ext_repr::ExtSPolygon| {
         jagua_rs::io::ext_repr::ExtSPolygon(
             poly.0.iter().map(|&(x, y)| (y, -x)).collect(),
@@ -186,7 +186,7 @@ fn transpose_instance(ext: &ExtSPInstance, strip_height: f32) -> ExtSPInstance {
 /// world = R(+90°) ∘ world', which (2D rotations commute) leaves the
 /// rotation unchanged and maps the translation (x, y) -> (H - y, x), H being
 /// the transposed strip height.
-fn map_back_solution(
+pub(crate) fn map_back_solution(
     t_instance: &SPInstance,
     t_solution: &SPSolution,
     corridor: f32,

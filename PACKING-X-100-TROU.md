@@ -222,6 +222,14 @@ Le défaut est fermé en trois couches, toutes dans `column_fill.rs` :
    uniforme détectée, écart > 1 cellule → appends au sommet des couloirs
    courts (piles J-085 complètes, même delta → holesFilled intact) jusqu'à
    la cible canonique [17,17,17,17,16,16]. Piège #14e.
+4. **Frames live en convention interne jagua** (panne 100+800 mode local,
+   2026-08-20) : `emit_layout` sérialisait la transform INTERNE (ancrage
+   centroïde) — toute pièce non centrée à l'origine (Piece_Fillx4,
+   centroïde +17,66 mm) reconstruite depuis une frame était décalée de
+   R(θ)·(−centroïde) → amas de fillers chevauchant hors tôle. Fix :
+   frames en convention EXTERNE (`int_to_ext_transformation`, comme
+   l'export final), map-back phase 2 vérifié sur pièce asymétrique.
+   Piège #14g.
 
 Banc : 50/50 seeds mono-walk clean ET équilibrés [17×4,16×2] ; 12/12
 prod-like PERFECT ; E2E docker trou100 PASS (610,017 mm, 400/400 fillers,

@@ -1,3 +1,4 @@
+use jagua_rs::entities::Instance;
 use jagua_rs::probs::spp::entities::{SPInstance, SPSolution};
 use sparrow::util::listener::{ReportType, SolutionListener};
 use sparrow::util::terminator::Terminator;
@@ -185,8 +186,13 @@ impl ProgressListener {
     }
 
     /// Full layout snapshot for the visualizer: every placed item with its
-    /// rotation (degrees) and translation. Coordinates are in the solver
-    /// frame (jagua composes its centering pre-transform into them).
+    /// rotation (degrees) and translation. Coordinates are in the EXTERNAL
+    /// (source) frame: `int_to_ext_transformation` composes the centering
+    /// pre-transform, EXACTLY like the final export (`export_layout_snapshot`)
+    /// — sans ça, les pièces non centrées à l'origine (Piece_Fillx4,
+    /// centroïde +17,66 mm) sont décalées de R(θ)·(−centroïde) dans toute
+    /// solution reconstruite depuis une frame live (panne prod 100+800 :
+    /// fillers excédentaires en amas chevauchant hors tôle, mode local).
     fn emit_layout(&mut self, stage: &'static str, feasible: bool, solution: &SPSolution, instance: &SPInstance) {
         let mut items = String::with_capacity(solution.layout_snapshot.placed_items.len() * 24);
         items.push('[');
@@ -194,18 +200,22 @@ impl ProgressListener {
             if i > 0 {
                 items.push(',');
             }
-            let dt = pi.d_transf;
-            let t = dt.translation();
+            let ext_dt = jagua_rs::io::export::int_to_ext_transformation(
+                &pi.d_transf,
+                &instance.item(pi.item_id).shape_orig.pre_transform,
+            );
+            let t = ext_dt.translation();
             let (tx, ty) = match self.map_back_height {
                 // Transposed frame -> original: (x, y) -> (H - y, x),
-                // rotation unchanged (2D rotations commute).
+                // rotation unchanged (2D rotations commute) — même formule
+                // que map_back_solution, appliquée sur la transform EXTERNE.
                 Some(h) => (h - t.1, t.0),
                 None => t,
             };
             items.push_str(&format!(
                 "[{},{:.2},{:.3},{:.3}]",
                 pi.item_id,
-                dt.rotation().to_degrees(),
+                ext_dt.rotation().to_degrees(),
                 tx,
                 ty
             ));
@@ -277,5 +287,171 @@ impl SolutionListener for ProgressListener {
                 self.emit_layout(stage, feasible, solution, instance);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jagua_rs::geometry::DTransformation;
+    use jagua_rs::io::import::Importer;
+    use jagua_rs::probs::spp::entities::{SPPlacement, SPProblem};
+    use jagua_rs::probs::spp::io::ext_repr::ExtSPInstance;
+    use jagua_rs::probs::spp::io::import_instance;
+
+    /// Instance avec une pièce ASYMÉTRIQUE (L 40×30, centroïde d'aire ≠
+    /// origine — le cas Piece_Fillx4 : centroïde à +17,66 mm).
+    fn asym_ext_instance() -> ExtSPInstance {
+        let json = serde_json::json!({
+            "name": "asym-live-test",
+            "strip_height": 300.0,
+            "items": [{
+                "id": 0,
+                "demand": 3,
+                "allowed_orientations": [0.0, 90.0, 180.0, 270.0],
+                "shape": {"type": "simple_polygon", "data": [
+                    [0,0],[40,0],[40,10],[12,10],[12,30],[0,30],[0,0]]}
+            }]
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn asym_instance() -> SPInstance {
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            Some(2.0),
+            Some((0.01, 0.01)),
+        );
+        import_instance(&importer, &asym_ext_instance()).unwrap()
+    }
+
+    /// Capture la frame live émise pour `sol` et retourne les (rot°, tx, ty)
+    /// parsés, triés par item. `map_back` = hauteur corridor phase 2.
+    fn capture_frame(
+        sol: &SPSolution,
+        instance: &SPInstance,
+        map_back: Option<f32>,
+    ) -> Vec<(f32, f32, f32)> {
+        let captured = Arc::new(Mutex::new(String::new()));
+        let c2 = Arc::clone(&captured);
+        let sink: EventSink = Arc::new(move |line: &str| {
+            c2.lock().unwrap().push_str(line);
+        });
+        let mut listener = ProgressListener::new(0, Instant::now())
+            .with_live(true)
+            .with_map_back(map_back)
+            .with_sink(sink);
+        listener.emit_layout("final", true, sol, instance);
+        let line = captured.lock().unwrap().clone();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let mut out: Vec<(f32, f32, f32)> = v["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|it| {
+                (
+                    it[1].as_f64().unwrap() as f32,
+                    it[2].as_f64().unwrap() as f32,
+                    it[3].as_f64().unwrap() as f32,
+                )
+            })
+            .collect();
+        out.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        out
+    }
+
+    /// Transforms externes de référence (export final), triées pareil.
+    fn export_transforms(sol: &SPSolution, instance: &SPInstance) -> Vec<(f32, f32, f32)> {
+        let ext = jagua_rs::io::export::export_layout_snapshot(&sol.layout_snapshot, instance);
+        let mut out: Vec<(f32, f32, f32)> = ext
+            .placed_items
+            .iter()
+            .map(|pi| {
+                (
+                    pi.transformation.rotation,
+                    pi.transformation.translation.0,
+                    pi.transformation.translation.1,
+                )
+            })
+            .collect();
+        out.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        out
+    }
+
+    fn assert_frames_match(frame: &[(f32, f32, f32)], reference: &[(f32, f32, f32)]) {
+        assert_eq!(frame.len(), reference.len());
+        // La frame imprime rot à 0,01° et les translations à 0,001 mm :
+        // tolérance = demi-ultime de l'arrondi d'impression.
+        for (f, e) in frame.iter().zip(reference.iter()) {
+            assert!(
+                (f.0 - e.0).abs() <= 0.006 && (f.1 - e.1).abs() <= 6e-4 && (f.2 - e.2).abs() <= 6e-4,
+                "frame {f:?} != export {e:?}"
+            );
+        }
+    }
+
+    /// Verrou (panne prod 100+800, mode local) : la frame live d'une pièce
+    /// ASYMÉTRIQUE doit coïncider avec l'export final — rotation ET
+    /// translation. Avant le fix, la frame portait la transform INTERNE
+    /// jagua (ancrage centroïde) : décalage R(θ)·(−centroïde).
+    #[test]
+    fn live_frame_matches_final_export_asymmetric() {
+        let instance = asym_instance();
+        let mut prob = SPProblem::new(instance.clone());
+        prob.change_strip_width(250.0);
+        prob.place_item(SPPlacement {
+            item_id: 0,
+            d_transf: DTransformation::new(90.0f32.to_radians(), (60.0, 70.0)),
+        });
+        prob.place_item(SPPlacement {
+            item_id: 0,
+            d_transf: DTransformation::new(0.0, (20.0, 30.0)),
+        });
+        prob.place_item(SPPlacement {
+            item_id: 0,
+            d_transf: DTransformation::new(180.0f32.to_radians(), (150.0, 120.0)),
+        });
+        let sol = prob.save();
+
+        let frame = capture_frame(&sol, &instance, None);
+        let reference = export_transforms(&sol, &instance);
+        assert_frames_match(&frame, &reference);
+    }
+
+    /// Phase 2 transposée : la frame live (map_back_height = corridor) doit
+    /// coïncider avec la solution remappée par `map_back_solution` + export
+    /// final — la formule (x,y)->(H−y,x), rotation inchangée, s'applique à
+    /// la transform EXTERNE (vérifié contre le code de transposition :
+    /// world = R(+90°) ∘ world' laisse θ inchangé même pour une pièce
+    /// asymétrique).
+    #[test]
+    fn live_frame_map_back_matches_phase2_export() {
+        let instance = asym_instance();
+        let corridor = 150.0f32;
+        let t_ext = crate::spp::transpose_instance(&asym_ext_instance(), corridor);
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            Some(2.0),
+            Some((0.01, 0.01)),
+        );
+        let t_instance = import_instance(&importer, &t_ext).unwrap();
+        let mut t_prob = SPProblem::new(t_instance.clone());
+        t_prob.change_strip_width(120.0);
+        t_prob.place_item(SPPlacement {
+            item_id: 0,
+            d_transf: DTransformation::new(90.0f32.to_radians(), (60.0, 70.0)),
+        });
+        t_prob.place_item(SPPlacement {
+            item_id: 0,
+            d_transf: DTransformation::new(270.0f32.to_radians(), (40.0, 180.0)),
+        });
+        let t_sol = t_prob.save();
+
+        let frame = capture_frame(&t_sol, &t_instance, Some(corridor));
+        let mapped = crate::spp::map_back_solution(&t_instance, &t_sol, corridor, &instance);
+        let reference = export_transforms(&mapped, &instance);
+        assert_frames_match(&frame, &reference);
     }
 }

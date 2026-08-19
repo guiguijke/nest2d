@@ -203,6 +203,19 @@ admin/                 (back-office Nuxt)
     re-tasser. La respiration (+ε par gap) n'est engagée que si le pitch
     moyen est quasi au contact (≤ 0,5 µm de marge) ; sinon step = pitch,
     zéro élargissement.
+14g. **Frames live = convention EXTERNE (source), jamais interne jagua** :
+    `emit_layout` (progress.rs) sérialise `int_to_ext_transformation`
+    comme `export_layout_snapshot` — une frame interne (ancrage centroïde)
+    décale toute pièce non centrée à l'origine de R(θ)·(−centroïde) dès
+    qu'un consommateur reconstruit un résultat depuis la frame (panne prod
+    100+800 en mode local : Piece_Fillx4, centroïde +17,66 mm, amas de
+    fillers hors tôle ; les hôtes centrés étaient immunisés). Le map-back
+    phase 2 `(x,y)->(H−y,x)`, rotation inchangée, s'applique à la transform
+    EXTERNE (world = R(+90°)∘world' ⇒ θ conservé même asymétrique). Règle :
+    jamais de placed_items live vers l'export sans int_to_ext. Verrous :
+    `live_frame_matches_final_export_asymmetric` et
+    `live_frame_map_back_matches_phase2_export` (progress.rs) — frame ≡
+    export final à l'arrondi d'impression près, pièce asymétrique.
 
 ### Métriques & pipeline Python
 15. **largest_empty_rectangle : compter les sommets DES TROUS** dans le
@@ -457,7 +470,7 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 
 ```bash
 npx vitest run                                             # server (33)
-cd workers/nesting/engine && cargo test --release          # 62 + 1 ignore
+cd workers/nesting/engine && cargo test --release          # 64 + 1 ignore
 cd workers/nesting && python -m pytest tests/ -q           # 70 (PYTHONPATH=workers/common)
 cd workers/common && python -m pytest tests/ -q            # 46
 cd workers/fileprocessing && python -m pytest tests/ -q    # 32 (+2 skipped)
