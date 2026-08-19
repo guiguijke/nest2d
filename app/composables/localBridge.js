@@ -456,8 +456,36 @@ export function applyHoleFill(parts, layouts, space) {
     }
     let recovered = 0
     const deadline = Date.now() + PACK_BUDGET_MS
+    // Capacité pinwheel VALIDÉE du trou pour ce type de filler, à
+    // l'espacement courant (jamais la capacité théorique) — miroir de
+    // holefill.hole_capacity.
+    const holeCapacity = (ring, fillItem) => {
+        const allowed = fillItem.rotations?.length ? fillItem.rotations : PINWHEEL
+        return _jsPinwheelCapacity(ring, _itemCoords(fillItem), margin, allowed).length
+    }
+    // Écarte les poses en conflit avec les fillers DÉJÀ dans le trou
+    // (pré-nichés par l'expansion méta-pièces) : packHole valide contre un
+    // trou VIDE — sans ça il retéléporte sur les poses canoniques occupées,
+    // double-remplissage (cas trou600 : jumeaux au µm près). Miroir de
+    // holefill.drop_occupied.
+    const dropOccupied = (h, poses) => {
+        if (!h.members.length) return poses
+        const lim = margin > 0 ? margin + _SPACE_EPS : _SPACE_EPS
+        return poses.filter((pose) => {
+            const item = byId.get(String(pose.fillId))
+            if (!item) return false
+            const cand = _placedPoly(_itemCoords(item), pose.rot, pose.lx, pose.ly)
+            return !h.members.some((m) => _polyPolyDist(cand, m.poly) < lim)
+        })
+    }
     for (const h of holes) {
         if (!free.length) break
+        // Trou déjà à capacité validée (fillers pré-nichés) : no-op —
+        // re-packer dupliquerait les occupants (trou600).
+        if (h.members.length
+            && h.members.length >= Math.max(...h.members.map((m) => holeCapacity(h.ring, m.item)))) {
+            continue
+        }
         const stock = {}
         for (const e of free) stock[e.item.id] = (stock[e.item.id] || 0) + 1
         const cands = _fillCandidates(free.map((e) => e.item), stock)
@@ -468,23 +496,28 @@ export function applyHoleFill(parts, layouts, space) {
             seen.add(c.id)
             uniq.push(c)
         }
-        const poses = uniq.length ? packHole(h.ring, uniq, margin, deadline) : []
+        let poses = uniq.length ? packHole(h.ring, uniq, margin, deadline) : []
+        if (poses.length) poses = dropOccupied(h, poses)
         if (poses.length) {
-            const byId = new Map()
+            const freeByItem = new Map()
             for (const e of free) {
-                const list = byId.get(e.item.id) || []
+                const list = freeByItem.get(e.item.id) || []
                 list.push(e)
-                byId.set(e.item.id, list)
+                freeByItem.set(e.item.id, list)
             }
             for (const pose of poses) {
-                const pool = byId.get(pose.fillId) || []
+                const pool = freeByItem.get(pose.fillId) || []
                 if (!pool.length) continue
                 const e = pool.shift()
                 e.pi.transformation.rotation = pose.rot
                 e.pi.transformation.translation = [pose.lx, pose.ly]
                 e.poly = _placedPoly(_itemCoords(e.item), pose.rot, pose.lx, pose.ly)
                 const fi = free.indexOf(e)
-                if (fi >= 0) { free.splice(fi, 1); recovered++ }
+                if (fi >= 0) {
+                    free.splice(fi, 1)
+                    h.members.push(e) // occupe le trou (parité _apply_poses)
+                    recovered++
+                }
             }
             continue
         }
@@ -565,6 +598,59 @@ function _partArea(part) {
     const coords = part?.coords || part?.coordinates || []
     const holes = part?.holes || []
     return _ringArea(coords) - holes.reduce((s, h) => s + _ringArea(h), 0)
+}
+
+/** Centroïde d'AIRE d'un anneau (shoelace — même formule que
+ * nest-report::ring_centroid, la classification « dans le trou » du rapport
+ * wasm ; repli sur la moyenne des sommets si l'anneau est dégénéré). */
+const _ringAreaCentroid = (ring) => {
+    let a = 0; let cx = 0; let cy = 0
+    for (let i = 0; i < ring.length - 1; i++) {
+        const cr = ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]
+        a += cr
+        cx += (ring[i][0] + ring[i + 1][0]) * cr
+        cy += (ring[i][1] + ring[i + 1][1]) * cr
+    }
+    a /= 2
+    if (!a) return _centroid(ring)
+    return [cx / (6 * a), cy / (6 * a)]
+}
+
+/** Miroir du plafonnage metrics.verify_layout (d57cbea) : occupants par trou
+ * (centroïde d'aire de l'anneau externe posé dans l'anneau du trou, premier
+ * hôte retenu) → filled = Σ min(n, CAPACITY) ; l'excédent part dans
+ * `overflow` (champ additif holesOverflow, piège #19b — un post-pass buggé a
+ * déjà empilé 8 fillers dans un trou prévu pour 4, cas trou600). */
+export function holesFillCap(containers, partsById) {
+    let filled = 0
+    let overflow = 0
+    for (const c of containers || []) {
+        const polys = []
+        const holeRings = [] // { hostIdx, ring } en coords MONDE
+        for (const t of c?.transforms || []) {
+            const part = partsById.get(String(t.item_id))
+            if (!part) continue
+            const idx = polys.length
+            const deg = ((Number(t.angle) || 0) * 180) / Math.PI
+            polys.push(_placedPoly(_itemCoords(part), deg, t.x || 0, t.y || 0))
+            for (const h of part.holes || []) {
+                holeRings.push({ hostIdx: idx, ring: _placedPoly(h, deg, t.x || 0, t.y || 0) })
+            }
+        }
+        const occupants = new Array(holeRings.length).fill(0)
+        polys.forEach((poly, idx) => {
+            const c0 = _ringAreaCentroid(poly)
+            for (let hi = 0; hi < holeRings.length; hi++) {
+                if (holeRings[hi].hostIdx === idx) continue
+                if (_pin(c0, holeRings[hi].ring)) { occupants[hi]++; break }
+            }
+        })
+        for (const n of occupants) {
+            filled += Math.min(n, CAPACITY)
+            overflow += Math.max(0, n - CAPACITY)
+        }
+    }
+    return { filled, overflow }
 }
 
 function _cloneLiveLayouts(items) {
@@ -722,6 +808,14 @@ export async function buildAlternativeArtifacts(result, payload) {
                 containers,
                 space,
             })
+            // Plafonnage holesFilled + holesOverflow (miroir verify_layout
+            // d57cbea) : le bundle wasm compte sans plafond — un double-
+            // remplissage passerait silencieusement (cas trou600).
+            if (report && !report.error && report.verify) {
+                const { filled, overflow } = holesFillCap(containers, partsById)
+                report.verify.holesFilled = filled
+                report.verify.holesOverflow = overflow
+            }
             out.push({
                 sheets,
                 containers,

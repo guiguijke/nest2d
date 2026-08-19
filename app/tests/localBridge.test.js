@@ -7,6 +7,7 @@ import {
     expandMeta,
     applyHoleFill,
     decorateLiveLayout,
+    holesFillCap,
 } from '../composables/localBridge'
 import { uniquifyDxfHandles } from '../composables/localHydrate'
 
@@ -109,7 +110,7 @@ describe('toServerShapeAlternatives (forme consommée par ResultModal)', () => {
                 { index: 1, sheetAreaMm2: 3000000, partsAreaMm2: 100, freeAreaMm2: 2999900, offcut: { widthMm: 900, heightMm: 800, areaMm2: 720000, reusable: true } },
             ],
             totals: { sheetCount: 2, sheetAreaMm2: 6000000, partsAreaMm2: 200, freeAreaMm2: 5999800, densityPct: 0 },
-            verify: { smallestGapMm: 2.0, overlapFree: true, insideSheet: true, spacingOk: true, holesFilled: 1, holesTotal: 1 },
+            verify: { smallestGapMm: 2.0, overlapFree: true, insideSheet: true, spacingOk: true, holesFilled: 1, holesTotal: 1, holesOverflow: 0 },
         },
     }]
 
@@ -123,6 +124,8 @@ describe('toServerShapeAlternatives (forme consommée par ResultModal)', () => {
         // verify étalé en tête (badges du modal)
         expect(alt.report.overlapFree).toBe(true)
         expect(alt.report.holesFilled).toBe(1)
+        // champ additif d57cbea propagé tel quel par l'étalement du verify
+        expect(alt.report.holesOverflow).toBe(0)
         expect(alt.report.smallestGapMm).toBe(2.0)
         // champs additifs serveur
         expect(alt.report.partsAreaMm2).toBe(200)
@@ -231,6 +234,110 @@ describe('uniquifyDxfHandles', () => {
 describe('applyHoleFill (exporté pour le live)', () => {
     it('ne jette jamais sur un layout vide', () => {
         expect(applyHoleFill([], [{ placed_items: [] }], 2)).toBe(0)
+    })
+})
+
+describe('applyHoleFill — gardes anti double-remplissage (miroir d57cbea)', () => {
+    // Géométrie auto-portée (miroir test_holefill.py) : hôte 100×100 + trou
+    // Ø70 (64-gon), filler secteur r=28 → capacité pinwheel validée 4 à space 2.
+    const circle = (cx, cy, r, n = 64) => {
+        const pts = Array.from({ length: n }, (_, i) => [
+            cx + r * Math.cos((2 * Math.PI * i) / n),
+            cy + r * Math.sin((2 * Math.PI * i) / n),
+        ])
+        pts.push([...pts[0]])
+        return pts
+    }
+    const sector = (() => {
+        const pts = [[2.83, 2.83]]
+        for (let i = 0; i <= 8; i++) {
+            const a = (5 * Math.PI) / 180 + ((80 * Math.PI) / 180) * (i / 8)
+            pts.push([28 * Math.cos(a), 28 * Math.sin(a)])
+        }
+        pts.push([2.83, 2.83])
+        return pts
+    })()
+    const host = (count) => ({
+        id: 0,
+        coords: [[-50, -50], [-50, 50], [50, 50], [50, -50], [-50, -50]],
+        holes: [circle(0, 0, 35)],
+        count,
+    })
+    const fill = (count) => ({ id: 1, coords: sector, holes: [], count, rotations: [0, 90, 180, 270] })
+    const t = (id, rot, x, y) => ({ item_id: id, transformation: { rotation: rot, translation: [x, y] } })
+
+    it('trou plein sans fillers libres : no-op (cas nominal 400 fillers inchangé)', () => {
+        const placed = [
+            t(0, 0, 0, 0),
+            t(1, 0, 0, 0), t(1, 90, 0, 0), t(1, 180, 0, 0), t(1, 270, 0, 0),
+        ]
+        expect(applyHoleFill([host(1), fill(4)], [{ placed_items: placed }], 2)).toBe(0)
+    })
+
+    it('trous à capacité + fillers surnuméraires : aucune téléportation (cas trou600)', () => {
+        // 2 hôtes × capacité validée 4, 10 fillers : 8 pré-nichés sur les
+        // poses canoniques + 2 libres en bande — le post-pass ne doit RIEN
+        // déplacer (0 relocation, aucun jumeau, les 2 libres restent en bande).
+        const placed = [
+            t(0, 0, 0, 0), t(0, 0, 500, 0),
+            t(1, 0, 0, 0), t(1, 90, 0, 0), t(1, 180, 0, 0), t(1, 270, 0, 0),
+            t(1, 0, 500, 0), t(1, 90, 500, 0), t(1, 180, 500, 0), t(1, 270, 500, 0),
+            t(1, 0, 0, 800), t(1, 90, 60, 800),
+        ]
+        const before = JSON.stringify(placed)
+        const rec = applyHoleFill([host(2), fill(10)], [{ placed_items: placed }], 2)
+        expect(rec).toBe(0)
+        expect(JSON.stringify(placed)).toBe(before)
+    })
+
+    it('trou partiel : complète les poses libres sans dupliquer les occupées', () => {
+        // 2 poses canoniques prises (0/180) + 4 fillers libres : le post-pass
+        // complète les 2 poses restantes (90/270) — dropOccupied écarte les
+        // poses déjà occupées (packHole valide contre un trou vide).
+        const placed = [
+            t(0, 0, 0, 0),
+            t(1, 0, 0, 0), t(1, 180, 0, 0),
+            t(1, 0, 0, 800), t(1, 90, 60, 800), t(1, 180, 120, 800), t(1, 270, 180, 800),
+        ]
+        const rec = applyHoleFill([host(1), fill(6)], [{ placed_items: placed }], 2)
+        expect(rec).toBe(2)
+        const inHole = placed.filter((pi) => pi.item_id === 1
+            && Math.hypot(pi.transformation.translation[0], pi.transformation.translation[1]) < 1)
+        expect(inHole).toHaveLength(4)
+        const rots = inHole
+            .map((pi) => ((pi.transformation.rotation % 360) + 360) % 360)
+            .sort((a, b) => a - b)
+        expect(rots).toEqual([0, 90, 180, 270])
+        const keys = new Set(inHole.map((pi) => `${pi.transformation.rotation}|${pi.transformation.translation}`))
+        expect(keys.size).toBe(4) // aucun jumeau
+    })
+})
+
+describe('holesFillCap (miroir verify_layout, d57cbea)', () => {
+    // Mêmes fixtures que test_metrics.py : hôte 40×40 trou [15..25]², filler
+    // 6×6 empilé n fois en (17,17) (centroïde (20,20) dans le trou).
+    const holed = {
+        id: 1,
+        coords: [[0, 0], [40, 0], [40, 40], [0, 40], [0, 0]],
+        holes: [[[15, 15], [25, 15], [25, 25], [15, 25], [15, 15]]],
+    }
+    const filler = { id: 2, coords: [[0, 0], [6, 0], [6, 6], [0, 6], [0, 0]], holes: [] }
+    const partsById = new Map([['1', holed], ['2', filler]])
+    const containers = (n) => [{
+        bin_width: 100,
+        bin_height: 100,
+        transforms: [
+            { item_id: '1', angle: 0, x: 0, y: 0 },
+            ...Array.from({ length: n }, () => ({ item_id: '2', angle: 0, x: 17, y: 17 })),
+        ],
+    }]
+
+    it('holesFilled plafonné à la capacité pinwheel, excédent → holesOverflow', () => {
+        expect(holesFillCap(containers(8), partsById)).toEqual({ filled: 4, overflow: 4 })
+    })
+
+    it('cas nominal : pas d’overflow', () => {
+        expect(holesFillCap(containers(4), partsById)).toEqual({ filled: 4, overflow: 0 })
     })
 })
 
