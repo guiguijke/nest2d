@@ -198,7 +198,38 @@ bug restant).
 
 ---
 
-## 5. Ce qui reste à trouver
+## 5bis. RÉSOLU (2026-08-19/20, trois vagues)
+
+Le défaut est fermé en trois couches, toutes dans `column_fill.rs` :
+
+1. **Trou interne d'une cellule** (pièce décalée de la rangée 3) :
+   verrou latéral sub-mm — les gaps réels tombent à ~1,998 mm, les formes
+   inflatées se chevauchent et toute sonde à x fixe collisionne. Fix :
+   téléportation sondée via la **fenêtre latérale exacte** du span de
+   destination (`settle_with_lateral_window`) + gardes **granulaires** par
+   sous-passe (plus de restore global qui jetait le tassement réussi) +
+   restack exigeant des colonnes compactes (ses métriques de sommets sont
+   aveugles aux trous internes) + `realign_column_lanes` pour les pièces
+   hors-lane. Piège #14d.
+2. **Contact exact 2,0000 mm par dérive µm des lanes** (seed
+   1000000000000000010) : la cellule cible est verrouillée par 4 voisines
+   (fenêtre utile 0,25×0,49 µm). Fix : **snap des lanes** sur la grille
+   canonique (atomique, CDE-validé), en **dernier recours** seulement
+   (défaut résiduel après tighten+consolidate), sans élargir si le pitch
+   moyen respire déjà. Piège #14f.
+3. **Moignon [19×5+5]** : à largeur égale le SPP est indifférent à la
+   forme — l'équilibre est un post-pass, `balance_lane_tops` : grille
+   uniforme détectée, écart > 1 cellule → appends au sommet des couloirs
+   courts (piles J-085 complètes, même delta → holesFilled intact) jusqu'à
+   la cible canonique [17,17,17,17,16,16]. Piège #14e.
+
+Banc : 50/50 seeds mono-walk clean ET équilibrés [17×4,16×2] ; 12/12
+prod-like PERFECT ; E2E docker trou100 PASS (610,017 mm, 400/400 fillers,
+gaps 2,00) ; determinism_lock natif≡wasm bit-identique.
+
+---
+
+## 5. Ce qui reste à trouver — § HISTORIQUE (résolu, voir §5bis)
 
 Cible unique, mesurable :
 

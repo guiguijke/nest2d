@@ -452,6 +452,11 @@ fn column_fill_left(prob: &mut SPProblem) {
     } else {
         (false, false)
     };
+    // 5c. Grille uniforme : équilibrer les hauteurs des couloirs (moignon
+    //     [19×5+5] → [17×4,16×2]) — le SPP est indifférent à la forme à
+    //     largeur égale, le moignon est un défaut visuel. Append au sommet
+    //     des couloirs courts, piles complètes (hôte + nichés).
+    let balanced = guarded!("balance", 0.0, balance_lane_tops(prob, incumbent_w, strip_h));
     // 6. Pièce qui dépasse en haut du corps → reste à droite (pas l'inverse).
     let leveled = guarded!("level", 0.0, level_protrusions(prob, incumbent_w, strip_h));
     // 7. Vider la colonne droite seulement si ça RÉDUIT la largeur.
@@ -466,6 +471,7 @@ fn column_fill_left(prob: &mut SPProblem) {
         && !consolidated
         && !tightened2
         && !consolidated2
+        && !balanced
         && !leveled
         && !collapsed
     {
@@ -1559,6 +1565,277 @@ fn consolidate_leftover_right(prob: &mut SPProblem, incumbent_w: f32, strip_h: f
     any
 }
 
+// ---------------------------------------------------------------------------
+// Équilibrage des couloirs sur grille uniforme (balance_lane_tops)
+// ---------------------------------------------------------------------------
+
+/// Tolérance d'uniformité de la grille (mm) : pitch inter-lanes, taille des
+/// cellules, spread intra-colonne.
+const GRID_TOL: f32 = 0.1;
+
+/// Grille uniforme détectée : lanes équidistantes, cellules identiques,
+/// colonnes compactes. Les pièces nichées (filler dans la cavité d'un hôte,
+/// méta-pièces J-085) ne comptent PAS comme des cellules — elles suivent
+/// leur hôte lors d'un déplacement (pile complète, même delta).
+struct UniformGrid {
+    lanes: Vec<f32>,        // x de référence par colonne (médiane des racines)
+    roots: Vec<Vec<Boxed>>, // racines par colonne, triées bas → haut
+    counts: Vec<usize>,     // racines (cellules) par colonne
+}
+
+/// bbox de `b` strictement contenue dans celle d'une autre pièce (même test
+/// que `protected_fingerprints`).
+fn is_nested(b: &Boxed, boxes: &[Boxed]) -> bool {
+    boxes.iter().any(|o| {
+        o.pk != b.pk
+            && b.x_min > o.x_min + 1e-6
+            && b.y_min > o.y_min + 1e-6
+            && b.x_max < o.x_max - 1e-6
+            && b.y_max < o.y_max - 1e-6
+    })
+}
+
+/// Détecte une grille uniforme : toutes colonnes compactes, racines à la
+/// même x (±GRID_TOL), cellules de même taille, lanes équidistantes. Toute
+/// config irrégulière → None (la passe est alors un no-op conservateur).
+fn detect_uniform_grid(prob: &SPProblem) -> Option<UniformGrid> {
+    let boxes = placed_boxes(prob);
+    if boxes.len() < 3 {
+        return None;
+    }
+    let cols = cluster_columns(&boxes);
+    if cols.len() < 2 {
+        return None;
+    }
+    let mut roots: Vec<Vec<Boxed>> = Vec::with_capacity(cols.len());
+    let mut lanes: Vec<f32> = Vec::with_capacity(cols.len());
+    let mut sizes: Vec<(f32, f32)> = Vec::new();
+    for col in &cols {
+        let mut rs: Vec<Boxed> = col.iter().copied().filter(|b| !is_nested(b, &boxes)).collect();
+        if rs.is_empty() {
+            return None;
+        }
+        rs.sort_by(|a, b| {
+            a.y_min
+                .total_cmp(&b.y_min)
+                .then(a.item_id.cmp(&b.item_id))
+                .then(a.pk.cmp(&b.pk))
+        });
+        let mut xs: Vec<f32> = rs.iter().map(|b| b.x_min).collect();
+        let lane = median(&mut xs);
+        if rs.iter().any(|b| (b.x_min - lane).abs() > GRID_TOL) {
+            return None;
+        }
+        for w in rs.windows(2) {
+            if w[1].y_min - w[0].y_max > LOOSE_GAP_MM {
+                return None; // colonne non compacte : tighten d'abord
+            }
+        }
+        for b in &rs {
+            sizes.push((b.w(), b.h()));
+        }
+        lanes.push(lane);
+        roots.push(rs);
+    }
+    let mut ws: Vec<f32> = sizes.iter().map(|s| s.0).collect();
+    let mut hs: Vec<f32> = sizes.iter().map(|s| s.1).collect();
+    let (mw, mh) = (median(&mut ws), median(&mut hs));
+    if sizes
+        .iter()
+        .any(|s| (s.0 - mw).abs() > GRID_TOL || (s.1 - mh).abs() > GRID_TOL)
+    {
+        return None;
+    }
+    let pitch = (lanes[lanes.len() - 1] - lanes[0]) / (lanes.len() - 1) as f32;
+    if pitch < mw - GRID_TOL {
+        return None; // lanes qui se chevauchent : pas une grille
+    }
+    for k in 1..lanes.len() {
+        if ((lanes[k] - lanes[k - 1]) - pitch).abs() > GRID_TOL {
+            return None;
+        }
+    }
+    let counts = roots.iter().map(|r| r.len()).collect();
+    Some(UniformGrid { lanes, roots, counts })
+}
+
+/// Déplace la racine au sommet de `from_roots` (avec ses éventuelles pièces
+/// nichées, déplacées du même delta — la pile complète) au sommet de la
+/// colonne de lane `dest_x` / top `dest_floor`. Append AU-DESSUS du top
+/// uniquement, jamais d'insertion au milieu. Garde granulaire : tout échec
+/// restaure l'état d'avant CE déplacement (les précédents sont conservés).
+fn try_move_top_stack(
+    prob: &mut SPProblem,
+    from_roots: &[Boxed],
+    dest_x: f32,
+    dest_floor: f32,
+    strip_h: f32,
+    incumbent_w: f32,
+    probes: &mut usize,
+) -> bool {
+    // Racine au sommet : y_max max, tie-breaks déterministes.
+    let mut sorted: Vec<Boxed> = from_roots.to_vec();
+    sorted.sort_by(|a, b| {
+        b.y_max
+            .total_cmp(&a.y_max)
+            .then(a.item_id.cmp(&b.item_id))
+            .then(a.pk.cmp(&b.pk))
+    });
+    let root = sorted[0];
+    let h = root.h();
+    if dest_floor + h > strip_h + 1e-3 {
+        return false; // la colonne destination dépasserait la tôle
+    }
+    let boxes = placed_boxes(prob);
+    let mut nested: Vec<Boxed> = boxes
+        .iter()
+        .copied()
+        .filter(|b| {
+            b.pk != root.pk
+                && b.x_min > root.x_min + 1e-6
+                && b.y_min > root.y_min + 1e-6
+                && b.x_max < root.x_max - 1e-6
+                && b.y_max < root.y_max - 1e-6
+        })
+        .collect();
+    nested.sort_by(|a, b| {
+        a.y_min
+            .total_cmp(&b.y_min)
+            .then(a.x_min.total_cmp(&b.x_min))
+            .then(a.item_id.cmp(&b.item_id))
+            .then(a.pk.cmp(&b.pk))
+    });
+
+    let snapshot = prob.save();
+    // Retirer les nichés puis l'hôte, sonder l'hôte à la cible.
+    for b in &nested {
+        let Some(live) = find_by_fingerprint(prob, &fingerprint(b)) else {
+            prob.restore(&snapshot);
+            return false;
+        };
+        prob.remove_item(live.pk);
+    }
+    let Some(live) = find_by_fingerprint(prob, &fingerprint(&root)) else {
+        prob.restore(&snapshot);
+        return false;
+    };
+    prob.remove_item(live.pk);
+    let mut prober = Prober::new(prob, &live);
+    let step = (h / WALK_STEPS as f32).max(1.0);
+    let y_hi = (strip_h - h).min(dest_floor + LOOSE_GAP_MM);
+    let target = settle_with_lateral_window(
+        &mut prober, prob, &live, dest_x, dest_floor, y_hi, step, probes, y_hi + 1.0,
+    );
+    let Some((x, y)) = target else {
+        prob.restore(&snapshot);
+        return false;
+    };
+    let dt = DTransformation::new(prober.rotation, (x - prober.x_off, y - prober.y_off));
+    prob.place_item(SPPlacement {
+        item_id: live.item_id,
+        d_transf: dt,
+    });
+    // Re-pose des nichés au même delta (position relative dans la cavité
+    // préservée à l'identique → holesFilled intact).
+    let (dx, dy) = (x - live.x_min, y - live.y_min);
+    for b in &nested {
+        if *probes > PROBE_CAP {
+            prob.restore(&snapshot);
+            return false;
+        }
+        let mut p2 = Prober::new(prob, b);
+        *probes += 1;
+        if !p2.valid(prob, b.x_min + dx, b.y_min + dy) {
+            prob.restore(&snapshot);
+            return false;
+        }
+        let dt2 = DTransformation::new(
+            p2.rotation,
+            (b.x_min + dx - p2.x_off, b.y_min + dy - p2.y_off),
+        );
+        prob.place_item(SPPlacement {
+            item_id: b.item_id,
+            d_transf: dt2,
+        });
+    }
+    // fitsSheet : jamais au-delà de la bande courante (x des lanes inchangé,
+    // donc jamais d'élargissement en pratique — garde-fou).
+    if used_width(&placed_boxes(prob)) > incumbent_w + 1e-3 {
+        prob.restore(&snapshot);
+        return false;
+    }
+    true
+}
+
+/// Équilibre les couloirs d'une grille uniforme : déplace des piles depuis
+/// le SOMMET des couloirs les plus longs vers le SOMMET des plus courts
+/// (append au-dessus du top destination uniquement), jusqu'à la cible
+/// canonique — comptages base/base+1, couloirs les plus longs à gauche (X-).
+/// Motif prod : [19,19,19,19,19,5] → [17,17,17,17,16,16] (le solveur SPP ne
+/// voit pas la différence de forme : les deux atteignent le plancher de
+/// largeur ; le moignon est un défaut visuel, pas métrique).
+///
+/// Acceptation en CELLULES entières (comptages de racines par colonne) :
+/// chaque déplacement réduit strictement la distance L1 aux comptages cibles
+/// (−2), donc terminaison bornée à n déplacements. No-op sur toute config
+/// non uniforme (détection stricte) ou déjà équilibrée.
+fn balance_lane_tops(prob: &mut SPProblem, incumbent_w: f32, strip_h: f32) -> bool {
+    let Some(grid0) = detect_uniform_grid(prob) else {
+        return false;
+    };
+    let ncols = grid0.counts.len();
+    let n: usize = grid0.counts.iter().sum();
+    let (base, rem) = (n / ncols, n % ncols);
+    // Cible canonique déterministe : les `rem` couloirs les plus à gauche
+    // reçoivent la cellule supplémentaire.
+    let target: Vec<usize> = (0..ncols).map(|i| base + usize::from(i < rem)).collect();
+    // Ne se déclenche que si l'écart dépasse UNE cellule : un comptage déjà
+    // à ±1 est considéré équilibré (sinon la passe réécrirait sans gain des
+    // layouts propres comme [1,2] — no-op requis, test J-092).
+    let (cmin, cmax) = (
+        grid0.counts.iter().copied().min().unwrap(),
+        grid0.counts.iter().copied().max().unwrap(),
+    );
+    if cmax - cmin <= 1 {
+        return false;
+    }
+    debug_assert!(grid0.counts != target);
+
+    let mut moves = 0usize;
+    let mut probes = 0usize;
+    loop {
+        if moves >= n || probes > PROBE_CAP {
+            break;
+        }
+        let Some(grid) = detect_uniform_grid(prob) else {
+            break; // la grille a perdu son uniformité : stop (jamais vu)
+        };
+        // Destination = couloir le plus à GAUCHE sous sa cible ; donneur =
+        // couloir le plus à DROITE au-dessus de sa cible.
+        let Some(dest) = (0..ncols).find(|&i| grid.counts[i] < target[i]) else {
+            break;
+        };
+        let Some(donor) = (0..ncols).rev().find(|&j| grid.counts[j] > target[j]) else {
+            break;
+        };
+        let dest_floor = col_top(&grid.roots[dest]);
+        if try_move_top_stack(
+            prob,
+            &grid.roots[donor],
+            grid.lanes[dest],
+            dest_floor,
+            strip_h,
+            incumbent_w,
+            &mut probes,
+        ) {
+            moves += 1;
+            cf_dbg!("balance: col {donor} top → col {dest} (counts {:?} → cible {:?})", grid.counts, target);
+        } else {
+            break; // échec géométrique : les moves réussis sont conservés
+        }
+    }
+    moves > 0
+}
 
 /// Une colonne du corps dépasse ses voisines d'une cellule (pièce isolée
 /// en haut, capture 2026-08-18) : on la pose sur le reste à droite, pas
@@ -2648,5 +2925,168 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Moignon prod : [19,19,19,19,19,5] sur grille uniforme (inflation 2).
+    /// Le solveur SPP est indifférent à la forme à largeur égale — la passe
+    /// d'équilibrage doit produire la cible canonique [17,17,17,17,16,16]
+    /// (cellules supplémentaires à gauche), sans élargir, faisable.
+    #[test]
+    fn balanced_lane_stump_equalizes() {
+        let (w_, h_) = (100.0, 100.0);
+        let pitch = 102.1;
+        let mut prob = SPProblem::new(rect_instance_sep(w_, h_, 100, 2000.0, Some(2.0)));
+        prob.change_strip_width(620.0);
+        for c in 0..5 {
+            for r in 0..19 {
+                place(&mut prob, w_, h_, 2.1 + c as f32 * pitch, 2.1 + r as f32 * pitch);
+            }
+        }
+        for r in 0..5 {
+            place(&mut prob, w_, h_, 2.1 + 5.0 * pitch, 2.1 + r as f32 * pitch);
+        }
+        assert!(feasibility_ok(&prob));
+        let w0 = used_width(&placed_boxes(&prob));
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(620.0));
+
+        let after = placed_boxes(&prob);
+        assert!(feasibility_ok(&prob));
+        assert_eq!(after.len(), 100);
+        assert!(
+            used_width(&after) <= w0 + 1e-3,
+            "X- regress: {} -> {}",
+            w0,
+            used_width(&after)
+        );
+        let cols = cluster_columns(&after);
+        let counts: Vec<usize> = cols.iter().map(|c| c.len()).collect();
+        assert_eq!(counts, vec![17, 17, 17, 17, 16, 16], "counts={counts:?}");
+    }
+
+    /// Grille NON uniforme (deux tailles de pièces) : la passe d'équilibrage
+    /// ne doit pas se déclencher — no-op strict sur les translations.
+    #[test]
+    fn non_uniform_grid_is_untouched() {
+        let json = serde_json::json!({
+            "name": "non-uniform-test",
+            "strip_height": 340.0,
+            "items": [
+                {"id": 0, "demand": 9, "allowed_orientations": [0.0],
+                 "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,100],[0,100],[0,0]]}},
+                {"id": 1, "demand": 1, "allowed_orientations": [0.0],
+                 "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,50],[0,50],[0,0]]}}
+            ]
+        });
+        let ext: ExtSPInstance = serde_json::from_value(json).unwrap();
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            Some(2.0),
+            Some((0.01, 0.01)),
+        );
+        let mut prob = SPProblem::new(import_instance(&importer, &ext).unwrap());
+        prob.change_strip_width(600.0);
+        // 3 colonnes de 3 grandes + 1 petite seule à droite (reste X-).
+        let pitch = 102.1;
+        for c in 0..3 {
+            for r in 0..3 {
+                place(&mut prob, 100.0, 100.0, 2.1 + c as f32 * pitch, 2.1 + r as f32 * pitch);
+            }
+        }
+        prob.place_item(SPPlacement {
+            item_id: 1,
+            d_transf: DTransformation::new(0.0, (2.1 + 3.0 * pitch + 50.0, 2.1 + 25.0)),
+        });
+        assert!(feasibility_ok(&prob));
+        let boxes0 = placed_boxes(&prob);
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(600.0));
+
+        let boxes1 = placed_boxes(&prob);
+        assert_eq!(boxes0.len(), boxes1.len());
+        for (a, b) in boxes0.iter().zip(boxes1.iter()) {
+            assert_eq!(a.d_transf.translation(), b.d_transf.translation());
+        }
+    }
+
+    /// Pile complète (J-085) : un hôte avec filler niché dans sa cavité est
+    /// déplacé avec ses nichés au MÊME delta — la position relative est
+    /// préservée, holesFilled intact. Grille uniforme d'hôtes en U [3,2,1]
+    /// → [2,2,2] (le hôte du sommet de c0 migre vers c2 avec son filler).
+    #[test]
+    fn nested_stack_moves_as_unit() {
+        let json = serde_json::json!({
+            "name": "stack-balance-test",
+            "strip_height": 800.0,
+            "items": [
+                {"id": 0, "demand": 6, "allowed_orientations": [0.0],
+                 "shape": {"type": "simple_polygon", "data": [
+                    [0,0],[200,0],[200,200],[150,200],[150,100],[50,100],[50,200],[0,200],[0,0]]}},
+                {"id": 1, "demand": 6, "allowed_orientations": [0.0],
+                 "shape": {"type": "simple_polygon", "data": [[0,0],[50,0],[50,50],[0,50],[0,0]]}}
+            ]
+        });
+        let ext: ExtSPInstance = serde_json::from_value(json).unwrap();
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            Some(2.0),
+            Some((0.01, 0.01)),
+        );
+        let mut prob = SPProblem::new(import_instance(&importer, &ext).unwrap());
+        prob.change_strip_width(700.0);
+        // 3 lanes d'hôtes au pas 202.1, comptages [3,2,1] ; chaque hôte porte
+        // un filler dans sa cavité. jagua centre les shapes sur leur
+        // CENTROÏDE (pas le centre de bbox) : on relit la bbox posée pour
+        // placer le filler dans la cavité (marges ~7 mm avec l'inflation).
+        let pitch = 202.1;
+        for (c, &rows) in [3usize, 2, 1].iter().enumerate() {
+            for r in 0..rows {
+                let (hx, hy) = (2.1 + c as f32 * pitch, 2.1 + r as f32 * pitch);
+                let pk_h = prob.place_item(SPPlacement {
+                    item_id: 0,
+                    d_transf: DTransformation::new(0.0, (hx + 100.0, hy + 100.0)),
+                });
+                let hb = prob.layout.placed_items.get(pk_h).unwrap().shape.bbox;
+                prob.place_item(SPPlacement {
+                    item_id: 1,
+                    d_transf: DTransformation::new(0.0, (hb.x_min + 85.0, hb.y_min + 135.0)),
+                });
+            }
+        }
+        assert!(feasibility_ok(&prob));
+        // Offsets relatifs filler→hôte avant la passe (multiset trié).
+        // Chaque filler doit être strictement niché dans la bbox d'un hôte.
+        let nested_count = |prob: &SPProblem| -> usize {
+            let boxes = placed_boxes(prob);
+            let hosts: Vec<&Boxed> = boxes.iter().filter(|b| b.item_id == 0).collect();
+            boxes
+                .iter()
+                .filter(|b| b.item_id == 1)
+                .filter(|f| {
+                    hosts.iter().any(|h| {
+                        f.x_min > h.x_min && f.y_min > h.y_min && f.x_max < h.x_max && f.y_max < h.y_max
+                    })
+                })
+                .count()
+        };
+        assert_eq!(nested_count(&prob), 6, "setup : tous les fillers nichés");
+        let w0 = used_width(&placed_boxes(&prob));
+
+        post_pass_for_bias(&mut prob, Some("left"), Some(700.0));
+
+        let after = placed_boxes(&prob);
+        assert!(feasibility_ok(&prob));
+        assert!(used_width(&after) <= w0 + 1e-3);
+        // Grille équilibrée : 3 colonnes de 2 hôtes.
+        let hosts_only: Vec<Boxed> = after.iter().copied().filter(|b| b.item_id == 0).collect();
+        let cols = cluster_columns(&hosts_only);
+        let mut counts: Vec<usize> = cols.iter().map(|c| c.len()).collect();
+        counts.sort();
+        assert_eq!(counts, vec![2, 2, 2], "counts={counts:?}");
+        // La pile complète a été déplacée : chaque filler est TOUJOURS niché
+        // dans un hôte (holesFilled intact — jamais détaché par le move).
+        assert_eq!(nested_count(&prob), 6, "un filler a été détaché de son hôte");
     }
 }

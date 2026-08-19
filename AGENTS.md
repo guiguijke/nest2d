@@ -183,6 +183,26 @@ admin/                 (back-office Nuxt)
     « même DXF après plusieurs déploiments » de PACKING-X-100-TROU.md).
     Un restack accepté sans exiger des colonnes compactes commit des
     layouts troués (métriques de sommets aveugles aux trous internes).
+14e. **La forme des couloirs est un post-pass, pas une métrique solveur** :
+    à largeur égale, le SPP ne distingue pas [19×5+5] de [17×4,16×2] — le
+    moignon survit au champion lock. `balance_lane_tops` (column_fill.rs)
+    équilibre UNIQUEMENT sur grille uniforme détectée (lanes équidistantes
+    ±0,1 mm, cellules identiques, colonnes compactes) et seulement si
+    l'écart de comptage > 1 cellule (sinon no-op — [1,2] est déjà
+    équilibré). Append au sommet des couloirs courts, jamais d'insertion,
+    jamais d'élargissement ; cible canonique = comptages base/base+1 avec
+    les cellules en plus à gauche. Piles J-085 déplacées COMPLÈTES (hôte +
+    nichés, même delta — holesFilled intact). Corollaire shape : jagua
+    CENTRE SUR LE CENTROÏDE, pas la bbox — placer un hôte non symétrique
+    via translation = centre bbox le décale (le filler logé « à vue » dans
+    la cavité finit dans la paroi → infaisable) : relire la bbox posée.
+14f. **Snap des lanes = DERNIER recours, jamais par défaut** : un snap
+    systématique retouche (churn µm) des layouts que tighten fermait déjà
+    (panne no-op constatée sur 40/50 seeds). Ne le déclencher que si un
+    défaut persiste après tighten+consolidate (`has_column_defect`), puis
+    re-tasser. La respiration (+ε par gap) n'est engagée que si le pitch
+    moyen est quasi au contact (≤ 0,5 µm de marge) ; sinon step = pitch,
+    zéro élargissement.
 
 ### Métriques & pipeline Python
 15. **largest_empty_rectangle : compter les sommets DES TROUS** dans le
@@ -437,7 +457,7 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 
 ```bash
 npx vitest run                                             # server (33)
-cd workers/nesting/engine && cargo test --release          # 58 + 1 ignore
+cd workers/nesting/engine && cargo test --release          # 62 + 1 ignore
 cd workers/nesting && python -m pytest tests/ -q           # 70 (PYTHONPATH=workers/common)
 cd workers/common && python -m pytest tests/ -q            # 46
 cd workers/fileprocessing && python -m pytest tests/ -q    # 32 (+2 skipped)

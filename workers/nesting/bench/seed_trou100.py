@@ -224,6 +224,11 @@ def main():
         if abs((x0 - ox) - k * PITCH) > TOL:
             failures.append(f"col {k} x_min={x0:.3f} off pitch (expected {ox + k * PITCH:.3f})")
 
+    # (a2) couloirs équilibrés (balance_lane_tops) : écart de comptage ≤ 1
+    # cellule — le moignon [19×5+5] est un défaut résolu, cible [17×4,16×2].
+    if max(counts) - min(counts) > 1:
+        failures.append(f"unbalanced lanes: counts={counts} (spread > 1)")
+
     # (b) no internal gap > 2.5 mm inside a column; spacing >= 2 - TOL.
     for k, c in enumerate(cols):
         ivals = sorted((b[1], b[3]) for b in c)
