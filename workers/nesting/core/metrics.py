@@ -3,11 +3,14 @@
 These are pure scoring helpers (no solver interaction): they grade the
 layouts the engine produced, for ranking alternatives and for the UI.
 """
+import logging
 import math
 
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.affinity import rotate, translate
 from shapely.ops import unary_union
+
+logger = logging.getLogger(__name__)
 
 
 def _placed_polygon(item, transform):
@@ -330,6 +333,10 @@ def verify_layout(containers, input_items, space=0.0):
         "spacingOk": None,
         "holesFilled": 0,
         "holesTotal": 0,
+        # Additif : fillers en trou au-delà de la capacité pinwheel validée
+        # (0 en fonctionnement normal — un post-pass buggé a déjà empilé 8
+        # fillers dans un trou prévu pour 4, cas trou600).
+        "holesOverflow": 0,
     }
 
     smallest_gap = float("inf")
@@ -362,13 +369,21 @@ def verify_layout(containers, input_items, space=0.0):
 
         # Part-in-part: centroid of ANOTHER placed part strictly inside a
         # hole ring (the host's own centroid sits in its hole by design).
+        # Compte PLAFONNÉ par trou à la capacité pinwheel validée (CAPACITY) :
+        # le brut 600/400 du cas trou600 (200 fillers dupliqués sur les poses
+        # canoniques) passait silencieusement — l'excédent part dans
+        # holesOverflow avec un warning au lieu de gonfler holesFilled.
         report["holesTotal"] += len(holed_hosts)
+        occupants = [0] * len(holed_hosts)
         for idx, poly in enumerate(placed):
             c = poly.centroid
-            for host_idx, hole_poly in holed_hosts:
+            for h_idx, (host_idx, hole_poly) in enumerate(holed_hosts):
                 if host_idx != idx and hole_poly.contains(c):
-                    report["holesFilled"] += 1
+                    occupants[h_idx] += 1
                     break
+        from core.holefill import CAPACITY as HOLE_CAPACITY
+        report["holesFilled"] += sum(min(n, HOLE_CAPACITY) for n in occupants)
+        report["holesOverflow"] += sum(max(0, n - HOLE_CAPACITY) for n in occupants)
 
         # Pairwise checks (bounded).
         if len(placed) > VERIFY_MAX_PARTS_PER_SHEET:
@@ -389,4 +404,9 @@ def verify_layout(containers, input_items, space=0.0):
         report["smallestGapMm"] = round(smallest_gap, 3)
         report["overlapFree"] = overlap_free
         report["spacingOk"] = smallest_gap >= float(space or 0) - 0.01
+    if report["holesOverflow"]:
+        logger.warning(
+            "holes overflow: %s filler(s) beyond validated pinwheel capacity "
+            "(possible double-fill bug)", report["holesOverflow"],
+        )
     return report

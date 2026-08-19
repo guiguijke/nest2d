@@ -203,6 +203,36 @@ class TestVerifyLayout:
         assert report["holesTotal"] == 1
         assert report["holesFilled"] == 1
 
+    def test_holes_filled_capped_at_pinwheel_capacity_with_overflow(self):
+        # Cas trou600 : 8 fillers empilés au même endroit dans un trou prévu
+        # pour 4 (capacité pinwheel validée) — le compte est plafonné à 4,
+        # l'excédent part dans holesOverflow (champ additif).
+        host = _holed_item(1)
+        filler = _square_item(6.0, 2)
+        container = ResultContainer(
+            1,
+            [Transform("f", ["h"], 0.0, 0.0, 0.0, item_id=1)]
+            + [Transform("f", ["h"], 17.0, 17.0, 0.0, item_id=2) for _ in range(8)],
+            bin_width=100.0, bin_height=100.0,
+        )
+        report = verify_layout([container], [host, filler])
+        assert report["holesTotal"] == 1
+        assert report["holesFilled"] == 4
+        assert report["holesOverflow"] == 4
+
+    def test_holes_filled_normal_case_has_no_overflow(self):
+        host = _holed_item(1)
+        filler = _square_item(6.0, 2)
+        container = ResultContainer(
+            1,
+            [Transform("f", ["h"], 0.0, 0.0, 0.0, item_id=1)]
+            + [Transform("f", ["h"], 17.0, 17.0, 0.0, item_id=2) for _ in range(4)],
+            bin_width=100.0, bin_height=100.0,
+        )
+        report = verify_layout([container], [host, filler])
+        assert report["holesFilled"] == 4
+        assert report["holesOverflow"] == 0
+
 
 class TestEnrichOffcut:
     def test_none_stays_none(self):

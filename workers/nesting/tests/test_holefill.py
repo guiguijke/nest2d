@@ -74,6 +74,55 @@ def test_repack_skips_full_hole():
     assert rec == 0
 
 
+def test_repack_never_duplicates_full_holes_with_surplus_fillers():
+    """Cas trou600 : 2 hôtes × capacité 4, 10 fillers — 8 pré-nichés sur les
+    poses pinwheel canoniques + 2 libres en bande. Le post-pass ne doit RIEN
+    déplacer : 0 relocation, aucun jumeau, les 2 libres restent en bande."""
+    items = [dict(HOST, count=2), dict(FILL, count=10)]
+    placed_items = [
+        _t(0, 0, 0, 0), _t(0, 0, 500, 0),
+        _t(1, 0, 0, 0), _t(1, 90, 0, 0), _t(1, 180, 0, 0), _t(1, 270, 0, 0),
+        _t(1, 0, 500, 0), _t(1, 90, 500, 0), _t(1, 180, 500, 0), _t(1, 270, 500, 0),
+        _t(1, 0, 0, 800), _t(1, 90, 60, 800),
+    ]
+    layouts = [{"placed_items": placed_items}]
+    before = [(pi["transformation"]["rotation"], *pi["transformation"]["translation"])
+              for pi in placed_items]
+    rec = apply_hole_fill(items, layouts, 2.0)
+    assert rec == 0
+    after = [(pi["transformation"]["rotation"], *pi["transformation"]["translation"])
+             for pi in placed_items]
+    assert after == before
+
+
+def test_repack_completes_partial_hole_without_duplicates():
+    """2 poses canoniques prises (0/180) + 4 fillers libres : le post-pass
+    complète les 2 poses restantes (90/270) sans dupliquer les occupées."""
+    from shapely.geometry import Polygon
+    from shapely.affinity import rotate, translate
+    items = [dict(HOST, count=1), dict(FILL, count=6)]
+    placed_items = [
+        _t(0, 0, 0, 0),
+        _t(1, 0, 0, 0), _t(1, 180, 0, 0),
+        _t(1, 0, 0, 800), _t(1, 90, 60, 800), _t(1, 180, 120, 800), _t(1, 270, 180, 800),
+    ]
+    layouts = [{"placed_items": placed_items}]
+    rec = apply_hole_fill(items, layouts, 2.0)
+    assert rec == 2
+    hole = Polygon(HOST["holes"][0])
+    cents, rots_in_hole = [], []
+    for pi in placed_items[1:]:
+        tr = pi["transformation"]
+        poly = translate(rotate(Polygon(FILL["coords"]), tr["rotation"], origin=(0, 0)),
+                         tr["translation"][0], tr["translation"][1])
+        if hole.contains(poly.centroid):
+            cents.append((round(poly.centroid.x, 3), round(poly.centroid.y, 3)))
+            rots_in_hole.append(tr["rotation"] % 360)
+    assert len(cents) == 4
+    assert len(set(cents)) == 4  # aucun jumeau
+    assert sorted(rots_in_hole) == [0, 90, 180, 270]
+
+
 def test_meta_expand_attaches_fillers_to_hosts():
     from core.holefill import meta_slots, expand_meta
     from shapely.geometry import Polygon

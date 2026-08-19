@@ -433,6 +433,28 @@ def apply_hole_fill(input_items, layouts, space):
     recovered = 0
     deadline = time.monotonic() + PACK_BUDGET_SEC
 
+    def hole_capacity(ring, fill_item):
+        """Capacité pinwheel VALIDÉE du trou pour ce type de filler, à
+        l'espacement courant (jamais la capacité théorique)."""
+        allowed = set(fill_item.get("rotations") or PINWHEEL)
+        coords = fill_item.get("coords") or fill_item.get("coordinates") or []
+        return len(pinwheel_capacity(ring, coords, space, allowed=allowed))
+
+    def drop_occupied(hi, poses):
+        """Écarte les poses en conflit avec les fillers DÉJÀ dans le trou
+        (pré-nichés par l'expansion) : pack_hole valide contre un trou vide,
+        sans ça il retéléporte sur les poses canoniques occupées — double-
+        remplissage (cas trou600 : 200 jumeaux au µm près)."""
+        members = [e[4] for e in hole_members[hi]]
+        if not members:
+            return poses
+        kept = []
+        for pose in poses:
+            cand = _placed(by_id[pose["fillId"]], pose["rot"], pose["lx"], pose["ly"])
+            if not _violates_spacing(cand, members, space):
+                kept.append(pose)
+        return kept
+
     def _apply_poses(hi, hw, poses):
         nonlocal recovered
         by_free = {}
@@ -454,6 +476,11 @@ def apply_hole_fill(input_items, layouts, space):
         if not free:
             break
         ring = list(hw.exterior.coords)
+        # Trou déjà à capacité validée (fillers pré-nichés) : no-op —
+        # re-packer dupliquerait les occupants (trou600).
+        cur = hole_members[hi]
+        if cur and len(cur) >= max(hole_capacity(ring, e[0]) for e in cur):
+            continue
         stock = {}
         for e in free:
             stock[e[0]["id"]] = stock.get(e[0]["id"], 0) + 1
@@ -467,8 +494,10 @@ def apply_hole_fill(input_items, layouts, space):
             uniq.append(c)
         poses = pack_hole(ring, uniq, space, deadline=deadline) if uniq else []
         if poses:
-            _apply_poses(hi, hw, poses)
-            continue
+            poses = drop_occupied(hi, poses)
+            if poses:
+                _apply_poses(hi, hw, poses)
+                continue
         # Repli pinwheel historique (4 pièces, tout-ou-rien).
         cur = hole_members[hi]
         if len(cur) >= CAPACITY or len(free) < CAPACITY - len(cur):
