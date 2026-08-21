@@ -562,6 +562,94 @@ describe('runPool — arrêt champion après idle qui suit n', () => {
     })
 })
 
+describe('runPool — settle idle champion = mono-classe seulement', () => {
+    it('2 classes (left+bottom) : pas de settle idle, 2 alternatives via le merge', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null // les walks « tournent » tant qu'on ne les règle pas
+        const payload = makePayload({ walks: 2, biases: ['left', 'bottom'] })
+        payload.instance.items = [{ id: 0, demand: 500 }]
+        const promise = runPool('job-multibias', payload, { onLive: () => {} })
+        expect(MockWorker.instances).toHaveLength(2)
+        // Classes bien distribuées : walk 0 = left, walk 1 = bottom.
+        expect(MockWorker.instances.map((w) => w.messages[0].engineConfig.biases)).toEqual([
+            ['left'], ['bottom'],
+        ])
+        // Une frame live faisable par classe. La frame 'bottom' porte une
+        // HAUTEUR (solve transposé) > largeur 'left' : liveBetter ne la
+        // retient pas — avant le fix, le chrono armé par la frame 'left'
+        // tuait le pool pendant que le walk 'bottom' tournait.
+        const items = Array.from({ length: 500 }, (_, i) => [i, 0, 0, 0, 0])
+        MockWorker.instances[0].emit({
+            live: { feasible: true, strip_width: 900, density: 0.7, bias: 'left', items },
+        })
+        MockWorker.instances[1].emit({
+            live: { feasible: true, strip_width: 1500, density: 0.7, bias: 'bottom', items },
+        })
+        let settled = false
+        promise.then(() => { settled = true })
+        // Très au-delà du chrono idle (3 s pour n=500, patience 3 s).
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(settled).toBe(false)
+
+        // Complétion naturelle des deux walks, puis merge qui groupe par
+        // classe : une alternative 'left' + une 'bottom'.
+        MockWorker.respond = (worker, msg) => {
+            if (msg.op === 'merge') {
+                worker.emit({
+                    id: msg.id,
+                    ok: true,
+                    result: JSON.stringify({ problem: 'spp', alternatives: msg.merge.runs }),
+                })
+            }
+        }
+        const alt = (w, bias) => ({
+            rank: 0,
+            seed: 1000 + w,
+            bias,
+            evaluations: 500,
+            strip_width: 800 - w * 100, // rang 0 du merge bat le champion live
+            density: 0.6,
+            solution: { layout: { placed_items: [] } },
+        })
+        MockWorker.instances[0].emit({ ok: true, jobSlug: 'job-multibias', result: { alternatives: [alt(0, 'left')] } })
+        MockWorker.instances[1].emit({ ok: true, jobSlug: 'job-multibias', result: { alternatives: [alt(1, 'bottom')] } })
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives.map((a) => a.bias)).toEqual(['left', 'bottom'])
+        vi.useRealTimers()
+    })
+
+    it('1 classe sur 2 walks (non-régression) : settle idle inchangé', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const payload = makePayload({ walks: 2, biases: ['left'] })
+        payload.instance.items = [{ id: 0, demand: 500 }]
+        const promise = runPool('job-monobias', payload, { onLive: () => {} })
+        expect(MockWorker.instances).toHaveLength(2)
+        MockWorker.instances[0].emit({
+            live: {
+                feasible: true,
+                strip_width: 900,
+                density: 0.7,
+                bias: 'left',
+                items: Array.from({ length: 500 }, (_, i) => [i, 0, 0, 0, 0]),
+            },
+        })
+        let settled = false
+        promise.then(() => { settled = true })
+        // n=500, patience 3 s → fenêtre plafonnée à 3 s : pas encore settle.
+        await vi.advanceTimersByTimeAsync(2900)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(200)
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives).toHaveLength(1)
+        expect(out.result.alternatives[0].strip_width).toBe(900)
+        expect(MockWorker.instances.every((w) => w.terminated)).toBe(true)
+        vi.useRealTimers()
+    })
+})
+
 describe('cancelPool', () => {
     it('termine tous les workers et settle cancelled (sans refund local)', async () => {
         MockWorker.respond = null // aucun worker ne répond : job en vol

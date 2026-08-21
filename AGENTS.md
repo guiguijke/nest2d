@@ -122,7 +122,17 @@ admin/                 (back-office Nuxt)
     après 0–1 eval. Mesuré 2026-08-17 : 100 carrés 100 mm / 1000×2000 /
     space 2 / –X = bande 614,03 mm (plancher géométrique 610 + 2+2 mm
     de marge tôle) — 6 rangées à 2,00 mm, déjà compact ; un post-pass
-    de plus ne gagne rien.
+    de plus ne gagne rien. **Settle idle champion = mono-classe
+    seulement** (mode local, `localPool.js`) : en multi-classes, les
+    `strip_width` ne sont PAS comparables (largeur 'left' vs hauteur
+    transposée 'bottom') → `liveBetter` ne réarme jamais le chrono et le
+    settle tuait le pool pendant que les walks des autres classes
+    tournaient (1 seule alternative au lieu d'une par direction, panne
+    prod 100+800 pièces / ['left','bottom']). En multi-classes :
+    complétion naturelle des walks (budget + plateau chacun) puis le
+    merge par classe doit aller au bout ; `preferChampion` reste
+    inoffensif (un champion d'unité non comparable ne bat jamais le
+    rang 0 du merge).
 8. **Two-phase = la machine à remplir les trous** : phase 1 (min largeur)
    puis phase 2 transposée (min hauteur dans un corridor) — le corridor
    serré force les pièces dans les trous. Toute classe directionnelle doit

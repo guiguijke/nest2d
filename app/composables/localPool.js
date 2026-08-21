@@ -217,6 +217,10 @@ function noteChampion(pool, live) {
             items: live.items.map((it) => it.slice()),
         }
         pool.bestAt = Date.now()
+        // Multi-classes : JAMAIS de chrono idle (voir runPool) — on laisse
+        // chaque walk aller à sa complétion naturelle puis le merge grouper
+        // par classe.
+        if (pool.multiBias) return
         if (pool.champTimer) {
             clearTimeout(pool.champTimer)
             pool.champTimer = null
@@ -228,7 +232,8 @@ function noteChampion(pool, live) {
 }
 
 function settleFromChampion(pool) {
-    if (pool.settled || !pool.bestLive) return
+    // multiBias : garde-fou — le chrono n'est jamais armé en multi-classes.
+    if (pool.settled || pool.multiBias || !pool.bestLive) return
     const alt = championAlt(pool)
     pool.settle({
         ok: true,
@@ -243,6 +248,11 @@ function settleFromChampion(pool) {
 function preferChampion(pool, alternatives) {
     const champ = championAlt(pool)
     if (!champ) return alternatives
+    // Inoffensif en multi-classes : le champion ne prévaut que s'il bat
+    // STRICTEMENT le rang 0 du merge, or un strip_width 'bottom' (hauteur
+    // transposée) n'est pas comparable à une largeur 'left' — liveBetter ne
+    // le fait jamais gagner à tort. En mono-classe, c'est le filet qui
+    // préserve un incumbent live meilleur que le rang 0 du merge (piège #7).
     const inc = alternatives[0]
     const incLive = inc
         ? {
@@ -317,6 +327,22 @@ export function runPool(jobSlug, payload, { onLive, walks, concurrency } = {}) {
     const conc = Math.min(n, effectiveWalks(shape.concurrency))
     const masterSeed = String(payload?.engineConfig?.prng_seed ?? '0')
     const isSpp = !Array.isArray(payload?.instance?.bins)
+    // Classes de biais réellement jouées par les walks (miroir de
+    // workerEngineConfig) : biases explicites → classes canoniques actives ;
+    // BPP sans biases → les trois classes synthétisées ; SPP sans biases →
+    // multi-start legacy, UNE seule métrique (liste vide).
+    const baseCfg = payload?.engineConfig || {}
+    const hasBiases = Array.isArray(baseCfg.biases) && baseCfg.biases.length
+    const classesInPlay = hasBiases ? dirBiases(baseCfg.biases) : (isSpp ? [] : DIR_BIAS_ORDER)
+    // Settle idle champion = MONO-CLASSE seulement (piège #7b). En
+    // multi-classes, le strip_width d'une frame 'bottom' est une HAUTEUR
+    // utilisée (solve transposé, spp.rs DirBias::BottomFirst), incomparable
+    // à la largeur du champion 'left' : liveBetter ne réarme jamais le
+    // chrono et, championIdleMs écoulé, le settle tuerait le pool PENDANT
+    // que les walks des autres classes tournent → une seule alternative au
+    // résultat. On attend donc la complétion naturelle de chaque walk
+    // (budget + plateau), puis le merge groupe par classe.
+    const multiBias = classesInPlay.length > 1 && Math.min(n, classesInPlay.length) > 1
 
     return new Promise((resolve) => {
         const demand = (payload?.instance?.items || []).reduce((n, it) => n + (Number(it.demand) || 0), 0)
@@ -329,6 +355,7 @@ export function runPool(jobSlug, payload, { onLive, walks, concurrency } = {}) {
             sheets: liveSheets(payload),
             isSpp,
             demand,
+            multiBias,
             bestLive: null,
             bestAt: 0,
             lastLiveAt: 0,
