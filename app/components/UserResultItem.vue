@@ -58,6 +58,11 @@
             </template>
             <p class="result__name">
                 {{ resultTitle }}
+                <PrivacyChip
+                    v-if="privacyMode"
+                    :mode="privacyMode"
+                    class="result__chip"
+                />
             </p>
             <p v-if="timeAgo" class="result__when">
                 {{ timeAgo }}
@@ -121,7 +126,11 @@ const props = defineProps({
     result: {
         type: Object,
         required: true
-    }
+    },
+    privacyMode: {
+        type: String,
+        default: null,
+    },
 });
 
 const emit = defineEmits(["openModal"]);
@@ -403,6 +412,10 @@ const onDownload = () => {
         word-break: break-word;
         font-weight: 600;
         color: var(--label-primary);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
     }
 
     &__when {

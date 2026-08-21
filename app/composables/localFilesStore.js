@@ -6,9 +6,10 @@
  * format-agnostique) + géométrie parsée (polygonParts navigateur).
  *
  * Record (store `files`, keyPath `slug`, index `projectSlug`) :
- *   { slug,          // `${slugify(baseName)}-${rand6}${ext}` — format serveur
+ *   { slug,          // identifiant opaque `f-{12 hex}{ext}` — le nom
+ *                    // d'origine ne transite jamais (ni slug, ni nest)
  *     projectSlug,
- *     name,          // nom d'origine du fichier
+ *     name,          // nom d'origine du fichier (IndexedDB seulement)
  *     addedAt,       // ISO string (tri chronologique = tri lexicographique)
  *     dxfBytes,      // ArrayBuffer — DXF canonique mm (ou bytes d'origine
  *                    // si déjà mm)
@@ -21,7 +22,6 @@
  * Ouverture de la base partagée via localDb.js (un seul openDb versionné).
  * Jamais appelé côté serveur (SSR) : aucun accès IndexedDB au top level.
  */
-import standardSlugify from 'standard-slugify'
 import { openDb } from './localDb'
 
 const STORE = 'files'
@@ -31,21 +31,19 @@ function tx(db, mode) {
 }
 
 /**
- * Slug au format exact du serveur (server/core/project/dxf.js) : base
- * slugifiée (standard-slugify, keepCase: false) + '-' + 6 caractères hex
- * aléatoires + extension d'origine en minuscules (conservée pour que les
- * téléchargements gardent leur type). rand6 : 3 octets crypto → hex,
- * miroir de generateRandomString (server/utils/strings.js).
+ * Identifiant opaque d'un fichier 100 % privé. L'extension d'origine est
+ * conservée (DXF vs SVG) ; le nom de fichier n'entre pas dans le slug —
+ * celui-ci part au nest comme clé IndexedDB, pas comme libellé.
  */
 export function makeLocalFileSlug(fileName) {
     const name = String(fileName || '')
     const dotIndex = name.lastIndexOf('.')
     const ext = dotIndex >= 0 ? name.slice(dotIndex).toLowerCase() : ''
-    const baseName = dotIndex >= 0 ? name.slice(0, dotIndex) : name
-    const rand = [...crypto.getRandomValues(new Uint8Array(3))]
+    const kept = ext === '.svg' ? '.svg' : '.dxf'
+    const rand = [...crypto.getRandomValues(new Uint8Array(6))]
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('')
-    return `${standardSlugify(baseName, { keepCase: false })}-${rand}${ext}`
+    return `f-${rand}${kept}`
 }
 
 /** Enregistre (ou remplace) un fichier local. */

@@ -219,11 +219,11 @@ describe('localFilesStore', () => {
         expect(await filesStore.localFilesBytes('proj-vide')).toBe(0)
     })
 
-    it('makeLocalFileSlug : format serveur base-rand6hex.ext', () => {
+    it('makeLocalFileSlug : identifiant opaque, nom d origine absent', () => {
         const slug = filesStore.makeLocalFileSlug('Héllo Wörld 42!.DXF')
-        expect(slug).toMatch(/^hello-world-42-[0-9a-f]{6}\.dxf$/)
-        expect(filesStore.makeLocalFileSlug('my part.svg')).toMatch(/^my-part-[0-9a-f]{6}\.svg$/)
-        // Deux appels → suffixes distincts (crypto random)
+        expect(slug).toMatch(/^f-[0-9a-f]{12}\.dxf$/)
+        expect(slug).not.toMatch(/hello|world|42/i)
+        expect(filesStore.makeLocalFileSlug('my part.svg')).toMatch(/^f-[0-9a-f]{12}\.svg$/)
         expect(filesStore.makeLocalFileSlug('x.dxf')).not.toBe(filesStore.makeLocalFileSlug('x.dxf'))
     })
 })

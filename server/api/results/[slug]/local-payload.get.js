@@ -11,8 +11,8 @@ import { connectDB } from '~~/server/db/mongo'
  * J-090 : pour un projet « 100 % privé » (job.localConfig présent), le
  * payload moteur est ASSEMBLÉ PAR LE NAVIGATEUR (géométrie en IndexedDB) —
  * cette route ne sert alors QUE des métadonnées : params du job (tôles,
- * espacement, options), métadonnées fichiers (slug/nom/compte/rotations) et
- * le profil compute imposé serveur. Aucune géométrie ne transite.
+ * espacement, options), identifiants opaques + comptes/rotations, et le
+ * profil compute imposé serveur. Aucune géométrie ni nom de fichier.
  */
 export default defineEventHandler(async (event) => {
     const userId = event.context?.auth?.userId
@@ -46,7 +46,6 @@ export default defineEventHandler(async (event) => {
             mode: 'client-built',
             files: (job.files || []).map((f) => ({
                 slug: f.slug,
-                name: f.simpleName || f.slug,
                 count: f.count || 0,
                 rotations: f.rotations || null,
             })),

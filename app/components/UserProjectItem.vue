@@ -9,9 +9,10 @@
             class="project__label"
         >
             {{ projectName }}
-            <span v-if="project.isDemo" class="project__badge">{{ t('demo.badge') }}</span>
-            <!-- J-090 : projet 100 % privé (fichiers jamais uploadés) -->
-            <span v-else-if="project.local" class="project__badge">{{ t('project.localBadge') }}</span>
+            <PrivacyChip
+                :mode="privacyMode"
+                class="project__badge"
+            />
         </NuxtLink>
         <div class="project__info info">
             <p class="info__time">
@@ -84,6 +85,7 @@ import { computed, onBeforeMount, onBeforeUnmount, toRefs, unref } from 'vue';
 import { iconType } from '~~/constants/icon.constants';
 import { sizeType } from '~~/constants/size.constants';
 import { themeType } from '~~/constants/theme.constants';
+import { projectPrivacyMode } from '~/utils/privacyMode';
 
 const { project } = defineProps({
     project: {
@@ -104,6 +106,12 @@ const projectClasses = computed(() => ({
 // The shared demo project carries a generic DB name — localize it.
 const projectName = computed(() =>
     project.isDemo ? t('demo.projectName') : project.name
+)
+const vaultEnabled = computed(() =>
+    Boolean(unref(authStore.getters.user)?.encryption?.enabled)
+)
+const privacyMode = computed(() =>
+    projectPrivacyMode(unref(project), vaultEnabled.value)
 )
 
 // Suppression (logique dans composables/projects.js — testée en node).
@@ -213,17 +221,6 @@ onBeforeUnmount(() => {
     }
 
     &__badge {
-        display: inline-block;
-        flex-shrink: 0;
-        padding: 1px 7px;
-        border-radius: 999px;
-        background: var(--accent-primary);
-        color: var(--background-primary);
-        font-size: 10px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        vertical-align: middle;
         position: relative;
         z-index: 0;
     }

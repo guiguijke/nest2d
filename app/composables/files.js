@@ -54,9 +54,9 @@ const state = reactive({
             count: file.count,
             // Per-file rotation override wins; otherwise use the global setting.
             rotation: file.rotation || JSON.stringify(buildRotationAngles(Number(state.params.rotationCount))),
-            // J-090 : le serveur ne connaît pas les fichiers d'un projet
-            // local — le nom part dans le corps (métadonnée, pas géométrie).
-            ...(state.projectLocal ? { name: file.name } : {}),
+            // Projet 100 % privé : pas de `name` — le serveur n'en a pas
+            // besoin (quota + slugs opaques suffisent). Le libellé reste
+            // dans IndexedDB, affiché ici seulement.
         }))
     ),
     currentFilesSlug: computed(

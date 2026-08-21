@@ -25,7 +25,7 @@ vi.mock('~~/server/utils/colors', () => ({
 }))
 
 import { DOMAINS } from '~~/server/core/domains'
-import { createLocalProject, enqueueNestingJob } from '~~/server/core/project/service'
+import { buildJobSlug, createLocalProject, enqueueNestingJob } from '~~/server/core/project/service'
 import { fakeDb } from './helpers/fakeMongo'
 
 beforeEach(() => {
@@ -70,6 +70,14 @@ describe('enqueueNestingJob — voie locale (J-090)', () => {
         // Vault jamais touché : pas de session DEK requise pour un job
         // dont la géométrie ne passe jamais par le serveur.
         expect(state.requireFileAccess).not.toHaveBeenCalled()
+    })
+
+    it('buildJobSlug without simpleName uses the opaque slug, not a filename', () => {
+        const slug = buildJobSlug(DOMAINS.bin, [
+            { slug: 'f-aabbccddeeff.dxf', count: 3 },
+        ])
+        expect(slug).toMatch(/^nested-f-aabbccddeeff_3-[a-f0-9]+$/)
+        expect(slug).not.toMatch(/secret|client|bracket/i)
     })
 
     it('keeps the legacy shape for cloud jobs (pending, no localConfig, vault gate on)', async () => {

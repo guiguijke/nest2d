@@ -15,11 +15,15 @@ vi.mock('../composables/geometryClient', () => ({
     geoCanonicalDxf: vi.fn(async () => state.canonical),
 }))
 
-vi.mock('../composables/localFilesStore', () => ({
-    saveLocalFile: vi.fn(async (record) => {
-        state.saved.push(record)
-    }),
-}))
+vi.mock('../composables/localFilesStore', async (importOriginal) => {
+    const actual = await importOriginal()
+    return {
+        ...actual,
+        saveLocalFile: vi.fn(async (record) => {
+            state.saved.push(record)
+        }),
+    }
+})
 
 import { importLocalFile, localRecordToUiFile } from '../composables/localImport'
 
@@ -52,7 +56,9 @@ beforeEach(() => {
 describe('importLocalFile (J-090)', () => {
     it('stores a full record (geometry + canonical bytes + preview) in IndexedDB', async () => {
         const record = await importLocalFile(fakeFile('bracket.dxf'), 'proj-1')
-        expect(record.slug).toMatch(/^bracket-[0-9a-f]{6}\.dxf$/)
+        expect(record.slug).toMatch(/^f-[0-9a-f]{12}\.dxf$/)
+        expect(record.name).toBe('bracket.dxf')
+        expect(record.slug).not.toContain('bracket')
         expect(record.projectSlug).toBe('proj-1')
         expect(record.dxfBytes).toBeInstanceOf(ArrayBuffer)
         expect(record.parts).toHaveLength(1)

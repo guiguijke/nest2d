@@ -3,9 +3,12 @@
         <DxfUpload
             v-if="!readonly"
             compact
+            :extensions="uploadExtensions"
             class="files__upload"
             @files="addFiles"
+            @rejected="onRejected"
         />
+        <p v-if="rejectError" class="files__error">{{ t(rejectError) }}</p>
         <div class="files__grid">
             <template
                 v-for="(file, fileIndex) in projectFiles"
@@ -37,7 +40,7 @@
 import { processingType } from "~~/constants/files.constants";
 import FileError from "./FileError.vue";
 
-defineProps({
+const props = defineProps({
     projectFiles: {
         type: Array,
         required: true
@@ -46,12 +49,35 @@ defineProps({
     readonly: {
         type: Boolean,
         default: false
+    },
+    // Projet « cet appareil » : DXF/SVG seulement (DWG = serveurs).
+    local: {
+        type: Boolean,
+        default: false
     }
 })
 
-const emit = defineEmits(["addFiles"])
+const uploadExtensions = computed(() =>
+    props.local ? ['.dxf', '.svg'] : ['.dxf', '.svg', '.dwg']
+)
 
-const addFiles = (files) => emit("addFiles", files)
+const emit = defineEmits(["addFiles"])
+const { t } = useLocale()
+const rejectError = ref('')
+
+const addFiles = (files) => {
+    rejectError.value = ''
+    emit("addFiles", files)
+}
+
+const onRejected = (files) => {
+    const names = (files || []).map((f) => String(f.name || '').toLowerCase())
+    if (props.local && names.some((n) => n.endsWith('.dwg'))) {
+        rejectError.value = 'localImport.dwgRejected'
+        return
+    }
+    rejectError.value = props.local ? 'localImport.unsupportedType' : 'upload.unsupported'
+}
 
 const fileIsDone = (status) => status === processingType.done
 const fileIsProcessing = (status) => status === processingType.inProgress
@@ -75,6 +101,17 @@ const openModal = (file) => {
 
     &__upload {
         width: 100%;
+    }
+
+    &__error {
+        margin: 0;
+        padding: 10px 12px;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--label-secondary);
+        background-color: var(--error-background);
+        border: 1px solid var(--error-border);
+        border-radius: 8px;
     }
 
     &__grid {

@@ -313,8 +313,10 @@ export async function listJobs(domain, userId, projectSlug) {
 export function buildJobSlug(domain, fileMetadata) {
   return `${domain.jobSlugPrefix}${fileMetadata
     .map((file) => {
-      const fileNameSlug = standardSlugify(file.simpleName, { keepCase: false });
-      return fileNameSlug + "_" + file.count;
+      const token = file.simpleName
+        ? standardSlugify(file.simpleName, { keepCase: false })
+        : String(file.slug || "f").replace(/\.[^.]+$/, "");
+      return token + "_" + file.count;
     })
     .join("-")}-${generateRandomString(6)}`;
 }

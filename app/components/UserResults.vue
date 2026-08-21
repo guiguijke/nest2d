@@ -8,6 +8,7 @@
                 v-for="result in getters.resultsList"
                 :key="result.id"
                 :result="result"
+                :privacy-mode="privacyMode"
                 @openModal="openModal(result)"
                 class="results__item"
             />
@@ -20,6 +21,8 @@
 </template>
 
 <script setup>
+import { projectPrivacyMode } from '~/utils/privacyMode'
+
 const route = useRoute();
 const resultDialog = useResultDialog();
 const { t } = useLocale()
@@ -31,6 +34,13 @@ const eventSource = ref(null)
 let hydrateChain = Promise.resolve()
 
 const slug = computed(() => route.params.slug);
+const privacyMode = computed(() => {
+    if (!unref(slug) || filesStore.getters.projectDemo) return null
+    return projectPrivacyMode(
+        { local: unref(filesStore.getters.projectLocal), isDemo: false },
+        Boolean(unref(authStore.getters.user)?.encryption?.enabled),
+    )
+})
 
 onMounted(() => {
     updateResults()

@@ -63,7 +63,7 @@ async function buildClientPayload(meta) {
         }
         files.push({
             slug: f.slug,
-            name: f.name,
+            name: record.name,
             count: f.count,
             rotations: f.rotations,
             parts: record.parts,

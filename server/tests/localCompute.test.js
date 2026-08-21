@@ -175,6 +175,34 @@ describe('POST nest — computeLocation written server-side (P3)', () => {
         expect(params.browser_walks).toBeUndefined()
     })
 
+    it('projet 100 % privé : le nom de fichier du body est ignoré', async () => {
+        state.config = { public: { localComputeEnabled: true, localImportEnabled: true } }
+        state.db = fakeDb({
+            users: [freeUser()],
+            projects: [{ slug: 'p1', ownerId: 'u1', local: true }],
+            user_dxf_files: [],
+        })
+        await nestHandler(ev('u1', 'p1', {
+            files: [{
+                slug: 'f-aabbccddeeff.dxf',
+                count: 4,
+                name: 'secret-client.dxf',
+                rotation: JSON.stringify([0, 90]),
+            }],
+            params: { sheets: [{ width: 1000, height: 2000, count: 1 }], space: 2 },
+        }))
+        expect(state.enqueued).toHaveLength(1)
+        const meta = state.enqueued[0].fileMetadata
+        expect(meta).toEqual([{
+            slug: 'f-aabbccddeeff.dxf',
+            count: 4,
+            rotations: [0, 90],
+        }])
+        expect(JSON.stringify(state.enqueued[0])).not.toContain('secret-client')
+        expect(state.enqueued[0].initialStatus).toBe('awaiting_local')
+        expect(state.enqueued[0].skipVaultGate).toBe(true)
+    })
+
     it('flag ON + paid serveur: même 8 walks, concurrence = vcores du tier', async () => {
         const day = 24 * 3600 * 1000
         state.config = { public: { localComputeEnabled: true } }
@@ -213,6 +241,21 @@ describe('local-payload / local-result / local-fail routes (flag-gated)', () => 
         const res = await payloadHandler(ev('u1', 'job-1', null, 'GET'))
         expect(res.problem).toBe('bpp')
         expect(res.engineConfig.prng_seed).toBe('4122680510047324256') // Int64 serialized (AGENTS #16)
+
+        state.db = fakeDb({ nesting_jobs: [localJob({
+            localPayload: undefined,
+            localConfig: { timeBudgetSec: 13, vcores: 1 },
+            files: [{ slug: 'f-aabbccddeeff.dxf', count: 3, rotations: [0, 90], simpleName: 'secret-client' }],
+        })] })
+        const clientBuilt = await payloadHandler(ev('u1', 'job-1', null, 'GET'))
+        expect(clientBuilt.mode).toBe('client-built')
+        expect(clientBuilt.files[0]).toEqual({
+            slug: 'f-aabbccddeeff.dxf',
+            count: 3,
+            rotations: [0, 90],
+        })
+        expect(clientBuilt.files[0].name).toBeUndefined()
+        expect(JSON.stringify(clientBuilt)).not.toContain('secret-client')
 
         state.db = fakeDb({ nesting_jobs: [localJob({ status: 'done', localPayload: null })] })
         await expect(payloadHandler(ev('u1', 'job-1', null, 'GET'))).rejects.toMatchObject({ statusCode: 409 })

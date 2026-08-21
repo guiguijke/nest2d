@@ -29,7 +29,7 @@
                 {{ t('upload.drop') }}
             </span>
             <span class="upload__text upload__text--gray">
-                {{ t('upload.limit') }}
+                {{ limitLabel }}
             </span>
         </label>
     </div>
@@ -50,17 +50,29 @@ const props = defineProps({
         default: false,
     },
 });
-const emit = defineEmits(["files"]);
+const emit = defineEmits(["files", "rejected"]);
 
 const { extensions } = toRefs(props);
 const isDragOver = ref(false);
+
+const fileExt = (name) => {
+    const n = String(name || '').toLowerCase()
+    const i = n.lastIndexOf('.')
+    return i >= 0 ? n.slice(i) : ''
+}
+
+const limitLabel = computed(() =>
+    unref(extensions).includes('.dwg') ? t('upload.limit') : t('upload.limitDevice')
+)
 
 const updateDragStatus = (newValue = true) => {
     isDragOver.value = newValue;
 };
 const setFiles = (newFiles) => {
-    const filesList = newFiles.filter((file) => unref(extensions).includes(file.name.slice(-4).toLowerCase()));
-    emit("files", filesList);
+    const allowed = unref(extensions)
+    const filesList = newFiles.filter((file) => allowed.includes(fileExt(file.name)))
+    if (filesList.length) emit("files", filesList)
+    else if (newFiles.length) emit("rejected", newFiles)
 };
 const onDrop = (event) => {
     updateDragStatus(false);

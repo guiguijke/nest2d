@@ -144,7 +144,7 @@ const {
     forgetBrowser,
 } = useVaultControls()
 
-const isOpen = ref(false)
+const isOpen = useVaultMenuOpen()
 const buttonState = computed(() => vaultButtonState(status.value))
 
 function openPanel() {
@@ -152,6 +152,10 @@ function openPanel() {
     isOpen.value = true
     refresh()
 }
+
+watch(isOpen, (open) => {
+    if (open) refresh()
+})
 
 // Après un déverrouillage via le dialogue global, le statut affiché ici doit
 // se rafraîchir (le dialogue appelle déjà authStore.setUser() de son côté).

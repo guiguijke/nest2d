@@ -1,9 +1,17 @@
 <template>
     <div class="content">
         <header class="content__head">
-            <h1 class="content__title">{{ pageTitle }}</h1>
+            <div class="content__heading">
+                <h1 class="content__title">{{ pageTitle }}</h1>
+                <PrivacyChip
+                    v-if="!isDemo"
+                    :mode="privacyMode"
+                    class="content__chip"
+                />
+            </div>
             <p v-if="!isDemo" class="content__count">{{ t('project.files', { n: filesCount }) }}</p>
         </header>
+        <p v-if="privacyStatus" class="content__privacy">{{ privacyStatus }}</p>
         <div v-if="isDemo" class="demo-banner">
             <div class="demo-banner__head">
                 <span class="demo-banner__badge">{{ t('demo.badge') }}</span>
@@ -68,12 +76,6 @@
                     </template>
                 </MainButton>
                 <FreeNestBanner v-if="!isDemo" />
-                <p v-if="isLocalProject" class="content__purge-notice">
-                    {{ t('nest.localNotice') }}
-                </p>
-                <p v-else-if="!isDemo && !vaultEnabled" class="content__purge-notice">
-                    {{ t('nest.purgeNotice') }}
-                </p>
             </aside>
         </section>
         <div v-if="localComputeError" class="content__error">
@@ -97,7 +99,13 @@
         <div v-if="!sizesIsAvailable && !nestRequestError" class="content__error">
             {{ t('project.minSheet', { w: fmtLengthValue(biggestPartSizes.width), h: fmtLengthValue(biggestPartSizes.height), unit: unitLabel }) }}
         </div>
-        <ProjectFiles :projectFiles="projectFiles" :readonly="isDemo" @addFiles="addFiles" class="content__files" />
+        <ProjectFiles
+            :projectFiles="projectFiles"
+            :readonly="isDemo"
+            :local="isLocalProject"
+            @addFiles="addFiles"
+            class="content__files"
+        />
     </div>
 </template>
 
@@ -115,6 +123,7 @@ import {
     DEMO_SPACE_MM,
 } from "~~/shared/constants/demo.constants";
 import { sheetDisplaySize, sheetLandscapeTransform } from "~/utils/sheetView";
+import { PRIVACY_STATUS_KEY, projectPrivacyMode } from "~/utils/privacyMode";
 
 definePageMeta({
     layout: "auth",
@@ -127,18 +136,9 @@ const { t } = useLocale()
 const { unit, unitLabel, fmtLengthValue, displayToMm } = useUnit()
 const $apiFetch = useApiFetch();
 
-// D-PRV-10 : la notice purge 24 h est masquée pour les comptes vault
-// (exemptés — blobs chiffrés au repos). Si le statut est indisponible, la
-// notice reste affichée (sur-divulgation, jamais l'inverse).
-const vaultEnabled = ref(false);
-onMounted(async () => {
-    try {
-        const status = await $fetch("/api/security/vault/status");
-        vaultEnabled.value = Boolean(status?.enabled);
-    } catch {
-        // statut indisponible → notice conservée
-    }
-});
+const vaultEnabled = computed(() =>
+    Boolean(unref(authStore.getters.user)?.encryption?.enabled)
+);
 
 const { getters } = globalStore;
 const resultsList = computed(() => getters.resultsList);
@@ -301,6 +301,17 @@ const isDemo = computed(() =>
 const isLocalProject = computed(() =>
     Boolean(filesGetters.projectLocal) || Boolean(data?.local)
 );
+const privacyMode = computed(() =>
+    projectPrivacyMode(
+        { local: isLocalProject.value, isDemo: isDemo.value },
+        vaultEnabled.value,
+    )
+);
+const privacyStatus = computed(() => {
+    if (isDemo.value) return ''
+    const key = PRIVACY_STATUS_KEY[privacyMode.value]
+    return key ? t(key) : ''
+});
 const DEMO_LIMIT = DEMO_NESTING_LIMIT;
 const user = computed(() => unref(authStore.getters.user) || {});
 const demoRemaining = computed(() => Number(user.value.demoRemaining ?? DEMO_LIMIT));
@@ -464,7 +475,15 @@ const startsNest = () => {
         align-items: baseline;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 16px;
+        margin-bottom: 8px;
+    }
+
+    &__heading {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 10px;
+        min-width: 0;
     }
 
     &__title {
@@ -472,6 +491,14 @@ const startsNest = () => {
         font-size: 20px;
         font-weight: 600;
         color: var(--label-primary);
+    }
+
+    &__privacy {
+        margin: 0 0 16px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--label-secondary);
+        max-width: 42rem;
     }
 
     &__count {
@@ -495,12 +522,6 @@ const startsNest = () => {
         border-radius: 8px;
     }
 
-    &__purge-notice {
-        color: var(--label-tertiary);
-        margin-top: 10px;
-        font-size: 12px;
-        line-height: 1.4;
-    }
 }
 
 .atelier {

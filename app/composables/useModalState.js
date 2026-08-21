@@ -30,3 +30,6 @@ export const useLoginDialog = () => {
 export const useVaultUnlockDialog = () => {
     return useState("vaultUnlockDialog", () => false);
 };
+export const useVaultMenuOpen = () => {
+    return useState("vaultMenuOpen", () => false);
+};

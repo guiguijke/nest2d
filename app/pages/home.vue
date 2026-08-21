@@ -28,17 +28,16 @@
                 :label="t('home.newNesting')"
                 class="create__title"
             />
-            <DxfUpload @files="handleSubmit" />
-            <!-- J-090 : création « 100 % privée » — le fichier est parsé dans
-                 le navigateur, jamais uploadé (flag-gated). -->
-            <label v-if="localImportEnabled" class="create__local">
-                <input v-model="localProject" type="checkbox" class="create__local-box" />
-                <span class="create__local-label">{{ t('home.localToggle') }}</span>
-                <small class="create__local-hint">{{ t('home.localToggleHint') }}</small>
-            </label>
-            <p class="create__text">
-                {{ t('home.uploadHint') }}
-            </p>
+            <PrivacyModePicker
+                v-if="localImportEnabled"
+                v-model="privacyChoice"
+                class="create__privacy"
+            />
+            <DxfUpload
+                :extensions="uploadExtensions"
+                @files="handleSubmit"
+                @rejected="handleRejected"
+            />
             <div
                 v-if="error"
                 class="create__error"
@@ -132,13 +131,31 @@
         (config.public.localComputeEnabled === true || config.public.localComputeEnabled === 'true') &&
         (config.public.localImportEnabled === true || config.public.localImportEnabled === 'true')
     )
-    // Le mode local doit être 100 % local : dès que l'import navigateur est
-    // disponible, la création 100 % privée est le DÉFAUT (opt-out possible
-    // pour le cloud : import DWG, accès multi-appareils).
-    const localProject = ref(localImportEnabled.value)
+    // Défaut = cet appareil dès que l'import navigateur est dispo (opt-out
+    // cloud : DWG, multi-appareils).
+    const privacyChoice = ref(localImportEnabled.value ? 'device' : 'cloud')
+    const localProject = computed(() => privacyChoice.value === 'device')
+    watch(privacyChoice, () => { error.value = '' })
+    const uploadExtensions = computed(() =>
+        localProject.value && localImportEnabled.value
+            ? ['.dxf', '.svg']
+            : ['.dxf', '.svg', '.dwg']
+    )
+
+    const handleRejected = (files) => {
+        const names = (files || []).map((f) => String(f.name || '').toLowerCase())
+        if (names.some((n) => n.endsWith('.dwg')) && localProject.value) {
+            error.value = t('localImport.dwgRejected')
+            return
+        }
+        error.value = localProject.value
+            ? t('localImport.unsupportedType')
+            : t('upload.unsupported')
+    }
 
     const handleSubmit = async (files) => {
         error.value = ''
+        if (!files?.length) return
 
         if (localProject.value && localImportEnabled.value) {
             // J-090 : création JSON sans fichiers — l'import navigateur des
@@ -281,34 +298,8 @@
             margin-bottom: 16px;
         }
 
-        &__text {
-            margin-top: 16px;
-            color: var(--label-tertiary);
-            font-size: 13px;
-        }
-
-        &__local {
-            margin-top: 16px;
-            display: inline-flex;
-            align-items: baseline;
-            gap: 8px;
-            cursor: pointer;
-            text-align: left;
-        }
-
-        &__local-box {
-            transform: translateY(1px);
-        }
-
-        &__local-label {
-            color: var(--label-secondary);
-            font-size: 13px;
-            font-weight: 600;
-        }
-
-        &__local-hint {
-            color: var(--label-tertiary);
-            font-size: 12px;
+        &__privacy {
+            margin-bottom: 16px;
         }
 
         &__error {

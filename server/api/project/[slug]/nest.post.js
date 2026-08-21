@@ -93,16 +93,16 @@ export default defineEventHandler(async (event) => {
     }
 
     const fileMetadata = project.local
-        ? // J-090 : projet 100 % client — aucun doc fichier côté serveur, les
-          // métadonnées viennent du corps de requête (slugs générés client).
+        ? // J-090 : projet 100 % client — aucun doc fichier côté serveur.
+          // Slug opaque + compte + rotations ; le nom d'origine (s'il est
+          // encore envoyé par un vieux client) est ignoré.
           filteredFiles
               .map((file) => ({
-                  slug: file.slug,
-                  simpleName: String(file.name || file.slug).replace(/\.(dxf|svg)$/i, ''),
+                  slug: String(file.slug || '').slice(0, 64),
                   count: file.count || 0,
                   rotations: file.rotation ? JSON.parse(file.rotation) : globalRotations,
               }))
-              .filter((file) => file.count > 0)
+              .filter((file) => file.count > 0 && file.slug)
         : userDxfFilesDatabase.map((file) => {
               const requestFile = filteredFiles.find((f) => f.slug === file.slug)
               return {
@@ -228,7 +228,7 @@ export default defineEventHandler(async (event) => {
         }
         // DWG = conversion serveur (dwgread, D-PRV-2) — jamais compatible
         // avec un projet dont les fichiers ne quittent pas le navigateur.
-        if (filteredFiles.some((f) => String(f.name || f.slug).toLowerCase().endsWith('.dwg'))) {
+        if (filteredFiles.some((f) => String(f.slug).toLowerCase().endsWith('.dwg'))) {
             throw createError({ statusCode: 400, statusMessage: 'dwg_requires_cloud' })
         }
         dbParams = sheets

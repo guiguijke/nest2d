@@ -7,8 +7,8 @@
  * les entités par handle depuis ces bytes) et un aperçu SVG (data URI).
  * AUCUN byte ne quitte la machine — DWG refusé (conversion serveur, D-PRV-2).
  */
-import standardSlugify from 'standard-slugify'
 import { geoImportFile, geoCanonicalDxf } from './geometryClient'
+import { makeLocalFileSlug } from './localFilesStore'
 
 // Miroir EXACT de workers/common/worker_common/colors.py — ne pas diverger
 // (le rendu liste/live/résultat partage cette palette).
@@ -25,12 +25,6 @@ const FILL_OPACITY_PREVIEW = 0.18
 const MAX_ENTITY_LIMIT = 999
 
 const ACCEPTED_EXTENSIONS = ['.dxf', '.svg']
-
-function randomHex(count) {
-    const bytes = new Uint8Array(Math.ceil(count / 2))
-    crypto.getRandomValues(bytes)
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').slice(0, count)
-}
 
 /** pick_colors Python : sac mélangé par cycles — des pièces d'un même
  * fichier ont des couleurs distinctes. crypto RNG (jamais Math.random). */
@@ -141,8 +135,7 @@ export async function importLocalFile(file, projectSlug) {
         color: colors[i],
     }))
 
-    const baseName = dot >= 0 ? name.slice(0, dot) : name
-    const slug = `${standardSlugify(baseName, { keepCase: false })}-${randomHex(6)}${ext}`
+    const slug = makeLocalFileSlug(name)
 
     const record = {
         slug,
