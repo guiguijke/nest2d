@@ -12,6 +12,16 @@
                         GitHub
                     </a>
                 </li>
+                <li class="list__item" v-if="discordUrl">
+                    <a
+                        :href="discordUrl"
+                        target="_blank"
+                        rel="noopener"
+                        class="list__link"
+                    >
+                        Discord
+                    </a>
+                </li>
                 <li class="list__item">
                     <NuxtLink
                         to="/legal-notice"
@@ -61,9 +71,14 @@
                     </NuxtLink>
                 </li>
             </ul>
-            <p class="footer__copyright">
-                © {{ copyrightYear }} NestorCut by APlasma.
-            </p>
+            <div class="footer__meta">
+                <p class="footer__copyright">
+                    © {{ copyrightYear }} NestorCut by APlasma.
+                </p>
+                <p class="footer__note">
+                    NestorCut is under very active development — a bug you hit today may already be fixed tomorrow.
+                </p>
+            </div>
         </div>
     </footer>
 </template>
@@ -71,7 +86,7 @@
 <script setup>
 import { useSiteConfig } from '~~/data/siteConfig';
 
-const { copyrightYear } = useSiteConfig();
+const { copyrightYear, discordUrl } = useSiteConfig();
 </script>
 
 <style lang="scss" scoped>
@@ -99,16 +114,33 @@ const { copyrightYear } = useSiteConfig();
         margin-right: auto;
         margin-left: auto;
     }
+    &__meta {
+        margin-top: 16px;
+
+        @media (min-width: 1199px) {
+            margin-top: initial;
+        }
+    }
     &__copyright {
         text-align: center;
-        margin-top: 16px;
         color: var(--main-white);
         display: block;
         font-weight: 600;
         opacity: 0.7;
 
         @media (min-width: 1199px) {
-            margin-top: initial;
+            text-align: initial;
+        }
+    }
+    &__note {
+        text-align: center;
+        color: var(--main-white);
+        display: block;
+        font-size: 0.8rem;
+        opacity: 0.45;
+        margin-top: 4px;
+
+        @media (min-width: 1199px) {
             text-align: initial;
         }
     }
