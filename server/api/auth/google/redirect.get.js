@@ -42,6 +42,18 @@ export default defineEventHandler(async (event) => {
     maxAge: 600,
   });
 
+  // CSRF / OACB: random `state` bound to the same cookie lifetime as PKCE
+  // (pentest M-6). PKCE + SameSite=Lax already cover the main risk; state
+  // is belt-and-braces.
+  const oauthState = generateCodeVerifier();
+  setCookie(event, "oauth_state", oauthState, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 600,
+  });
+
   // 3. Build the authorization URL.
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.append("client_id", clientId);
@@ -50,6 +62,7 @@ export default defineEventHandler(async (event) => {
   url.searchParams.append("scope", "email profile");
   url.searchParams.append("code_challenge", codeChallenge);
   url.searchParams.append("code_challenge_method", "S256");
+  url.searchParams.append("state", oauthState);
   url.searchParams.append("access_type", "online");
   url.searchParams.append("prompt", "select_account");
 

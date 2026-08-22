@@ -16,7 +16,8 @@ export async function sendOwnedBucketFile(
 
   const headers = {
     "Content-Type": contentType,
-    "Cache-Control": encrypted ? "private, no-store" : "public, max-age=86400",
+    // Owner-gated downloads must never land in a shared cache (pentest C-1).
+    "Cache-Control": "private, no-store",
   };
   if (attachment) {
     headers["Content-Disposition"] = `attachment; filename="${fileName}"`;

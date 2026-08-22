@@ -8,6 +8,11 @@ globalThis.readBody = globalThis.readBody || (async (event) => event._body)
 globalThis.getRouterParam = globalThis.getRouterParam || ((event, name) => event._params?.[name])
 // Fixed test IP for assertRateLimit (avoids touching event.node.req).
 globalThis.getRequestIP = globalThis.getRequestIP || (() => '127.0.0.1')
+globalThis.getRequestHeader = globalThis.getRequestHeader || ((event, name) => {
+    const headers = event?.node?.req?.headers || {}
+    const raw = headers[name] || headers[String(name).toLowerCase()]
+    return Array.isArray(raw) ? raw[0] : raw
+})
 // Header writes are no-ops in unit tests (recorded nowhere, asserted nowhere).
 globalThis.setHeader = globalThis.setHeader || (() => {})
 // Default runtime config: every flag OFF (A2 tests assert the unchanged

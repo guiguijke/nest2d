@@ -1,4 +1,5 @@
-import { getCookie } from "h3";
+import { getCookie, setCookie } from "h3";
+import crypto from "node:crypto";
 import { TRACKING_COOKIE_NAME } from "~~/server/tracking/const";
 import { createOrUpdateUser } from "~~/server/utils/user";
 import { setSessionCookie } from "~~/server/utils/user";
@@ -19,10 +20,17 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody(event);
   const code = body?.code;
+  const state = typeof body?.state === "string" ? body.state : "";
 
   if (!code) {
     setResponseStatus(event, 400);
     return { error: "Missing authorization code" };
+  }
+
+  const cookieState = getCookie(event, "oauth_state") || "";
+  if (!sameOauthSecret(state, cookieState)) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid OAuth state. Please retry login." };
   }
 
   const codeVerifier = getCookie(event, "oauth_code_verifier");
@@ -92,8 +100,20 @@ export default defineEventHandler(async (event) => {
 
   setSessionCookie(event, session);
 
-  // 4. Clear the single-use PKCE verifier cookie.
+  // 4. Clear the single-use PKCE verifier + state cookies.
   setCookie(event, "oauth_code_verifier", "", { maxAge: 0, path: "/" });
+  setCookie(event, "oauth_state", "", { maxAge: 0, path: "/" });
 
   return { ok: true };
 });
+
+function sameOauthSecret(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || !a || a.length !== b.length) {
+    return false;
+  }
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}

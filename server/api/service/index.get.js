@@ -2,7 +2,7 @@ import { connectDB } from "~~/server/db/mongo";
 import { trackEvent } from "~~/server/tracking/add";
 
 export default defineEventHandler(async (event) => {
-  const userId = event.context?.auth?.userId || "anonymous";
+  const userId = event.context?.auth?.userId || null;
   const db = await connectDB();
 
   let isDbConnected = false;
@@ -14,23 +14,27 @@ export default defineEventHandler(async (event) => {
     console.error(e);
   }
 
-  const user = await db.collection("users").findOne({ id: userId });
-
-  let commitSha = "init unknown";
-
   await trackEvent(event, "service_index_get")
 
+  // Anonymous callers only get a liveness flag — commitSha was a version
+  // leak (pentest M-5). Authenticated clients still see it (support/debug).
+  if (!userId) {
+    return { ok: true, isDbConnected };
+  }
+
+  const user = await db.collection("users").findOne({ id: userId });
+
+  let commitSha = "";
   try {
-    commitSha = useRuntimeConfig().public.gitCommitSha;
+    commitSha = useRuntimeConfig().public.gitCommitSha || "";
   } catch (e) {
     console.error(e);
-    commitSha = `Error getting commit sha ${e}`;
   }
 
   return {
-    userId: userId,
+    userId,
     provider: user?.provider || "unknown",
-    isDbConnected: isDbConnected,
-    commitSha: commitSha,
+    isDbConnected,
+    commitSha,
   };
 });

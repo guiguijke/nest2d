@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { connectDB } from '~~/server/db/mongo'
+import { assertRateLimit } from '~~/server/utils/ratelimit'
 
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)
@@ -18,6 +19,8 @@ export default defineEventHandler(async (event) => {
     if (password.length < 8) {
         throw createError({ statusCode: 400, statusMessage: 'Password must be at least 8 characters' })
     }
+
+    assertRateLimit(event, 'reset-ip', { limit: 10, windowMs: 60 * 60_000 })
 
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
 

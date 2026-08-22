@@ -99,7 +99,7 @@ export function useTerms() {
                 heading: '3. Compte et identifiants',
                 paragraphs: [
                     'Vous êtes responsable de la confidentialité de votre mot de passe et de votre session, ainsi que de toute activité réalisée depuis votre compte. Signalez-nous sans délai toute utilisation non autorisée.',
-                    'Lorsque la fonction de chiffrement zero-knowledge (plan Pro) est activée, un fichier de clé est généré côté client et constitue le seul moyen de lire vos fichiers chiffrés. Nous n\'en conservons aucune copie. En cas de perte, vos fichiers chiffrés deviennent définitivement illisibles et personne — y compris nous — ne pourra les récupérer.',
+                    'Lorsque le coffre de chiffrement zero-knowledge (optionnel, disponible sur tous les plans) est activé, un fichier de clé est généré côté client et constitue le seul moyen de lire vos fichiers chiffrés. Nous n\'en conservons aucune copie. En cas de perte, vos fichiers chiffrés deviennent définitivement illisibles et personne — y compris nous — ne pourra les récupérer.',
                 ],
             },
             {
@@ -117,7 +117,7 @@ export function useTerms() {
                 paragraphs: [
                     'Vous conservez l\'ensemble des droits de propriété intellectuelle sur les fichiers que vous téléversez. Nous les traitons uniquement pour exécuter l\'imbrication et en stocker les résultats afin que vous puissiez les télécharger.',
                     'Vous garantissez détenir les droits sur les fichiers que vous téléversez et que leur traitement ne porte pas atteinte aux droits de tiers.',
-                    'Consultez notre Politique de confidentialité pour le détail du stockage, de la conservation et (sur le plan Pro) du chiffrement des fichiers.',
+                    'Consultez notre Politique de confidentialité pour le détail du stockage, de la conservation et, en option, du chiffrement zero-knowledge (disponible sur tous les plans).',
                 ],
             },
             {
@@ -219,7 +219,7 @@ export function usePrivacy() {
                 heading: '4. Stockage et chiffrement des fichiers',
                 paragraphs: [
                     'Vos fichiers téléversés et résultats d\'imbrication sont stockés dans notre base de données et ne sont accessibles qu\'à partir de votre compte.',
-                    'Sur le plan Pro, un mode de chiffrement zero-knowledge est disponible. Lorsqu\'il est activé, vos fichiers sont chiffrés avec une clé générée sur votre appareil, qui ne nous est jamais transmise en clair. Dans ce mode, nous sommes techniquement incapables de lire vos fichiers, y compris en cas de compromission de la base de données.',
+                    'Un coffre de chiffrement zero-knowledge est disponible en option sur tous les plans. Lorsqu\'il est activé, vos fichiers sont chiffrés avec une clé générée sur votre appareil, qui ne nous est jamais transmise en clair. Dans ce mode, nous sommes techniquement incapables de lire vos fichiers, y compris en cas de compromission de la base de données.',
                 ],
             },
             {

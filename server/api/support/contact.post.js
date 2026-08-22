@@ -1,4 +1,5 @@
 import logger from '~~/server/utils/logger';
+import { clientIp } from '~~/server/utils/ratelimit';
 
 /**
  * Public contact endpoint for the nestorcut.com static site.
@@ -52,7 +53,7 @@ function isRateLimited(ip) {
 export default defineEventHandler(async (event) => {
     setCors(event);
 
-    const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
+    const ip = clientIp(event);
     if (isRateLimited(ip)) {
         throw createError({ statusCode: 429, statusMessage: 'Too many messages, please try again later.' });
     }

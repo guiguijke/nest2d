@@ -25,7 +25,7 @@ onMounted(async () => {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ code }),
+            body: JSON.stringify({ code, state: route.query.state || '' }),
         });
         router.push({ path: '/home' });
     } catch (err) {

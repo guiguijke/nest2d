@@ -12,7 +12,15 @@ const sharedDir = fileURLToPath(new URL('./shared', import.meta.url))
 
 export default defineNuxtConfig({
     compatibilityDate: "2025-07-15",
-    devtools: { enabled: true },
+    devtools: { enabled: process.env.NODE_ENV !== 'production' },
+    hooks: {
+        'render:response'(response) {
+            if (response?.headers) {
+                delete response.headers['x-powered-by']
+                delete response.headers['X-Powered-By']
+            }
+        },
+    },
     future: {
         compatibilityVersion: 4,
     },
@@ -203,6 +211,7 @@ export default defineNuxtConfig({
         '#shared': sharedDir,
     },
     nitro: {
+        poweredByHeader: false,
         alias: {
             '#shared': sharedDir,
             '~~/shared': sharedDir,
@@ -213,6 +222,8 @@ export default defineNuxtConfig({
         externals: {
             inline: [/[/\\]shared[/\\]constants[/\\]/],
         },
+        // Bound multipart uploads (20 × 5 MB + overhead, pentest H-4).
+        maxRequestSize: '101mb',
         compressPublicAssets: true,
         // Demo project assets (generated DXF + manifest, committed under
         // server/seed/demo): bundled into .output so the seed plugin works
@@ -252,7 +263,8 @@ export default defineNuxtConfig({
             // navigateur/proxy revalide à chaque fois, le SSR reste frais.
             '/**': {
                 headers: {
-                    'cache-control': 'no-cache'
+                    'cache-control': 'no-cache',
+                    'x-powered-by': '',
                 }
             }
         }

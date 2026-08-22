@@ -4,7 +4,7 @@
              et preview masqués, réimport nécessaire pour renester. -->
         <template v-if="file.expired">
             <div class="file__display file__placeholder" :title="t('files.expired')" />
-            <p class="file__name">
+            <p class="file__name" :title="file.name">
                 {{ file.name }}
             </p>
             <p class="file__expired">{{ t('files.expired') }}</p>
@@ -12,7 +12,7 @@
         <template v-else>
             <SvgDisplay :size="sizeType.s" :src="file.svgUrl" class="file__display" preserve-colors />
             <FileParts @click="openModal()" :parts="file.parts" class="file__parts" />
-            <p class="file__name">
+            <p class="file__name" :title="file.name">
                 {{ file.name }}
             </p>
             <div class="file__counter counter">

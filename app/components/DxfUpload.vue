@@ -37,6 +37,7 @@
 
 <script setup>
 import { themeType } from '~~/constants/theme.constants';
+import { MAX_UPLOAD_FILE_BYTES } from '~~/shared/constants/upload.constants'
 
 const { t } = useLocale()
 
@@ -50,7 +51,7 @@ const props = defineProps({
         default: false,
     },
 });
-const emit = defineEmits(["files", "rejected"]);
+const emit = defineEmits(["files", "rejected", "oversize"]);
 
 const { extensions } = toRefs(props);
 const isDragOver = ref(false);
@@ -70,8 +71,13 @@ const updateDragStatus = (newValue = true) => {
 };
 const setFiles = (newFiles) => {
     const allowed = unref(extensions)
-    const filesList = newFiles.filter((file) => allowed.includes(fileExt(file.name)))
-    if (filesList.length) emit("files", filesList)
+    const typed = newFiles.filter((file) => allowed.includes(fileExt(file.name)))
+    const sized = typed.filter((file) => file.size <= MAX_UPLOAD_FILE_BYTES)
+    if (typed.length && !sized.length) {
+        emit("oversize", typed)
+        return
+    }
+    if (sized.length) emit("files", sized)
     else if (newFiles.length) emit("rejected", newFiles)
 };
 const onDrop = (event) => {

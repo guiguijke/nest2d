@@ -3,6 +3,8 @@
         <div class="welcome__card card">
             <img src="/brand/n-mark.png" alt="NestorCut" class="card__logo" />
             <MainTitle :label="t('auth.loginAccount')" class="card__title" />
+            <p class="card__tagline">{{ t('auth.tagline') }}</p>
+            <p class="card__hint">{{ t('auth.demoHint') }}</p>
             <div v-if="googleEnabled" class="card__item">
                 <MainButton
                     :theme="themeType.secondary"
@@ -98,7 +100,25 @@ onMounted(() => {
 
     &__title {
         text-align: center;
-        margin-bottom: 8px;
+        margin-bottom: 4px;
+    }
+
+    &__tagline {
+        text-align: center;
+        color: #4a5568;
+        font-size: 14px;
+        line-height: 1.45;
+        margin: 0;
+        max-width: 28rem;
+    }
+
+    &__hint {
+        text-align: center;
+        color: #6b7280;
+        font-size: 13px;
+        line-height: 1.45;
+        margin: 0 0 8px;
+        max-width: 28rem;
     }
 
     &__item {

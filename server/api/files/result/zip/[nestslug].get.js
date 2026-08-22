@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
     setResponseHeaders(event, {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename=nesting-${nestSlug}.zip`,
-        "Cache-Control": hasEncrypted ? "private, no-store" : "public, max-age=86400",
+        "Cache-Control": "private, no-store",
     });
 
     const archive = archiver("zip", { zlib: { level: 9 } });

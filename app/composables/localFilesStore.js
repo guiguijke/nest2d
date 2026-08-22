@@ -40,7 +40,7 @@ export function makeLocalFileSlug(fileName) {
     const dotIndex = name.lastIndexOf('.')
     const ext = dotIndex >= 0 ? name.slice(dotIndex).toLowerCase() : ''
     const kept = ext === '.svg' ? '.svg' : '.dxf'
-    const rand = [...crypto.getRandomValues(new Uint8Array(6))]
+    const rand = [...crypto.getRandomValues(new Uint8Array(8))]
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('')
     return `f-${rand}${kept}`

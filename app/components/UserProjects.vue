@@ -38,9 +38,10 @@ const projectsList = computed(() => {
     return getters.projectsList || data.projects
 });
 
-onMounted(() => {
+onMounted(async () => {
     if(!getters.projectsList) {
-        setProjects(data.projects)
+        const { overlayLocalProjectTitles } = await import('~/composables/projects')
+        setProjects(await overlayLocalProjectTitles(data.projects))
     }
 })
 

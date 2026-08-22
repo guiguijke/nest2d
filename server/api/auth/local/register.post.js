@@ -8,6 +8,7 @@ import { sendEmailVerification } from '~~/server/features/notification/emailVeri
 import { subscribeToNewsletter } from '~~/server/features/listmonk/subscribe'
 import { COUNTRY_HEADER_NAME } from '~~/server/tracking/const'
 import logger from '~~/server/utils/logger'
+import { assertRateLimit, clientIp } from '~~/server/utils/ratelimit'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -35,6 +36,8 @@ export default defineEventHandler(async (event) => {
     if (password.length < 8) {
         throw createError({ statusCode: 400, statusMessage: 'Password must be at least 8 characters' })
     }
+
+    assertRateLimit(event, 'register-ip', { limit: 5, windowMs: 60 * 60_000 })
 
     const db = await connectDB()
     const userId = `local:${email}`
@@ -70,10 +73,7 @@ export default defineEventHandler(async (event) => {
         // Geo + provenance, captured at signup for the admin panel. Country
         // comes from Cloudflare's cf-ipcountry header (null without it).
         signupCountry: event.node.req.headers[COUNTRY_HEADER_NAME] || null,
-        signupIp:
-            event.node.req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
-            event.node.req.socket?.remoteAddress ||
-            null,
+        signupIp: clientIp(event),
     })
 
     // The verification email is the core of the anti-fake flow, but a mailer

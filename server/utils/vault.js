@@ -204,8 +204,10 @@ export async function openOwnedFileStream(event, bucket, fileName) {
     const ownerId = fileDoc.metadata?.ownerId
     // Demo project files (technical DEMO_OWNER_ID account) are world-readable:
     // the shared read-only demo project must be browsable by every user.
+    // 404 (not 401) for a foreign file: a 401 on an existing slug was an
+    // existence oracle for authenticated brute-force (pentest C-1).
     if (ownerId !== userId && ownerId !== DEMO_OWNER_ID) {
-        throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+        throw createError({ statusCode: 404, statusMessage: 'File not found' })
     }
 
     const encrypted = Boolean(fileDoc.metadata?.enc)
@@ -215,8 +217,21 @@ export async function openOwnedFileStream(event, bucket, fileName) {
         ;({ dek } = await requireFileAccess(userId))
     }
 
+    let stream
+    try {
+        stream = openDownloadFromBucket(bucket, fileName, { fileDoc, ownerId, dek })
+        if (encrypted) {
+            // Decrypt BEFORE sending bytes so a GCM failure is a 404, not a
+            // mid-stream 500 (oracle of encryption / existence).
+            const plain = await streamToBuffer(stream)
+            stream = Readable.from(plain)
+        }
+    } catch {
+        throw createError({ statusCode: 404, statusMessage: 'File not found' })
+    }
+
     return {
-        stream: openDownloadFromBucket(bucket, fileName, { fileDoc, ownerId, dek }),
+        stream,
         encrypted,
         fileDoc,
     }

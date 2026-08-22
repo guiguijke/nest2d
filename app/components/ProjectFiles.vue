@@ -7,6 +7,7 @@
             class="files__upload"
             @files="addFiles"
             @rejected="onRejected"
+            @oversize="rejectError = 'upload.tooLarge'"
         />
         <p v-if="rejectError" class="files__error">{{ t(rejectError) }}</p>
         <div class="files__grid">

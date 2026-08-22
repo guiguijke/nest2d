@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs'
 import { connectDB } from '~~/server/db/mongo'
 import { generateSession } from '~~/server/utils/auth'
 import { setSessionCookie } from '~~/server/utils/user'
+import { assertRateLimit, rateLimitAllow, denyRateLimit } from '~~/server/utils/ratelimit'
 
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)
@@ -15,6 +16,11 @@ export default defineEventHandler(async (event) => {
 
     if (!email || !password) {
         throw createError({ statusCode: 400, statusMessage: 'Email and password are required' })
+    }
+
+    assertRateLimit(event, 'login-ip', { limit: 20, windowMs: 15 * 60_000 })
+    if (!rateLimitAllow(`login-email:${email}`, { limit: 5, windowMs: 15 * 60_000 })) {
+        denyRateLimit(event, { windowMs: 15 * 60_000 })
     }
 
     const db = await connectDB()

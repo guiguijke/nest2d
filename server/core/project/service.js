@@ -5,6 +5,8 @@ import { saveFiles } from "~~/server/core/project/dxf";
 import {
   generateRandomString,
   generateEntityName,
+  titleFromFileName,
+  PROJECT_SLUG_RANDOM_LEN,
 } from "~~/server/utils/strings";
 import { assertCanNest } from "~~/server/utils/entitlement";
 import { requireFileAccess, resolvePolygonParts } from "~~/server/utils/vault";
@@ -31,7 +33,7 @@ export async function createProjectWithFiles(domain, event, userId) {
   const projectName = generateEntityName();
   const projectSlug = `${standardSlugify(projectName, {
     keepCase: false,
-  })}-${generateRandomString(6)}`;
+  })}-${generateRandomString(PROJECT_SLUG_RANDOM_LEN)}`;
 
   await db.collection(domain.projectsCollection).insertOne({
     slug: projectSlug,
@@ -40,7 +42,14 @@ export async function createProjectWithFiles(domain, event, userId) {
     ownerId: userId,
   });
 
-  await saveFiles(domain, event, projectSlug, userId);
+  const records = await saveFiles(domain, event, projectSlug, userId);
+  const fromFile = titleFromFileName(records?.[0]?.name);
+  if (fromFile && fromFile !== projectName) {
+    await db.collection(domain.projectsCollection).updateOne(
+      { slug: projectSlug },
+      { $set: { name: fromFile } },
+    );
+  }
 
   return {
     slug: projectSlug,
@@ -58,7 +67,7 @@ export async function createLocalProject(domain, userId) {
   const projectName = generateEntityName();
   const projectSlug = `${standardSlugify(projectName, {
     keepCase: false,
-  })}-${generateRandomString(6)}`;
+  })}-${generateRandomString(PROJECT_SLUG_RANDOM_LEN)}`;
 
   await db.collection(domain.projectsCollection).insertOne({
     slug: projectSlug,
@@ -191,7 +200,10 @@ export async function getProjectFiles(domain, userId, slug) {
 
   const isDemo = Boolean(project.isDemo);
   if (!isDemo && domain.rejectForeignProject && project.ownerId !== userId) {
-    throw createError({ statusCode: 403, message: "Forbidden" });
+    throw createError({
+      statusCode: 404,
+      message: `${domain.projectLabel} not found`,
+    });
   }
 
   const projectFiles = project.local

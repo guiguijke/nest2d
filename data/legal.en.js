@@ -100,7 +100,7 @@ export function useTerms() {
                 heading: '3. Account and credentials',
                 paragraphs: [
                     'You are responsible for keeping your password and your session confidential and for all activity carried out from your account. Notify us without delay of any unauthorised use.',
-                    'When the zero-knowledge encryption feature (Pro plan) is enabled, a key file is generated client-side and is the only way to read your encrypted files. We never store a copy of it. If you lose it, your encrypted files become permanently unreadable and no one — including us — can recover them.',
+                    'When the optional zero-knowledge encryption vault is enabled (available on every plan), a key file is generated client-side and is the only way to read your encrypted files. We never store a copy of it. If you lose it, your encrypted files become permanently unreadable and no one — including us — can recover them.',
                 ],
             },
             {
@@ -118,7 +118,7 @@ export function useTerms() {
                 paragraphs: [
                     'You retain all intellectual property rights in the files you upload. We only process them to run the nesting and store the results so that you can download them.',
                     'You warrant that you hold the rights to the files you upload and that processing them does not infringe the rights of any third party.',
-                    'See our Privacy Policy for how files are stored, retained and (on the Pro plan) encrypted.',
+                    'See our Privacy Policy for how files are stored, retained and optionally encrypted with the zero-knowledge vault (available on every plan).',
                 ],
             },
             {
@@ -220,7 +220,7 @@ export function usePrivacy() {
                 heading: '4. File storage and encryption',
                 paragraphs: [
                     'Your uploaded files and nesting results are stored in our database and are only accessible from your account.',
-                    'On the Pro plan, a zero-knowledge encryption mode is available. When enabled, your files are encrypted with a key generated on your device, which is never transmitted to us in clear text. In this mode we are technically unable to read your files, even in the event of a database compromise.',
+                    'A zero-knowledge encryption vault is available as an opt-in on every plan. When enabled, your files are encrypted with a key generated on your device, which is never transmitted to us in clear text. In this mode we are technically unable to read your files, even in the event of a database compromise.',
                 ],
             },
             {

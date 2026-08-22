@@ -1,5 +1,6 @@
 import { connectDB } from '~~/server/db/mongo'
 import { sendEmailVerification } from '~~/server/features/notification/emailVerification'
+import { assertRateLimit } from '~~/server/utils/ratelimit'
 
 /**
  * Resend the verification email. Requires an active session (the user is
@@ -10,6 +11,8 @@ export default defineEventHandler(async (event) => {
     if (!userId) {
         throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
     }
+
+    assertRateLimit(event, 'resend-ip', { limit: 10, windowMs: 60 * 60_000 })
 
     const db = await connectDB()
     const user = await db.collection('users').findOne({ id: userId })

@@ -209,7 +209,7 @@ const tiers = computed(() => {
             tierKey: 'privacy',
             price: proAvailable ? formatPlanPrice(proPlan) : PRO_PRICE_LABEL,
             intervalLabel: t('plans.interval.month'),
-            badge: t('plans.badge.confidentiality'),
+            badge: t('plans.badge.compute'),
             badgeKind: 'pro',
             description: t('plans.pro.desc'),
             features: [

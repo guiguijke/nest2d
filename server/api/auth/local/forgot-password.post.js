@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { connectDB } from '~~/server/db/mongo'
 import { sendPasswordResetEmail } from '~~/server/features/notification/sendEmail'
 import logger from '~~/server/utils/logger'
+import { assertRateLimit, rateLimitAllow, denyRateLimit } from '~~/server/utils/ratelimit'
 
 const TOKEN_TTL_MS = 60 * 60 * 1000 // 1 hour
 
@@ -16,6 +17,11 @@ export default defineEventHandler(async (event) => {
 
     if (!email) {
         throw createError({ statusCode: 400, statusMessage: 'Email is required' })
+    }
+
+    assertRateLimit(event, 'forgot-ip', { limit: 10, windowMs: 60 * 60_000 })
+    if (!rateLimitAllow(`forgot-email:${email}`, { limit: 3, windowMs: 60 * 60_000 })) {
+        denyRateLimit(event, { windowMs: 60 * 60_000 })
     }
 
     const db = await connectDB()

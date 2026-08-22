@@ -24,6 +24,30 @@
 import { unref } from 'vue'
 import { API_ROUTES } from './apiRoutes'
 import { globalStore } from './index'
+import { titleFromFileName } from '../utils/projectTitle'
+
+/**
+ * Overlay IndexedDB filenames onto local projects so the sidebar/home show
+ * the first file's name WITHOUT sending it to the server.
+ */
+export async function overlayLocalProjectTitles(projects) {
+    if (!Array.isArray(projects) || !projects.some((p) => p?.local)) return projects
+    try {
+        const { listLocalFiles } = await import('./localFilesStore')
+        const files = await listLocalFiles()
+        const firstByProject = new Map()
+        for (const rec of files) {
+            if (!firstByProject.has(rec.projectSlug)) firstByProject.set(rec.projectSlug, rec.name)
+        }
+        return projects.map((p) => {
+            if (!p?.local) return p
+            const fromFile = titleFromFileName(firstByProject.get(p.slug))
+            return fromFile ? { ...p, name: fromFile } : p
+        })
+    } catch {
+        return projects
+    }
+}
 
 /** Le projet démo partagé n'est jamais supprimable (403 côté serveur). */
 export function canDeleteProject(project) {

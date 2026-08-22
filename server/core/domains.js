@@ -23,9 +23,9 @@ export const DOMAINS = {
     // The bin project list also exposes the raw jobs queue and per-project
     // result counts to the UI; the strip list does not.
     includeJobsInProjectList: true,
-    // Bin historically does not 403 on foreign project slugs (the file list
-    // stays empty because it is owner-scoped); strip rejects them explicitly.
-    rejectForeignProject: false,
+    // Reject foreign slugs with 404 (same as missing) so a guessed slug
+    // cannot leak the project name / createdAt (pentest M-4).
+    rejectForeignProject: true,
   },
   strip: {
     id: "strip",

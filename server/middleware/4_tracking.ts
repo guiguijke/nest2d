@@ -9,7 +9,12 @@ export default defineEventHandler((event) => {
         const expires = new Date();
         expires.setFullYear(expires.getFullYear() + 1);
         setCookie(event, TRACKING_COOKIE_NAME, randomUUID(), {
-            expires: expires
+            expires: expires,
+            path: '/',
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            // Readable by JS on purpose (anonymous funnel). Documented: not a session cookie.
+            httpOnly: false,
         })
     }
 })

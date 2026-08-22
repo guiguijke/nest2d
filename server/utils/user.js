@@ -5,6 +5,7 @@ import { notifyAdminNewUser } from '~~/server/features/notification/adminNotify'
 import { COUNTRY_HEADER_NAME } from '~~/server/tracking/const'
 import { downloadAndStoreAvatar } from './avatar'
 import logger from './logger'
+import { clientIp } from './ratelimit'
 
 export async function createOrUpdateUser({ event, sessionId, providerId, email, name, avatarUrl }) {
     if (!providerId || !email || !name) {
@@ -25,11 +26,7 @@ export async function createOrUpdateUser({ event, sessionId, providerId, email, 
     // first insert; we pass them via $setOnInsert so they never overwrite a
     // real signup country on subsequent logins.
     const signupCountry = event ? event.node.req.headers[COUNTRY_HEADER_NAME] || null : null
-    const signupIp = event
-        ? event.node.req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
-          event.node.req.socket?.remoteAddress ||
-          null
-        : null
+    const signupIp = event ? clientIp(event) : null
 
     const updateData = {
         $set: {

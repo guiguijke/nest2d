@@ -37,6 +37,7 @@
                 :extensions="uploadExtensions"
                 @files="handleSubmit"
                 @rejected="handleRejected"
+                @oversize="error = t('upload.tooLarge')"
             />
             <div
                 v-if="error"
@@ -210,10 +211,11 @@
     const $apiFetch = useApiFetch()
     const projectsData = globalGetters.projectsList ? null : await $apiFetch(API_ROUTES.PROJECTS).catch(() => null)
 
-    onMounted(() => {
+    onMounted(async () => {
         // Hydrate the shared store so the aside + dashboard stay in sync.
         if (!globalGetters.projectsList && projectsData?.projects) {
-            globalActions.setProjects(projectsData.projects)
+            const { overlayLocalProjectTitles } = await import('~/composables/projects')
+            globalActions.setProjects(await overlayLocalProjectTitles(projectsData.projects))
         }
     })
 

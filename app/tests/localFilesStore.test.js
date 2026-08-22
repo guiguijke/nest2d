@@ -221,9 +221,9 @@ describe('localFilesStore', () => {
 
     it('makeLocalFileSlug : identifiant opaque, nom d origine absent', () => {
         const slug = filesStore.makeLocalFileSlug('Héllo Wörld 42!.DXF')
-        expect(slug).toMatch(/^f-[0-9a-f]{12}\.dxf$/)
-        expect(slug).not.toMatch(/hello|world|42/i)
-        expect(filesStore.makeLocalFileSlug('my part.svg')).toMatch(/^f-[0-9a-f]{12}\.svg$/)
+        expect(slug).toMatch(/^f-[0-9a-f]{16}\.dxf$/)
+        expect(slug).not.toMatch(/hello|world/i)
+        expect(filesStore.makeLocalFileSlug('my part.svg')).toMatch(/^f-[0-9a-f]{16}\.svg$/)
         expect(filesStore.makeLocalFileSlug('x.dxf')).not.toBe(filesStore.makeLocalFileSlug('x.dxf'))
     })
 })

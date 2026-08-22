@@ -16,4 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY stripnesting/ .
 
+RUN groupadd --system appuser && useradd --system --gid appuser --home-dir /app --no-create-home appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["python", "main.py"]

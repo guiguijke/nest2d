@@ -17,7 +17,8 @@ function setResults(results) {
 async function getProjects() {
     try {
         const data = await $fetch(API_ROUTES.PROJECTS);
-        setProjects(data.projects)
+        const { overlayLocalProjectTitles } = await import('./projects')
+        setProjects(await overlayLocalProjectTitles(data.projects))
     } catch (error) {
         console.error("Error fetching projects:", error);
     }

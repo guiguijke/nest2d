@@ -56,7 +56,7 @@ beforeEach(() => {
 describe('importLocalFile (J-090)', () => {
     it('stores a full record (geometry + canonical bytes + preview) in IndexedDB', async () => {
         const record = await importLocalFile(fakeFile('bracket.dxf'), 'proj-1')
-        expect(record.slug).toMatch(/^f-[0-9a-f]{12}\.dxf$/)
+        expect(record.slug).toMatch(/^f-[0-9a-f]{16}\.dxf$/)
         expect(record.name).toBe('bracket.dxf')
         expect(record.slug).not.toContain('bracket')
         expect(record.projectSlug).toBe('proj-1')

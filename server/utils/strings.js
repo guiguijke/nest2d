@@ -12,6 +12,32 @@ export function generateRandomString(count) {
   return bytes.toString("hex").slice(0, count);
 }
 
+/**
+ * Opaque GridFS / file slug (pentest C-1). 16 hex chars = 64 bits of
+ * entropy — guessing a victim's file is no longer a hours-long brute
+ * force even without the /api/files rate limit. The original filename
+ * is stored separately on the Mongo file record for the owner's UI.
+ */
+export const FILE_SLUG_RANDOM_LEN = 16
+export const PROJECT_SLUG_RANDOM_LEN = 12
+
+export function makeOpaqueFileSlug(ext) {
+  const raw = String(ext || "").toLowerCase();
+  const kept = raw.startsWith(".") ? raw : raw ? `.${raw}` : ".dxf";
+  return `f-${generateRandomString(FILE_SLUG_RANDOM_LEN)}${kept}`;
+}
+
+/** Project title from an uploaded basename (cloud path — names already on the server). */
+export function titleFromFileName(name) {
+  const base = String(name || "")
+    .replace(/^.*[/\\]/, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[\u0000-\u001f<>:"|?*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return base.slice(0, 80);
+}
+
 export function generateEntityName() {
   const adjectives = [
     "brave",

@@ -11,8 +11,8 @@ from worker_common.logger import setup_logger
 from worker_common.geometry.units import insunits_to_mm, insunits_code
 from ezdxf.math import Matrix44
 from ezdxf.render.hatching import hatch_entity
-from ezdxf.disassemble import recursive_decompose
 from ezdxf.entities import DXFGraphic
+from worker_common.geometry.dxf_bounds import assert_insert_depth, decompose_bounded
 
 logger = setup_logger("dxf_utils")
 
@@ -80,7 +80,8 @@ def read_dxf_file(dxf_path: str, normalize_units: bool = True) -> Drawing | None
     new_doc = ezdxf.new()
     new_msp = new_doc.modelspace()
 
-    flattened_entities = list(recursive_decompose(msp))
+    assert_insert_depth(doc)
+    flattened_entities = decompose_bounded(msp)
 
     # Decompose FIRST (block INSERTs are resolved into flat primitives in
     # modelspace coordinates), THEN scale: non-scaled block definitions can

@@ -9,7 +9,7 @@
                     class="content__chip"
                 />
             </div>
-            <p v-if="!isDemo" class="content__count">{{ t('project.files', { n: filesCount }) }}</p>
+            <p v-if="!isDemo && filesCount > 0" class="content__count">{{ t('project.files', { n: filesCount }) }}</p>
         </header>
         <p v-if="privacyStatus" class="content__privacy">{{ privacyStatus }}</p>
         <div v-if="isDemo" class="demo-banner">
@@ -84,8 +84,11 @@
         <div v-if="isDemo && demoQuotaReached && !demoUnlimited" class="content__error">
             {{ t('demo.quotaEmpty') }}
         </div>
+        <p v-if="isLocalProject && filesCount === 0 && !localImportError" class="content__privacy">
+            {{ t('localImport.emptyBrowser') }}
+        </p>
         <div v-if="nestRequestError" class="content__error">
-            {{ nestRequestError }}
+            {{ t(nestRequestError) }}
         </div>
         <div v-if="localImportError" class="content__error">
             {{ t(localImportError) }}
@@ -454,7 +457,7 @@ const sheetCapExceeded = computed(() => {
 // Server-side defense actually fired (client mirror bypassed) — from the store.
 const sheetCapServerError = computed(() => filesGetters.sheetCapError)
 const btnIsDisable = computed(() => {
-    return Boolean(unref(nestRequestError)) || !unref(isNewParams) || !unref(resultsList) || !unref(sizesIsAvailable) || unref(sheetCapExceeded)
+    return Boolean(unref(nestRequestError)) || unref(filesCount) < 1 || !unref(isNewParams) || !unref(resultsList) || !unref(sizesIsAvailable) || unref(sheetCapExceeded)
 })
 const addFiles = (files) => {
     actions.addFiles(files, slug)
@@ -484,6 +487,7 @@ const startsNest = () => {
         align-items: center;
         gap: 8px 10px;
         min-width: 0;
+        flex: 1;
     }
 
     &__title {
@@ -491,6 +495,10 @@ const startsNest = () => {
         font-size: 20px;
         font-weight: 600;
         color: var(--label-primary);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     &__privacy {

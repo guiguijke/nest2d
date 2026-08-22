@@ -18,6 +18,7 @@ Conventions:
     lines, never outlined — cutting convention.
 """
 import math
+import re
 from io import BytesIO
 
 import ezdxf
@@ -82,12 +83,20 @@ def _flatten_path(path):
             yield points, closed
 
 
+# Internal DTD entities ("billion laughs") expand in xml.etree before
+# svgelements walks the tree (pentest H-4). External XXE is already
+# impossible with ElementTree; this blocks the remaining memory bomb.
+_ENTITY_RE = re.compile(br"<!ENTITY\b", re.IGNORECASE)
+
+
 def svg_bytes_to_drawing(svg_bytes):
     """Parses SVG bytes into an ezdxf Drawing in canonical mm.
 
     Raises ValueError when no convertible geometry is found (the caller maps
     that to a clean file-processing error instead of a crash).
     """
+    if _ENTITY_RE.search(svg_bytes or b""):
+        raise ValueError("SVG DTD entities are not allowed")
     try:
         svg = SVG.parse(BytesIO(svg_bytes), reify=True)
     except Exception as e:

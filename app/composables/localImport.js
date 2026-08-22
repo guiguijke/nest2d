@@ -9,6 +9,7 @@
  */
 import { geoImportFile, geoCanonicalDxf } from './geometryClient'
 import { makeLocalFileSlug } from './localFilesStore'
+import { MAX_UPLOAD_FILE_BYTES } from '~~/shared/constants/upload.constants'
 
 // Miroir EXACT de workers/common/worker_common/colors.py — ne pas diverger
 // (le rendu liste/live/résultat partage cette palette).
@@ -99,8 +100,17 @@ export async function importLocalFile(file, projectSlug) {
     if (!ACCEPTED_EXTENSIONS.includes(ext)) {
         throw new Error('localImport.unsupportedType')
     }
+    if (file.size > MAX_UPLOAD_FILE_BYTES) {
+        throw new Error('upload.tooLarge')
+    }
 
     const bytes = new Uint8Array(await file.arrayBuffer())
+    if (ext === '.svg') {
+        const head = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, 65536))
+        if (/<!ENTITY\b/i.test(head)) {
+            throw new Error('localImport.parseError')
+        }
+    }
     let imported
     try {
         imported = await geoImportFile(bytes)

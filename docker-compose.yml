@@ -98,10 +98,10 @@ services:
       NUXT_ADMIN_SESSION_SECRET: ${NUXT_ADMIN_SESSION_SECRET:-}
       NUXT_ADMIN_NOTIFY_EMAIL: ${NUXT_ADMIN_NOTIFY_EMAIL:-}
       NUXT_ADMIN_BASE_URL: ${NUXT_ADMIN_BASE_URL:-http://localhost:7200}
-      NUXT_ADMIN_LAN_OPEN: ${NUXT_ADMIN_LAN_OPEN:-true}
+      NUXT_ADMIN_LAN_OPEN: ${NUXT_ADMIN_LAN_OPEN:-false}
       # Miroir PUBLIC de la clé ci-dessus (le garde-route client lit
       # public.adminLanOpen) — les deux doivent rester égaux.
-      NUXT_PUBLIC_ADMIN_LAN_OPEN: ${NUXT_ADMIN_LAN_OPEN:-true}
+      NUXT_PUBLIC_ADMIN_LAN_OPEN: ${NUXT_ADMIN_LAN_OPEN:-false}
       NUXT_PUBLIC_BASE_URL: ${NUXT_PUBLIC_BASE_URL}
       NUXT_STRIPE_SECRET_KEY: ${NUXT_STRIPE_SECRET_KEY:-}
       NUXT_RESEND_TOKEN: ${NUXT_RESEND_TOKEN:-}
@@ -126,6 +126,9 @@ services:
     # the host (e.g. with mongosh / a GUI).
     # ports:
     #   - "127.0.0.1:27017:27017"
+    # Auth is OFF by default (internal docker net only). Turning it on
+    # requires creating users on an existing volume — do not flip this in
+    # production without a migration (pentest H-1). See .env.example.
     healthcheck:
       test:
         - CMD
@@ -180,6 +183,12 @@ services:
       NEST_APP_URL: ${NEST_APP_URL:-http://app:3000}
       WORKER_TAG: normal
       MAX_ENTITY_LIMIT: 999
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 2g
+    pids_limit: 512
     depends_on:
       mongo:
         condition: service_healthy
@@ -203,6 +212,12 @@ services:
       NEST_COMPUTE_TOKENS: ${NEST_COMPUTE_TOKENS:-16}
     deploy:
       replicas: ${NEST_WORKER_REPLICAS:-2}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 2g
+    pids_limit: 512
     depends_on:
       mongo:
         condition: service_healthy
@@ -219,6 +234,12 @@ services:
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
       NEST_APP_URL: ${NEST_APP_URL:-http://app:3000}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 2g
+    pids_limit: 512
     depends_on:
       mongo:
         condition: service_healthy
@@ -235,6 +256,12 @@ services:
     environment:
       MONGO_URI: mongodb://mongo:27017/nest2d
       NEST_APP_URL: ${NEST_APP_URL:-http://app:3000}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 2g
+    pids_limit: 512
     depends_on:
       mongo:
         condition: service_healthy

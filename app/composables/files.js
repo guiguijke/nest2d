@@ -153,15 +153,19 @@ async function getProject(path) {
         const data = await $fetch(path)
         state.projectLocal = Boolean(data.local)
         state.projectDemo = Boolean(data.isDemo)
-        if (data.name) setProjectName(data.name)
         if (data.local) {
             // J-090 : les fichiers d'un projet « 100 % privé » vivent dans
             // IndexedDB — le serveur ne sert que le nom/slug du projet.
             const { listLocalFiles } = await import('./localFilesStore')
             const { localRecordToUiFile } = await import('./localImport')
+            const { titleFromFileName } = await import('../utils/projectTitle')
             const records = await listLocalFiles(data.slug)
             setProjectFiles(records.map(localRecordToUiFile), path)
+            // Display name from the first file, IndexedDB only — never PATCH.
+            const fromFile = titleFromFileName(records[0]?.name)
+            setProjectName(fromFile || data.name || '')
         } else {
+            if (data.name) setProjectName(data.name)
             setProjectFiles(data.files, path)
         }
     } catch (error) {
@@ -431,10 +435,11 @@ export const filesStore = readonly({
         params: computed(() => state.params),
         nestRequestError: computed(() => {
             if (filesStore.getters.filesCount < 1) {
-                return 'Please select at least one file to nest.'
+                // Local empty IndexedDB is a state, not a form error (ux1).
+                return state.projectLocal ? '' : 'project.needFiles'
             }
             if (state.isValidParams) {
-                return 'Please enter valid values for every sheet (width, height, count) and spacing.'
+                return 'project.invalidParams'
             }
 
             return ''

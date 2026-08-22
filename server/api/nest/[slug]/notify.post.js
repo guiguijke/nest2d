@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
 
     const nestSlug = getRouterParam(event, "slug");
 
-    await db.collection("nesting_jobs").updateOne(
+    const result = await db.collection("nesting_jobs").updateOne(
         {
             slug: nestSlug,
             ownerId: userId
@@ -34,5 +34,13 @@ export default defineEventHandler(async (event) => {
         }
     );
 
+    if (result.matchedCount === 0) {
+        throw createError({
+            statusCode: 404,
+            statusMessage: "Not found",
+        });
+    }
+
     logger.info(`Updated email notification setting for nest ${nestSlug} to need_notify`);
+    return { ok: true };
 });

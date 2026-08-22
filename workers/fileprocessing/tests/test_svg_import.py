@@ -27,6 +27,17 @@ def _wrap(inner, width='100mm', height='100mm', viewbox='0 0 100 100'):
     ).encode()
 
 
+class TestEntityBomb:
+    def test_dtd_entity_is_rejected(self):
+        bomb = (
+            b'<?xml version="1.0"?>'
+            b'<!DOCTYPE svg [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;">]>'
+            b'<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>'
+        )
+        with pytest.raises(ValueError, match="DTD entities"):
+            svg_bytes_to_drawing(bomb)
+
+
 class TestDetectFormat:
     def test_svg_signature(self):
         assert detect_format(b'<?xml version="1.0"?>\n<svg xmlns="..."><rect/></svg>') == 'svg'

@@ -54,4 +54,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY fileprocessing/ .
 
+# Non-root: dwgread (LibreDWG C parser) must not run as root if a crafted
+# DWG ever hits a parser bug (pentest C-2). Binaries in /usr/local stay
+# world-executable; the worker only needs write access to /app and /tmp.
+RUN groupadd --system appuser && useradd --system --gid appuser --home-dir /app --no-create-home appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["python", "main.py"]

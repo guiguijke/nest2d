@@ -106,6 +106,11 @@ const isHomePage = computed(() => {
         margin: 24px auto;
         max-width: 1760px;
         width: 100%;
+        padding-bottom: 64px;
+
+        @media (min-width: 1199px) {
+            padding-bottom: 24px;
+        }
     }
     &__line {
         position: relative;
@@ -113,8 +118,8 @@ const isHomePage = computed(() => {
     }
     &__btn {
         position: fixed;
-        bottom: 120px;
-        right: 40px;
+        bottom: 16px;
+        right: 16px;
         z-index: 3;
 
         @media (min-width: 1199px) {
