@@ -16,6 +16,9 @@
 > **Ne jamais écrire `[prod]` sur du non-livré.** La copy publique (site
 > marketing, page `/plans`, README) suit la mise en prod réelle des
 > features — jamais l'inverse (§5, règle 4).
+>
+> Promesses privacy : `docs/THREAT-MODEL.md` (état 2026-08-22). Contrôles
+> techniques / pentest : `docs/CYBERSECURITY.md`.
 
 ## 1. Tiers
 
@@ -49,10 +52,13 @@ Correspondance des noms (le code n'est pas renommé à ce stade) :
 ### Unlimited — 19 €/mois
 
 - Nestings illimités, tôles illimitées [prod].
-- Calcul serveur [prod] **ou navigateur, au choix** (toggle « Lieu de
-  calcul », défaut serveur — un payant ne voit rien changer) [prod, flag ON
-  2026-08-08]. DWG ⇒ serveur dans tous les cas (local = DXF+SVG).
-- Notifications email de fin de nesting [prod].
+- Calcul serveur **ou** navigateur [prod, flags ON] : le choix visible
+  est **à la création du projet** (cartes Cet appareil / Nos serveurs),
+  pas un toggle « Lieu de calcul » séparé (clés i18n `localMode.*`
+  orphelines). DWG ⇒ nos serveurs dans tous les cas.
+- Notifications email de fin de nesting [spéc — chaîne inatteignable :
+  `emailNotify` n'est posé que par une route sans appelant, AGENTS #38.
+  Soit recâbler à l'enqueue, soit retirer le claim `/plans`].
 
 ### Pro — 39 €/mois
 
@@ -100,12 +106,9 @@ produit sans protéger l'utilisateur.
 
 - **Contenu complet visible dans TOUS les plans** : métriques par tôle,
   ft², offcut (réutilisable ou ferraille), densité [prod].
-- **Exports CSV / PDF / presse-papier = Unlimited+** [prod, PR#19] — les exports
-  client existants (CSV, copie presse-papier, aujourd'hui libres) passent
-  derrière un état verrouillé propre en free ; l'export PDF n'existe pas
-  encore. L'état verrouillé est un **message explicite** (du type
-  « L'export fait désormais partie d'Unlimited » + CTA) — jamais un bouton
-  qui disparaît : la frustration devient argument d'upgrade.
+- **Exports CSV / presse-papier = Unlimited+** [prod, PR#19] — état
+  verrouillé explicite en free (jamais un bouton qui disparaît).
+  **Export PDF : pas implémenté** [spéc].
 - **Historique des rapports** et **coût matière** (prix/tôle → coût job) :
   candidats Pro futurs [spéc].
 - Rappel canonique : la densité du rapport est **mesurée** sur les

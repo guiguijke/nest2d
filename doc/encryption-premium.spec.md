@@ -1,17 +1,13 @@
-# Spec v2 — Tier « Confidentialité+ » : chiffrement zero-knowledge par fichier-clé
+# Spec v2 — Coffre zero-knowledge (fichier-clé)
 
-> **Statut** : spécification pour implémentation — **agent unique désigné**.
-> ⚠️ Pour éviter les conflits, un seul agent de codage modifie le code à la
-> fois. Ce document est la source de vérité ; toute divergence s'y résout.
+> **Statut 2026-08-22 : LIVRÉ** (opt-in tous plans, D-PRV-7 en prod).
+> Référence crypto / cycle de vie. Promesses : `docs/THREAT-MODEL.md`.
+> Posture sécu : `docs/CYBERSECURITY.md`. Le badge marketing Pro n'est
+> plus « Confidentialité+ » mais **Compute+**.
 >
 > ⚠️ **Mise à jour 2026-08-05 — le §5 (gating commercial) est REMPLACÉ** :
-> le vault ZK devient **opt-in sur TOUS les plans** (la privacy n'est
-> jamais une feature payante) ; le retrait du gate `hasPrivacyTier` est un
-> chantier Phase 1. Le durcissement niveau 1 (DEK en RAM seule, livraison
-> ECDH éphémère, suppression du wrap master key décrit au §2) remettra à
-> jour le mécanisme de session — voir `docs/STRATEGY.md` et
-> `docs/THREAT-MODEL.md`. Le reste de cette spec (fichier-clé, crypto,
-> format chiffré, cycle de vie) reste la référence d'implémentation.
+> le vault ZK est **opt-in sur TOUS les plans** (la privacy n'est jamais
+> une feature payante) ; le gate `hasPrivacyTier` est retiré [prod].
 >
 > ✅ **Mise à jour 2026-08-11 — D-PRV-7 LIVRÉ** : le mécanisme de session
 > décrit historiquement au §2 (collection `session_keys`, DEK wrappée sous

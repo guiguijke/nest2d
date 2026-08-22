@@ -232,8 +232,7 @@ const comparisonRows = computed(() => [
     { label: t('plans.compare.multiSheet'), values: [true, true, true] },
     { label: t('plans.compare.heterogeneous'), values: [true, true, true] },
     { label: t('plans.compare.export'), values: [true, true, true] },
-    { label: t('plans.compare.emailNotif'), values: [false, true, true] },
-    // Opt-in on every plan (D-PRV-5, J-049) — privacy is never a paid feature.
+    // Email de fin de nesting : chaîne inatteignable (AGENTS #38) — pas de claim.
     { label: t('plans.compare.zeroKnowledge'), values: [true, true, true] },
     { label: t('plans.compare.trial'), values: [false, true, true] },
 ])

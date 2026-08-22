@@ -16,8 +16,9 @@ toucher au moteur, au worker Python ou au visualizer.
 > **Stratégie produit (commitée) : `docs/STRATEGY.md`** — tiers
 > Free/Unlimited/Pro, spectre privacy, rapport matière, codes promo,
 > roadmap 2 phases, avec marqueurs `[prod]` / `[spéc]` / `[conditionnel]`
-> (jamais `[prod]` sur du non-livré). Promesses privacy exactes et threat
-> model : `docs/THREAT-MODEL.md` (interne, ne pas publier).
+> (jamais `[prod]` sur du non-livré). Promesses privacy exactes :
+> `docs/THREAT-MODEL.md` (interne, ne pas publier). Posture sécu /
+> pentest : `docs/CYBERSECURITY.md` (interne).
 
 ## 1. Architecture
 
