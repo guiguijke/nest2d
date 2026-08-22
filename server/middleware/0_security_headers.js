@@ -11,7 +11,10 @@ const CSP = [
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    "connect-src 'self' https://www.clarity.ms https://*.clarity.ms https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://api.stripe.com",
+    // blob: : dxf-viewer fetch() les DXF locaux (IndexedDB → createObjectURL).
+    // Sans ça Firefox lève « NetworkError when attempting to fetch resource »
+    // alors que l'aperçu SVG (img-src data:) continue de marcher.
+    "connect-src 'self' blob: https://www.clarity.ms https://*.clarity.ms https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://api.stripe.com",
     "worker-src 'self' blob:",
     "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
     "frame-ancestors 'self'",

@@ -88,7 +88,8 @@ par le rate-limit + l'entropie.
 ## 6. Headers & front
 
 Présents en prod HTTPS : HSTS, CSP (wasm-unsafe-eval + unsafe-inline
-Nuxt), `X-Frame-Options: SAMEORIGIN`, `nosniff`, Referrer-Policy.
+Nuxt ; `connect-src` inclut `blob:` pour le fetch dxf-viewer des DXF
+locaux), `X-Frame-Options: SAMEORIGIN`, `nosniff`, Referrer-Policy.
 `x-powered-by` retiré.
 Cookie tracking `nest2d_session_id` : `secure` (prod) + `sameSite=lax`,
 lisible JS (funnel). Noms de fichiers affichés via templates Vue

@@ -296,6 +296,12 @@ admin/                 (back-office Nuxt)
     doit fournir des `compute`/`progress` synthétiques à LiveNestingView :
     ils étaient `null` en local → compteur de combinaisons et ×N cœurs
     jamais visibles (constat 2026-08-12, la vue SSE avait tout).
+24c. **CSP `connect-src` doit inclure `blob:`** : dxf-viewer `Load({url})`
+    fait un `fetch` sur l'URL. Les jobs locaux hydratent le DXF via
+    `createObjectURL` (`localHydrate.dxfToBlobUrl`). `img-src blob:` ne
+    couvre pas le fetch — sans `blob:` dans `connect-src`, Firefox
+    affiche « NetworkError when attempting to fetch resource » (l'aperçu
+    SVG data: continue de marcher). Constat prod 2026-08-22.
 
 ### Unités (mm canonique + inches)
 25. **mm canonique interne, conversion aux 3 frontières seulement** :
