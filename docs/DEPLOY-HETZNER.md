@@ -106,6 +106,9 @@ puis http://localhost:7200 — sans password (LAN_OPEN actif).
 
 - Stripe : webhook `https://app.nestorcut.com/api/stripe/webhook`
   (`NUXT_STRIPE_SECRET_KEY` + `NUXT_STRIPE_WEBHOOK_SECRET` dans le `.env`).
+  ⚠ Si le webhook est recréé dans Stripe, réactiver les **11 événements**, dont
+  `checkout.session.completed`, `checkout.session.expired` (tentatives abandonnées)
+  et `invoice.payment_failed` (échecs de débit → collection `payment_failures`).
 - Google OAuth : redirect `https://app.nestorcut.com/auth/google/callback`.
 - Resend (emails) : `NUXT_RESEND_TOKEN` / `NUXT_RESEND_FROM`.
 - Notifications signup admin : `NUXT_ADMIN_NOTIFY_EMAIL`.
