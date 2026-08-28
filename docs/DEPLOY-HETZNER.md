@@ -42,6 +42,10 @@ docker compose --profile admin up -d --force-recreate app admin   # après modif
 ```
 
 ⚠ `--force-recreate` est **obligatoire** après toute modif du `.env` (env_file n'est pas rechargé sinon).
+⚠ Après un push, attendre le workflow **« Build and publish Docker images »** (≈ 10 min) avant de
+`pull` : le workflow `app-ci` porte le même titre de commit mais ne publie aucune image —
+vérifier avec `gh run list` (colonne workflow name) et déployer seulement quand
+« Build and publish Docker images » est `completed`.
 
 ## Accès admin
 
