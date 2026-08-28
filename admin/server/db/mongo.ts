@@ -37,6 +37,7 @@ export const COL = {
   stripJobQueue: 'strip_nesting_job_queue',
   transactions: 'transactions',
   subscriptionCheckouts: 'subscription_checkouts',
+  paymentFailures: 'payment_failures',
   subscriptionPlan: 'subscription_plan',
   paywallProduct: 'paywallProduct',
   promoCodes: 'promoCodes',

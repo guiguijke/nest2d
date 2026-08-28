@@ -57,6 +57,12 @@ const indexes = [
   // webhook retries idempotent: the second concurrent insert loses the race
   // with a duplicate key error instead of pushing a duplicate receipt.
   ['accounting_entries', { stripeInvoiceId: 1 }, { unique: true, name: 'uniq.stripeInvoiceId' }],
+
+  // ── payment failures (invoice.payment_failed webhook) ──
+  // One doc per (invoice, retry attempt); upsert idempotency for webhook
+  // redeliveries.
+  ['payment_failures', { stripeInvoiceId: 1, attempt: 1 }, { unique: true, name: 'uniq.invoiceAttempt' }],
+  ['payment_failures', { createdAt: -1 }, { name: 'createdAt_desc' }],
 ]
 
 let created = 0

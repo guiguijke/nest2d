@@ -53,8 +53,12 @@ export default defineEventHandler(async (event) => {
     try {
         if (type === 'checkout.session.completed') {
             await handleCheckoutCompleted(db, object)
+        } else if (type === 'checkout.session.expired') {
+            await handleCheckoutExpired(db, object)
         } else if (type === 'invoice.payment_succeeded') {
             await handleInvoicePaid(db, object)
+        } else if (type === 'invoice.payment_failed') {
+            await handleInvoicePaymentFailed(db, object)
         } else if (type === 'customer.subscription.created' || type === 'customer.subscription.updated') {
             await handleSubscriptionChange(db, object)
         } else if (type === 'customer.subscription.deleted') {
@@ -99,6 +103,68 @@ async function handleCheckoutCompleted(db, session) {
         await db.collection('users').updateOne({ id: userId }, { $set: { subscription: mapped } })
         logger.info(`[${tag}] Checkout completed`, { userId, status: mapped.status })
     }
+}
+
+/**
+ * Stripe expires abandoned checkout sessions after 24h. Flip them to
+ * 'expired' so the admin funnel can tell "still deciding" (created) from
+ * "gone" (expired). The polling sync marks these too when it happens to see
+ * one — this webhook is the reliable path.
+ */
+async function handleCheckoutExpired(db, session) {
+    const checkoutId = session?.id
+    if (!checkoutId) return
+
+    await db
+        .collection('subscription_checkouts')
+        .updateOne(
+            { checkoutId, status: { $ne: 'completed' } },
+            { $set: { status: 'expired', updatedAt: new Date() } }
+        )
+    logger.info(`[${tag}] Checkout expired`, { checkoutId })
+}
+
+/**
+ * A charge was declined — first subscription payment or a renewal. Card
+ * retries arrive as one event per attempt (attempt_count). Persisted in
+ * payment_failures for the admin panel; the subscription state itself
+ * (past_due…) is updated by the subscription events that follow and by the
+ * polling sync. Upsert keyed on (stripeInvoiceId, attempt) so webhook
+ * retries stay idempotent.
+ */
+async function handleInvoicePaymentFailed(db, invoice) {
+    const stripeInvoiceId = invoice?.id
+    if (!stripeInvoiceId) return
+
+    const customerId = invoice.customer || null
+    const user = customerId
+        ? await db
+              .collection('users')
+              .findOne({ stripeCustomerId: customerId }, { projection: { id: 1, email: 1 } })
+        : null
+
+    const attempt = invoice.attempt_count || 1
+    await db.collection('payment_failures').updateOne(
+        { stripeInvoiceId, attempt },
+        {
+            $setOnInsert: {
+                stripeInvoiceId,
+                attempt,
+                userId: user?.id || null,
+                email: user?.email || invoice.customer_email || null,
+                stripeCustomerId: customerId,
+                stripeSubscriptionId: invoice.subscription || null,
+                amountDue: invoice.amount_due ?? null,
+                currency: invoice.currency || null,
+                nextRetryAt: invoice.next_payment_attempt
+                    ? new Date(invoice.next_payment_attempt * 1000)
+                    : null,
+                createdAt: new Date(),
+            },
+        },
+        { upsert: true }
+    )
+    logger.warn(`[${tag}] Invoice payment failed`, { stripeInvoiceId, attempt, userId: user?.id })
 }
 
 /**

@@ -52,6 +52,15 @@ async function resolvePendingCheckouts(db) {
                 userId: checkout.userId,
                 status: mapped.status,
             });
+        } else if (session?.status === "expired") {
+            // Stripe gave up on this session (24h abandoned checkout) —
+            // record it so the admin funnel separates it from pending ones.
+            await db
+                .collection("subscription_checkouts")
+                .updateOne(
+                    { _id: checkout._id },
+                    { $set: { status: "expired", updatedAt: new Date() } }
+                );
         } else {
             // Not paid/created yet — return to the queue for another attempt.
             await db

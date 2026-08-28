@@ -125,6 +125,7 @@ export async function deleteUserAccount(event, user) {
         'passwordResets',
         'emailVerifications',
         'subscription_checkouts',
+        'payment_failures',
         'supportMessages',
         'tracking',
         'http',
