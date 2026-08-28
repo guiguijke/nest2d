@@ -7,6 +7,7 @@
     const search = ref((route.query.q as string) || '')
     const status = ref((route.query.status as string) || '')
     const provider = ref((route.query.provider as string) || '')
+    const country = ref((route.query.country as string) || '')
     const sort = ref((route.query.sort as string) || '')
     const page = ref(parseInt((route.query.page as string) || '1') || 1)
     const limit = 50
@@ -20,16 +21,17 @@
             refresh()
         }, 300)
     })
-    // Changing the sort order re-reads from page 1, like a new filter.
-    watch(sort, () => {
+    // Changing the sort order or country re-reads from page 1, like a new filter.
+    watch([sort, country], () => {
         page.value = 1
     })
-    watch([status, provider, sort, page], () => refresh())
+    watch([status, provider, country, sort, page], () => refresh())
 
     const queryParams = computed(() => ({
         q: search.value || undefined,
         status: status.value || undefined,
         provider: provider.value || undefined,
+        country: country.value || undefined,
         sort: sort.value || undefined,
         page: page.value,
         limit,
@@ -40,18 +42,25 @@
         credentials: 'include',
     })
 
+    // Country filter options (distinct signup countries with counts).
+    const { data: countryData } = await useFetch('/api/users/countries', {
+        credentials: 'include',
+    })
+    const countries = computed(() => countryData.value?.countries || [])
+
     function syncUrl() {
         router.replace({
             query: {
                 q: search.value || undefined,
                 status: status.value || undefined,
                 provider: provider.value || undefined,
+                country: country.value || undefined,
                 sort: sort.value || undefined,
                 page: page.value,
             },
         })
     }
-    watch([search, status, provider, sort, page], syncUrl)
+    watch([search, status, provider, country, sort, page], syncUrl)
 
     function fmtDate(d: any) {
         if (!d) return '—'
@@ -82,6 +91,71 @@
         if (u.grantedUntil && new Date(u.grantedUntil) > new Date())
             return { text: 'Offert', cls: 'bg-blue/15 text-blue' }
         return { text: 'Gratuit', cls: 'bg-marine-700 text-ink-300' }
+    }
+
+    // ---- Copie d'emails ----
+    // The admin panel is served over plain http on the LAN: the async
+    // Clipboard API needs a secure context, so fall back to execCommand.
+    async function copyText(text: string): Promise<boolean> {
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text)
+                return true
+            }
+        } catch {
+            /* fall through to execCommand */
+        }
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        let ok = false
+        try {
+            ok = document.execCommand('copy')
+        } catch {
+            ok = false
+        }
+        document.body.removeChild(ta)
+        return ok
+    }
+
+    const copiedId = ref<string | null>(null)
+    async function copyEmail(u: any) {
+        if (!u.email) return
+        if (await copyText(u.email)) {
+            copiedId.value = u.id
+            setTimeout(() => {
+                if (copiedId.value === u.id) copiedId.value = null
+            }, 1200)
+        }
+    }
+
+    const copyingAll = ref(false)
+    const copyAllState = ref<'idle' | 'done' | 'empty' | 'error'>('idle')
+    async function copyFilteredEmails() {
+        copyingAll.value = true
+        copyAllState.value = 'idle'
+        try {
+            const res: any = await $fetch('/api/users', {
+                query: { ...queryParams.value, emails: 1 },
+                credentials: 'include',
+            })
+            const emails = res?.emails || []
+            if (!emails.length) {
+                copyAllState.value = 'empty'
+            } else if (await copyText(emails.join('\n'))) {
+                copyAllState.value = 'done'
+            } else {
+                copyAllState.value = 'error'
+            }
+        } catch {
+            copyAllState.value = 'error'
+        } finally {
+            copyingAll.value = false
+            setTimeout(() => (copyAllState.value = 'idle'), 2500)
+        }
     }
 </script>
 
@@ -124,6 +198,22 @@
                     <option value="">Tous</option>
                     <option value="local">Local</option>
                     <option value="google">Google</option>
+                </select>
+            </div>
+            <div class="w-full sm:w-auto">
+                <label class="label">Pays</label>
+                <select
+                    v-model="country"
+                    class="input"
+                >
+                    <option value="">Tous</option>
+                    <option
+                        v-for="c in countries"
+                        :key="c.code"
+                        :value="c.code"
+                    >
+                        {{ c.code }} ({{ c.count }})
+                    </option>
                 </select>
             </div>
             <div class="w-full sm:w-auto">
@@ -174,7 +264,18 @@
                         >
                             <td class="px-3 py-2">
                                 <div class="font-medium text-white">{{ u.name || '—' }}</div>
-                                <div class="text-ink-400">{{ u.email }}</div>
+                                <div class="flex items-center gap-1">
+                                    <span class="text-ink-400">{{ u.email }}</span>
+                                    <button
+                                        v-if="u.email"
+                                        :title="copiedId === u.id ? 'Copié !' : 'Copier le mail'"
+                                        class="shrink-0 rounded border px-1 text-[10px] leading-4 transition-colors"
+                                        :class="copiedId === u.id ? 'border-ok/50 text-ok' : 'border-marine-700 text-ink-400 hover:text-blue'"
+                                        @click.stop="copyEmail(u)"
+                                    >
+                                        {{ copiedId === u.id ? '✓' : '⧉' }}
+                                    </button>
+                                </div>
                             </td>
                             <td class="px-3 py-2 text-ink-300">{{ u.provider }}</td>
                             <td class="px-3 py-2">
@@ -222,7 +323,20 @@
                             >{{ statusBadge(u).text }}</span
                         >
                     </div>
-                    <div class="truncate text-ink-400">{{ u.email }}</div>
+                    <div class="flex items-center gap-1">
+                        <span class="truncate text-ink-400">{{ u.email }}</span>
+                        <span
+                            v-if="u.email"
+                            role="button"
+                            tabindex="0"
+                            :title="copiedId === u.id ? 'Copié !' : 'Copier le mail'"
+                            class="shrink-0 rounded border px-1 text-[10px] leading-4"
+                            :class="copiedId === u.id ? 'border-ok/50 text-ok' : 'border-marine-700 text-ink-400'"
+                            @click.stop="copyEmail(u)"
+                            @keydown.enter.stop.prevent="copyEmail(u)"
+                            >{{ copiedId === u.id ? '✓' : '⧉' }}</span
+                        >
+                    </div>
                     <div class="flex items-center justify-between gap-2">
                         <span class="text-ink-400">Provider</span>
                         <span class="text-ink-300">{{ u.provider }}</span>
@@ -253,9 +367,20 @@
             </div>
 
             <!-- Pagination -->
-            <div class="flex items-center justify-between text-xs text-ink-400">
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-400">
                 <span>{{ data.total }} utilisateur(s) · page {{ data.page }} / {{ data.pages }}</span>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        class="btn-secondary"
+                        :disabled="copyingAll"
+                        @click="copyFilteredEmails"
+                    >
+                        <span v-if="copyingAll">Copie…</span>
+                        <span v-else-if="copyAllState === 'done'" class="text-ok">✓ Emails copiés</span>
+                        <span v-else-if="copyAllState === 'empty'">Aucun email</span>
+                        <span v-else-if="copyAllState === 'error'" class="text-err">Échec de la copie</span>
+                        <span v-else>⧉ Copier les emails (filtre courant)</span>
+                    </button>
                     <button
                         class="btn-secondary"
                         :disabled="data.page <= 1"

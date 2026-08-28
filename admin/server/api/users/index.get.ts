@@ -39,6 +39,18 @@ export default defineEventHandler(async (event) => {
     const db = await connectDB()
     const users = db.collection(COL.users)
 
+    // Bulk-email mode: same filters, but return every matching email (no
+    // pagination) so the UI can "copy all filtered emails" in one click —
+    // e.g. paste a segment straight into listmonk. Capped defensively.
+    if (q.emails === '1') {
+        const docs = await users
+            .find(query, { projection: { _id: 0, email: 1 } })
+            .sort(sort)
+            .limit(10000)
+            .toArray()
+        return { emails: docs.map((d: any) => d.email).filter(Boolean), total: docs.length }
+    }
+
     const [total, items] = await Promise.all([
         users.countDocuments(query),
         users
