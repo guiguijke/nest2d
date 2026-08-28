@@ -50,6 +50,17 @@ export default defineEventHandler(async (event) => {
 
     const db = await connectDB()
 
+    // Heartbeat for the admin "Santé Stripe" card: one small doc, refreshed
+    // on every VERIFIED event (signature checked above), so the panel can
+    // tell "webhooks flow" from "webhooks stopped" at a glance.
+    await db
+        .collection('stripe_status')
+        .updateOne(
+            { _id: 'last_webhook' },
+            { $set: { type, eventId: payload?.id || null, receivedAt: new Date() } },
+            { upsert: true }
+        )
+
     try {
         if (type === 'checkout.session.completed') {
             await handleCheckoutCompleted(db, object)

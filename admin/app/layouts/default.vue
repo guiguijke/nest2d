@@ -9,6 +9,7 @@ const lanOpen = computed(() => {
 const nav = [
   { to: '/', label: 'Tableau de bord', icon: '📊' },
   { to: '/activity', label: 'Activité', icon: '🕒' },
+  { to: '/retention', label: 'Rétention', icon: '📈' },
   { to: '/users', label: 'Utilisateurs', icon: '👥' },
   { to: '/jobs', label: 'Jobs', icon: '⚙️' },
   { to: '/geo', label: 'Géographie', icon: '🌍' },

@@ -157,6 +157,17 @@
             setTimeout(() => (copyAllState.value = 'idle'), 2500)
         }
     }
+
+    // CSV export of the current filter — plain link so the browser handles
+    // the download (Content-Disposition does the rest server-side).
+    const csvHref = computed(() => {
+        const params = new URLSearchParams()
+        for (const [k, v] of Object.entries(queryParams.value)) {
+            if (v !== undefined && v !== null && v !== '') params.set(k, String(v))
+        }
+        params.set('format', 'csv')
+        return `/api/users?${params.toString()}`
+    })
 </script>
 
 <template>
@@ -370,6 +381,12 @@
             <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-400">
                 <span>{{ data.total }} utilisateur(s) · page {{ data.page }} / {{ data.pages }}</span>
                 <div class="flex flex-wrap items-center gap-2">
+                    <a
+                        :href="csvHref"
+                        class="btn-secondary"
+                        download
+                        >⬇ Export CSV</a
+                    >
                     <button
                         class="btn-secondary"
                         :disabled="copyingAll"

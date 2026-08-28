@@ -5,6 +5,12 @@
         credentials: 'include',
     })
 
+    // Santé Stripe — fetched separately so a slow/hiccuping Stripe API never
+    // blocks the payments data itself.
+    const { data: health } = await useFetch('/api/payments/stripe-health', {
+        credentials: 'include',
+    })
+
     function fmtDate(d: any) {
         return d ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'
     }
@@ -12,9 +18,38 @@
         if (n == null) return '—'
         return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n)
     }
+    function fmtAge(d: any): string {
+        if (!d) return 'jamais'
+        const min = Math.floor((Date.now() - new Date(d).getTime()) / 60000)
+        if (min < 1) return "à l'instant"
+        if (min < 60) return `il y a ${min} min`
+        const h = Math.floor(min / 60)
+        if (h < 24) return `il y a ${h} h`
+        return `il y a ${Math.floor(h / 24)} j`
+    }
     function tierBadge(tier: string) {
         return tier === 'privacy' ? 'bg-blue/15 text-blue' : 'bg-marine-700 text-ink-300'
     }
+
+    // Webhook health: green < 1h, amber < 24h, red beyond (or never received).
+    const webhookBadge = computed(() => {
+        const d = health.value?.lastWebhook?.receivedAt
+        if (!d) return { text: 'Aucun webhook reçu', cls: 'bg-err/15 text-err' }
+        const h = (Date.now() - new Date(d).getTime()) / 3600000
+        if (h < 1) return { text: 'Webhooks OK', cls: 'bg-ok/15 text-ok' }
+        if (h < 24) return { text: 'Webhook ancien', cls: 'bg-warn/15 text-warn' }
+        return { text: 'Webhooks arrêtés ?', cls: 'bg-err/15 text-err' }
+    })
+    const balances = computed(() => {
+        const list = health.value?.stripe?.balance
+        if (!Array.isArray(list)) return []
+        return list
+            .filter((b: any) => b.currency === 'eur')
+            .map((b: any) => ({
+                label: b.pending ? 'en attente' : 'disponible',
+                value: fmtEur(b.amount / 100),
+            }))
+    })
 </script>
 
 <template>
@@ -32,6 +67,56 @@
         </div>
 
         <template v-else-if="data">
+            <!-- Stripe health -->
+            <section
+                v-if="health"
+                class="card space-y-2 p-4"
+            >
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold">Santé Stripe</h2>
+                    <span
+                        class="badge"
+                        :class="webhookBadge.cls"
+                        >● {{ webhookBadge.text }}</span
+                    >
+                </div>
+                <div class="grid gap-2 text-xs md:grid-cols-3">
+                    <div>
+                        <div class="text-ink-400">Dernier webhook reçu</div>
+                        <div class="text-ink-200">
+                            <template v-if="health.lastWebhook">
+                                {{ health.lastWebhook.type }} · {{ fmtAge(health.lastWebhook.receivedAt) }}
+                            </template>
+                            <template v-else>jamais (endpoint config ?)</template>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-ink-400">Dernier événement côté Stripe</div>
+                        <div class="text-ink-200">
+                            <template v-if="health.stripe?.error"><span class="text-err">Stripe injoignable : {{ health.stripe.error }}</span></template>
+                            <template v-else-if="health.stripe?.lastEvent">
+                                {{ health.stripe.lastEvent.type }} · {{ fmtAge(health.stripe.lastEvent.created) }}
+                            </template>
+                            <template v-else>—</template>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-ink-400">Solde du compte</div>
+                        <div class="text-ink-200">
+                            <template v-if="balances.length">
+                                <span
+                                    v-for="b in balances"
+                                    :key="b.label"
+                                    class="mr-2"
+                                    >{{ b.value }} <span class="text-ink-400">({{ b.label }})</span></span
+                                >
+                            </template>
+                            <template v-else>—</template>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Financial KPIs -->
             <section class="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <StatCard

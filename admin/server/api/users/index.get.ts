@@ -51,6 +51,54 @@ export default defineEventHandler(async (event) => {
         return { emails: docs.map((d: any) => d.email).filter(Boolean), total: docs.length }
     }
 
+    // CSV export mode: same filters, returns a downloadable spreadsheet.
+    // BOM + CRLF so Excel opens it with correct accents out of the box.
+    if (q.format === 'csv') {
+        const docs = await users
+            .find(query, {
+                projection: {
+                    _id: 0, id: 1, email: 1, name: 1, provider: 1, signupCountry: 1,
+                    createdAt: 1, lastActiveAt: 1, banned: 1, grantedUntil: 1, subscription: 1,
+                },
+            })
+            .sort(sort)
+            .limit(10000)
+            .toArray()
+        const esc = (v: any) => {
+            const s = v == null ? '' : String(v)
+            return /[",;\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+        }
+        const statut = (u: any) => {
+            if (u.banned) return 'banni'
+            if (u.subscription?.status === 'active' || u.subscription?.status === 'trialing') return 'abonne'
+            if (u.grantedUntil && new Date(u.grantedUntil) > new Date()) return 'offert'
+            return 'gratuit'
+        }
+        const iso = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '')
+        const header = ['email', 'nom', 'provider', 'pays', 'statut', 'inscrit le', 'derniere activite', 'abonnement', 'fin abonnement']
+        const lines = [header.join(',')]
+        for (const u of docs) {
+            lines.push(
+                [
+                    u.email || '',
+                    u.name || '',
+                    u.provider || '',
+                    u.signupCountry || '',
+                    statut(u),
+                    iso(u.createdAt),
+                    iso(u.lastActiveAt),
+                    u.subscription?.status || '',
+                    iso(u.subscription?.currentPeriodEnd),
+                ]
+                    .map(esc)
+                    .join(',')
+            )
+        }
+        setHeader(event, 'content-type', 'text/csv; charset=utf-8')
+        setHeader(event, 'content-disposition', `attachment; filename="utilisateurs-${new Date().toISOString().slice(0, 10)}.csv"`)
+        return '\uFEFF' + lines.join('\r\n')
+    }
+
     const [total, items] = await Promise.all([
         users.countDocuments(query),
         users
