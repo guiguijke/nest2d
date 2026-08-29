@@ -227,6 +227,18 @@ admin/                 (back-office Nuxt)
     `live_frame_matches_final_export_asymmetric` et
     `live_frame_map_back_matches_phase2_export` (progress.rs) — frame ≡
     export final à l'arrondi d'impression près, pièce asymétrique.
+14h. **Frames live BPP : le heartbeat (1 Hz) embarque le snapshot** — en
+    BPP une frame `layout` émise seulement sur amélioration de l'incumbent
+    gèle la vue pendant tout le plateau du recuit (« 1 maj et c'est tout »,
+    démo 2026-08-29) ; le callback `on_heartbeat` reçoit
+    `(iterations, &Cost, &BPSolution)` et émet `layout_event()`. Et le
+    SÉLECTEUR côté vue doit comparer le `remnant` (seul champ qui progresse
+    à bins égaux) sous peine d'ignorer toutes les améliorations du plateau.
+14i. **Le wasm garde le même nom de fichier** (`nest_wasm_bg.wasm`) : après
+    un rebuild, le navigateur sert l'ANCIEN depuis son cache HTTP — vider
+    (fetch `cache:'reload'` ou Ctrl+Shift+R) et vérifier par hash SHA-256
+    servi vs local avant de conclure « le fix ne marche pas » (constat
+    2026-08-29 : deux sessions de debug sur un wasm périmé).
 
 ### Métriques & pipeline Python
 15. **largest_empty_rectangle : compter les sommets DES TROUS** dans le
@@ -450,6 +462,55 @@ admin/                 (back-office Nuxt)
     propriétaire : recâbler (statut posé à l'enqueue selon le tier) ou
     retirer le claim + les 3 maillons.
 
+39. **Le test SPP « tout tient sur une tôle » mesure l'aire ENVELOPPE** :
+    l'aire nette (trous déduits) passe à tort sur les pièces à
+    découpes — le mode bande est forcé avec des pièces qui ne tiennent
+    pas (démo 2026-08-29 : ratio net 0,75 vs enveloppe 0,93 → 3 tôles
+    écrasées en 1, chevauchements). `total_outer_area` pour `is_spp`
+    (main.py + localPayloadBuilder.js), l'aire nette reste pour la
+    densité.
+40. **Le champion live (préférence d'une frame convergée sur le merge)
+    est SPP-ONLY** : en BPP une frame en cours d'optimisation n'est pas
+    une solution (pièces en vol, hors tôle) — `preferChampion`/
+    `settleFromChampion` gardés par `pool.isSpp` (localPool.js). Symptôme
+    signature : layoutCount 1 + share ~1,0 sur un job multi-tôles.
+41. **Alternative structurelle = vue ORIGINALE + auto-suffisante** : la
+    pré-passe « trous d'abord » peut vider l'instance de sa classe petite
+    (demande exacte) — le pass grille consomme les quantités COMPLÈTES
+    (parts), ordre A→C→trous→B, remplit ses trous lui-même, et la
+    finalisation SAUTE pour CETTE alt le remap idMap + l'expansion meta +
+    applyHoleFill (sinon : ids corrompus, fillers doublés, fans des zones
+    téléportées). `structure.py`/`structureClient.js`/
+    `localBridge.js`/`main.py` (2026-08-29).
+42. **Lattice analytique = TOUT-OU-RIEN par zone** : un sous-solve moteur
+    lancé dans une zone déjà pavée écrase le lattice (il ne voit pas les
+    pièces posées) ; et sa validation doit exigér `space +
+    2×NEST_SIMPLIFY_MM` — le DXF exporté copie les courbes BRUTES alors
+    que le layout se calcule sur les anneaux simplifiés (0,08 mm mesuré
+    vs 0,1 exigé avec la validation naive).
+43. **Un endpoint consommé EN MASSE par la page ne peut pas partager le
+    budget anti-brute-force** : /api/files/project/geometry/ = un appel
+    PAR FICHIER par chargement (24 pour la démo) vs 30 req/min/user →
+    429 en cascade sur tout /api/files (constat 2026-08-29). Budget
+    séparé (180/min, clé suffixée) dans 5_files_ratelimit.js.
+44. **SVG d'alternative : `alt.svg_files[0]` ne correspond PAS au rang
+    affiché** — la grille structurelle est APPENDUE en dernier rang
+    moteur puis triée en tête à l'affichage : les fichiers portent
+    `_alt3_` pour la stratégie grid d'un job à 3 alts moteur. Vérifier
+    par `strategy` du doc, jamais par l'index du nom de fichier.
+45. **Le garde anti-perte côté client aussi** : une alternative
+    structurelle incomplète ne doit jamais remplacer le résultat moteur —
+    `placed_items.length !== totalRequested → null` dans
+    buildGridAlternative (bug réel : placements de zone B non poussés,
+    689/900 livérés).
+46. **14g s'applique au BPP AUSSI** : `layout_event` (bpp/mod.rs) doit
+    composer `int_to_ext_transformation(d_transf, pre_transform)` comme
+    `emit_layout` SPP — jagua centre chaque pièce au centroïde à l'import,
+    une frame `d_transf` nue décale la pièce de son centroïde à l'écran
+    (défaut préexistant, devenu très visible au 1 Hz du heartbeat B.4 ;
+    l'export final, lui, compose toujours — une vérif physique de l'exporté
+    ne peut pas l'attraper, il faut un verrou frame-live ≈ export BPP).
+
 ## 3. Banc d'essai (workers/nesting/bench/)
 
 Boucle de test de bout en bout, sans UI :
@@ -486,14 +547,18 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 ## 5. Avant de pousser
 
 ```bash
-npx vitest run                                             # server (33)
-cd workers/nesting/engine && cargo test --release          # 64 + 1 ignore
-cd workers/nesting && python -m pytest tests/ -q           # 70 (PYTHONPATH=workers/common)
+npx vitest run                                             # app+server (321)
+cd workers/nesting/engine && cargo test --release -p nest-engine   # 61 + 1 ignore
+cd workers/nesting && python -m pytest tests/ -q --ignore=tests/test_integration_holes.py   # 103 (fixtures holes absentes en dev local)
 cd workers/common && python -m pytest tests/ -q            # 46
 cd workers/fileprocessing && python -m pytest tests/ -q    # 32 (+2 skipped)
 npx nuxt build                                             # app
 cd nestorcut-website && npm run build                      # site marketing
 ```
+
+Après tout changement moteur : rebuild le wasm dans la MÊME PR (piège
+#33b) ET vider le cache navigateur (piège 14i). Référence complète des
+correctifs 2026-08-28/29 : `docs/AUDIT-2026-08-29.md`.
 
 Benchmarks ESICUP (lents) : `pytest benchmarks/test_benchmarks.py -m slow`.
 Harnais A/B warm-start : `cargo test --release warm_start_160_ab -- --ignored --nocapture`.

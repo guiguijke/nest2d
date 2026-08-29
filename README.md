@@ -26,6 +26,9 @@ provided — if you want to nest parts, use the hosted service.
 - **DXF, SVG & DWG import** — content-signature detection, all conversions
   run in our own containers
 - **Hole nesting** — small parts nested inside larger parts' cutouts
+- **Canonical grid alternative** — for rectangular-part jobs: exact
+  lattice + successive filled zones + analytic small-part tiling,
+  deterministic, shown next to the engine layouts
 - **Multi-sheet jobs & layout alternatives** — densest, largest remnant,
   balanced
 - **Material report** — measured areas per sheet, reusable-offcut

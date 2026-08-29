@@ -38,3 +38,35 @@ contenu des fichiers ni la géométrie — seulement auth/quota/statut.
 rejoué en CI sur les artefacts produits par `geometryClient` (même bundle que
 le navigateur) — les exports téléchargés sont donc identiques au chemin
 serveur.
+
+
+## Amendement 2026-08-29 — orchestration locale, grille canonique, BPP
+
+Référence complète des correctifs : `docs/AUDIT-2026-08-29.md`. Points qui
+modifient le CONTRAT ci-dessus ou ajoutent des composants au flux local :
+
+- **Registre de solves** (`app/composables/localSolverRegistry.js`) : le
+  job local appartient à un singleton module (isolation par projet,
+  `ensureJob` idempotent — navigation entre projets et refresh ne lancent
+  JAMAIS deux fois le même solve). La progression remonte par
+  `progressFor(projectSlug)` consommé par la page.
+- **Pass structurel navigateur** (`structureClient.js`, miroir de
+  `core/structure.py`) : alternative `grid` construite sur la vue
+  ORIGINALE (la pré-passe trous peut avoir vidé l'instance réduite),
+  zones remplies par mini-pools wasm `${jobSlug}-zone…` (tués par
+  préfixe au cancel), lattice analytique déterministe pour les petites
+  pièces compatibles. L'alternative est AUTO-SUFFISANTE (ids d'origine,
+  trous remplis par le pass) : `buildAlternativeArtifacts` saute pour
+  elle remap idMap + expansion meta + applyHoleFill — SANS précaution,
+  `applyHoleFill` téléporte les fillers des zones vers les trous vides.
+- **Champion SPP-only** : la préférence d'une frame live convergée sur le
+  merge (`preferChampion`/`settleFromChampion` dans localPool) est
+  désormais gardée `pool.isSpp` — en BPP le merge moteur est la seule
+  source de résultat.
+- **`is_spp` = aire ENVELOPPE** (main.py + localPayloadBuilder.js) : le
+  test « tout tient sur une tôle » sur l'aire nette forçait le mode bande
+  sur les projets multi-tôles à pièces trouées (bug démo).
+- **Vue live BPP** : le moteur émet le snapshot de l'incumbent au
+  heartbeat 1 Hz (wasm rebuildé — vider le cache navigateur, le fichier
+  garde le même nom) ; la vue compare le `remnant` et alterne les
+  incumbents à égalité.

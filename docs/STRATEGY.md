@@ -48,6 +48,11 @@ Correspondance des noms (le code n'est pas renommé à ce stade) :
 - Calcul **navigateur uniquement** (Mode Local forcé : solve WASM
   mono-walk, résultats 100 % navigateur, refund à l'échec) [prod, PR#33-38 —
   flag ON 2026-08-08].
+- **1 nesting à la fois** (409 `concurrent_limit` à l'enqueue, compte
+  pending/processing/awaiting_local ; file d'attente côté client avec
+  libellé dédié) [local 2026-08-29 — MAX_PARALLEL_NESTS
+  {free:1, standard:1, privacy:3}, `entitlement.js` + `nest.post.js` ;
+  cf. docs/AUDIT-2026-08-29.md §C].
 
 ### Unlimited — 19 €/mois
 

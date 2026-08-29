@@ -8,6 +8,35 @@ export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
         {
+            title: 'Grid layouts, reliable multi-sheet nesting, live view that never freezes',
+            datetime: '2026-08-29',
+            sections: [
+                {
+                    title: 'Grid alternative (canonical layout)',
+                    content: [
+                        'When one dominant rectangular part is mixed with small parts, a Grid option is computed alongside the engine layouts: exact columns of rectangles, then successive filled rectangles for the small parts (compacted band by band), their cutouts filled, and the overflow in one dense band. It is deterministic and often beats the organic packing on material used.',
+                        'Progress feedback during the grid phase shows the cumulative step (grid: step 2/3 · zone C).',
+                    ],
+                },
+                {
+                    title: 'Multi-sheet nesting fixed',
+                    content: [
+                        'Projects declaring several sheets with holed parts were collapsed into a single overloaded band — the one-sheet test now measures outer outlines, not net area.',
+                        'The live result is never replaced by a mid-search frame in multi-sheet mode: only the merged engine solution is delivered.',
+                        'During the search, the live view now refreshes every second with the incumbent layout instead of freezing after the first update.',
+                    ],
+                },
+                {
+                    title: 'Reliability',
+                    content: [
+                        'Navigating between projects while a compute runs no longer breaks anything: each project keeps its own solve, refresh does not restart a finished job, and cancel stops everything including grid sub-searches.',
+                        'Free accounts run one nesting at a time (queued with a notice); paid tiers run several in parallel.',
+                        'Part thumbnails load reliably: the display-geometry endpoint no longer shares the download rate-limit budget.',
+                    ],
+                },
+            ],
+        },
+        {
             title: 'Hole nesting first, one direction = the best layout',
             datetime: '2026-08-17',
             sections: [
