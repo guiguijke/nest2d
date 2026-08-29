@@ -183,6 +183,10 @@ def run_engine(instance, config, problem_type, on_event=None, should_cancel=None
             "bias": alt.get("bias"),
             "iterations": alt.get("iterations"),
             "evaluations": alt.get("evaluations"),
+            # SPP : hauteur utilisée mesurée par le moteur (critère de la
+            # classe bottom) — champ additif du merge, utilisé par le pass
+            # structurel pour comparer sur le bon axe.
+            "used_height": alt.get("used_height"),
             "solution": _normalize_solution(problem_type, solution),
             "metrics": {
                 "density": alt.get("density") or solution.get("density"),

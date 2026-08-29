@@ -12,7 +12,7 @@ from core.nesting_input_builder import (
     build_spp_instance,
     deterministic_seed,
 )
-from core.engine import EngineCancelled, run_engine
+from core.engine import EngineCancelled, EngineError, run_engine
 from core.holed_polygons import channel_width_for_space, channels_usable, open_holes_with_channels
 from core.placement import ResultContainer, Transform, parse_result_containers
 from core.metrics import (
@@ -358,6 +358,14 @@ def get_entities_from_dxf_file(dxf_file_slug, handles, owner_id=None, dek=None):
     else:
         dxf_bytes = read_gridfs(valid_dxf_bucket, dxf_file_slug, owner_id, dek)
         doc = read_dxf(io.BytesIO(dxf_bytes))
+        if doc is None:
+            # validDxf a pourtant été écrit par fileprocessing : la relecture
+            # en échec est rare, mais sans garde on cache None et on meurt
+            # d'un AttributeError inexploitable au premier modelspace().
+            raise Exception(
+                f"The stored DXF copy for file {dxf_file_slug} could not "
+                "be re-read (recovery failed). Re-upload the file."
+            )
         dxf_document_cache[dxf_file_slug] = doc
 
     msp = doc.modelspace()
@@ -541,6 +549,12 @@ def nesting_process(doc):
 
     total_requested_count = 0
     total_part_area = 0.0
+    total_outer_area = 0.0
+    # Aire ENVELOPPE (anneaux externes, trous NON déduits) : c'est ce que le
+    # placement occupe réellement — le test SPP « tout tient sur une
+    # tôle » doit la utiliser, pas l'aire nette (bug démo 2026-08-29 :
+    # 24 pièces marines à trous, net 75 % <= 80 % -> SPP forcé à tort,
+    # 3 tôles écrasées en 1 seule, chevauchements).
     for item in input_items:
         count = item.get("count")
         # Use per-file rotations if available, otherwise fall back to global setting
@@ -555,6 +569,7 @@ def nesting_process(doc):
         jaguar_item = build_item(item.get("id"), count, shape_coords, allowed_orientations)
         total_requested_count += count
         total_part_area += _Polygon(item.get("coords"), item.get("holes") or []).area * count
+        total_outer_area += _Polygon(item.get("coords") or []).area * count
         jaguar_items.append(jaguar_item)
 
     # Map engine item ids back to (file, part) for the live visualizer:
@@ -701,7 +716,7 @@ def nesting_process(doc):
     is_spp = (
         len(bins) == 1
         and single_sheet_area > 0
-        and total_part_area <= single_sheet_area * SPP_MAX_AREA_RATIO
+        and total_outer_area <= single_sheet_area * SPP_MAX_AREA_RATIO
         and (total_stock == 1 or left_only)
     )
     problem_type = "spp" if is_spp else "bpp"
@@ -710,21 +725,25 @@ def nesting_process(doc):
         extra={
             "problem_type": problem_type,
             "total_part_area": round(total_part_area),
+            "total_outer_area": round(total_outer_area),
             "single_sheet_area": single_sheet_area,
             "area_ratio": round(total_part_area / single_sheet_area, 3) if single_sheet_area else None,
         },
     )
 
-    if is_spp and space > 0 and total_part_area / bin_dims[0][1] <= space:
+    if is_spp and space > 0 and total_outer_area / bin_dims[0][1] <= space:
         # jagua initializes the strip width to total_area/strip_height and then
         # DEFLATES it by space/2 on each side (min_item_separation). When the
         # spacing exceeds that initial width the strip offset comes out empty
         # and the engine panics deep inside a rayon walk ("Offset resulted in
         # an empty polygon") — fail fast with an actionable message instead.
+        # Aire ENVELOPPE (majorante de la géométrie moteur : anneaux ouverts
+        # canaux ≤ aire externe) : l'aire nette sous-estime et laisserait
+        # passer le panic sur les pièces très trouées.
         raise Exception(
             f"Spacing {space} mm is too large for this instance: parts total "
-            f"{round(total_part_area)} mm² on a {bin_dims[0][1]:.0f} mm-high sheet "
-            f"(initial strip width {total_part_area / bin_dims[0][1]:.1f} mm). "
+            f"{round(total_outer_area)} mm² on a {bin_dims[0][1]:.0f} mm-high sheet "
+            f"(initial strip width {total_outer_area / bin_dims[0][1]:.1f} mm). "
             f"Reduce the spacing or add more parts/stock."
         )
 
@@ -936,6 +955,11 @@ def nesting_process(doc):
                 "bias": event.get("bias"),
                 "feasible": event.get("feasible"),
                 "strip_width": event.get("strip_width"),
+                # Phase 2 (frames remappées) : hauteur utilisée dans le
+                # repère original — critère secondaire du champion live
+                # (miroir du merge SPP), sinon la compaction de hauteur
+                # reste invisible de la vue.
+                "used_height": event.get("used_height"),
                 "density": density,
                 "bins": event.get("bins"),
                 "unplaced": event.get("unplaced"),
@@ -1036,12 +1060,221 @@ def nesting_process(doc):
         )
         raise Exception(information) from e
 
+    # Pass structurel (grille canonique) — SPP mono-tôle : item rectangulaire
+    # dominant + petites pièces. Le solveur minimise la largeur et est
+    # indifférent à la FORME (piège #14e) : à faible espacement il gagne
+    # quelques mm en quinconçant les gros pavés AVEC les petites pièces
+    # (52 « colonnes » échelonnées, fans éclatés — mesuré 2026-08-28 sur
+    # 100 carrés + 800 fans à 0,1 mm). Ce pass construit la grille canonique
+    # (colonnes exactes + zones denses pour les petites pièces) et remplace
+    # le rang 0 si elle reste à STRUCT_TOL de la largeur moteur. Tout échec
+    # est silencieux : le résultat moteur est livré tel quel.
+    if is_spp and engine_alternatives:
+        try:
+            from core.structure import (
+                STRUCT_TOL, build_structural_layout, detect_structural_case,
+                layout_used_extent,
+            )
+            orig_by_id = {it["id"]: it for it in input_items}
+
+            def _geom_of(item_id):
+                # Vue ORIGINALE (ids d'input_items) : la détection et les
+                # zones travaillent sur les quantités COMPLÈTES — la pré-passe
+                # « trous d'abord » (J-085) a pu extraire toute la classe
+                # petite (constat 2026-08-29 : instance réduite à 1 classe →
+                # la grille ne se déclenchait jamais à demande exacte).
+                it = orig_by_id.get(item_id) or {}
+                return {
+                    "coords": it.get("coords") or [],
+                    "rotations": it.get("rotations")
+                    or [0.0, 90.0, 180.0, 270.0],
+                }
+
+            orig_items = [{"id": it["id"], "demand": int(it.get("count") or 0)}
+                          for it in input_items]
+            total_area = sum(
+                _Polygon(it.get("coords") or []).area * int(it.get("count") or 0)
+                for it in input_items
+            )
+            case = detect_structural_case(orig_items, _geom_of, total_area)
+            if case:
+                # Objectif de la grille : −Y NATIF si le job ne demande QUE
+                # bottom (la grille doit répondre à la question posée — une
+                # grille compactée en X sur un job −Y utilise toute la
+                # hauteur, hors-sujet) ; −X sinon (la grille est la version
+                # « propre » de la classe left). Mixed SEUL : pas de grille —
+                # l'objectif « bras équilibrés » (J-088) n'a pas de layout
+                # rectangulaire canonique, la classe moteur Balanced fait
+                # ce travail mieux qu'un forçage hors-classe.
+                dirs_list = list(directions or [])
+                if dirs_list == ["balanced"]:
+                    struct_objective = None
+                elif dirs_list == ["bottom"]:
+                    struct_objective = "y"
+                else:
+                    struct_objective = "x"
+
+                def _zone_solver(count, strip_h, max_w, budget_sec,
+                                 transposed=False):
+                    # Sous-solve moteur « petites pièces seules » : la bande
+                    # SPP n'a pas de borne dure (piège #6), la largeur
+                    # réellement utilisée est re-mesurée par l'appelant.
+                    # transposed : coords tournées (x,y)→(y,−x), map-back
+                    # chez l'appelant (bande du haut de la grille −Y).
+                    small_coords = case["small"]["coords"]
+                    if transposed:
+                        small_coords = [[y, -x] for x, y in small_coords]
+                    zone_item = build_item(
+                        0, count, small_coords,
+                        case["small"]["rotations"],
+                    )
+                    zone_inst = build_spp_instance(
+                        [zone_item], max_w, strip_h, name=f"{slug}-zone",
+                    )
+                    zone_cfg = build_engine_config(
+                        budget_sec, deterministic_seed({"zone": zone_inst}), 1,
+                        min_separation=space, has_holes=True,
+                        max_strip_width=max_w, n_workers=3, biases=["left"],
+                        plateau_patience_sec=4.0,
+                    )
+                    zone_cfg["live_events"] = False
+                    try:
+                        zone_alts = run_engine(
+                            zone_inst, zone_cfg, "spp",
+                            should_cancel=should_cancel, rayon_threads=3,
+                        )
+                    except EngineError:
+                        # Zone saturée pour ce compte (bande sans borne dure
+                        # mais directions mode jette les runs hors largeur) :
+                        # None = signal « réduire la demande » pour la boucle
+                        # de repli de _zone_solve.
+                        return None
+                    return zone_alts[0]["solution"]["layouts"][0]["placed_items"]
+
+                # Trous des hôtes (mode « trous d'abord » J-085, meta 1+1) :
+                # la grille remplit les zones internes A/C d'abord (silhouette
+                # rectangulaire pleine), les trous absorbent l'excédent, la
+                # zone B ne garde que l'incompressible (constat user
+                # 2026-08-29 : les rectangles en cascade avant les trous).
+                hole_plan = None
+                if (meta and not meta.get("packs")
+                        and isinstance(meta.get("ringRotations"), list)
+                        and meta.get("host") == case["rect"]["id"]
+                        and meta.get("fill") == case["small"]["id"]):
+                    host_item = orig_by_id.get(case["rect"]["id"]) or {}
+                    if host_item.get("holes"):
+                        hole_plan = {
+                            "host_item": host_item,
+                            "fill_id": case["small"]["id"],
+                            "ring_rotations": meta["ringRotations"],
+                        }
+
+                if struct_objective:
+                    struct = build_structural_layout(
+                        orig_items, _geom_of, bin_dims[0][0], bin_dims[0][1],
+                        space, _zone_solver, objective=struct_objective,
+                        hole_plan=hole_plan,
+                    )
+                else:
+                    struct = None
+                if struct:
+                    axis = "y" if struct_objective == "y" else "x"
+                    struct_w = layout_used_extent(struct, _geom_of, space,
+                                                  axis=axis)
+                    best_alt = engine_alternatives[0]
+                    # Comparaison sur l'axe de l'objectif : largeur pour −X,
+                    # hauteur utilisée (champ moteur) pour −Y.
+                    best_w = (
+                        best_alt.get("used_height")
+                        if axis == "y"
+                        else (best_alt["solution"].get("strip_width")
+                              or best_alt["metrics"].get("strip_width"))
+                    )
+                    if best_w and struct_w <= float(best_w) * (1.0 + STRUCT_TOL):
+                        # Le layout canonique vit sa PROPRE alternative
+                        # (stratégie 'grid', affichée en premier) : le
+                        # résultat compact du moteur reste disponible juste
+                        # derrière avec son meilleur chiffre — l'utilisateur
+                        # compare visuel vs matière dans le modal.
+                        # AUTO-SUFFISANT quand un hole_plan a servi : ids
+                        # d'origine + trous remplis par le pass — l'expansion
+                        # meta et le post-pass hole-fill sont SAUTÉS pour
+                        # cette alternative (sinon : ids corrompus par le
+                        # remap, fillers doublés, fans des zones téléportées
+                        # vers les trous restés vides).
+                        cross = (bin_dims[0][0] if axis == "y"
+                                 else bin_dims[0][1])
+                        # Densité à l'échelle moteur : aire MATÉRIAU (moins
+                        # les trous — les fans y vivent, sinon > 1) / bande.
+                        def _material_area(it):
+                            outer = _Polygon(it.get("coords") or []).area
+                            holes = sum(
+                                _Polygon(r).area
+                                for r in (it.get("holes") or [])
+                            )
+                            return max(0.0, outer - holes) * int(it.get("count") or 0)
+                        material_area = sum(_material_area(it) for it in input_items)
+                        struct_density = (
+                            material_area / (struct_w * cross)
+                            if struct_w > 0 and cross > 0 else None
+                        )
+                        engine_alternatives.append({
+                            "rank": len(engine_alternatives),
+                            "seed": None,
+                            "bias": None,
+                            "structural": True,
+                            "self_contained": bool(hole_plan),
+                            "solution": {
+                                "layouts": [{
+                                    "container_id": 0,
+                                    "placed_items": struct["placed_items"],
+                                }],
+                                "density": struct_density,
+                                "cost": 1,
+                                "strip_width": (
+                                    struct_w if axis == "x" else None
+                                ),
+                            },
+                            "metrics": {
+                                "strip_width": struct_w if axis == "x" else None,
+                                "density": struct_density,
+                                "cost": 1,
+                                "layout_count": 1,
+                            },
+                        })
+                        logger.info(
+                            "structural grid alternative added",
+                            extra={
+                                "objective": struct_objective,
+                                "engine_extent": round(float(best_w), 2),
+                                "struct_extent": round(struct_w, 2),
+                                "lines": struct["case"]["lines"],
+                                "remainder": struct["case"]["remainder"],
+                                "hole_fills": struct["case"].get("holes", 0),
+                            },
+                        )
+        except EngineCancelled:
+            # Une annulation pendant un sous-solve de zone (A→C→trous→B)
+            # n'est PAS un échec du pass structurel : la remonter pour que
+            # le job soit finalisé « cancelled » + remboursé comme celui du
+            # solve principal (le `except Exception` ci-dessous l'avalait).
+            raise
+        except Exception as e:
+            logger.warning("structural pass failed, keeping engine result",
+                           extra={"error": str(e)})
+
     # J-085 / D-MOT-16 : expansion meta — rattache les fillers figés aux
     # hôtes posés par le solve réduit, avant reveal + finalisation.
     if meta:
         from core.holefill import expand_meta, expand_packs
         id_map = meta["idMap"]
         for engine_alt in engine_alternatives:
+            # Alternative structurelle : ids d'ORIGINE + trous déjà remplis
+            # par le pass grille (self_contained). Le remap ci-dessous
+            # CORROMPRait ses ids (un id d'origine indexé comme id réduit) et
+            # l'expansion doublerait les fillers — tout est sauté.
+            if engine_alt.get("structural"):
+                continue
             sol = engine_alt.get("solution") or {}
             if "layouts" not in sol and "layout" in sol:
                 sol = {**sol, "layouts": [sol["layout"]]}
@@ -1066,6 +1299,11 @@ def nesting_process(doc):
     if has_holes:
         from core.holefill import apply_hole_fill
         for engine_alt in engine_alternatives:
+            # Structurelle self-contained : le post-pass téléporterait les
+            # fillers des zones vers les trous laissés vides — détruire la
+            # silhouette en cascade (constat user 2026-08-29).
+            if engine_alt.get("structural") and engine_alt.get("self_contained"):
+                continue
             sol = engine_alt.get("solution") or {}
             if "layouts" not in sol and "layout" in sol:
                 sol = {**sol, "layouts": [sol["layout"]]}
@@ -1197,6 +1435,9 @@ def nesting_process(doc):
         })
 
     def _strategy_for(engine_alt, rank):
+        # Le layout structurel (grille canonique) porte sa propre classe.
+        if engine_alt.get("structural"):
+            return "grid"
         # The engine tags each BPP alternative with its directional bias
         # (left / bottom / balanced) — that IS the alternative's identity.
         # Fallbacks: SPP (rank 0 maximizes the offcut) and engines without
@@ -1229,12 +1470,10 @@ def nesting_process(doc):
         raise Exception("Not all items could be placed in the nesting job")
 
     _heartbeat_stop.set()
-    # Display order: when the alternatives carry directional tags, the
-    # canonical contract is option 1 = left (historical layout), 2 = bottom,
-    # 3 = balanced — quality sorting stays WITHIN a class. Untagged
-    # (legacy) alternatives keep the quality order: fewest sheets, then
-    # least sheet consumed.
-    _DIRECTION_ORDER = {"left": 0, "bottom": 1, "balanced": 2}
+    # Display order: la grille canonique d'abord (choix visuel par défaut),
+    # puis l'ordre canonique des classes (left/bottom/balanced), qualité
+    # au sein de chaque classe. Untagged (legacy) : qualité seule.
+    _DIRECTION_ORDER = {"grid": -1, "left": 0, "bottom": 1, "balanced": 2}
     if any(alt.get("strategy") in _DIRECTION_ORDER for alt in alternatives):
         alternatives.sort(key=lambda alt: (
             _DIRECTION_ORDER.get(alt.get("strategy"), 99),

@@ -22,6 +22,11 @@ import os
 # throttles Mongo writes — the value of watching the algorithm think is high.
 LIVE_EVENTS = os.environ.get("NEST_LIVE_EVENTS", "1") == "1"
 
+# P4 — exposant du biais d'éjection par aire du séparateur GLS (0 = off).
+# Par défaut 0 : activé seulement après validation A/B (constaté au banc le
+# 2026-08-28, voir specs). La faisabilité et les poids GLS restent purs.
+EJECT_AREA_BIAS = float(os.environ.get("NEST_EJECT_BIAS", "0"))
+
 
 def deterministic_seed(payload):
     """Stable 63-bit seed derived from the job payload (geometry + params)."""
@@ -84,6 +89,8 @@ def build_engine_config(
         config["plateau_patience_sec"] = float(plateau_patience_sec)
     if separator_workers is not None:
         config["separator_workers"] = int(separator_workers)
+    if EJECT_AREA_BIAS > 0:
+        config["eject_area_bias"] = EJECT_AREA_BIAS
     return config
 
 
