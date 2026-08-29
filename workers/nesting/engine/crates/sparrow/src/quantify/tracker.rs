@@ -16,12 +16,29 @@ pub struct CollisionTracker {
     pub pk_idx_map: SecondaryMap<PItemKey, usize>,
     pub pair_collisions: PairMatrix,
     pub container_collisions: Vec<CTEntry>,
+    /// P4 — biais d'éjection par aire : la perte conteneur PONDÉRÉE de l'item
+    /// idx est multipliée par ce facteur ((aire/médiane)^β, clampé). À
+    /// pénétration égale, une GROSSE pièce hors bande coûte plus cher qu'une
+    /// petite : la séparation préfère éjecter les petites pièces (intuition
+    /// user 2026-08-28). β = 0 ⇒ tous les facteurs à 1 (comportement
+    /// historique). La faisabilité (loss == 0) et la dynamique GLS des poids
+    /// restent pures — seul l'objectif pondéré est biaisé.
+    pub container_bias: Vec<f32>,
 }
+
+/// Bornes du facteur de biais : assez large pour compter (×4 un carré face
+/// à un fan), assez serré pour ne pas dominer les poids GLS (×16 max).
+const BIAS_MIN: f32 = 0.25;
+const BIAS_MAX: f32 = 4.0;
 
 pub type CTSnapshot = CollisionTracker;
 
 impl CollisionTracker {
     pub fn new(l: &Layout) -> Self {
+        Self::new_with_bias(l, 0.0)
+    }
+
+    pub fn new_with_bias(l: &Layout, beta: f32) -> Self {
         let size = l.placed_items.len();
 
         // Create the tracker
@@ -32,7 +49,21 @@ impl CollisionTracker {
                 .collect(),
             pair_collisions: PairMatrix::new(size),
             container_collisions: vec![CTEntry { weight: 1.0, loss: 0.0 }; size],
+            container_bias: vec![1.0; size],
         };
+
+        if beta > 0.0 && size > 0 {
+            // Médiane des aires des shapes placées (inflatées — la constante
+            // d'inflation s'annule dans le ratio) : référence d'échelle.
+            let mut areas: Vec<f32> = l.placed_items.values()
+                .map(|pi| pi.shape.area)
+                .collect();
+            areas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let median = areas[areas.len() / 2].max(1e-6);
+            ot.container_bias = l.placed_items.values()
+                .map(|pi| ((pi.shape.area / median).powf(beta)).clamp(BIAS_MIN, BIAS_MAX))
+                .collect();
+        }
 
         // Recompute the loss for all items
         l.placed_items.keys().for_each(|pk| {
@@ -156,6 +187,12 @@ impl CollisionTracker {
         self.container_collisions[idx].loss
     }
 
+    /// Facteur de biais d'éjection de l'item (P4) — voir `container_bias`.
+    pub fn get_container_bias(&self, pk: PItemKey) -> f32 {
+        let idx = self.pk_idx_map[pk];
+        self.container_bias[idx]
+    }
+
     pub fn get_loss(&self, pk: PItemKey) -> f32 {
         let idx = self.pk_idx_map[pk];
 
@@ -173,7 +210,9 @@ impl CollisionTracker {
             .map(|i| self.pair_collisions[(idx, i)].weighted_loss())
             .sum::<f32>();
 
-        self.container_collisions[idx].weighted_loss() + w_pair_loss
+        // P4 : le terme conteneur porte le biais d'aire (les paires restent
+        // physiques) — cohérent avec SpecializedHazardCollector.
+        self.container_collisions[idx].weighted_loss() * self.container_bias[idx] + w_pair_loss
     }
 
     pub fn get_total_loss(&self) -> f32 {
@@ -187,8 +226,9 @@ impl CollisionTracker {
     }
 
     pub fn get_total_weighted_loss(&self) -> f32 {
-        let cont_w_o = self.container_collisions.iter()
-            .map(|e| e.weighted_loss())
+        // P4 : terme conteneur pondéré par le biais d'aire de chaque item.
+        let cont_w_o = self.container_collisions.iter().enumerate()
+            .map(|(idx, e)| e.weighted_loss() * self.container_bias[idx])
             .sum::<f32>();
 
         let pair_w_o = self.pair_collisions.data.iter()
@@ -208,5 +248,31 @@ pub struct CTEntry {
 impl CTEntry {
     pub fn weighted_loss(&self) -> f32 {
         self.weight * self.loss
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// P4 — biais d'éjection par aire : le facteur suit (aire/médiane)^β
+    /// clampé, β=0 ⇒ neutre partout. On teste la FONCTION de facteur via la
+    /// construction d'un tracker factice (sans layout complet) en vérifiant
+    /// les invariants du vecteur sur des aires choisies.
+    #[test]
+    fn container_bias_scales_with_area() {
+        // areas: 615 (fans), 615, 10000 (carré) -> médiane 615
+        let beta = 0.5f32;
+        let areas = [615.0f32, 615.0, 10000.0];
+        let mut sorted = areas;
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = sorted[sorted.len() / 2].max(1e-6);
+        let factor = |a: f32| ((a / median).powf(beta)).clamp(BIAS_MIN, BIAS_MAX);
+        assert!((factor(615.0) - 1.0).abs() < 1e-6, "médiane ⇒ neutre");
+        assert!((factor(10000.0) - 4.03).abs() < 0.1, "carré ≈ ×4");
+        assert!((factor(154.0) - 0.5).abs() < 0.01, "petite ⇒ ÷2");
+        assert!(factor(1.0) >= BIAS_MIN && factor(1e6) <= BIAS_MAX, "clamp");
+        // β=0 : neutre quelle que soit l'aire
+        let neutral = |a: f32| ((a / median).powf(0.0)).clamp(BIAS_MIN, BIAS_MAX);
+        assert!((neutral(10000.0) - 1.0).abs() < 1e-6);
     }
 }

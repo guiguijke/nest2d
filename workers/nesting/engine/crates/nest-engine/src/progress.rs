@@ -69,6 +69,22 @@ impl Terminator for PlateauTerminator {
     }
 }
 
+/// Phase-2 remap context: live frames are emitted in the ORIGINAL frame.
+/// `corridor` = strip height of the transposed instance (the mapping is
+/// (x, y) → (corridor − y, x)), `orig_height` = strip height of the ORIGINAL
+/// instance — the density denominator once mapped back.
+#[derive(Clone, Copy, Debug)]
+pub struct MapBack {
+    pub corridor: f32,
+    pub orig_height: f32,
+}
+
+impl MapBack {
+    pub fn new(corridor: f32, orig_height: f32) -> Self {
+        Self { corridor, orig_height }
+    }
+}
+
 /// SolutionListener emitting throttled JSON progress lines on stdout.
 /// The Python worker parses these to update the job's live progress in Mongo;
 /// stdout must carry NOTHING else (logs go to stderr, no logger installed).
@@ -83,10 +99,10 @@ pub struct ProgressListener {
     last_stage: &'static str,
     live: bool,
     last_layout_emit: Instant,
-    /// Phase-2 runs on the 90°-transposed problem: when set (corridor
-    /// height), layout events are mapped back to the original frame so the
-    /// visualizer always shows the real sheet.
-    map_back_height: Option<f32>,
+    /// Phase-2 runs on the 90°-transposed problem: when set, layout events
+    /// are mapped back to the original frame (items AND metrics — see
+    /// emit_layout) so the visualizer always shows the real sheet.
+    map_back: Option<MapBack>,
     /// Improvement clock shared with the PlateauTerminator: bumped on every
     /// progress report (the run is demonstrably not converged).
     last_improvement: Arc<Mutex<Instant>>,
@@ -124,7 +140,7 @@ impl ProgressListener {
             last_stage: "",
             live: false,
             last_layout_emit: armed,
-            map_back_height: None,
+            map_back: None,
             last_improvement: Arc::new(Mutex::new(Instant::now())),
             last_evals_emit: armed,
             bias: None,
@@ -142,8 +158,8 @@ impl ProgressListener {
         self
     }
 
-    pub fn with_map_back(mut self, height: Option<f32>) -> Self {
-        self.map_back_height = height;
+    pub fn with_map_back(mut self, map_back: Option<MapBack>) -> Self {
+        self.map_back = map_back;
         self
     }
 
@@ -193,6 +209,15 @@ impl ProgressListener {
     /// centroïde +17,66 mm) sont décalées de R(θ)·(−centroïde) dans toute
     /// solution reconstruite depuis une frame live (panne prod 100+800 :
     /// fillers excédentaires en amas chevauchant hors tôle, mode local).
+    ///
+    /// METRICS are emitted in the CONSUMPTION frame too (the original one in
+    /// phase 2): a raw transposed `strip_width` is a used HEIGHT (~sheet
+    /// height), which every downstream sheet-fit check (fitsSheet,
+    /// liveBetter) rejects — the champion logic went blind to the whole
+    /// phase 2 and the local mono-class idle settle then froze a phase-1
+    /// layout as the final result (panne locale −X seul, 2026-08-28).
+    /// `used_height` (original frame) rides along so consumers can
+    /// tie-break at equal width exactly like the SPP merge does.
     fn emit_layout(&mut self, stage: &'static str, feasible: bool, solution: &SPSolution, instance: &SPInstance) {
         let mut items = String::with_capacity(solution.layout_snapshot.placed_items.len() * 24);
         items.push('[');
@@ -205,11 +230,11 @@ impl ProgressListener {
                 &instance.item(pi.item_id).shape_orig.pre_transform,
             );
             let t = ext_dt.translation();
-            let (tx, ty) = match self.map_back_height {
+            let (tx, ty) = match self.map_back {
                 // Transposed frame -> original: (x, y) -> (H - y, x),
                 // rotation unchanged (2D rotations commute) — même formule
                 // que map_back_solution, appliquée sur la transform EXTERNE.
-                Some(h) => (h - t.1, t.0),
+                Some(mb) => (mb.corridor - t.1, t.0),
                 None => t,
             };
             items.push_str(&format!(
@@ -221,14 +246,41 @@ impl ProgressListener {
             ));
         }
         items.push(']');
-        let strip_width = solution.strip_width();
-        let density = solution.density(instance);
+        // Placed (inflated) bboxes live in the same plane as the external
+        // frame (the pre-transform is part of the item's own placement), so
+        // the rigid map-back converts them directly: under (x, y) ->
+        // (corridor − y, x), the original used width is corridor − min(y_min)
+        // and the used height is max(x_max) of the transposed bboxes.
+        let (strip_width, used_h, density) = match self.map_back {
+            None => (
+                solution.strip_width(),
+                solution
+                    .layout_snapshot
+                    .placed_items
+                    .values()
+                    .map(|pi| pi.shape.bbox.y_max)
+                    .fold(0.0f32, f32::max),
+                solution.density(instance),
+            ),
+            Some(mb) => {
+                let mut min_y = f32::INFINITY;
+                let mut max_x = 0.0f32;
+                for pi in solution.layout_snapshot.placed_items.values() {
+                    min_y = min_y.min(pi.shape.bbox.y_min);
+                    max_x = max_x.max(pi.shape.bbox.x_max);
+                }
+                let used_w = if min_y.is_finite() { (mb.corridor - min_y).max(0.0) } else { 0.0 };
+                let area = solution.layout_snapshot.placed_item_area(instance);
+                (used_w, max_x, area / (used_w.max(1e-6) * mb.orig_height))
+            }
+        };
         (self.sink)(&format!(
-            "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"density\":{:.4},\"elapsed_ms\":{},\"items\":{}{}}}",
+            "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"{}\",\"feasible\":{},\"strip_width\":{:.3},\"used_height\":{:.3},\"density\":{:.4},\"elapsed_ms\":{},\"items\":{}{}}}",
             self.worker,
             stage,
             feasible,
             strip_width,
+            used_h,
             density,
             self.started.elapsed().as_millis(),
             items,
@@ -327,11 +379,11 @@ mod tests {
     }
 
     /// Capture la frame live émise pour `sol` et retourne les (rot°, tx, ty)
-    /// parsés, triés par item. `map_back` = hauteur corridor phase 2.
+    /// parsés, triés par item. `map_back` = contexte corridor phase 2.
     fn capture_frame(
         sol: &SPSolution,
         instance: &SPInstance,
-        map_back: Option<f32>,
+        map_back: Option<MapBack>,
     ) -> Vec<(f32, f32, f32)> {
         let captured = Arc::new(Mutex::new(String::new()));
         let c2 = Arc::clone(&captured);
@@ -359,6 +411,27 @@ mod tests {
             .collect();
         out.sort_by(|a, b| a.partial_cmp(b).unwrap());
         out
+    }
+
+    /// Capture la frame live complète (événement layout parsé) — pour les
+    /// vérifications de métriques (strip_width / used_height / density).
+    fn capture_event(
+        sol: &SPSolution,
+        instance: &SPInstance,
+        map_back: Option<MapBack>,
+    ) -> serde_json::Value {
+        let captured = Arc::new(Mutex::new(String::new()));
+        let c2 = Arc::clone(&captured);
+        let sink: EventSink = Arc::new(move |line: &str| {
+            c2.lock().unwrap().push_str(line);
+        });
+        let mut listener = ProgressListener::new(0, Instant::now())
+            .with_live(true)
+            .with_map_back(map_back)
+            .with_sink(sink);
+        listener.emit_layout("final", true, sol, instance);
+        let line = captured.lock().unwrap().clone();
+        serde_json::from_str(&line).unwrap()
     }
 
     /// Transforms externes de référence (export final), triées pareil.
@@ -449,9 +522,76 @@ mod tests {
         });
         let t_sol = t_prob.save();
 
-        let frame = capture_frame(&t_sol, &t_instance, Some(corridor));
+        let frame = capture_frame(
+            &t_sol,
+            &t_instance,
+            Some(MapBack::new(corridor, 300.0)),
+        );
         let mapped = crate::spp::map_back_solution(&t_instance, &t_sol, corridor, &instance);
         let reference = export_transforms(&mapped, &instance);
         assert_frames_match(&frame, &reference);
+    }
+
+    /// Instance RECTANGLE sans inflation ni pre-transform exotique : les
+    /// bboxes placées sont calculables à la main — idéale pour vérifier les
+    /// MÉTRIQUES d'une frame phase 2 (remappée).
+    fn rect_ext_instance() -> ExtSPInstance {
+        let json = serde_json::json!({
+            "name": "rect-live-test",
+            "strip_height": 300.0,
+            "items": [{
+                "id": 0,
+                "demand": 3,
+                "allowed_orientations": [0.0, 90.0, 180.0, 270.0],
+                "shape": {"type": "simple_polygon", "data": [
+                    [0,0],[40,0],[40,30],[0,30],[0,0]]}
+            }]
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    /// Verrou (panne locale −X seul, 2026-08-28) : une frame phase 2 doit
+    /// porter ses métriques dans le repère ORIGINAL — strip_width = corridor
+    /// − min(y_min) (sinon c'est une HAUTEUR utilisée ~tôle, rejetée par
+    /// fitsSheet/liveBetter : champion aveugle à toute la phase 2) et
+    /// used_height = max(x_max) transposé. Rect 40×30 transposé = 30×40
+    /// (bbox interne ±15 × ±20 après recentrage centroïde), posés en
+    /// repère transposé aux translations (60, 70) et (40, 180) :
+    /// min(y_min) = 70−20 = 50, max(x_max) = 60+15 = 75, corridor 150.
+    #[test]
+    fn live_frame_phase2_metrics_in_original_frame() {
+        let ext = rect_ext_instance();
+        // Pas d'inflation : les bboxes placées sont exactes.
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            None,
+            Some((0.01, 0.01)),
+        );
+        let t_ext = crate::spp::transpose_instance(&ext, 150.0);
+        let t_instance = jagua_rs::probs::spp::io::import_instance(&importer, &t_ext).unwrap();
+        let mut t_prob = SPProblem::new(t_instance.clone());
+        t_prob.change_strip_width(120.0);
+        t_prob.place_item(SPPlacement {
+            item_id: 0,
+            d_transf: DTransformation::new(0.0, (60.0, 70.0)),
+        });
+        t_prob.place_item(SPPlacement {
+            item_id: 0,
+            d_transf: DTransformation::new(0.0, (40.0, 180.0)),
+        });
+        let t_sol = t_prob.save();
+
+        let evt = capture_event(&t_sol, &t_instance, Some(MapBack::new(150.0, 300.0)));
+        let sw = evt["strip_width"].as_f64().unwrap();
+        let uh = evt["used_height"].as_f64().unwrap();
+        assert!((sw - (150.0 - 50.0)).abs() < 0.01, "strip_width {sw}");
+        assert!((uh - 75.0).abs() < 0.01, "used_height {uh}");
+        // Densité dans le repère original : aire placée (2×1200) /
+        // (largeur 100 × hauteur originale 300).
+        let density = evt["density"].as_f64().unwrap();
+        assert!((density - (2400.0 / (100.0 * 300.0))).abs() < 1e-3, "density {density}");
+        // La largeur d'une frame phase 2 ne peut JAMAIS dépasser le corridor.
+        assert!(sw <= 150.0 + 1e-3);
     }
 }

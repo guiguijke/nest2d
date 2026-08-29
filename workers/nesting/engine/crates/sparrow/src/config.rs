@@ -64,6 +64,7 @@ pub const DEFAULT_SPARROW_CONFIG: SparrowConfig = SparrowConfig {
             strike_limit: 3,
             log_level: log::Level::Info,
             n_workers: 3,
+            eject_area_bias: 0.0,
             sample_config: SampleConfig {
                 n_container_samples: 50,
                 n_focussed_samples: 25,
@@ -81,6 +82,7 @@ pub const DEFAULT_SPARROW_CONFIG: SparrowConfig = SparrowConfig {
             strike_limit: 5,
             log_level: log::Level::Debug,
             n_workers: 3,
+            eject_area_bias: 0.0,
             sample_config: SampleConfig {
                 n_container_samples: 50,
                 n_focussed_samples: 25,

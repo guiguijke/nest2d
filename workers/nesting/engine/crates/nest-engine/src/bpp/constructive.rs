@@ -458,7 +458,7 @@ mod tests {
             None,
             &mut rng,
             |_, _| {},
-            |_, _| {},
+            |_, _, _| {},
         );
         assert_eq!(report.best_cost.unplaced, 0);
         assert_eq!(report.best_cost.bin_cost, 1);
@@ -483,7 +483,7 @@ mod tests {
             None,
             &mut rng,
             |_, _| {},
-            |_, _| {},
+            |_, _, _| {},
         );
         let elapsed = started.elapsed();
         assert_eq!(report.best_cost.unplaced, 0);
@@ -721,7 +721,7 @@ mod scale_tests {
                         None,
                         &mut rng,
                         |_, _| {},
-                        |_, _| {},
+                        |_, _, _| {},
                     )
                 };
                 let baseline = run(None, 21);

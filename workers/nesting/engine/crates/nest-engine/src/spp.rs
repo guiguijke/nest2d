@@ -1,7 +1,7 @@
 use crate::bpp::constructive::DirBias;
 use crate::config::EngineConfig;
 use crate::merge::{SpMergeMode, SpRun, merge_sp_runs};
-use crate::progress::{EventSink, PlateauTerminator, ProgressListener};
+use crate::progress::{EventSink, MapBack, PlateauTerminator, ProgressListener};
 use crate::{EngineOutput, map_workers};
 use anyhow::{Context, Result, bail};
 use jagua_rs::io::import::Importer;
@@ -67,7 +67,7 @@ fn optimize_one(
     started: Instant,
     gravity_enabled: bool,
     live: bool,
-    map_back_height: Option<f32>,
+    map_back: Option<MapBack>,
     plateau_patience: Option<Duration>,
     bias_tag: Option<&'static str>,
     sink: &EventSink,
@@ -80,7 +80,7 @@ fn optimize_one(
     let rng = Xoshiro256PlusPlus::seed_from_u64(seed);
     let mut listener = ProgressListener::new(worker, started)
         .with_live(live)
-        .with_map_back(map_back_height)
+        .with_map_back(map_back)
         .with_bias(bias_tag)
         .with_sink(sink.clone());
     let mut terminator = PlateauTerminator::new(listener.improvement_clock(), plateau_patience);
@@ -105,7 +105,7 @@ fn optimize_one(
         // rééquilibrage balanced). Uniquement sur la frame FINALE : les runs
         // transposés (map_back_height Some) reçoivent le post-pass après
         // mapping, via gravity_after.
-        if column_fill && map_back_height.is_none() {
+        if column_fill && map_back.is_none() {
             crate::column_fill::post_pass_for_bias(&mut prob, bias_tag, max_strip_width);
         }
         let solution = prob.save();
@@ -133,7 +133,7 @@ fn optimize_multi(
     started: Instant,
     gravity_enabled: bool,
     live: bool,
-    map_back_height: Option<f32>,
+    map_back: Option<MapBack>,
     plateau_patience: Option<Duration>,
     sink: &EventSink,
     column_fill: bool,
@@ -151,7 +151,7 @@ fn optimize_multi(
             started,
             gravity_enabled,
             live,
-            map_back_height,
+            map_back,
             plateau_patience,
             None,
             sink,
@@ -351,7 +351,7 @@ sink,
                         let (s2, s2_evals) = optimize_one(
                             &t_instance, &sparrow_config, b2, explore,
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
-                            Some(corridor), plateau,
+                            Some(MapBack::new(corridor, ext_instance.strip_height)), plateau,
                             Some(bias.as_str()),
                             sink,
                             column_fill_on,
@@ -396,7 +396,7 @@ sink,
                             &t_instance, &sparrow_config,
                             if two_phase { b1 } else { budget },
                             explore, seed, w, started, gravity_on, live,
-                            Some(mw), plateau,
+                            Some(MapBack::new(mw, ext_instance.strip_height)), plateau,
                             Some(bias.as_str()),
                             sink,
                             column_fill_on,
@@ -493,7 +493,7 @@ sink,
                         let (s2, s2_evals) = optimize_one(
                             &t_instance, &sparrow_config, b2, explore,
                             seed ^ 0x5EED_5EED, w, started, gravity_on, live,
-                            Some(corridor), plateau,
+                            Some(MapBack::new(corridor, ext_instance.strip_height)), plateau,
                             Some(bias.as_str()),
                             sink,
                             column_fill_on,
@@ -527,7 +527,9 @@ sink,
                                     let (s3, s3_evals) = optimize_one(
                                         &t_instance2, &sparrow_config, retry_budget,
                                         explore, seed ^ 0x5EED_5EED, w, started,
-                                        gravity_on, live, Some(corridor2), plateau,
+                                        gravity_on, live,
+                                        Some(MapBack::new(corridor2, ext_instance.strip_height)),
+                                        plateau,
                                         Some(bias.as_str()),
                                         sink,
                                         column_fill_on,
@@ -692,7 +694,7 @@ sink,
                     started,
                     config.gravity(),
                     config.live_events(),
-                    Some(corridor),
+                    Some(MapBack::new(corridor, ext_instance.strip_height)),
                     config.plateau_patience(),
                     sink,
                     config.column_fill(),

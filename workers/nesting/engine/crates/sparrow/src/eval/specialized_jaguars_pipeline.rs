@@ -170,7 +170,11 @@ impl<'a> SpecializedHazardCollector<'a> {
             HazardEntity::Exterior => {
                 let loss = quantify_collision_poly_container(shape, self.layout.container.outer_cd.bbox);
                 let weight = self.ct.get_container_weight(self.current_pk);
-                loss * weight
+                // P4 : biais d'éjection par aire — la perte conteneur (hors
+                // bande) d'une GROSSE pièce compte davantage ; les paires et
+                // la faisabilité restent physiques.
+                let bias = self.ct.get_container_bias(self.current_pk);
+                loss * weight * bias
             }
             _ => unimplemented!("unsupported hazard entity"),
         }

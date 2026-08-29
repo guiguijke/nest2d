@@ -25,6 +25,9 @@ pub struct SeparatorConfig {
     pub n_workers: usize,
     pub log_level: Level,
     pub sample_config: SampleConfig,
+    /// P4 — exposant du biais d'éjection par aire (0 = historique).
+    /// Voir CollisionTracker::container_bias.
+    pub eject_area_bias: f32,
 }
 
 pub struct Separator {
@@ -39,7 +42,7 @@ pub struct Separator {
 
 impl Separator {
     pub fn new(instance: SPInstance, prob: SPProblem, mut rng: Xoshiro256PlusPlus, config: SeparatorConfig) -> Self {
-        let ct = CollisionTracker::new(&prob.layout);
+        let ct = CollisionTracker::new_with_bias(&prob.layout, config.eject_area_bias);
         let workers = (0..config.n_workers).map(|_|
             SeparatorWorker {
                 instance: instance.clone(),
@@ -244,8 +247,9 @@ impl Separator {
 
         self.prob.change_strip_width(new_width);
 
-        //rebuild the collision tracker
-        self.ct = CollisionTracker::new(&self.prob.layout);
+        //rebuild the collision tracker (le biais d'aire est recalculé sur la
+        //population courante — P4)
+        self.ct = CollisionTracker::new_with_bias(&self.prob.layout, self.config.eject_area_bias);
 
         //rebuild the workers
         self.workers.iter_mut().for_each(|opt| {
@@ -255,7 +259,7 @@ impl Separator {
                 ct: self.ct.clone(),
                 rng: Xoshiro256PlusPlus::seed_from_u64(self.rng.random()),
                 sample_config: self.config.sample_config,
-            };
+            }
         });
         debug!("[SEP] changed strip width to {:.3}", new_width);
     }

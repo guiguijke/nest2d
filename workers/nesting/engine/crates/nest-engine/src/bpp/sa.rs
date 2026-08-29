@@ -184,7 +184,7 @@ pub fn anneal(
     max_iterations: Option<usize>,
     rng: &mut impl Rng,
     mut on_improvement: impl FnMut(&Cost, &BPSolution),
-    mut on_heartbeat: impl FnMut(usize, &Cost),
+    mut on_heartbeat: impl FnMut(usize, &Cost, &BPSolution),
 ) -> SaReport {
     let started = Instant::now();
     let end = started + deadline;
@@ -287,7 +287,7 @@ pub fn anneal(
 
         if last_heartbeat.elapsed().as_secs() >= 1 {
             last_heartbeat = Instant::now();
-            on_heartbeat(iterations, &best_cost);
+            on_heartbeat(iterations, &best_cost, &best_solution);
         }
     }
 

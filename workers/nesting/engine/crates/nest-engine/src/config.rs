@@ -96,6 +96,13 @@ pub struct EngineConfig {
     /// is then driven by the iteration fraction, not wall clock.
     #[serde(default)]
     pub sa_max_iterations: Option<usize>,
+    /// P4 — exposant du biais d'éjection par aire du séparateur GLS
+    /// (0/absent = historique). La perte conteneur pondérée d'un item est
+    /// multipliée par (aire/médiane)^β, clampée [0.25, 4] : à pénétration
+    /// égale, une grosse pièce hors bande coûte plus cher — la séparation
+    /// éjecte d'abord les petites (intuition user 2026-08-28).
+    #[serde(default)]
+    pub eject_area_bias: Option<f32>,
 }
 
 fn default_n_alternatives() -> usize {
@@ -184,6 +191,7 @@ impl EngineConfig {
         let sep_workers = self
             .separator_workers
             .unwrap_or(DEFAULT_SPARROW_CONFIG.expl_cfg.separator_config.n_workers);
+        let eject_bias = self.eject_area_bias.unwrap_or(0.0).clamp(0.0, 2.0);
         SparrowConfig {
             rng_seed: Some(self.prng_seed as usize),
             cde_config: CDEConfig {
@@ -200,6 +208,7 @@ impl EngineConfig {
                     .or(DEFAULT_SPARROW_CONFIG.expl_cfg.max_conseq_failed_attempts),
                 separator_config: SeparatorConfig {
                     n_workers: sep_workers,
+                    eject_area_bias: eject_bias,
                     ..DEFAULT_SPARROW_CONFIG.expl_cfg.separator_config
                 },
                 ..DEFAULT_SPARROW_CONFIG.expl_cfg
@@ -212,6 +221,7 @@ impl EngineConfig {
                 },
                 separator_config: SeparatorConfig {
                     n_workers: sep_workers,
+                    eject_area_bias: eject_bias,
                     ..DEFAULT_SPARROW_CONFIG.cmpr_cfg.separator_config
                 },
                 ..DEFAULT_SPARROW_CONFIG.cmpr_cfg
