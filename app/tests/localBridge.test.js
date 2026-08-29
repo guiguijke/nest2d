@@ -216,6 +216,38 @@ describe('decorateLiveLayout (vue live = modal après J-085)', () => {
         expect(decorateLiveLayout({ items: [] }, { parts: [fill] })).toEqual({ items: [] })
         expect(decorateLiveLayout({ items: [[0, 0, 0, 0]] }, { parts: [] }).items).toHaveLength(1)
     })
+
+    // Densité SPP : pièces/tôle-entière est CONSTANT pour un job donné (ne
+    // dit rien du packing — 55,4 % du cas 100+800 de la panne 2026-08-28).
+    // Sur une bande qui tient dans la tôle, la densité moteur (pièces/bande,
+    // même échelle que le modal) est reprise telle quelle ; le repli
+    // pièces/tôle reste pour les frames hors-tôle et bundles antérieurs.
+    it('densité : bande faisable → densité moteur ; hors-tôle → pièces/tôle', () => {
+        const base = {
+            feasible: true,
+            isSpp: true,
+            sheets: [[1000, 2000]],
+            items: [[1, 0, 100, 100]],
+        }
+        const payload = {
+            parts: [fill, host],
+            engineConfig: { min_item_separation: 0 },
+        }
+        const fits = decorateLiveLayout(
+            { ...base, strip_width: 663, density: 0.94 },
+            payload,
+        )
+        expect(fits.density).toBeCloseTo(0.94, 6)
+        const over = decorateLiveLayout(
+            { ...base, strip_width: 1400, density: 0.44 },
+            payload,
+        )
+        // repli pièces/tôle-entière : indépendant de la bande annoncée
+        expect(over.density).toBeGreaterThan(0)
+        expect(over.density).toBeLessThan(0.94)
+        const noWidth = decorateLiveLayout({ ...base, density: 0.44 }, payload)
+        expect(noWidth.density).toBeCloseTo(over.density, 9)
+    })
 })
 
 describe('uniquifyDxfHandles', () => {
@@ -370,5 +402,34 @@ describe('packHole / planHoleFills (D-MOT-16)', () => {
         const packs = planHoleFills([host, fill], 2)
         expect(packs).toBeTruthy()
         expect(packs[0].fills.length).toBe(4)
+    })
+})
+
+describe('toServerShapeAlternatives — usedSheetShare local (stats du modal)', () => {
+    it('calcule bbox placée / tôle pour CHAQUE alternative (grille comprise)', () => {
+        const parts = [{ id: 0, coords: [[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]], holes: [] }]
+        const mkArt = (n) => ({
+            sheets: [null],
+            containers: [{
+                bin_width: 1000, bin_height: 2000,
+                transforms: [{ item_id: '0', angle: 0, x: 0.1, y: 0.1 },
+                             { item_id: '0', angle: 0, x: 0.1 + (n - 1) * 100.1, y: 0.1 + (n - 1) * 100.1 }],
+            }],
+            report: { per_sheet: [], totals: null, verify: {} },
+        })
+        const result = {
+            alternatives: [
+                { structural: true, solution: { layout: { placed_items: [] }, density: 0.9 } },
+                { bias: 'left', solution: { layout: { placed_items: [] }, density: 0.9 } },
+            ],
+        }
+        const payload = { parts, engineConfig: {} }
+        // 2 carrés en diagonale 100x100 : bbox = 200.2 × 200.2 (100+0.1 pitch)
+        const arts = [mkArt(2), mkArt(2)]
+        const out = toServerShapeAlternatives(result, payload, arts)
+        expect(out).toHaveLength(2)
+        expect(out[0].strategy).toBe('grid')
+        expect(out[0].usedSheetShare).toBeCloseTo((200.1 * 200.1) / (1000 * 2000), 6)
+        expect(out[1].usedSheetShare).toBeCloseTo((200.1 * 200.1) / (1000 * 2000), 6)
     })
 })

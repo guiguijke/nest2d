@@ -12,3 +12,12 @@ export function hasPaidAccess(user) {
     const level = user.compute?.level
     return level === 'standard' || level === 'privacy'
 }
+
+/**
+ * Miroir UX de maxParallelNestsForTier (serveur — l'autorité est le 409 à
+ * l'enqueue) : combien de solves locaux le registre navigateur lance en
+ * parallèle (les autres patientent en file). Gratuit/Unlimited : 1, Pro : 3.
+ */
+export function maxParallelLocalNests(user) {
+    return user?.compute?.level === 'privacy' ? 3 : 1
+}

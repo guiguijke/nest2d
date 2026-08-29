@@ -650,6 +650,147 @@ describe('runPool — settle idle champion = mono-classe seulement', () => {
     })
 })
 
+describe('runPool — phase 2 visible du champion (panne −X seul 2026-08-28)', () => {
+    // Corridor phase 2 = largeur phase 1 + slack moteur (1 mm) : ses frames
+    // vivent à largeur ≈ champion + ε et ne le dépassent qu'en HAUTEUR. La
+    // fenêtre d'égalité (phase2_slack_mm) + le départage used_height font
+    // ce progrès re-arms le settle au lieu de laisser l'idle tuer le pool
+    // en pleine phase 2 et livrer le layout phase 1 figé.
+    it('frame phase 2 (champion + 1 mm, hauteur plus basse) devient champion et réarme le settle', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const payload = makePayload({ walks: 1 })
+        payload.instance.items = [{ id: 0, demand: 1 }]
+        const promise = runPool('job-phase2-live', payload, { onLive: () => {} })
+        MockWorker.instances[0].emit({
+            live: {
+                feasible: true,
+                strip_width: 900,
+                density: 0.7,
+                bias: 'left',
+                items: [[0, 0, 0, 10, 10]],
+            },
+        })
+        // Frame phase 2 remappée : largeur corridor (900 + 1), hauteur
+        // utilisée BEAUCOUP plus basse (pièces nichées dans les trous).
+        MockWorker.instances[0].emit({
+            live: {
+                feasible: true,
+                strip_width: 901,
+                used_height: 1500,
+                density: 0.75,
+                bias: 'left',
+                items: [[0, 0, 0, 10, 10]],
+            },
+        })
+        let settled = false
+        promise.then(() => { settled = true })
+        // n=1 → fenêtre ~2020 ms armée par la frame phase 1 : sans le
+        // réarmement par la frame phase 2, le settle aurait déjà frappé.
+        await vi.advanceTimersByTimeAsync(2010)
+        expect(settled).toBe(false)
+        await vi.advanceTimersByTimeAsync(2100)
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives[0].strip_width).toBe(901)
+        expect(out.result.alternatives[0].used_height).toBe(1500)
+        vi.useRealTimers()
+    })
+
+    it('frame hors fenêtre (champion + 50 mm, même plus basse) ne détrône pas', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const payload = makePayload({ walks: 1 })
+        payload.instance.items = [{ id: 0, demand: 1 }]
+        const promise = runPool('job-phase2-far', payload, { onLive: () => {} })
+        MockWorker.instances[0].emit({
+            live: { feasible: true, strip_width: 900, density: 0.7, bias: 'left', items: [[0, 0, 0, 10, 10]] },
+        })
+        MockWorker.instances[0].emit({
+            live: { feasible: true, strip_width: 950, used_height: 800, density: 0.8, bias: 'left', items: [[0, 0, 0, 10, 10]] },
+        })
+        let settled = false
+        promise.then(() => { settled = true })
+        await vi.advanceTimersByTimeAsync(2200)
+        expect(settled).toBe(true)
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives[0].strip_width).toBe(900)
+        vi.useRealTimers()
+    })
+
+    it('préférence du champion : uniquement contre le rang 0 de SA classe (garde #7b)', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const payload = makePayload({ walks: 2, biases: ['left', 'bottom'] })
+        payload.instance.items = [{ id: 0, demand: 500 }]
+        const promise = runPool('job-class-guard', payload, { onLive: () => {} })
+        const items = Array.from({ length: 500 }, (_, i) => [i, 0, 0, 0, 0])
+        // Un seul champion live : 'bottom', PLUS ÉTROIT que le left du merge.
+        // Avant la garde, il préfixait le résultat (comparaison d'unités
+        // non comparables) ; maintenant il est hors course.
+        MockWorker.instances[1].emit({
+            live: { feasible: true, strip_width: 700, used_height: 1200, density: 0.8, bias: 'bottom', items },
+        })
+        MockWorker.respond = (worker, msg) => {
+            if (msg.op === 'merge') {
+                worker.emit({
+                    id: msg.id,
+                    jobSlug: msg.jobSlug,
+                    ok: true,
+                    result: JSON.stringify({ problem: 'spp', alternatives: msg.merge.runs }),
+                })
+            }
+        }
+        const alt = (w, bias, width) => ({
+            rank: 0, seed: 1000 + w, bias, evaluations: 500,
+            strip_width: width, density: 0.6, solution: { layout: { placed_items: [] } },
+        })
+        MockWorker.instances[0].emit({ ok: true, jobSlug: 'job-class-guard', result: { alternatives: [alt(0, 'left', 850)] } })
+        MockWorker.instances[1].emit({ ok: true, jobSlug: 'job-class-guard', result: { alternatives: [alt(1, 'bottom', 950)] } })
+        let out = await promise
+        expect(out.ok).toBe(true)
+        // Pas de préfixe : le champion 'bottom' (700) ne se compare pas au
+        // rang 0 'left' (850).
+        expect(out.result.alternatives[0].bias).toBe('left')
+        expect(out.result.alternatives[0].strip_width).toBe(850)
+        vi.useRealTimers()
+    })
+
+    it('préférence du champion : un champion DE la classe du rang 0 préfixe bien', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const payload = makePayload({ walks: 2, biases: ['left', 'bottom'] })
+        payload.instance.items = [{ id: 0, demand: 500 }]
+        const promise = runPool('job-class-prefix', payload, { onLive: () => {} })
+        const items = Array.from({ length: 500 }, (_, i) => [i, 0, 0, 0, 0])
+        MockWorker.instances[0].emit({
+            live: { feasible: true, strip_width: 800, used_height: 1900, density: 0.8, bias: 'left', items },
+        })
+        MockWorker.respond = (worker, msg) => {
+            if (msg.op === 'merge') {
+                worker.emit({
+                    id: msg.id,
+                    jobSlug: msg.jobSlug,
+                    ok: true,
+                    result: JSON.stringify({ problem: 'spp', alternatives: msg.merge.runs }),
+                })
+            }
+        }
+        const alt = (w, bias, width) => ({
+            rank: 0, seed: 1000 + w, bias, evaluations: 500,
+            strip_width: width, density: 0.6, solution: { layout: { placed_items: [] } },
+        })
+        MockWorker.instances[0].emit({ ok: true, jobSlug: 'job-class-prefix', result: { alternatives: [alt(0, 'left', 850)] } })
+        MockWorker.instances[1].emit({ ok: true, jobSlug: 'job-class-prefix', result: { alternatives: [alt(1, 'bottom', 950)] } })
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives[0].strip_width).toBe(800)
+        expect(out.result.alternatives[0].bias).toBe('left')
+        vi.useRealTimers()
+    })
+})
+
 describe('cancelPool', () => {
     it('termine tous les workers et settle cancelled (sans refund local)', async () => {
         MockWorker.respond = null // aucun worker ne répond : job en vol
@@ -677,5 +818,31 @@ describe('cancelPool', () => {
 
     it('slug inconnu : no-op, false', () => {
         expect(cancelPool('nope')).toBe(false)
+    })
+})
+
+describe('cancelPool — matching PAR PRÉFIXE (pools de zones du pass structurel)', () => {
+    it('termine le pool du job ET ses pools -zoneN, pas les autres jobs', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const payloadA = makePayload({ walks: 1 })
+        const payloadOther = makePayload({ walks: 1 })
+        const promiseA = runPool('job-a', payloadA, { onLive: () => {} })
+        const promiseOther = runPool('job-other', payloadOther, { onLive: () => {} })
+        // pools de zones du job-a (préfixe dérivé)
+        const promiseZone = runPool('job-a-zone1', payloadA, { onLive: () => {} })
+        expect(cancelPool('job-a')).toBe(true)
+        const outA = await promiseA
+        const outZone = await promiseZone
+        expect(outA.error).toBe('cancelled')
+        expect(outZone.error).toBe('cancelled')
+        // l'autre job survit : son worker (3e instance) répond APRÈS le
+        // cancel — le respond de postMessage a déjà été capturé à null.
+        const otherWorker = MockWorker.instances.find(
+            (w) => !w.terminated && w.messages[0]?.jobSlug === 'job-other')
+        otherWorker.emit({ ok: true, jobSlug: 'job-other', result: engineOut(0) })
+        const outOther = await promiseOther
+        expect(outOther.ok).toBe(true)
+        vi.useRealTimers()
     })
 })

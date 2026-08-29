@@ -608,6 +608,7 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
     const jaguarItems = []
     let totalRequestedCount = 0
     let totalPartArea = 0
+    let totalOuterArea = 0
     for (const item of inputItems) {
         const allowedOrientations = item.rotations ?? [0, 90, 180, 270]
         let shapeCoords = item.coords
@@ -621,6 +622,11 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         jaguarItems.push(buildItem(item.id, item.count, shapeCoords, allowedOrientations))
         totalRequestedCount += item.count
         totalPartArea += partArea(item.coords, item.holes) * item.count
+        // Aire ENVELOPPE (trous non déduits) : le test SPP « tout tient
+        // sur une tôle » doit mesurer ce que le placement occupe —
+        // l'aire nette passait à tort sur les pièces à trous (bug démo
+        // 2026-08-29 : 3 tôles écrasées en 1 seule).
+        totalOuterArea += ringAreaAbs(item.coords) * item.count
     }
 
     // SPP (une seule tôle physique = la bande, largeur minimisée) seulement
@@ -638,17 +644,19 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         && directions[0] === 'left'
     const isSpp = sheets.length === 1
         && totalPartArea > 0
-        && totalPartArea <= sheetArea * SPP_MAX_AREA_RATIO
+        && totalOuterArea <= sheetArea * SPP_MAX_AREA_RATIO
         && (totalStock === 1 || leftOnly)
 
     // Garde #2b : jagua initialise la bande à aire_totale/hauteur puis la
     // DÉFLATE de space/2 — si l'espacement dépasse cette largeur initiale,
     // l'offset sort vide et le moteur panique dans un thread rayon.
-    if (isSpp && space > 0 && totalPartArea / sheets[0].height <= space) {
+    // Aire ENVELOPPE (majorante de la géométrie moteur) — l'aire nette
+    // sous-estime et laisserait passer le panic (parité main.py).
+    if (isSpp && space > 0 && totalOuterArea / sheets[0].height <= space) {
         throw new Error(
             `Spacing ${pyStrSpace(space)} mm is too large for this instance: parts total `
-            + `${pyRoundInt(totalPartArea)} mm² on a ${pyFixed0(sheets[0].height)} mm-high sheet `
-            + `(initial strip width ${pyFixed1(totalPartArea / sheets[0].height)} mm). `
+            + `${pyRoundInt(totalOuterArea)} mm² on a ${pyFixed0(sheets[0].height)} mm-high sheet `
+            + `(initial strip width ${pyFixed1(totalOuterArea / sheets[0].height)} mm). `
             + `Reduce the spacing or add more parts/stock.`,
         )
     }
@@ -785,16 +793,25 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         count: it.count || 0,
     }))
 
+    const payload = {
+        problem: isSpp ? 'spp' : 'bpp',
+        instance: solveInstance,
+        meta,
+        engineConfig,
+        parts,
+        outputUnit,
+        addOutShape,
+    }
+    // fillHoles : drapeau UI (post-pass applyHoleFill de localBridge doit
+    // respecter « Disable to keep cutouts empty », miroir de has_holes
+    // serveur). NON-ÉNUMÉRABLE : le contrat de parité J-090 (fixtures
+    // Python) et le JSON envoyé au moteur ne doivent pas le voir.
+    Object.defineProperty(payload, 'fillHoles', {
+        value: fillHoles,
+        enumerable: false,
+    })
     return {
-        payload: {
-            problem: isSpp ? 'spp' : 'bpp',
-            instance: solveInstance,
-            meta,
-            engineConfig,
-            parts,
-            outputUnit,
-            addOutShape,
-        },
+        payload,
         seed,
         itemMap,
     }

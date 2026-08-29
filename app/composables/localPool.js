@@ -165,14 +165,40 @@ export function championIdleMs(nParts, patienceMs = 30_000, lastGapMs = 0) {
     return Math.min(cap, Math.max(2000, scaled, fromRate))
 }
 
-/** SPP : plus petit strip_width, puis plus de pièces. */
-function liveBetter(a, b) {
+function liveHeight(live) {
+    const h = Number(live?.used_height)
+    return Number.isFinite(h) ? h : Infinity
+}
+
+// Fenêtre d'égalité des largeurs : le corridor phase 2 = largeur phase 1 +
+// phase2_slack_mm (défaut moteur 1 mm). Les frames phase 2 vivent donc à
+// largeur ≈ champion + ε : une égalité stricte (1e-4) ne se déclenche
+// jamais et l'idle settle tuait le pool en pleine phase 2. À l'intérieur
+// de la fenêtre, la plus petite hauteur utilisée départage (critère du
+// merge SPP) — la phase 2 compresse la hauteur, son progrès redevient
+// visible du champion.
+const TIE_WINDOW_DEFAULT = 1e-4
+
+/**
+ * SPP : plus petit strip_width (fenêtre `win` pour les frames phase 2,
+ * corridor = phase1 + slack), puis plus petite hauteur utilisée, puis plus
+ * de pièces. Panne d'origine (−X seul, 2026-08-28) : les frames phase 2
+ * étaient rejetées par leur strip_width transposé (corrigé moteur côté
+ * emit_layout) ET la hauteur n'était jamais comparée — le champion
+ * n'améliorait plus, l'idle settle figeait un layout phase 1 comme
+ * résultat final.
+ */
+function liveBetter(a, b, win = TIE_WINDOW_DEFAULT) {
     if (!a || !a.feasible) return false
     if (!b) return true
     const aw = liveStrip(a)
     const bw = liveStrip(b)
-    if (aw < bw - 1e-4) return true
-    if (bw < aw - 1e-4) return false
+    if (aw < bw - win) return true
+    if (bw < aw - win) return false
+    const ah = liveHeight(a)
+    const bh = liveHeight(b)
+    if (ah < bh - 1e-4) return true
+    if (bh < ah - 1e-4) return false
     return (a.items?.length || 0) > (b.items?.length || 0)
 }
 
@@ -193,29 +219,50 @@ function liveToSolution(live) {
     }
 }
 
-function championAlt(pool) {
-    const live = pool.bestLive
+function championAlt(pool, cls) {
+    // Champion de la classe demandée (garde #7b : en multi-classes, le rang 0
+    // du merge est la classe canonique 'left' — un champion 'bottom' ne doit
+    // jamais se mesurer à lui ; unités historiques non comparables).
+    // cls absente (settle mono-classe) : champion global. Classe inconnue
+    // (aucune frame de cette classe) : null — le rang du merge fait foi.
+    const live = cls == null ? pool.bestLive : (pool.bestLiveByClass?.[cls] ?? null)
     if (!live) return null
     return {
         rank: 0,
+        // noteChampion ne stocke que des frames faisables — le champion
+        // l'est donc par construction (liveBetter exige a.feasible, sans
+        // ce champ le filet preferChampion était mort depuis J-093).
+        feasible: true,
         bias: live.bias || 'left',
         strip_width: live.strip_width,
+        used_height: live.used_height,
         density: live.density,
         solution: liveToSolution(live),
+    }
+}
+
+function snapshotLive(live) {
+    return {
+        feasible: true,
+        strip_width: live.strip_width,
+        used_height: live.used_height,
+        density: live.density,
+        bias: live.bias,
+        items: live.items.map((it) => it.slice()),
     }
 }
 
 function noteChampion(pool, live) {
     if (pool.settled || !live || !Array.isArray(live.items) || !live.items.length) return
     if (live.feasible === false) return
-    if (liveBetter(live, pool.bestLive)) {
-        pool.bestLive = {
-            feasible: true,
-            strip_width: live.strip_width,
-            density: live.density,
-            bias: live.bias,
-            items: live.items.map((it) => it.slice()),
-        }
+    // Suivi par classe directionnelle (préférence du champion en fin de
+    // merge) — indépendant du champion global bestLive.
+    const cls = live.bias || 'best'
+    if (liveBetter(live, pool.bestLiveByClass[cls], pool.tieWindow)) {
+        pool.bestLiveByClass[cls] = snapshotLive(live)
+    }
+    if (liveBetter(live, pool.bestLive, pool.tieWindow)) {
+        pool.bestLive = snapshotLive(live)
         pool.bestAt = Date.now()
         // Multi-classes : JAMAIS de chrono idle (voir runPool) — on laisse
         // chaque walk aller à sa complétion naturelle puis le merge grouper
@@ -233,7 +280,8 @@ function noteChampion(pool, live) {
 
 function settleFromChampion(pool) {
     // multiBias : garde-fou — le chrono n'est jamais armé en multi-classes.
-    if (pool.settled || pool.multiBias || !pool.bestLive) return
+    // BPP : garde idem preferChampion (frame live ≠ solution).
+    if (pool.settled || pool.multiBias || !pool.isSpp || !pool.bestLive) return
     const alt = championAlt(pool)
     pool.settle({
         ok: true,
@@ -246,22 +294,28 @@ function settleFromChampion(pool) {
 }
 
 function preferChampion(pool, alternatives) {
-    const champ = championAlt(pool)
-    if (!champ) return alternatives
-    // Inoffensif en multi-classes : le champion ne prévaut que s'il bat
-    // STRICTEMENT le rang 0 du merge, or un strip_width 'bottom' (hauteur
-    // transposée) n'est pas comparable à une largeur 'left' — liveBetter ne
-    // le fait jamais gagner à tort. En mono-classe, c'est le filet qui
-    // préserve un incumbent live meilleur que le rang 0 du merge (piège #7).
+    // Garde BPP : le champion est une frame LIVE en cours d'optimisation —
+    // valable pour figer un layout SPP convergé (métriques bande), NON
+    // sensé pour BPP (pièces en vol entre bins, chevauchements, hors
+    // tôle — bug démo 2026-08-29 : 440 chevauchements livrés). Le merge
+    // moteur reste la seule source en BPP.
+    if (!pool.isSpp) return alternatives
     const inc = alternatives[0]
+    // Garde #7b : le champion ne se compare qu'au rang 0 du merge DE SA
+    // CLASSE (les frames non taguées vivent sous 'best', mode flat legacy).
+    // En mono-classe, c'est le filet qui préserve un incumbent live
+    // meilleur que le rang 0 du merge (piège #7).
+    const champ = championAlt(pool, inc?.bias || 'best')
+    if (!champ) return alternatives
     const incLive = inc
         ? {
             feasible: true,
             strip_width: inc.strip_width ?? inc.solution?.strip_width,
+            used_height: inc.used_height ?? inc.solution?.used_height,
             items: inc.solution?.layout?.placed_items || inc.solution?.layouts?.[0]?.placed_items || [],
         }
         : null
-    if (liveBetter(champ, incLive)) return [champ, ...alternatives]
+    if (liveBetter(champ, incLive, pool.tieWindow)) return [champ, ...alternatives]
     return alternatives
 }
 
@@ -357,6 +411,13 @@ export function runPool(jobSlug, payload, { onLive, walks, concurrency } = {}) {
             demand,
             multiBias,
             bestLive: null,
+            bestLiveByClass: {},
+            // Fenêtre d'égalité des largeurs pour liveBetter : phase 2 vit
+            // à corridor = phase1 + slack. Défaut moteur : 1 mm.
+            tieWindow: Math.max(
+                1e-4,
+                Number(payload?.engineConfig?.phase2_slack_mm ?? 1.0) || 1.0,
+            ),
             bestAt: 0,
             lastLiveAt: 0,
             liveGapMs: 0,
@@ -430,13 +491,23 @@ function startWalk(jobSlug, pool, payload, masterSeed, w) {
  * Termine tous les workers du job et settle { ok:false, error:'cancelled' }.
  * Appelé APRÈS POST /api/results/:slug/cancel (le serveur finalise et
  * refunde) — l'appelant ne doit JAMAIS poster local-fail sur 'cancelled'.
- * @returns {boolean} true si un pool en vol a été annulé.
+ * Le matching est PAR PRÉFIXE (`${jobSlug}` ou `${jobSlug}-…`) : les pools
+ * de zones du pass structurel vivent sous des slugs dérivés
+ * (`${jobSlug}-zone1`…) et doivent mourir avec le job — sans ça, un cancel
+ * en pleine phase grille laissait les sous-solves tourner (constat user
+ * 2026-08-28 : « impossible d'annuler »).
+ * @returns {boolean} true si au moins un pool en vol a été annulé.
  */
 export function cancelPool(jobSlug) {
-    const pool = pools.get(jobSlug)
-    if (!pool || pool.settled) return false
-    pool.settle({ ok: false, error: 'cancelled' })
-    return true
+    let cancelled = false
+    for (const [slug, pool] of pools) {
+        if (pool.settled) continue
+        if (slug === jobSlug || slug.startsWith(`${jobSlug}-`)) {
+            pool.settle({ ok: false, error: 'cancelled' })
+            cancelled = true
+        }
+    }
+    return cancelled
 }
 
 // ---------------------------------------------------------------------------

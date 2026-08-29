@@ -37,6 +37,12 @@
                     </h2>
                     <p v-if="localComputeRunning" class="stage__status">
                         {{ t(isLocalProject ? 'localCompute.runningLocal' : 'localCompute.running') }}
+                        <span v-if="localZonePhase" class="stage__zone">
+                            · {{ t('localCompute.zone', { zone: localZonePhase.zone, attempt: localZonePhase.attempt, attempts: localZonePhase.attempts, step: localZonePhase.step || 1, steps: localZonePhase.steps || 1 }) }}
+                        </span>
+                        <span v-else-if="localQueued" class="stage__zone">
+                            · {{ t('localCompute.queued') }}
+                        </span>
                     </p>
                 </div>
                 <LiveNestingView v-if="stageLive" :result="stageLive" />
@@ -116,7 +122,7 @@
 import { themeType } from "~~/constants/theme.constants";
 import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
 import { isLocalComputeEnabled } from "~/composables/localCompute";
-import { runLocalJobPrivate } from "~/composables/localJobPrivate";
+import { progressFor } from "~/composables/localSolverRegistry";
 import { invalidateLocalRecords } from "~/composables/localHydrate";
 import { useLocalMode } from "~/composables/useLocalMode";
 import {
@@ -214,70 +220,84 @@ const localLive = computed(() => {
 });
 const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value));
 const attemptedLocalJobs = new Set();
+const localZonePhase = ref(null);
+// Job local en file (cap tier atteint) : affiché dans la ligne d'état.
+const localQueued = computed(() => {
+    const p = progressFor(route.params.slug);
+    return p?.phase === 'queued';
+});
+// Registre GLOBAL des solves locaux (survit à la navigation entre projets —
+// la page ne possède plus les calculs, elle s'abonne : ensureJob est
+// idempotent, refresh/re-navigation = no-op ; le 409 concurrent_limit sert
+// de file d'attente côté serveur, le registre file côté client).
+const activeLocalSlug = ref(null);
 watch(
     () => (unref(resultsList) || []).find((r) => r.status === 'awaiting_local'),
     async (job) => {
         if (!job || !isLocalComputeEnabled() || attemptedLocalJobs.has(job.slug)) return;
         attemptedLocalJobs.add(job.slug);
-        localComputeError.value = null;
-        localComputeRunning.value = true;
-        localLiveFrame.value = null;
-        localEvals.value = null;
-        localWalks.value = 1;
-        localModeCtl.startTimer();
+        // Garde anti-rejoue : un résultat déjà livré dans CE navigateur
+        // (refresh après complétion, quota posté en retard) ne repart pas.
         try {
-            const res = await runLocalJobPrivate(job.slug, {
-                projectSlug: route.params.slug,
-                onLive: (evt) => {
-                    if (evt.walks) localWalks.value = evt.walks;
-                    // Compteur de combinaisons : événement scalaire, la frame
-                    // affichée n'est pas touchée (fusionnée dans localLive).
-                    if (evt.type === 'evals') {
-                        localEvals.value = evt.evals;
-                        return;
-                    }
-                    localLiveFrame.value = {
-                        slug: job.slug,
-                        // J-090 : la frame porte l'itemMap pour les projets
-                        // 100 % clients (le doc job n'en a pas).
-                        itemMap: evt.itemMap || job.itemMap || [],
-                        liveLayout: evt,
-                    };
-                },
-            });
-            if (!res.ok) {
-                localComputeError.value =
-                    res.error === 'memory_cap' ? 'memory_cap'
-                    : res.error === 'entity_limit' ? 'entity_limit'
-                    : res.error === 'geometry_missing' ? 'geometry_missing'
-                    // J-093 : annulation — la carte montre déjà l'état
-                    // « cancelled » via le flux, pas de bandeau d'erreur.
-                    : res.error === 'cancelled' ? null
-                    : 'crash';
-            } else {
-                // Les records ont changé : forcer la prochaine hydratation.
-                invalidateLocalRecords();
-                if (res.liveLayout) {
-                    localReveal.value = {
-                        slug: job.slug,
-                        itemMap: res.itemMap || job.itemMap || [],
-                        liveLayout: res.liveLayout,
-                        // Stats finales conservées sur le panel de reveal :
-                        // compteur total de combinaisons + walks du pool.
-                        compute: { vcores: localWalks.value },
-                        progress: { evals: localEvals.value },
-                    };
-                }
+            const { getLocalResult } = await import('~/composables/localResultsStore');
+            if (await getLocalResult(job.slug)) return;
+        } catch { /* store indisponible : on solve (comportement historique) */ }
+        const { ensureJob } = await import('~/composables/localSolverRegistry');
+        const { maxParallelLocalNests } = await import('~/utils/entitlementUi');
+        const user = useNuxtData('user').value;
+        activeLocalSlug.value = job.slug;
+        ensureJob(job, {
+            projectSlug: route.params.slug,
+            maxConcurrent: maxParallelLocalNests(user),
+        });
+    },
+    { immediate: true }
+);
+// Progression réactive : le registre continue de vivre même quand la page
+// est démontée — en y revenant, l'état (frame live, compteur, phase zones)
+// est déjà là, sans redémarrer le calcul.
+watch(
+    () => progressFor(route.params.slug),
+    async (p) => {
+        if (!p) return;
+        localComputeError.value = p.phase === 'error'
+            ? (p.error === 'memory_cap' ? 'memory_cap'
+              : p.error === 'entity_limit' ? 'entity_limit'
+              : p.error === 'geometry_missing' ? 'geometry_missing'
+              : p.error === 'cancelled' ? null
+              : 'crash')
+            : null;
+        if (p.phase === 'queued' || p.phase === 'running') {
+            if (!localComputeRunning.value) {
+                localComputeRunning.value = true;
+                localModeCtl.startTimer();
             }
-        } catch (e) {
-            localComputeError.value = 'crash';
-            console.error('local compute failed', e);
-        } finally {
+        } else {
             localModeCtl.stopTimer();
             localComputeRunning.value = false;
         }
+        localWalks.value = p.walks || 1;
+        localEvals.value = p.evals ?? null;
+        localZonePhase.value = p.zone ?? null;
+        localLiveFrame.value = p.frame
+            ? {
+                slug: p.slug,
+                itemMap: p.itemMap || [],
+                liveLayout: p.frame,
+            }
+            : localLiveFrame.value;
+        if (p.phase === 'done' && p.result?.liveLayout) {
+            invalidateLocalRecords();
+            localReveal.value = {
+                slug: p.slug,
+                itemMap: p.result.itemMap || p.itemMap || [],
+                liveLayout: p.result.liveLayout,
+                compute: { vcores: p.walks || 1 },
+                progress: { evals: p.evals ?? null },
+            };
+        }
     },
-    { immediate: true }
+    { deep: true, immediate: true }
 );
 const { getters: filesGetters, actions } = filesStore;
 const params = computed(() => filesGetters.params);

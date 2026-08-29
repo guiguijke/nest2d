@@ -718,7 +718,12 @@ export function decorateLiveLayout(evt, payload) {
             holesFilled += layouts.reduce((n, l) => n + (l.placed_items?.length || 0), 0) - before
         }
         const space = Number(payload?.engineConfig?.min_item_separation) || 0
-        holesFilled += applyHoleFill(parts, layouts, space) || 0
+        // fillHoles=false (promesse UI « keep cutouts empty ») : pas de
+        // post-pass de déplacement des fillers vers les trous — le serveur
+        // gate déjà le sien via has_holes (main.py).
+        if (payload?.fillHoles !== false) {
+            holesFilled += applyHoleFill(parts, layouts, space) || 0
+        }
         const items = _layoutsToLiveItems(layouts, bins, isBpp)
         const byId = new Map(parts.map((p) => [String(p.id), p]))
         let partsArea = 0
@@ -733,7 +738,17 @@ export function decorateLiveLayout(evt, payload) {
         const h = Number(sheets[0]?.[1]) || 0
         const nSheets = Math.max(1, usedBins.size || 1)
         const sheetArea = w * h * nSheets
-        const density = sheetArea > 0 ? partsArea / sheetArea : (evt.density ?? null)
+        // SPP : quand la frame porte une bande qui TIENT dans la tôle, la
+        // densité affichée est celle du moteur sur la bande utilisée — même
+        // échelle que le modal (pièces/bande). La densité pièces/tôle-entière
+        // est constante pour un job donné (55,4 % sur le cas 100+800 quel
+        // que soit le packing) : elle reste le repli des frames hors-tôle
+        // et des bundles wasm antérieurs au champ used_height.
+        const bandW = Number(evt.strip_width)
+        const bandOk = !isBpp && Number.isFinite(bandW) && bandW > 0 && w > 0 && bandW <= w + 0.5
+        const density = bandOk
+            ? (evt.density ?? (sheetArea > 0 ? partsArea / sheetArea : null))
+            : (sheetArea > 0 ? partsArea / sheetArea : (evt.density ?? null))
         return { ...evt, items, holesFilled, density }
     } catch {
         return evt
@@ -766,12 +781,19 @@ export async function buildAlternativeArtifacts(result, payload) {
                 out.push(null)
                 continue
             }
+            // Alternative structurelle AUTO-SUFFISANTE (constat 2026-08-29) :
+            // ids d'origine + trous déjà remplis par le pass grille. Le remap
+            // idMap CORROMPRait ses ids (un id d'origine indexé comme id
+            // réduit), l'expansion meta doublerait les fillers, et
+            // applyHoleFill téléporterait les fans des zones vers les trous
+            // restés vides — tout l'aval est sauté pour CETTE alternative.
+            const selfContained = Boolean(alt.structural && alt.selfContained)
             // J-085 : si le solve était réduit (meta-pièces), les placements
             // portent les ids RÉINDEXÉS de l'instance réduite — remap vers
             // les ids d'origine (idMap) puis rattache les fillers figés aux
             // hôtes ; puis post-pass de sécurité (no-op si trous déjà
             // pleins) — parité serveur.
-            if (payload?.meta) {
+            if (payload?.meta && !selfContained) {
                 const idMap = payload.meta.idMap
                 if (Array.isArray(idMap)) {
                     for (const layout of layouts) {
@@ -787,7 +809,7 @@ export async function buildAlternativeArtifacts(result, payload) {
                     expandMeta(parts, payload.meta.host, payload.meta.fill, payload.meta.slots, layouts, payload.meta.ringRotations)
                 }
             }
-            applyHoleFill(parts, layouts, space)
+            if (!selfContained && payload?.fillHoles !== false) applyHoleFill(parts, layouts, space)
             const containers = []
             const sheets = []
             for (const layout of layouts) {
@@ -833,8 +855,47 @@ export async function buildAlternativeArtifacts(result, payload) {
  * report = verify étalé + champs additifs (miroir de _finalize_alternative).
  * `iterations`/`vcores` : le navigateur est mono-walk (1 vcore).
  */
+/**
+ * usedSheetShare local — miroir exact de metrics.compute_used_sheet_share :
+ * bbox couvrant toutes les pièces placées / aire tôle (plus petit = mieux).
+ * Sans lui, le modal retombe sur `density` dont l'échelle varie selon la
+ * convention (pièces/bande moteur vs pièces/tôle) et l'alternative grille
+ * (density null) affichait 0 % (constat user 2026-08-28 : « stats cassées »).
+ */
+function usedSheetShareOf(art, partsById) {
+    if (!art?.containers?.length) return null
+    let bboxArea = 0
+    let sheetArea = 0
+    for (const c of art.containers) {
+        sheetArea += (c.bin_width || 0) * (c.bin_height || 0)
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+        for (const t of c.transforms || []) {
+            const coords = partsById.get(String(t.item_id))?.coords
+            if (!coords?.length) continue
+            const a = t.angle || 0
+            const cos = Math.cos(a)
+            const sin = Math.sin(a)
+            for (const [px, py] of coords) {
+                const rx = px * cos - py * sin + (t.x || 0)
+                const ry = px * sin + py * cos + (t.y || 0)
+                if (rx < minX) minX = rx
+                if (ry < minY) minY = ry
+                if (rx > maxX) maxX = rx
+                if (ry > maxY) maxY = ry
+            }
+        }
+        if (minX !== Infinity) bboxArea += (maxX - minX) * (maxY - minY)
+    }
+    return sheetArea > 0 ? Math.min(1, bboxArea / sheetArea) : null
+}
+
 export function toServerShapeAlternatives(result, payload, artifacts) {
     const alternatives = result?.alternatives || []
+    const parts = payload?.parts || []
+    const partsById = new Map(parts.map((p) => [String(p.id), p]))
     const out = []
     for (let i = 0; i < alternatives.length; i++) {
         const alt = alternatives[i]
@@ -856,9 +917,11 @@ export function toServerShapeAlternatives(result, payload, artifacts) {
         }
         out.push({
             seed: alt.seed ?? null,
-            strategy: alt.bias || 'balanced',
+            // Alternative structurelle (grille canonique) : sa propre classe
+            // d'affichage — miroir de _strategy_for côté serveur.
+            strategy: alt.structural ? 'grid' : (alt.bias || 'balanced'),
             density: alt.solution?.density ?? alt.density ?? null,
-            usedSheetShare: null, // additif ; le modal retombe sur la density
+            usedSheetShare: usedSheetShareOf(art, partsById),
             offcut: bestOffcut
                 ? { width: bestOffcut.widthMm, height: bestOffcut.heightMm, area: bestOffcut.areaMm2 }
                 : null,
