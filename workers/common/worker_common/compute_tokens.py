@@ -48,8 +48,17 @@ def ensure_pool():
 
 def acquire_tokens(worker_name, job_id, cost):
     """Tries to lease `cost` vcores for a job. Returns (lease_id, cost) or
-    None when the pool cannot fit the job right now."""
+    None when the pool cannot fit the job right now.
+
+    Un coût > total (tier Pro 8 vcores sur un pool de 4 — serveur 2 vCPU,
+    constat QA 2026-08-30) serait INACQUIRABLE : le job resterait « pending »
+    à vie. On borne le coût au pool : le job prend la machine entière plutôt
+    que de mourir de faim (comportement égal au serialisé d'avant le pool).
+    """
     cost = max(1, int(cost))
+    total = total_tokens()
+    if cost > total:
+        cost = total
     lease_id = f"{worker_name}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     res = _pool().update_one(
         {

@@ -13,7 +13,14 @@ def _on_success(doc):
 
 def _token_cost(doc):
     """Job cost in the shared vcore pool: the tier's vcores, set server-side
-    at enqueue (params.vcores). Legacy jobs without the field cost 1."""
+    at enqueue (params.vcores). Legacy jobs without the field cost 1.
+
+    LOCAL-PREP jobs (computeLocation=local, the worker only builds the
+    payload — the browser solves) cost 1: they burn no engine vcores, and
+    charging the full tier (8 for Pro > pool 4 sur le serveur 2 vCPU,
+    constat QA 2026-08-30) gelait la préparation ET la vue client."""
+    if (doc.get("params") or {}).get("computeLocation") == "local" or doc.get("computeLocation") == "local":
+        return 1
     return max(1, int((doc.get("params") or {}).get("vcores") or 1))
 
 
