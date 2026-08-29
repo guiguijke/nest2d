@@ -174,6 +174,18 @@ export const COMPUTE_TIERS = {
     privacy: { vcores: 8, wallCapSec: 180, maxDirections: 3, priority: 10 },
 }
 
+/**
+ * Nestings simultanés PAR UTILISATEUR (jobs actifs : pending, processing,
+ * awaiting_local — local compris). Gratuit : 1 à la fois ; Pro : plusieurs
+ * projets en parallèle. Appliquée à l'ENQUEUE (P3 : le serveur décide) ;
+ * miroir UX client dans app/utils/entitlementUi.js.
+ */
+export const MAX_PARALLEL_NESTS = { free: 1, standard: 1, privacy: 3 }
+
+export function maxParallelNestsForTier(tier) {
+    return MAX_PARALLEL_NESTS[tier] ?? 1
+}
+
 /** Layout directions the engine can optimize towards (BPP alternatives). */
 export const NEST_DIRECTIONS = ['left', 'bottom', 'balanced']
 

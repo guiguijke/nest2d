@@ -3,7 +3,7 @@ import { connectDB } from '~~/server/db/mongo'
 import { DOMAINS } from '~~/server/core/domains'
 import { enqueueNestingJob } from '~~/server/core/project/service'
 import { trackEvent } from '~~/server/tracking/add'
-import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, BROWSER_COMPUTE, browserWalksForTier, COMPUTE_TIERS, QUALITY_WALKS, getComputeProfile, getComputeTier, resolveComputeLocation, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
+import { assertCanNest, assertCanNestDemo, assertSheetCountWithinTier, BROWSER_COMPUTE, browserWalksForTier, COMPUTE_TIERS, QUALITY_WALKS, getComputeProfile, getComputeTier, maxParallelNestsForTier, resolveComputeLocation, validateDirections, NEST_DIRECTIONS } from '~~/server/utils/entitlement'
 import {
     DEMO_MAX_DIRECTIONS,
     DEMO_MAX_PARTS,
@@ -355,6 +355,27 @@ export default defineEventHandler(async (event) => {
     // profile (never the client). Internal geometry stays mm — the worker
     // converts only at the export boundary.
     dbParams.outputUnit = user.preferredUnit === 'inch' ? 'inch' : 'mm'
+
+    // Nestings simultanés par utilisateur (gratuit 1, Pro plusieurs — la
+    // limite est SERVEUR, P3). Compte les jobs actifs hors démo, local
+    // compris (awaiting_local occupe un slot tant que le client n'a pas
+    // livré). 409 stable exploitable côté UI.
+    if (!isDemo) {
+        // find().toArray() (et pas countDocuments) : le fakeMongo des tests
+        // serveur ne l'implémente pas — sémantique identique côté Mongo réel.
+        const activeJobs = (await db.collection('nesting_jobs').find({
+            ownerId: userId,
+            status: { $in: ['pending', 'processing', 'awaiting_local'] },
+        }).project({ _id: 1 }).toArray()).length
+        const maxParallel = maxParallelNestsForTier(compute.level)
+        if (activeJobs >= maxParallel) {
+            throw createError({
+                statusCode: 409,
+                statusMessage: 'concurrent_limit',
+                message: `You already have ${activeJobs} nesting job(s) in progress. Wait for them to finish — parallel nesting on several projects is a Pro feature.`,
+            })
+        }
+    }
 
     // Vault gate + job insertion (the already-consumed charge is passed so
     // the quota is not consumed twice). Demo jobs skip the vault gate: the

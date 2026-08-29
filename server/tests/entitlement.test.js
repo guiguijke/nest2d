@@ -15,7 +15,7 @@ vi.mock('~~/server/features/payment/stripe', () => ({
     mapSubscription: vi.fn(),
 }))
 
-import { assertCanNest, effectiveFreeLimit, getComputeProfile, getComputeTier, getDemoEntitlement, getEntitlement, validateDirections } from '~~/server/utils/entitlement'
+import { assertCanNest, effectiveFreeLimit, getComputeProfile, getComputeTier, getDemoEntitlement, getEntitlement, maxParallelNestsForTier, validateDirections } from '~~/server/utils/entitlement'
 import { fakeDb } from './helpers/fakeMongo'
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7)
@@ -261,5 +261,15 @@ describe('validateDirections (D-MOT-5 amendé)', () => {
 
     it('keeps a requested subset in canonical order', () => {
         expect(validateDirections(['balanced', 'left'], 3)).toEqual(['left', 'balanced'])
+    })
+})
+
+describe('maxParallelNestsForTier — nestings simultanés par utilisateur', () => {
+    it('gratuit et Unlimited : 1 ; Pro : plusieurs ; inconnu : 1', () => {
+        expect(maxParallelNestsForTier('free')).toBe(1)
+        expect(maxParallelNestsForTier('standard')).toBe(1)
+        expect(maxParallelNestsForTier('privacy')).toBe(3)
+        expect(maxParallelNestsForTier('demo')).toBe(1)
+        expect(maxParallelNestsForTier(undefined)).toBe(1)
     })
 })
