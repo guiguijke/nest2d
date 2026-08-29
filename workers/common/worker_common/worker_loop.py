@@ -128,6 +128,10 @@ def run_worker(config: WorkerConfig) -> None:
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, signal_handler)
+    # Ctrl+C (dev) : sans handler, KeyboardInterrupt traverse tout (il n'est
+    # pas une Exception) et laisse le job en « processing » sans reset ni
+    # libération — même traitement que SIGTERM.
+    signal.signal(signal.SIGINT, signal_handler)
 
     try:
         db.command("ping")
@@ -224,10 +228,34 @@ def run_worker(config: WorkerConfig) -> None:
             result = config.process(doc)
 
             if config.result_based_completion and not result:
-                collection.update_one(
-                    {"_id": current_doc_id},
-                    {"$set": {config.status_field: "pending"}},
-                )
+                # Un résultat falsy (ex. toutes les parts filtrées par le
+                # seuil de taille) re-file le job — mais SANS compteur ni
+                # pause, un cas déterministe boucle à chaud indéfiniment.
+                # Compteur borné + backoff ; au bout de 3 essais le doc
+                # passe en erreur actionnable (la reroute worker_tag reste
+                # compatible : elle re-file UNE fois vers un autre worker).
+                attempts = int(doc.get("processAttempts") or 0) + 1
+                if attempts >= 3:
+                    collection.update_one(
+                        {"_id": current_doc_id},
+                        {"$set": {
+                            config.status_field: "error",
+                            config.error_field: (
+                                "Processing made no progress after "
+                                f"{attempts} attempts (no convertible "
+                                "geometry found — parts may be too small)."
+                            ),
+                            "processAttempts": attempts,
+                        }},
+                    )
+                else:
+                    collection.update_one(
+                        {"_id": current_doc_id},
+                        {"$set": {config.status_field: "pending",
+                                  "processAttempts": attempts}},
+                    )
+                time.sleep(config.idle_sleep)
+                continue
             else:
                 # process() may have rerouted the job out of "processing"
                 # (Phase 2 local compute: status is now "awaiting_local" and
@@ -235,9 +263,9 @@ def run_worker(config: WorkerConfig) -> None:
                 # with the done write loses the job: the browser never sees
                 # awaiting_local, no result is ever produced and the quota is
                 # gone. Only finalize when the job is still in-flight.
-                current_status = collection.find_one(
+                current_status = (collection.find_one(
                     {"_id": current_doc_id}, {config.status_field: 1}
-                ).get(config.status_field)
+                ) or {}).get(config.status_field)
                 if current_status != "processing":
                     logger.info(
                         f"Job rerouted by process() (status={current_status}), "
@@ -255,7 +283,18 @@ def run_worker(config: WorkerConfig) -> None:
                     )
                 collection.update_one({"_id": current_doc_id}, {"$set": done_update})
                 if config.on_success:
-                    config.on_success(doc)
+                    try:
+                        config.on_success(doc)
+                    except Exception as e:
+                        # on_success (ex. incrémentation nesting_count) tourne
+                        # APRÈS l'écriture done : un échec Mongo transitoire
+                        # ici ne doit pas requalifier un job réussi en
+                        # error+refund via le except global — logger pour
+                        # rattrapage manuel, le job reste done.
+                        logger.error(
+                            f"on_success failed after done (job stays done)",
+                            extra={"error": str(e), "traceback": traceback.format_exc()},
+                        )
         except Exception as e:
             if config.cancelled_exception and isinstance(e, config.cancelled_exception):
                 # The job doc is already finalized (status=cancelled) by

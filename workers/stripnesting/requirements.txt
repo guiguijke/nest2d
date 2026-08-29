@@ -1,5 +1,5 @@
 spyrrow==0.9.0
 ezdxf==1.4.4
-pymongo==4.14.1
-python-dotenv==1.1.1
-cryptography
+pymongo==4.17.0
+python-dotenv==1.2.3
+cryptography>=44,<51

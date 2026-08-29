@@ -155,10 +155,26 @@ def read_dxf_file(dxf_path: str) -> Tuple[Drawing, List[OriginalFootprint]] | No
     hatches = new_msp.query("HATCH")
     if hatches:
         logger.info(f"Found {len(hatches)} HATCH entities to convert to lines.")
-        for hatch in hatches:  
+        # hatch_entity yield des PAIRES de Vec3 (start, end) et un motif
+        # hostile peut porter des millions de segments — borné + paresseux
+        # (cf. fileprocessing/dxf_utils.py, même correctif).
+        MAX_HATCH_SEGMENTS = 20_000
+        for hatch in hatches:
             try:
-                for line in hatch_entity(hatch):
-                    new_msp.add_line(line.start, line.end, dxfattribs=hatch.graphic_properties())
+                count = 0
+                for start, end in hatch_entity(hatch):
+                    count += 1
+                    if count > MAX_HATCH_SEGMENTS:
+                        break
+                    new_msp.add_line(start, end, dxfattribs=hatch.graphic_properties())
+                if count > MAX_HATCH_SEGMENTS:
+                    logger.warning(
+                        "HATCH pattern too large, kept as-is",
+                        extra={"handle": hatch.dxf.handle,
+                               "segments": count,
+                               "max": MAX_HATCH_SEGMENTS},
+                    )
+                    continue
                 new_msp.delete_entity(hatch)
             except Exception as e:
                 logger.error(f"Failed to convert HATCH (handle #{hatch.dxf.handle}): {e}")

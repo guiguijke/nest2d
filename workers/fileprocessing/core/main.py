@@ -80,7 +80,19 @@ def _make_dxf_copy(doc) -> Drawing:
         dxf_copy = read_dxf(io.BytesIO(dwg_bytes_to_dxf_bytes(dxf_bytes)))
     else:
         dxf_copy = read_dxf(io.BytesIO(dxf_bytes))
-    
+
+    if dxf_copy is None:
+        # read_dxf returns None on IOError/DXFStructureError (recover a
+        # échoué). Un crash brut "'NoneType' object has no attribute
+        # 'modelspace'" n'aide personne — échouer proprement avec un
+        # message actionnable.
+        raise Exception(
+            "The uploaded file could not be read as a DXF"
+            + (" (the DWG conversion produced an unreadable file)"
+               if source_format == "dwg" else "")
+            + ". Check that the file is a valid DXF/DWG export."
+        )
+
     logger.info("Make a copy Drawing info", extra={"entity_count": len(dxf_copy.modelspace())})
     
     dxf_copy_text_stream = io.StringIO()

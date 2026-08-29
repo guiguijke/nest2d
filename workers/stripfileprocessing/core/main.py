@@ -71,7 +71,18 @@ def _close_polygon_from_dxf(doc):
 
     dek = get_dek(db, doc)
     dxf_bytes = read_gridfs(strip_user_dxf_bucket, doc["slug"], doc["ownerId"], dek)
-    drawing, original_footprints = read_dxf(io.BytesIO(dxf_bytes))
+    read_result = read_dxf(io.BytesIO(dxf_bytes))
+
+    if read_result is None:
+        # read_dxf retourne None sur IOError/DXFStructureError — dépaqueté
+        # tel quel, l'utilisateur voyait « cannot unpack non-sequence
+        # NoneType ». Échouer proprement à la place.
+        raise Exception(
+            "The uploaded file could not be read as a DXF. "
+            "Check that the file is a valid DXF export."
+        )
+
+    drawing, original_footprints = read_result
 
     closed_parts = build_geometry(drawing, tolerance, original_footprints)
 

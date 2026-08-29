@@ -11,9 +11,9 @@ requires-python = ">=3.11"
 # that import worker_common.geometry need it, and they already pin it in
 # their own requirements.txt (keeps the stripnesting image free of shapely).
 dependencies = [
-    "pymongo>=4.11",
-    "python-dotenv>=1.0",
-    "cryptography",
+    "pymongo>=4.17",
+    "python-dotenv>=1.2",
+    "cryptography>=44,<51",
 ]
 
 [tool.setuptools.packages.find]
