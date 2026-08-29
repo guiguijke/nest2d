@@ -548,10 +548,10 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 
 ```bash
 npx vitest run                                             # app+server (321)
-cd workers/nesting/engine && cargo test --release -p nest-engine   # 61 + 1 ignore
-cd workers/nesting && python -m pytest tests/ -q --ignore=tests/test_integration_holes.py   # 103 (fixtures holes absentes en dev local)
-cd workers/common && python -m pytest tests/ -q            # 46
-cd workers/fileprocessing && python -m pytest tests/ -q    # 32 (+2 skipped)
+cd workers/nesting/engine && cargo test --release -p nest-engine   # 66 + 1 ignore (dont le verrou bpp_live_frame)
+cd workers/nesting && python -m pytest tests/ -q --ignore=tests/test_integration_holes.py   # 104 (fixtures holes absentes en dev local)
+cd workers/common && python -m pytest tests/ -q            # 48
+cd workers/fileprocessing && python -m pytest tests/ -q    # 33 (+2 skipped)
 npx nuxt build                                             # app
 cd nestorcut-website && npm run build                      # site marketing
 ```

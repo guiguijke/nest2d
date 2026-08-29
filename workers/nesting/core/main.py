@@ -1012,13 +1012,11 @@ def nesting_process(doc):
             pass
         return _cancel_state["flag"]
 
-    try:
-        engine_alternatives = run_engine(
-            solve_instance, engine_config, problem_type, on_event=_on_engine_event,
-            should_cancel=should_cancel,
-            rayon_threads=rayon_threads,
-        )
-    except EngineCancelled:
+    def _finalize_cancelled():
+        """Finalisation d'annulation partagée : solve principal ET pass
+        structurel (ses sous-solves de zones lèvent aussi
+        EngineCancelled). Statut cancelled + nettoyage des champs
+        éphémères ; le refund passe par JobCancelled côté worker_loop."""
         _heartbeat_stop.set()
         db["nesting_jobs"].update_one(
             { "slug": slug },
@@ -1032,6 +1030,15 @@ def nesting_process(doc):
                 "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
             },
         )
+
+    try:
+        engine_alternatives = run_engine(
+            solve_instance, engine_config, problem_type, on_event=_on_engine_event,
+            should_cancel=should_cancel,
+            rayon_threads=rayon_threads,
+        )
+    except EngineCancelled:
+        _finalize_cancelled()
         raise JobCancelled(slug)
     except Exception as e:
         _heartbeat_stop.set()
@@ -1255,10 +1262,12 @@ def nesting_process(doc):
                         )
         except EngineCancelled:
             # Une annulation pendant un sous-solve de zone (A→C→trous→B)
-            # n'est PAS un échec du pass structurel : la remonter pour que
-            # le job soit finalisé « cancelled » + remboursé comme celui du
-            # solve principal (le `except Exception` ci-dessous l'avalait).
-            raise
+            # n'est PAS un échec du pass structurel : même finalisation que
+            # le solve principal (cancelled + JobCancelled → refund). Un
+            # `raise` nu ne suffirait pas — worker_loop ne connaît que
+            # JobCancelled et traiterait l'annulation en erreur générique.
+            _finalize_cancelled()
+            raise JobCancelled(slug)
         except Exception as e:
             logger.warning("structural pass failed, keeping engine result",
                            extra={"error": str(e)})

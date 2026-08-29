@@ -16,6 +16,13 @@ import init, { run_nesting, run_nesting_live, wasm_memory_pages } from '/engine/
 
 let ready = null
 
+// Piège 14i : le wasm garde le MÊME nom de fichier à chaque rebuild — un
+// fetch nu ressert la copie du cache HTTP navigateur (l'ancien moteur
+// tourne encore). cache:'reload' force la revalidation à chaque boot du
+// worker (304 quasi gratuit quand le bundle n'a pas changé ; l'edge CDN
+// peut encore servir ~2 h sa copie, un cycle court, cf. AGENTS.md).
+const wasmRequest = () => new Request('/engine/nest_wasm_bg.wasm', { cache: 'reload' })
+
 // Soft guardrail (spike: 35 MB on the big jobs; Chrome caps ~2-4 GB).
 // 1 GB matches the spike's NO-GO threshold — beyond that we bail cleanly.
 const MEMORY_CAP_PAGES = (1024 * 1024 * 1024) / 65536
@@ -28,7 +35,7 @@ self.onmessage = async (event) => {
     // solve existant ; ici l'absence devient une erreur propre côté appelant.
     if (op === 'merge') {
         try {
-            ready = ready || init()
+            ready = ready || init(wasmRequest())
             await ready
             const mod = await import('/engine/nest_wasm.js')
             if (typeof mod.merge_alternatives !== 'function') {
@@ -43,7 +50,7 @@ self.onmessage = async (event) => {
         return
     }
     try {
-        ready = ready || init()
+        ready = ready || init(wasmRequest())
         await ready
         const pagesBefore = wasm_memory_pages()
         const result = live
