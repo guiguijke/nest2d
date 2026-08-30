@@ -7,6 +7,64 @@ import { getUnitState } from '~/composables/useUnit'
 const { actions } = globalStore
 const { getProjects, setModalNestData } = actions
 
+/**
+ * Factory defaults for the nesting form (display-unit strings, mm factory).
+ * Extracted so a project switch can RESET to a clean form without leaking
+ * the previous project's (or the demo's) settings.
+ */
+function factoryParams() {
+    return {
+        sheets: [{ width: '1000', height: '2000', count: '1' }],
+        space: '0.1',
+        addOutShape: false,
+        // Allow nesting smaller parts inside the cutouts of holed parts
+        // (engine opens them with a hairline channel; off = sealed cutouts).
+        fillHoles: true,
+        rotationCount: 4,
+        // D-MOT-5 amendé : 1 sens = 1 layout (le meilleur). Cocher plus
+        // de sens = plus de propositions.
+        directions: ['left'],
+    }
+}
+
+// Cloisonnement par projet (QA 2026-08-30 : changer de projet pendant un
+// nesting RÉINITIALISAIT les quantités saisies et laissait les params
+// fuiter d'un projet à l'autre — la démo écrasait les réglages des vrais
+// projets). Snapshot par slug : params (+ leur unité d'expression) et
+// quantités/rotations par fichier — sauvegardé en quittant le projet,
+// restauré en y revenant. Les fichiers sont rechargés depuis le serveur ;
+// seul le choix utilisateur est snapshoté.
+const projectSnapshots = new Map()
+const PROJECT_SNAPSHOT_MAX = 20
+
+// Posé par la page (démo) juste après avoir appliqué ses défauts curated
+// au montage : setProjectFiles (async, APRÈS le setup) ne doit alors pas
+// écraser ces params par les défauts d'usine — première visite seulement.
+// Une fois le projet chargé, le drapeau est consommé ; au RETOUR sur le
+// projet, c'est le snapshot qui gagne (les curated defaults ne repassent
+// pas par-dessus les réglages de l'utilisateur).
+let pendingCuratedDefaults = false
+function markCuratedDefaults() {
+    pendingCuratedDefaults = true
+}
+
+function snapshotCurrentProject() {
+    if (state.projectSlug == null) return
+    projectSnapshots.set(state.projectSlug, {
+        params: JSON.parse(JSON.stringify(state.params)),
+        paramsUnit,
+        countBySlug: Object.fromEntries(
+            (state.projectFiles || []).map((file) => [file.slug, file.count])
+        ),
+        rotationBySlug: Object.fromEntries(
+            (state.projectFiles || []).map((file) => [file.slug, file.rotation])
+        ),
+    })
+    if (projectSnapshots.size > PROJECT_SNAPSHOT_MAX) {
+        projectSnapshots.delete(projectSnapshots.keys().next().value)
+    }
+}
+
 const state = reactive({
     projectFiles: null,
     projectSlug: null,
@@ -24,18 +82,7 @@ const state = reactive({
     // sheet_cap_exceeded) — defense-in-depth: the project page mirror
     // normally disables the launch before this can happen.
     sheetCapError: false,
-    params: {
-        sheets: [{ width: '1000', height: '2000', count: '1' }],
-        space: '0.1',
-        addOutShape: false,
-        // Allow nesting smaller parts inside the cutouts of holed parts
-        // (engine opens them with a hairline channel; off = sealed cutouts).
-        fillHoles: true,
-        rotationCount: 4,
-        // D-MOT-5 amendé : 1 sens = 1 layout (le meilleur). Cocher plus
-        // de sens = plus de propositions.
-        directions: ['left'],
-    },
+    params: factoryParams(),
     isSvgLoaded: computed(
         () =>
             state.projectFiles?.every(
@@ -182,26 +229,34 @@ function setProjectName(name) {
     state.projectName = name
 }
 function setProjectFiles(files, path) {
-    // Only carry over the user-selected counts/rotations when we are reloading
-    // the same project (e.g. after uploading more files). When switching to a
-    // different project we must start fresh so stale values don't leak across.
-    // Indexed by slug (not by array position) so a reordered/trimmed file list
-    // can't read the wrong file's count and crash.
+    // Cloisonnement (QA 2026-08-30) : en QUITTANT un projet on snapshotte
+    // ses réglages ; en ARRIVANT sur un autre, on restaure SON snapshot —
+    // ou les défauts d'usine (plus de fuite des params d'un projet à
+    // l'autre, la démo comprise). Sur un rechargement du MÊME projet
+    // (upload de fichiers), le comportement historique est conservé :
+    // les counts/rotations sélectionnés sont portés par slug.
     const sameProject = path != null && path === state.projectSlug
+    if (!sameProject) {
+        snapshotCurrentProject()
+    }
+    const snap = (!sameProject && path != null)
+        ? projectSnapshots.get(path)
+        : null
     const countBySlug = new Map(
         sameProject
             ? (state.projectFiles || []).map((file) => [file.slug, file.count])
-            : []
+            : Object.entries(snap?.countBySlug || {})
     )
     const rotationBySlug = new Map(
         sameProject
             ? (state.projectFiles || []).map((file) => [file.slug, file.rotation])
-            : []
+            : Object.entries(snap?.rotationBySlug || {})
     )
     state.projectFiles = files.map((file) => ({
         ...file,
         // Demo files carry their suggested quantity from the seed; anything
-        // else starts at 1 (or keeps the user's previous pick on reload).
+        // else starts at 1 (or keeps the user's previous pick on reload —
+        // désormais aussi au RETOUR sur le projet, via le snapshot).
         count: countBySlug.has(file.slug) ? countBySlug.get(file.slug) : (file.demoQuantity ?? 1),
         rotation: rotationBySlug.has(file.slug) ? rotationBySlug.get(file.slug) : null
     }))
@@ -210,6 +265,17 @@ function setProjectFiles(files, path) {
         // Reset the "already nested" marker so the Nest button reflects the
         // newly loaded project rather than the previous one.
         state.lastParams = ''
+        // Params du projet visité : son snapshot s'il existe (l'utilisateur
+        // était déjà passé), sinon les curated defaults posés au montage
+        // (démo), sinon les défauts d'usine.
+        if (snap) {
+            state.params = JSON.parse(JSON.stringify(snap.params))
+            paramsUnit = snap.paramsUnit
+        } else if (!pendingCuratedDefaults) {
+            state.params = factoryParams()
+            paramsUnit = 'mm'
+        }
+        pendingCuratedDefaults = false
     }
     scheduleFilesRefresh(path)
 }
@@ -450,6 +516,7 @@ export const filesStore = readonly({
         setProjectName,
         setPendingLocalFiles,
         consumePendingLocalFiles,
+        markCuratedDefaults,
         updateParams,
         updateSheet,
         addSheet,

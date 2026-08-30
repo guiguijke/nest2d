@@ -369,6 +369,10 @@ const applyDemoDefaults = () => {
         fillHoles: true,
         rotationCount: 4,
     });
+    // Cloisonnement projets : ces curated defaults ne valent que pour la
+    // PREMIÈRE visite de la démo — setProjectFiles ne les écrasera pas
+    // (drapeau), mais au retour c'est le snapshot utilisateur qui gagne.
+    actions.markCuratedDefaults();
 };
 watch(isDemo, (val) => {
     if (val && !demoDefaultsApplied.value) {
