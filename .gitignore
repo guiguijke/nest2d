@@ -72,3 +72,4 @@ workers/geometry/parity/SVGELEMENTS-REFERENCE.txt
 
 # Scratch de replay du banc moteur (J-092)
 workers/nesting/bench/out*/
+docs/DEPLOY-HETZNER.md

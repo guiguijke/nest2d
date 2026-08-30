@@ -9,7 +9,7 @@ import logger from '~~/server/utils/logger'
  * consent. Best-effort: a listmonk outage must never block a signup.
  *
  * Config (private runtime config / env):
- *   NUXT_LISTMONK_URL      e.g. http://<IP-HOMELAB>:9000
+ *   NUXT_LISTMONK_URL      e.g. http://listmonk.internal:9000
  *   NUXT_LISTMONK_USER     listmonk API username
  *   NUXT_LISTMONK_PASSWORD listmonk API password
  *   NUXT_LISTMONK_LIST_ID  numeric list id

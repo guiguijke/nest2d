@@ -38,9 +38,10 @@ admin/                 (back-office Nuxt)
 
 DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
 - Hetzner CX23 (front + workers + Mongo + Caddy)
-- HOMELAB (<IP-HOMELAB>) : 3 workers nesting « overflow » (tunnel
-  WireGuard 100 % Docker, pair <IP-VPN>, Mongo via <IP-VPN>:27018) qui
-  consomment la même file — débordement, aucune donnée locale
+- HOMELAB (serveur maison) : 3 workers nesting « overflow » (tunnel
+  WireGuard 100 % Docker, pair dédié, Mongo prod via un proxy WG-only)
+  qui consomment la même file — débordement, aucune donnée locale
+  (adresses & procédures : runbook privé specs/infra/, gitignoré)
 - Navigateur : mode THIS DEVICE (moteur wasm, résultats IndexedDB)
 ```
 

@@ -2,9 +2,9 @@
 
 Référence de l'architecture **déployée** : topologie, composants, flux de
 données, frontières de sécurité. Le « pourquoi » des décisions vit dans
-`specs/` ; les pièges techniques dans `AGENTS.md` ; le runbook d'exploitation
-dans `docs/DEPLOY-HETZNER.md` ; la cartographie fine du pipeline géométrique
-dans `docs/PIPELINE-MAP.md`.
+`specs/` ; les pièges techniques dans `AGENTS.md` ; le runbook d'exploitation (IP, accès, procédures)
+dans `specs/infra/DEPLOY-HETZNER.md` — **local, gitignoré, jamais commité** ;
+la cartographie fine du pipeline géométrique dans `docs/PIPELINE-MAP.md`.
 
 ---
 
@@ -14,26 +14,25 @@ dans `docs/PIPELINE-MAP.md`.
                     Internet (app.nestorcut.com, Cloudflare proxied)
                                         │
                                         ▼
-        ┌───────────────────────── Hetzner CX23 (2 vCPU) ─────────────────────────┐
-        │  Caddy (80/443, TLS) ──► app Nuxt (127.0.0.1:7100)                      │
+        ┌───────────────────────── VPS frontal (cloud) ───────────────────────────┐
+        │  Caddy (80/443, TLS) ──► app Nuxt (localhost uniquement)                │
         │                             │                                          │
         │                             ▼                                          │
         │  MongoDB (réseau docker interne) ◄──── workers :                        │
         │        ▲                       │   · nesting-worker ×1 (natif Rust)     │
-        │        │ socat <IP-VPN>:27018 │   · file-processing (DXF→polygonParts)  │
+        │        │ proxy Mongo WG-only  │   · file-processing (DXF→polygonParts)  │
         │        │ (mongo-wg)           │   · strip-file-processing               │
         │        │                       │   · strip-nesting (spyrrow)             │
         │        │                       ▼                                          │
-        │  admin (<IP-VPN>:7200, profil docker, JAMAIS public)                     │
+        │  admin (IP WireGuard uniquement, profil docker, JAMAIS public)           │
         └─────────┬───────────────────────▲──────────────────────────────────────┘
-         wg0 (51820/udp)                  │ WireGuard
+         WireGuard (port privé)            │ WireGuard
                   │                       │
-   <IP-VPN> pont admin   <IP-VPN> DÉBORDEMENT (tunnel dédié, 100 % Docker)
-   (mini-pc maison,     ┌───────────────── Homelab (jail jailmaker TrueNAS,
-    forward 7200)       │                  <IP-HOMELAB>, 48 threads) ──────────┐
-                        │                  │  linuxserver/wireguard (client)     │
-                        └──────────────────┤  overflow-worker ×3 (6 CPU/2 Go,    │
-                                           │   MONGO_URI <IP-VPN>:27018)         │
+   pont admin (LAN)     tunnel dédié (pair dédié, 100 % Docker)
+   (forward du port     ┌───────────────── Homelab (serveur maison puissant) ───┐
+    admin)              │                  │  linuxserver/wireguard (client)     │
+                        └──────────────────┤  overflow-worker ×3 (CPU/RAM bornés)│
+                                           │   Mongo prod via le proxy WG-only   │
                                            └─────────────────────────────────────┘
 
    Navigateur utilisateur : mode « THIS DEVICE » = moteur wasm in-browser
@@ -42,13 +41,13 @@ dans `docs/PIPELINE-MAP.md`.
 
 ## 2. Composants
 
-### Front (Hetzner)
+### Front (VPS cloud)
 
 | Composant | Rôle | Détails |
 |---|---|---|
 | **Caddy** | reverse proxy public | réseau host, 80/443, TLS Let's Encrypt ; seul point d'entrée Internet |
 | **app** (Nuxt 4) | UI + API Nitro | bind `127.0.0.1:7100` uniquement ; SSE pour la vue live ; entitlement/quotas/paiements côté serveur (jamais le client) |
-| **admin** (Nuxt) | back-office | bind `<IP-VPN>:7200` (IP WireGuard), profil docker `admin`, `NUXT_ADMIN_LAN_OPEN=true` (confiance réseau VPN, pas de login) |
+| **admin** (Nuxt) | back-office | bind sur l'IP WireGuard uniquement, profil docker `admin`, `NUXT_ADMIN_LAN_OPEN=true` (confiance réseau VPN, pas de login) |
 | **MongoDB** | stockage unique | fichiers GridFS + collections métier ; interne au réseau docker |
 
 ### Workers (Hetzner) — 1 job à la fois par processus
@@ -65,8 +64,8 @@ dans `docs/PIPELINE-MAP.md`.
 collection `nesting_jobs`. Répartition naturelle : le premier worker libre
 (Hetzner ou homelab) claim le job (`find_one_and_update` atomique). Le
 homelab n'héberge **aucune donnée** : il lit/écrit dans le Mongo de la prod
-à travers le tunnel. Éteint, la prod fonctionne comme avant. Voir
-`docs/DEPLOY-HETZNER.md` § Débordement.
+à travers le tunnel. Éteint, la prod fonctionne comme avant. Détails (chemins, IP, commandes) :
+runbook privé `specs/infra/DEPLOY-HETZNER.md` § Débordement.
 
 ### Moteur (Rust, workspace `workers/nesting/engine`)
 
@@ -127,17 +126,18 @@ le flip Y SVG `translate(x, H−y) scale(1,−1) rotate(θ)` est obligatoire
   heartbeat 10 s, reaper 60 s, coût clampé au total).
 - Un job local-prep coûte 1 jeton ; un job de calcul coûte son tier
   (clampé) ; 1 worker = 1 job en cours, le parallélisme vient des réplicas
-  (1 en prod, 3 en débordement).
+  (1 en prod, 3 en débordement). Adresses, ports et procédures : runbook
+  privé `specs/infra/`.
 
 ## 5. Réseau & sécurité
 
 | Frontière | Règle |
 |---|---|
 | Internet → app | Cloudflare (proxied, Full strict) → Caddy 80/443 uniquement |
-| Internet → admin | **Aucune route** ; admin bindé `<IP-VPN>:7200` (wg0), atteignable via le pont maison (`<IP-PONT-ADMIN>:7200`, LAN) ou tunnel SSH |
-| wg0 Hetzner (51820/udp) | peers : VPN maison (<IP-VPN>/24), pont admin `<IP-VPN>`, débordement `<IP-VPN>` (AllowedIPs `<IP-VPN>/32` — le homelab ne route QUE l'IP du serveur) |
-| Mongo | interne au docker network ; exposition unique `<IP-VPN>:27018` (socat `mongo-wg`) pour les workers overflow — jamais `0.0.0.0` (docker bypass ufw, piège runbook #1) |
-| Workers → Mongo | Hetzner : réseau docker ; homelab : `mongodb://<IP-VPN>:27018` dans le netns du conteneur wireguard |
+| Internet → admin | **Aucune route** ; admin bindé sur l'IP WireGuard uniquement, atteignable via le pont du réseau maison (LAN) ou un tunnel SSH |
+| WireGuard | pairs : VPN maison, pont admin, débordement homelab (AllowedIPs restreints à la seule IP du serveur — le homelab ne route rien d'autre) |
+| Mongo | interne au docker network ; exposition unique via un proxy socat **bindé sur l'IP WireGuard** pour les workers overflow — jamais `0.0.0.0` (docker bypass ufw) |
+| Workers → Mongo | frontal : réseau docker ; homelab : proxy Mongo à travers le tunnel, dans le netns du conteneur wireguard |
 | Fichiers (`/api/files/**`) | slugs opaques + ownership ; anti-brute-force 30 req/min, budget authentifié séparé 180/min pour `project/{geometry,dxf,svg}` (consommation massive légitime par la page et le mode local) |
 | Vault (option, ZK) | DEK par job, ECDH P-256 + HKDF, AAD contextuel — voir `docs/THREAT-MODEL.md` |
 
