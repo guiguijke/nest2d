@@ -41,7 +41,8 @@ provided — if you want to nest parts, use the hosted service.
 ## Tech stack
 
 Nuxt 4 (frontend + API) · MongoDB (GridFS) · Python workers · Rust nesting
-engine. Internal architecture notes for contributors live in `AGENTS.md`.
+engine (native + WebAssembly, in-browser mode included). Architecture:
+`docs/ARCHITECTURE.md` — internal notes for contributors live in `AGENTS.md`.
 
 ## Credits
 

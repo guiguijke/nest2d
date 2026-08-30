@@ -22,6 +22,9 @@ toucher au moteur, au worker Python ou au visualizer.
 
 ## 1. Architecture
 
+Cartographie complète (topologie, flux, frontières, CI/CD) :
+**`docs/ARCHITECTURE.md`** — référence à jour (2026-08-30).
+
 ```
 app/ (Nuxt 4, UI)  ──► server/ (API Nuxt, entitlement, SSE)  ──► MongoDB
 workers/fileprocessing (DXF → polygonParts)
@@ -29,7 +32,16 @@ workers/nesting        (orchestrateur Python → nest-engine (Rust) → DXF/SVG)
 workers/common         (worker_common: mongo, crypto, worker_loop, tokens)
 workers/nesting/engine (Rust workspace: nest-engine + sparrow vendorisé,
                         jagua-rs = dep crates.io 0.7.2)
+workers/geometry       (workspace Rust dual-target: import/export/métriques
+                        wasm = chemin navigateur, parité PIPELINE-MAP.md)
 admin/                 (back-office Nuxt)
+
+DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
+- Hetzner CX23 (front + workers + Mongo + Caddy)
+- HOMELAB (<IP-HOMELAB>) : 3 workers nesting « overflow » (tunnel
+  WireGuard 100 % Docker, pair <IP-VPN>, Mongo via <IP-VPN>:27018) qui
+  consomment la même file — débordement, aucune donnée locale
+- Navigateur : mode THIS DEVICE (moteur wasm, résultats IndexedDB)
 ```
 
 - **Deux modes moteur** : SPP (sparrow = strip packing, minimise la
@@ -46,8 +58,10 @@ admin/                 (back-office Nuxt)
   docker + pool de jetons.
 - **Compute par tier** : free 1 / standard 4 / privacy 8 vcores, écrit
   côté serveur dans `params.vcores` (jamais le client). Pool Mongo
-  `compute_pool` (16 jetons par défaut, `NEST_COMPUTE_TOKENS`), acquire
-  atomique (`$expr used+cost ≤ total`), leases avec heartbeat, reaper > 60 s.
+  `compute_pool` (`NEST_COMPUTE_TOKENS` = **28, identique Hetzner et
+  homelab** — le total est réécrit au démarrage des workers), acquire
+  atomique (`$expr used+cost ≤ total`, coût clampé au total), leases avec
+  heartbeat, reaper > 60 s, jobs local-prep = 1 jeton.
   Noms code ↔ marketing : `free`/`standard`/`privacy` = Free/Unlimited/
   **Pro** (le tier code `privacy` est le Pro « budget moteur max » — le
   vault ZK n'est plus son exclusivité : opt-in tous plans en Phase 1, voir

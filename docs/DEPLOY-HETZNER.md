@@ -25,8 +25,9 @@ ssh -i "/c/Users/guiguijke/OneDrive/Wallet/hetzner/id_ed25519" root@<IP-SERVEUR-
 | App | conteneur `nestorcut-app-1`, bind `127.0.0.1:7100` uniquement → Caddy |
 | Admin | conteneur `nestorcut-admin-1`, bind `<IP-VPN>:7200` (IP WireGuard) uniquement — **jamais exposé publiquement**, `NUXT_ADMIN_LAN_OPEN=true` (aucun password, confiance réseau VPN uniquement) |
 | Mongo | conteneur `nestorcut-mongo-1`, interne au réseau docker, volume `nestorcut_mongo-data` |
+| Mongo-wg (2026-08-30) | conteneur `nestorcut-mongo-wg` (socat), bind `<IP-VPN>:27018` **uniquement** → proxy TCP vers Mongo : accès pour les workers overflow du homelab (le conteneur Mongo n'est pas recréé) |
 | Workers | `nestorcut-nesting-worker-1` (1 réplica), `user-file-processing`, `strip-file-processing`, `strip-nesting` |
-| WireGuard | `wg0` (ListenPort **51820/udp**), serveur = peer `<IP-VPN>` du VPN maison (endpoint <IP-MAISON>:51800). Peer dédié `<IP-VPN>` = **LXC `nestorcut-bridge`** (`<IP-PONT-ADMIN>`) sur le Proxmox maison (`<IP-PROXMOX>`), qui forward `7200` vers l'admin |
+| WireGuard | `wg0` (ListenPort **51820/udp**), serveur = peer `<IP-VPN>` du VPN maison (endpoint <IP-MAISON>:51800). Peer dédié `<IP-VPN>` = pont admin sur le réseau maison (`<IP-PONT-ADMIN>`, forward `7200`). Peer `<IP-VPN>` = **débordement homelab** (cf. § Débordement) |
 
 Pare-feu `ufw` : 22/tcp, 80/tcp, 443/tcp + **51820/udp** (WireGuard uniquement). Swap 2 Go. Mises à jour sécu auto (unattended-upgrades).
 
@@ -93,8 +94,11 @@ puis http://localhost:7200 — sans password (LAN_OPEN actif).
 3. **Docker démarre après WireGuard** : drop-in systemd
    `/etc/systemd/system/docker.service.d/after-wireguard.conf` (le bind `<IP-VPN>`
    exige wg0). Ne pas supprimer.
-4. **2 vCPU seulement** : `NEST_WORKER_REPLICAS=1`, `NEST_COMPUTE_TOKENS=4` dans le
-   `.env` serveur. Ne pas augmenter sans upgrade du VPS.
+4. **2 vCPU seulement** : `NEST_WORKER_REPLICAS=1` dans le `.env` serveur.
+   `NEST_COMPUTE_TOKENS=28` (2026-08-30) : la capacité vient du DÉBORDEMENT
+   homelab (§ Débordement) — la valeur doit rester IDENTIQUE côté homelab
+   (les deux côtés écrivent le total du pool en base au démarrage). Ne pas
+   augmenter les réplicas locaux sans upgrade du VPS.
 5. **Clés dépréciées retirées** : `NUXT_ENCRYPTION_MASTER_KEY` / `ENCRYPTION_MASTER_KEY`
    ne doivent PAS revenir dans le `.env` (D-PRV-7, warnings au boot).
 6. **Grant admin** : `grantedUntil` + `grantedTier` dans la collection `users`
