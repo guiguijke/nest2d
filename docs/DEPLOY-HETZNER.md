@@ -116,3 +116,26 @@ puis http://localhost:7200 — sans password (LAN_OPEN actif).
 - Google OAuth : redirect `https://app.nestorcut.com/auth/google/callback`.
 - Resend (emails) : `NUXT_RESEND_TOKEN` / `NUXT_RESEND_FROM`.
 - Notifications signup admin : `NUXT_ADMIN_NOTIFY_EMAIL`.
+
+## Débordement homelab (2026-08-30) — workers nesting « overflow »
+
+Quand la prod est chargée, des workers tournant sur le homelab (jail
+jailmaker TrueNAS, `<IP-HOMELAB>`, 48 threads) consomment la MÊME file
+`nesting_jobs` que la prod, via un tunnel WireGuard **entièrement
+Docker** (rien n'est installé sur l'hôte du homelab).
+
+| Côté | Quoi |
+|---|---|
+| Homelab | `/containers/nestorcut-overflow/docker-compose.yml` — conteneur `linuxserver/wireguard` (pair `<IP-VPN>`, endpoint `<IP-SERVEUR-FRONTAL>:51820`, AllowedIPs `<IP-VPN>/32` seulement, keepalive 25 s) + **3 workers nesting** (`network_mode: service:wireguard`, bornés à 6 CPU / 2 Go chacun), `MONGO_URI=mongodb://<IP-VPN>:27018/nest2d`. Gestion : `docker compose -f /containers/nestorcut-overflow/docker-compose.yml {up -d,logs -f,down}`. Accès SSH : clé `~/.ssh/nestorcut-homelab` (depuis le PC). |
+| Hetzner | Peer `<IP-VPN>` dans `/etc/wireguard/wg0.conf` (appliqué par `wg syncconf`, sans coupure du pont admin) ; service `mongo-wg` (socat) dans l'override compose qui expose Mongo sur **`<IP-VPN>:27018` uniquement** (jamais 0.0.0.0 — piège #1) ; `NEST_COMPUTE_TOKENS=28` **des deux côtés** (le total du pool est écrit en base au démarrage des workers — les deux envs doivent rester identiques). |
+
+- GHCR : `/root/.docker/config.json` copié de Hetzner vers le homelab.
+- Capacité : 3 workers × 8 vcores max ≈ 24 tokens, + 4 de marge = pool 28.
+  Agrandir le débordement = dupliquer un bloc `overflow-worker-N` (et
+  réaligner `NEST_COMPUTE_TOKENS` des deux côtés).
+- Si le homelab est éteint : la prod fonctionne comme avant (Hetzner
+  traite ses jobs ; le pool « sur-déclare » la capacité, sans effet
+  opérationnel — le worker Hetzner reste 1 job à la fois).
+- Validé 2026-08-30 : worker Hetzner stoppé, job 5+20 pièces queue →
+  `overflow-worker-2` du homelab l'a traité de bout en bout (`done`
+  25/25), worker Hetzner relancé, pont admin <IP-VPN> intact.
