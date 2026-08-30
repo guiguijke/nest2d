@@ -36,6 +36,30 @@ function factoryParams() {
 // seul le choix utilisateur est snapshoté.
 const projectSnapshots = new Map()
 const PROJECT_SNAPSHOT_MAX = 20
+// Backing sessionStorage : un RECHARGEMENT complet (F5, lien externe) vide
+// la Map module — le sessionStorage la restitue (durée de vie = l'onglet,
+// les bons semantics pour des brouillons de réglages).
+const SNAPSHOT_STORAGE_KEY = 'nestorcut:projectSnapshots'
+function loadSnapshotsFromStorage() {
+    if (typeof sessionStorage === 'undefined') return
+    try {
+        const raw = sessionStorage.getItem(SNAPSHOT_STORAGE_KEY)
+        if (!raw) return
+        for (const [slug, snap] of Object.entries(JSON.parse(raw))) {
+            projectSnapshots.set(slug, snap)
+        }
+    } catch { /* stockage indisponible/corrompu : mémoire seule */ }
+}
+function persistSnapshotsToStorage() {
+    if (typeof sessionStorage === 'undefined') return
+    try {
+        sessionStorage.setItem(
+            SNAPSHOT_STORAGE_KEY,
+            JSON.stringify(Object.fromEntries(projectSnapshots))
+        )
+    } catch { /* quota plein : mémoire seule */ }
+}
+loadSnapshotsFromStorage()
 
 // Posé par la page (démo) juste après avoir appliqué ses défauts curated
 // au montage : setProjectFiles (async, APRÈS le setup) ne doit alors pas
@@ -63,6 +87,7 @@ function snapshotCurrentProject() {
     if (projectSnapshots.size > PROJECT_SNAPSHOT_MAX) {
         projectSnapshots.delete(projectSnapshots.keys().next().value)
     }
+    persistSnapshotsToStorage()
 }
 
 const state = reactive({
