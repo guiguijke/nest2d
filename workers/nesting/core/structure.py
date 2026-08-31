@@ -72,14 +72,25 @@ LATTICE_DY_RATIO = -0.378
 # BRUTES — l'écart peut réduire la distance réelle de 2×tolérance. La
 # validation exige donc space + 2×tolérance sur l'anneau simplifié
 # (recalibré 2026-08-29 sur ring brut : min-dist 0,2 mesuré).
-LATTICE_SIMPLIFY_MM = 0.05
+# P-m.3 (audit 2026-08-31) : même env que main.py SIMPLIFY_MM — un
+# opérateur montant la simplification obtenait une marge calibrée pour
+# 0,05 et des chevauchements réels à l'export (courbes brutes).
+LATTICE_SIMPLIFY_MM = float(os.environ.get("NEST_SIMPLIFY_MM", "0.05"))
 _QUARTER_TURNS = (0.0, 90.0, 180.0, 270.0)
 
 
 def _shoelace(coords):
+    # P-m.6 : boucle circulaire — exact sur anneau OUVERT (le segment de
+    # fermeture manquait) comme sur anneau fermé (bord nul). Miroir JS
+    # shoelace (structureClient.js).
+    if not coords:
+        return 0.0
     s = 0.0
-    for i in range(len(coords) - 1):
-        s += coords[i][0] * coords[i + 1][1] - coords[i + 1][0] * coords[i][1]
+    n = len(coords)
+    for i in range(n):
+        x1, y1 = coords[i]
+        x2, y2 = coords[(i + 1) % n]
+        s += x1 * y2 - x2 * y1
     return abs(s) / 2.0
 
 
@@ -114,6 +125,15 @@ def _rotated_bbox(bbox, rot_deg):
     return (-y1, x0, -y0, x1) if r == 90.0 else (y0, -x1, y1, -x0)
 
 
+def _transposed_bbox(bbox):
+    """Bbox de l'anneau transposé (x,y)→(y,−x) = R(−90) — frame de solve
+    de la zone B′ −Y (même formule que main.py::_zone_solver construit
+    l'instance transposée). P-3 : DISTINCT de _rotated_bbox(bb, 90) dès que
+    le centroïde n'est pas à l'origine (piège #48 : R(90) reste (−y,x))."""
+    x0, y0, x1, y1 = bbox
+    return (y0, -x1, y1, -x0)
+
+
 def detect_structural_case(solve_items, geom_of, total_area):
     """Détecte le cas structurel sur l'instance de solve (RÉDUITE).
 
@@ -131,7 +151,14 @@ def detect_structural_case(solve_items, geom_of, total_area):
         geom = geom_of(it["id"])
         if not geom or not geom.get("coords"):
             return None
-        rots = geom.get("rotations") or list(_QUARTER_TURNS)
+        # P-m.1 : rotations absentes → quarts de tour (rétrocompat), liste
+        # VIDE → [0] (l'entrée job normalise déjà ; les jobs legacy en file
+        # peuvent encore porter []). Plus de « 4 angles inventés » silencieux.
+        rots = geom.get("rotations")
+        if rots is None:
+            rots = list(_QUARTER_TURNS)
+        elif not rots:
+            rots = [0.0]
         if any((float(r) % 360) not in _QUARTER_TURNS for r in rots):
             return None
         infos.append({
@@ -145,6 +172,12 @@ def detect_structural_case(solve_items, geom_of, total_area):
     a, b = infos
     for rect, small in ((a, b), (b, a)):
         if rect["demand"] < 8:
+            continue
+        # P-1 (audit 2026-08-31 §P-1) : la grille pose les rectangles à
+        # rotation 0.0 uniquement — un hôte sans 0° dans ses rotations
+        # permises ne peut pas être la classe rectangulaire de la grille
+        # (on essaie l'autre rôle, sinon pas de grille du tout).
+        if 0.0 not in {(float(r) % 360) for r in rect["rotations"]}:
             continue
         if not is_axis_rect(rect["coords"]):
             continue
@@ -182,6 +215,12 @@ def plan_lattice(case, sheet_w, sheet_h, space, objective="x"):
             return None
         n_full, remainder = divmod(n, per_row)
         rows = n_full + (1 if remainder else 0)
+        # P-2 (audit 2026-08-31 §P-2) : la grille ne doit JAMAIS dépasser la
+        # tôle — sans cette borne, 310 lattes sur 1000 mm posaient la 2e
+        # rangée hors tôle (129 pièces livrées hors tôle en rang 0, zone B′
+        # inversée silencieusement vide). Repli moteur si ça ne tient pas.
+        if space + rows * pitch_y > sheet_h + 1e-6:
+            return None
         placements = []
         for r in range(rows):
             for c in range(per_row if r < n_full else remainder):
@@ -220,6 +259,9 @@ def plan_lattice(case, sheet_w, sheet_h, space, objective="x"):
         return None
     n_full, remainder = divmod(n, per_col)
     cols = n_full + (1 if remainder else 0)
+    # P-2 (miroir objectif −X) : emprise de la grille ⊆ tôle, sinon repli.
+    if space + cols * pitch_x > sheet_w + 1e-6:
+        return None
     placements = []
     for c in range(cols):
         for r in range(per_col if c < n_full else remainder):
@@ -294,13 +336,21 @@ def _zone_solve(zone, small, space, want, solve_fn, budget_sec,
     for _ in range(ZONE_MAX_ATTEMPTS):
         placements = solve_fn(n, solve_h, solve_w, budget_sec, transposed)
         used_w = 0.0
+        left_w = 0.0
         if placements:
             for p in placements:
                 rot = float(p["transformation"]["rotation"])
                 tx, _ty = p["transformation"]["translation"]
                 bx0, _, bx1, _ = _rotated_bbox(small["bbox"], rot)
-                used_w = max(used_w, tx + bx1, -(tx + bx0))
-        ok = bool(placements) and len(placements) >= n and used_w <= solve_w + 1e-3
+                used_w = max(used_w, tx + bx1)
+                left_w = min(left_w, tx + bx0)
+        # P-m.2 (audit 2026-08-31 §P-m.2) : le débordement GAUCHE (bord
+        # négatif, chevauchement de la zone voisine) est une condition
+        # SÉPARÉE — l'ancien `max(used_w, -(tx+bx0))` le comparait à la
+        # largeur de zone : 5 mm hors zone A sur une bande de 200 mm
+        # passait.
+        ok = (bool(placements) and len(placements) >= n
+              and used_w <= solve_w + 1e-3 and left_w >= -1e-3)
         if ok:
             best = placements
             if n >= want:
@@ -351,6 +401,14 @@ def small_lattice(small, space, rect, want=None, axis="x"):
     2. zigzag 0/180 et 90/270, ancrages X/Y, pas dichotomié si
        distance ≥ space — gardé seulement s'il casse plus.
     Score : max pièces (jusqu'à want), puis bord min sur `axis` (chute max).
+
+    P-1 (audit 2026-08-31 §P-1) : le lattice ne pose QUE des angles ∈
+    rotations permises de la petite pièce. Chaque famille n'est générée que
+    si ses angles posés sont légaux (zigzag = {deg0, deg0+180} ; tourné =
+    {90, 270}), et `consider` filtre toute pose illégale en ceinture —
+    rotationCount=1 ne produit plus des pièces retournées en rang 0.
+    Aucune variante légale ne pose rien → None → tronçons moteur (qui
+    reçoivent déjà case["small"]["rotations"]).
     """
     try:
         from shapely.geometry import Polygon
@@ -376,6 +434,8 @@ def small_lattice(small, space, rect, want=None, axis="x"):
     ax = 0 if axis != "y" else 1
     best = None
     best_score = None
+    allowed = {(float(r) % 360 + 360) % 360
+               for r in (small.get("rotations") or [0.0])}
 
     def far_edge(got):
         take = got[:cap] if cap else got
@@ -391,6 +451,12 @@ def small_lattice(small, space, rect, want=None, axis="x"):
         nonlocal best, best_score
         if not got:
             return
+        # Ceinture P-1 : aucune pose illégale ne survit au scoring.
+        got = [p for p in got
+               if (float(p["transformation"]["rotation"]) % 360 + 360) % 360
+               in allowed]
+        if not got:
+            return
         n, far = far_edge(got)
         score = (n, -far)
         if best_score is None or score > best_score:
@@ -398,16 +464,19 @@ def small_lattice(small, space, rect, want=None, axis="x"):
             best_score = score
 
     for deg0 in (0.0, 90.0):
-        consider(_bbox_grid(base, small.get("id"), space, rect, deg0))
-        consider(_bbox_grid_brick(base, small.get("id"), space, rect, deg0))
+        if deg0 in allowed:
+            consider(_bbox_grid(base, small.get("id"), space, rect, deg0))
+            consider(_bbox_grid_brick(base, small.get("id"), space, rect, deg0))
+        if {deg0, (deg0 + 180.0) % 360} <= allowed:
+            for y_phase in (0, 1):
+                for x_phase in (0, 1):
+                    consider(_lattice_variant(base, small.get("id"), space, rect,
+                                             threshold, deg0, y_phase, x_phase))
+    if {90.0, 270.0} <= allowed:
         for y_phase in (0, 1):
             for x_phase in (0, 1):
-                consider(_lattice_variant(base, small.get("id"), space, rect,
-                                         threshold, deg0, y_phase, x_phase))
-    for y_phase in (0, 1):
-        for x_phase in (0, 1):
-            consider(_lattice_rotated(base, small.get("id"), space, rect,
-                                     threshold, y_phase, x_phase))
+                consider(_lattice_rotated(base, small.get("id"), space, rect,
+                                         threshold, y_phase, x_phase))
     return best
 
 
@@ -724,10 +793,14 @@ def build_structural_layout(solve_items, geom_of, sheet_w, sheet_h, space,
     n_small = case["small"]["demand"]
     # bbox de la petite pièce DANS LA FRAME DE SOLVE (zone B transposée :
     # les coords d'instance sont tournées, la bbox de mesure aussi).
+    # P-3 (audit 2026-08-31 §P-3) : l'instance de solve est T(-90) —
+    # R(−90)·(x,y) = (y, −x), même formule que main.py::_zone_solver. La
+    # bbox R(+90) utilisée auparavant mesurait un bord imaginaire (écart
+    # 2×ordonnée du centroïde) : le garde used_w <= solve_w laissait
+    # passer des débordements réels après map-back sur les jobs −Y.
     small_solve = case["small"]
     if lat["zone_b_transposed"]:
-        sx0, sy0, sx1, sy1 = case["small"]["bbox"]
-        small_solve = dict(case["small"], bbox=(-sy1, sx0, -sy0, sx1))
+        small_solve = dict(case["small"], bbox=_transposed_bbox(case["small"]["bbox"]))
 
     def fill_zone(zone, want, budget, transposed=False):
         """Remplit la zone : LATTICE ANALYTIQUE d'abord (« compression
@@ -811,12 +884,36 @@ def build_structural_layout(solve_items, geom_of, sheet_w, sheet_h, space,
         if len(got) < left:
             return None  # zone B saturée : repli moteur
         placements.extend(got)
+    # P-4 (audit 2026-08-31 §P-4) : filet final — le layout structurel se
+    # construit par construction dans la tôle, mais TOUT bug géométrique du
+    # pass (présent ou futur) finit ici en repli moteur, jamais en pièces
+    # livrées hors tôle. Miroir localJobPrivate.js::layoutFitsSheet.
+    if not layout_fits_sheet({"placed_items": placements}, geom_of,
+                             sheet_w, sheet_h):
+        return None
     return {
         "placed_items": placements,
         "case": {"per_line": lat["per_line"], "lines": lat["lines"],
                  "remainder": lat["remainder"], "objective": objective,
                  "holes": hole_used},
     }
+
+
+def layout_fits_sheet(layout, geom_of, sheet_w, sheet_h, eps=1e-3):
+    """P-4 : bbox EXTERNE de chaque placement (rotation + translation,
+    repère tôle) ⊆ [0, w]×[0, h]. Filet du pass structurel — le moteur,
+    lui, garde le badge insideSheet (piège #6 : le SPP sparrow n'a pas de
+    borne dure, c'est le contrat moteur)."""
+    for p in layout["placed_items"]:
+        geom = geom_of(p["item_id"])
+        bb = _rotated_bbox(_bbox(geom["coords"]),
+                           float(p["transformation"]["rotation"]))
+        tx, ty = p["transformation"]["translation"]
+        if tx + bb[0] < -eps or ty + bb[1] < -eps:
+            return False
+        if tx + bb[2] > sheet_w + eps or ty + bb[3] > sheet_h + eps:
+            return False
+    return True
 
 
 def layout_used_extent(layout, geom_of, space, axis="x"):

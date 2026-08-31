@@ -46,6 +46,9 @@ export const LATTICE_PY_RATIO = 1.3554
 export const LATTICE_DY_RATIO = -0.378
 // Marge vs courbes brutes exportées (anneaux simplifiés à ~0,05 mm) :
 // validation à space + 2×tolérance (miroir structure.py).
+// P-m.3 (audit 2026-08-31) : côté Python cette marge suit l'env
+// NEST_SIMPLIFY_MM (structure.py LATTICE_SIMPLIFY_MM) — le navigateur n'a
+// pas d'env : GARDER SYNC avec main.py::SIMPLIFY_MM (défaut 0,05).
 export const LATTICE_SIMPLIFY_MM = 0.05
 
 /** Centroïde d'aire (shoelace) — repli moyenne des sommets si dégénéré. */
@@ -143,11 +146,22 @@ export function smallLattice(small, space, zone, opts = {}) {
     const threshold = space + 2 * LATTICE_SIMPLIFY_MM
     const want = Number.isFinite(opts.want) && opts.want > 0 ? opts.want : Infinity
     const axis = opts.axis === 'y' ? 'y' : 'x'
+    // P-1 (audit 2026-08-31 §P-1) : le lattice ne pose QUE des angles ∈
+    // rotations permises — chaque famille n'est générée que si ses angles
+    // posés sont légaux, et `consider` filtre toute pose illégale en
+    // ceinture (miroir structure.py::small_lattice).
+    const allowed = new Set(
+        ((small.rotations && small.rotations.length ? small.rotations : [0])
+            .map((r) => ((Number(r) % 360) + 360) % 360)))
     let best = null
     let bestScore = -Infinity
     const consider = (cells) => {
         if (!cells || !cells.length) return
-        const take = want < Infinity ? cells.slice(0, want) : cells
+        // Ceinture P-1 : aucune pose illégale ne survit au scoring.
+        const legal = cells.filter((c) =>
+            allowed.has((((Number(c.transformation?.rotation) % 360) + 360) % 360)))
+        if (!legal.length) return
+        const take = want < Infinity ? legal.slice(0, want) : legal
         const n = take.length
         const far = placementsFar(take, coords, axis)
         // Max pièces (jusqu'à want), puis bord le plus près de l'origine
@@ -156,21 +170,29 @@ export function smallLattice(small, space, zone, opts = {}) {
         if (score > bestScore) { best = take; bestScore = score }
     }
     for (const deg0 of [0, 90]) {
-        consider(bboxGrid(coords, small.id, space, zone, deg0))
-        consider(bboxGridBrick(coords, small.id, space, zone, deg0))
-        for (const yPhase of [0, 1]) {
-            for (const xPhase of [0, 1]) {
-                consider(latticeVariant(coords, small.id, space, zone,
-                    threshold, deg0, yPhase, xPhase))
+        if (allowed.has(deg0)) {
+            consider(bboxGrid(coords, small.id, space, zone, deg0))
+            consider(bboxGridBrick(coords, small.id, space, zone, deg0))
+        }
+        if (allowed.has(deg0) && allowed.has((deg0 + 180) % 360)) {
+            for (const yPhase of [0, 1]) {
+                for (const xPhase of [0, 1]) {
+                    consider(latticeVariant(coords, small.id, space, zone,
+                        threshold, deg0, yPhase, xPhase))
+                }
             }
         }
     }
     // Même zigzag tourné de 90° (pas X/Y échangés, distances préservées) :
     // une bande haute et étroite reçoit le pas serré sur le grand côté.
-    for (const yPhase of [0, 1]) {
-        for (const xPhase of [0, 1]) {
-            consider(latticeRotated(coords, small.id, space, zone,
-                threshold, yPhase, xPhase))
+    // Poses résultantes = {90, 270} : légal seulement si les deux sont
+    // permises (miroir Python).
+    if (allowed.has(90) && allowed.has(270)) {
+        for (const yPhase of [0, 1]) {
+            for (const xPhase of [0, 1]) {
+                consider(latticeRotated(coords, small.id, space, zone,
+                    threshold, yPhase, xPhase))
+            }
         }
     }
     return best
@@ -392,9 +414,14 @@ function latticeVariant(coords, itemId, space, zone, threshold, deg0, yPhase, xP
 const QUARTER_TURNS = [0, 90, 180, 270]
 
 function shoelace(coords) {
+    // P-m.6 : boucle circulaire — exact sur anneau OUVERT (segment de
+    // fermeture) comme fermé. Miroir de structure.py::_shoelace.
     let s = 0
-    for (let i = 0; i < coords.length - 1; i++) {
-        s += coords[i][0] * coords[i + 1][1] - coords[i + 1][0] * coords[i][1]
+    const n = coords.length
+    for (let i = 0; i < n; i++) {
+        const [x1, y1] = coords[i]
+        const [x2, y2] = coords[(i + 1) % n]
+        s += x1 * y2 - x2 * y1
     }
     return Math.abs(s) / 2
 }
@@ -446,7 +473,12 @@ export function detectStructuralCase(instanceItems, geomOf, totalArea) {
     for (const it of instanceItems) {
         const geom = geomOf(it.id)
         if (!geom || !geom.coords || !geom.coords.length) return null
-        const rots = (geom.rotations || []).map((r) => ((Number(r) % 360) + 360) % 360)
+        // P-m.1 : absentes → quarts de tour (rétrocompat), VIDES → [0]
+        // (miroir structure.py ; l'entrée job normalise déjà).
+        let rotList = geom.rotations
+        if (rotList == null) rotList = QUARTER_TURNS
+        else if (!rotList.length) rotList = [0]
+        const rots = rotList.map((r) => ((Number(r) % 360) + 360) % 360)
         if (!rots.length || rots.some((r) => !QUARTER_TURNS.includes(r))) return null
         infos.push({
             id: it.id,
@@ -460,6 +492,10 @@ export function detectStructuralCase(instanceItems, geomOf, totalArea) {
     const [a, b] = infos
     for (const [rect, small] of [[a, b], [b, a]]) {
         if (rect.demand < 8) continue
+        // P-1 : la grille pose les rectangles à rotation 0 uniquement —
+        // pas de 0° dans les rotations permises → l'autre rôle, sinon pas
+        // de grille (miroir structure.py::detect_structural_case).
+        if (!rect.rotations.some((r) => (((r % 360) + 360) % 360) === 0)) continue
         if (!isAxisRect(rect.coords)) continue
         if (rect.area * rect.demand < 0.6 * totalArea) continue
         const side = Math.min(rect.bbox[2] - rect.bbox[0], rect.bbox[3] - rect.bbox[1])
@@ -487,6 +523,9 @@ export function planLattice(caseInfo, sheetW, sheetH, space, objective = 'x') {
         const nFull = Math.floor(n / perLine)
         const remainder = n - nFull * perLine
         const lines = nFull + (remainder ? 1 : 0)
+        // P-2 : emprise de la grille ⊆ tôle, sinon repli moteur (miroir
+        // structure.py — 310 lattes posaient la 2e rangée hors tôle).
+        if (space + lines * pitchY > sheetH + 1e-6) return null
         for (let r = 0; r < lines; r++) {
             const nHere = r < nFull ? perLine : remainder
             for (let c = 0; c < nHere; c++) {
@@ -518,6 +557,8 @@ export function planLattice(caseInfo, sheetW, sheetH, space, objective = 'x') {
     const nFull = Math.floor(n / perCol)
     const remainder = n - nFull * perCol
     const cols = nFull + (remainder ? 1 : 0)
+    // P-2 (miroir objectif −X) : emprise ⊆ tôle, sinon repli.
+    if (space + cols * pitchX > sheetW + 1e-6) return null
     for (let c = 0; c < cols; c++) {
         const nHere = c < nFull ? perCol : remainder
         for (let r = 0; r < nHere; r++) {
@@ -576,15 +617,21 @@ async function zoneSolve(zone, small, space, want, solveFn, budgetSec,
                              count: n, step, steps })
         const placements = await solveFn(n, solveH, solveW, budgetSec, transposed)
         let usedW = 0
+        let leftW = 0
         if (placements && placements.length) {
             for (const p of placements) {
                 const rot = Number(p.transformation?.rotation) || 0
                 const [tx] = p.transformation?.translation || [0, 0]
                 const bb = rotatedBbox(small.bbox, rot)
-                usedW = Math.max(usedW, tx + bb[2], -(tx + bb[0]))
+                usedW = Math.max(usedW, tx + bb[2])
+                leftW = Math.min(leftW, tx + bb[0])
             }
         }
-        const ok = !!placements && placements.length >= n && usedW <= solveW + 1e-3
+        // P-m.2 : le débordement GAUCHE est une condition SÉPARÉE (chevauchement
+        // de la zone voisine) — l'ancien max(usedW, -(tx+bb0)) le comparait à
+        // la largeur de zone et le laissait passer (miroir structure.py).
+        const ok = !!placements && placements.length >= n
+            && usedW <= solveW + 1e-3 && leftW >= -1e-3
         if (ok) {
             best = placements
             if (n >= want) break
@@ -782,6 +829,12 @@ export async function buildStructuralLayout(instanceItems, geomBy, sheetW, sheet
         placements.push(...got)
         used += got.length
     }
+    // P-4 (audit 2026-08-31 §P-4) : filet final — TOUT bug géométrique du
+    // pass finit ici en repli moteur, jamais en pièces hors tôle (miroir
+    // structure.py::layout_fits_sheet + localJobPrivate garde aval).
+    if (!layoutFitsSheet({ placed_items: placements }, geomBy, sheetW, sheetH)) {
+        return null
+    }
     return {
         placed_items: placements,
         case: { perLine: lat.perLine, lines: lat.lines, remainder: lat.remainder,
@@ -789,10 +842,30 @@ export async function buildStructuralLayout(instanceItems, geomBy, sheetW, sheet
     }
 }
 
-/** bbox de l'item tourné (x,y)→(y,−x) — frame de solve transposée. */
+/** P-4 : bbox EXTERNE de chaque placement (rotation + translation, repère
+ *  tôle) ⊆ [0, w]×[0, h]. Filet du pass structurel — le moteur garde son
+ *  badge insideSheet (piège #6 : le SPP sparrow n'a pas de borne dure). */
+export function layoutFitsSheet(layout, geomBy, sheetW, sheetH, eps = 1e-3) {
+    for (const p of layout.placed_items || []) {
+        const geom = geomBy(p.item_id)
+        if (!geom) return false
+        const bb = rotatedBbox(bbox(geom.coords), Number(p.transformation?.rotation) || 0)
+        const [tx, ty] = p.transformation.translation
+        if (tx + bb[0] < -eps || ty + bb[1] < -eps) return false
+        if (tx + bb[2] > sheetW + eps || ty + bb[3] > sheetH + eps) return false
+    }
+    return true
+}
+
+/** bbox de l'item transposé (x,y)→(y,−x) = R(−90) — frame de solve de la
+ *  zone B′ −Y (MÊME formule que localJobPrivate construit l'instance :
+ *  coords.map(([x, y]) => [y, -x])).
+ *  P-3 (audit 2026-08-31 §P-3) : l'ancien code renvoyait R(+90) — un
+ *  AUTRE angle — et le garde used_w mesurait un bord imaginaire. Attention
+ *  piège #48 : rotatedBbox(90) reste (−y, x) et n'est PAS cette bbox. */
 function transposedBbox(bb) {
     const [x0, y0, x1, y1] = bb
-    return [-y1, x0, -y0, x1]
+    return [y0, -x1, y1, -x0]
 }
 
 export function layoutUsedExtent(layout, geomBy, space, axis = 'x') {

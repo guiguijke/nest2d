@@ -145,6 +145,22 @@ function ringBBoxSize(ring) {
     return [maxX - minX, maxY - minY]
 }
 
+/** Q-1 (audit 2026-08-31 §Q-1) : faisabilité jagua d'une bbox (w, h) sur
+ * une des tôles. jagua inflate l'item de space/2 ET déflate le conteneur de
+ * space/2 (io/import.rs) → condition réelle w + 2·space ≤ sw (space = 0 :
+ * w ≤ sw). L'ancienne garde `w + space` laissait passer 8×8 / tôle 10 /
+ * space 2 → panique SPP « strip-width is running away ». Miroir exact :
+ * workers/nesting/core/main.py::part_fits_any_sheet (piège #49). */
+export function partFitsAnySheet(w, h, sheets, space) {
+    for (const sheet of sheets) {
+        if (w + 2 * space <= Number(sheet.width) + 1e-6
+            && h + 2 * space <= Number(sheet.height) + 1e-6) {
+            return true
+        }
+    }
+    return false
+}
+
 /** Bbox [w, h] de l'anneau tourné de `angleDeg` (anti-horaire, y-up, autour
  * de (0,0) — miroir de shapely.affinity.rotate). */
 function rotatedBBoxSize(ring, angleDeg) {
@@ -573,13 +589,10 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         let fitsAnywhere = false
         for (const angle of rotations) {
             const [w, h] = rotatedBBoxSize(item.coords, Number(angle) || 0)
-            for (const sheet of sheets) {
-                if (w + space <= sheet.width + 1e-6 && h + space <= sheet.height + 1e-6) {
-                    fitsAnywhere = true
-                    break
-                }
+            if (partFitsAnySheet(w, h, sheets, space)) {
+                fitsAnywhere = true
+                break
             }
-            if (fitsAnywhere) break
         }
         if (!fitsAnywhere) {
             const [w, h] = ringBBoxSize(item.coords)
@@ -610,7 +623,9 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
     let totalPartArea = 0
     let totalOuterArea = 0
     for (const item of inputItems) {
-        const allowedOrientations = item.rotations ?? [0, 90, 180, 270]
+        // P-m.1 : liste vide → [0] (miroir main.py — une liste vide passée
+        // au moteur a un comportement jagua indéfini).
+        const allowedOrientations = item.rotations?.length ? item.rotations : [0]
         let shapeCoords = item.coords
         if (hasHoles && item.holes?.length) {
             if (typeof deps.openHoles !== 'function') {
@@ -772,7 +787,8 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         narrow_concavity_cutoff: hasHoles ? null : [0.01, 0.01],
         live_events: true,
         n_workers: Math.trunc(Number(profile.nWorkers ?? 1)),
-        separator_workers: Math.trunc(Number(profile.separatorWorkers ?? 1)),
+        // Q-m.2 : clamp bas — 0 fait paniquer move_items_multi côté Rust.
+        separator_workers: Math.max(1, Math.trunc(Number(profile.separatorWorkers ?? 1))),
         plateau_patience_sec: adaptivePlateauPatienceSec(
             timeBudgetSec, totalRequestedCount, placedVertices, hasHoles,
         ),

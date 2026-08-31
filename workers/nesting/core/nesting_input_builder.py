@@ -88,7 +88,10 @@ def build_engine_config(
     if plateau_patience_sec is not None:
         config["plateau_patience_sec"] = float(plateau_patience_sec)
     if separator_workers is not None:
-        config["separator_workers"] = int(separator_workers)
+        # Q-m.2 (audit 2026-08-31 §Q-m.2) : clamp bas — 0 fait paniquer
+        # move_items_multi (unwrap sur un itérateur vide côté Rust). Le
+        # clamp JS est le miroir (localPayloadBuilder.js).
+        config["separator_workers"] = max(1, int(separator_workers))
     if EJECT_AREA_BIAS > 0:
         config["eject_area_bias"] = EJECT_AREA_BIAS
     return config

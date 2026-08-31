@@ -95,7 +95,7 @@ def convert_files_to_input_items(files, dek=None):
     for file in files:
         file_slug = file.get("slug")
         count = file.get("count")
-        rotations = file.get("rotations", [0, 90, 180, 270])  # Default to all rotations if not specified
+        rotations = file.get("rotations", [0, 90, 180, 270]) or [0.0]  # P-m.1 : [] -> [0] a l'entree
 
         user_dxf_file = db["user_dxf_files"].find_one({"slug": file_slug})
         # Decrypts the enc blob when the file was processed while the vault
@@ -392,7 +392,34 @@ STAGE_LABELS = {
     "building": "Building result files",
 }
 
+def part_fits_any_sheet(w, h, sheets, space):
+    """Q-1 (audit 2026-08-31 §Q-1) : faisabilité jagua d'une bbox de pièce
+    (w, h) sur une des tôles. jagua inflate l'item de space/2 ET déflate le
+    conteneur de space/2 (jagua-rs/src/io/import.rs) → la condition réelle
+    de placement est w + 2·space ≤ sw (space = 0 : w ≤ sw). L'ancienne
+    garde `w + space` laissait passer 8×8 / tôle 10 / space 2 → panique SPP
+    « strip-width is running away » (lbf.rs, panic = abort). Miroir exact :
+    localPayloadBuilder.js::partFitsAnySheet (piège #49).
+    """
+    for sheet in sheets:
+        sw, sh = float(sheet.get("width")), float(sheet.get("height"))
+        if w + 2 * space <= sw + 1e-6 and h + 2 * space <= sh + 1e-6:
+            return True
+    return False
+
+
 def nesting_process(doc):
+    # P-m.5 (audit 2026-08-31 §P-m.5) : le cache ezdxf ne doit pas survivre
+    # au job — le doc du job N restait en RAM pendant tout l'idle du worker
+    # (vidé seulement au début du job SUIVANT, dizaines de Mo sur un gros
+    # DXF). Le clear d'entrée reste (défense contre un résiduel).
+    try:
+        return _nesting_process_impl(doc)
+    finally:
+        dxf_document_cache.clear()
+
+
+def _nesting_process_impl(doc):
     logger.info("Processing nesting", extra={"doc": doc["slug"]})
     dxf_document_cache.clear()
 
@@ -474,12 +501,8 @@ def nesting_process(doc):
             rotated = _sh_rotate(poly, float(angle), origin=(0, 0)) if angle else poly
             bx = rotated.bounds
             w, h = bx[2] - bx[0], bx[3] - bx[1]
-            for sheet in sheets:
-                sw, sh = float(sheet.get("width")), float(sheet.get("height"))
-                if w + space <= sw + 1e-6 and h + space <= sh + 1e-6:
-                    fits_anywhere = True
-                    break
-            if fits_anywhere:
+            if part_fits_any_sheet(w, h, sheets, space):
+                fits_anywhere = True
                 break
         if not fits_anywhere:
             bx = poly.bounds
@@ -558,7 +581,11 @@ def nesting_process(doc):
     for item in input_items:
         count = item.get("count")
         # Use per-file rotations if available, otherwise fall back to global setting
-        allowed_orientations = item.get("rotations", default_allowed_orientations)
+        # P-m.1 : liste vide → [0] (plus de liste vide passée au moteur —
+        # comportement jagua indéfini sur allowed_orientations vide).
+        allowed_orientations = (
+            item.get("rotations", default_allowed_orientations) or [0.0]
+        )
         shape_coords = item.get("coords")
         if has_holes and item.get("holes"):
             # Channel widened past the separation inflation, otherwise jagua
@@ -1090,11 +1117,17 @@ def nesting_process(doc):
                 # « trous d'abord » (J-085) a pu extraire toute la classe
                 # petite (constat 2026-08-29 : instance réduite à 1 classe →
                 # la grille ne se déclenchait jamais à demande exacte).
+                # P-m.1 : rotations absentes → quarts de tour (rétrocompat),
+                # liste VIDE → [0] (normalisée à l'entrée job ; jobs legacy).
                 it = orig_by_id.get(item_id) or {}
+                rots = it.get("rotations")
+                if rots is None:
+                    rots = [0.0, 90.0, 180.0, 270.0]
+                elif not rots:
+                    rots = [0.0]
                 return {
                     "coords": it.get("coords") or [],
-                    "rotations": it.get("rotations")
-                    or [0.0, 90.0, 180.0, 270.0],
+                    "rotations": rots,
                 }
 
             orig_items = [{"id": it["id"], "demand": int(it.get("count") or 0)}
@@ -1399,6 +1432,20 @@ def nesting_process(doc):
             )
             return
 
+        # Measured physical verification — AVANT l'export DXF (P-4 : ne pas
+        # payer l'export d'un layout qu'on jette). Filet structurel : le
+        # layout grille ne se « répare » pas (piège #41), une alt
+        # structurelle hors tôle est JETÉE → repli moteur. Les alternatives
+        # MOTEUR gardent leur badge insideSheet (piège #6 : le SPP sparrow
+        # n'a pas de borne dure, c'est le contrat moteur).
+        verification = verify_layout(result_containers, input_items, space)
+        if engine_alt.get("structural") and not verification.get("insideSheet"):
+            logger.warning(
+                "structural alternative outside sheet, discarding",
+                extra={"strategy": strategy},
+            )
+            return
+
         alt_slug = f"{slug}_alt{rank}"
         report_progress("building", rank, n_alternatives,
                         min(99, round(rank / max(1, n_alternatives) * 100)))
@@ -1406,9 +1453,6 @@ def nesting_process(doc):
             owner_id, alt_slug, result_containers, input_items, add_out_shape, space, dek,
             output_unit
         )
-        # Measured physical verification + sheet accounting for the nesting
-        # report (badges are computed, never declared).
-        verification = verify_layout(result_containers, input_items, space)
         sheet_area = sum(
             (c.bin_width or 0) * (c.bin_height or 0) for c in result_containers
         )
@@ -1457,6 +1501,14 @@ def nesting_process(doc):
         if rank == 0:
             return "max offcut" if is_spp else "compact"
         return "balanced"
+
+    # P-m.8 (audit 2026-08-31 §P-m.8) : une annulation demandée pendant le
+    # reveal (~2-15 s entre la fin du solve et l'écriture finale) doit
+    # suivre le flux cancelled + refund, pas finir en done sans refund.
+    # Même finalisation que le handler du solve principal.
+    if should_cancel():
+        _finalize_cancelled()
+        raise JobCancelled(slug)
 
     for rank, engine_alt in enumerate(engine_alternatives):
         _finalize_alternative(engine_alt, _strategy_for(engine_alt, rank), rank)

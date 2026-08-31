@@ -8,6 +8,7 @@ import {
     channelsUsable,
     colorForPart,
     deterministicSeed,
+    partFitsAnySheet,
     ringAreaAbs,
     ringSelfIntersects,
     simplifyRing,
@@ -360,5 +361,58 @@ describe('itemMap (miroir part_index_by_id, multi-fichiers/multi-pieces)', () =>
             { id: 2, slug: 'single-d4e5f6.dxf', part: 0 },
         ])
         expect(payload.parts.map((p) => p.id)).toEqual([0, 1, 2])
+    })
+})
+
+// ---------------------------------------------------------------------------
+// Q-1 / P-m.1 — verrous audit 2026-08-31 (docs/PLAN-P-Q-moteur.md T1/T2/T14)
+// ---------------------------------------------------------------------------
+
+describe('partFitsAnySheet — garde jagua w + 2·space (Q-1, piege #49)', () => {
+    it('table T1-T3 : miroir exact de main.py::part_fits_any_sheet', () => {
+        expect(partFitsAnySheet(8, 8, [{ width: 10, height: 10 }], 2)).toBe(false)   // T1 repro audit
+        expect(partFitsAnySheet(8, 8, [{ width: 12, height: 12 }], 2)).toBe(true)   // T2 pile 8+4=12
+        expect(partFitsAnySheet(8, 8, [{ width: 11.9, height: 12 }], 2)).toBe(false)
+        expect(partFitsAnySheet(998, 10, [{ width: 1000, height: 2000 }], 2)).toBe(false)
+        expect(partFitsAnySheet(100, 100, [{ width: 1000, height: 2000 }], 2)).toBe(true)  // T3 banc phare
+        expect(partFitsAnySheet(1000, 10, [{ width: 1000, height: 2000 }], 0)).toBe(true)  // space 0 inchange
+    })
+})
+
+describe('garde 2xspace via buildLocalPayload (T1/T2 e2e)', () => {
+    const file8 = (rotations) => ({
+        slug: 'fit8-m1n2o3.dxf', name: 'fit8.dxf', count: 1, rotations,
+        parts: [{
+            coordinates: [[0, 0], [8, 0], [8, 8], [0, 8], [0, 0]],
+            holes: [], width: 8, height: 8, handles: [], color: null,
+        }],
+    })
+    const params = (w, h) => ({
+        sheets: [{ width: w, height: h, count: 1 }],
+        space: 2, fillHoles: true, addOutShape: false, outputUnit: 'mm',
+    })
+
+    it('8x8 / tole 10 / space 2 -> throw (panique SPP avant le fix)', async () => {
+        await expect(buildLocalPayload(
+            { files: [file8([0])], params: params(10, 10), profile: { timeBudgetSec: 13 } }, {},
+        )).rejects.toThrow('Part(s) too large for the sheet')
+    })
+
+    it('8x8 / tole 12 / space 2 (pile 8+2x2) -> passe', async () => {
+        const { payload } = await buildLocalPayload(
+            { files: [file8([0])], params: params(12, 12), profile: { timeBudgetSec: 13 } }, {},
+        )
+        expect(payload.instance.items).toHaveLength(1)
+    })
+
+    it("T14 : rotations VIDES -> allowed_orientations [0] sur l'instance", async () => {
+        // count 50 : une pièce unique (64 mm2) taperait dans la garde
+        // d'espacement #2b avant d'atteindre l'instance (parité main.py).
+        const { payload } = await buildLocalPayload(
+            { files: [{ ...file8([]), count: 50 }], params: params(1000, 1000),
+              profile: { timeBudgetSec: 13 } }, {},
+        )
+        expect(payload.instance.items[0].allowed_orientations).toEqual([0])
+        expect(payload.instance.items[0].demand).toBe(50)
     })
 })

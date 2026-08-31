@@ -63,6 +63,33 @@ export default defineEventHandler(async (event) => {
             ? [0]
             : Array.from({ length: rotationCount }, (_, i) => Math.round((i * 360) / rotationCount))
 
+    // P-m.1 (audit 2026-08-31 §P-m.1) : normalisation des rotations À
+    // L'ENTRÉE — un override par fichier `[]` ou invalide retombait sur le
+    // réglage global côté Python mais passait tel quel au moteur côté JS.
+    const parseFileRotations = (raw) => {
+        let parsed
+        try {
+            parsed = raw ? JSON.parse(raw) : null
+        } catch {
+            parsed = null
+        }
+        if (!Array.isArray(parsed) || parsed.length === 0) return globalRotations
+        if (parsed.some((r) => !Number.isFinite(Number(r)))) {
+            throw createError({
+                statusCode: 400,
+                statusMessage: 'Invalid rotation list (angles must be finite numbers).',
+            })
+        }
+        return parsed
+    }
+
+    // P-m.7 / Q-m.3 (audit 2026-08-31) : count ENTIER ≥ 1 + plafond TOTAL
+    // de pièces par job (le chemin démo plafonnait déjà via DEMO_MAX_PARTS ;
+    // un count énorme sur un vrai projet explosait le PairMatrix moteur en
+    // OOM — size*(size+1)/2 entrées).
+    const MAX_TOTAL_PARTS = 10_000
+    const normalizeCount = (raw) => Math.max(0, Math.floor(Number(raw) || 0))
+
     // Demo nestings may only reference the demo project's own files — the
     // slugs are predictable by design, so scope them strictly.
     const filesQuery = isDemo
@@ -99,8 +126,8 @@ export default defineEventHandler(async (event) => {
           filteredFiles
               .map((file) => ({
                   slug: String(file.slug || '').slice(0, 64),
-                  count: file.count || 0,
-                  rotations: file.rotation ? JSON.parse(file.rotation) : globalRotations,
+                  count: normalizeCount(file.count),
+                  rotations: parseFileRotations(file.rotation),
               }))
               .filter((file) => file.count > 0 && file.slug)
         : userDxfFilesDatabase.map((file) => {
@@ -108,11 +135,19 @@ export default defineEventHandler(async (event) => {
               return {
                   slug: file.slug,
                   simpleName: file.name.replace('.dxf', ''),
-                  count: requestFile?.count || 0,
+                  count: normalizeCount(requestFile?.count),
                   // Per-file override wins; otherwise apply the global rotation setting.
-                  rotations: requestFile?.rotation ? JSON.parse(requestFile.rotation) : globalRotations,
+                  rotations: parseFileRotations(requestFile?.rotation),
               }
           }).filter((file) => file.count > 0)
+
+    const totalPartsRequested = fileMetadata.reduce((sum, file) => sum + file.count, 0)
+    if (fileMetadata.length > 0 && totalPartsRequested > MAX_TOTAL_PARTS) {
+        throw createError({
+            statusCode: 400,
+            statusMessage: `Nestings are limited to ${MAX_TOTAL_PARTS} parts per job.`,
+        })
+    }
 
     if (isDemo) {
         const totalParts = fileMetadata.reduce((sum, file) => sum + file.count, 0)

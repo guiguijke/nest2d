@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
     detectStructuralCase,
     isAxisRect,
+    layoutFitsSheet,
     layoutUsedWidth,
     planLattice,
+    smallLattice,
 } from '../composables/structureClient'
 
 const SQUARE = [[50, -50], [-50, -50], [-50, 50], [50, 50], [50, -50]]
@@ -275,7 +277,9 @@ describe('smallLattice — pavage analytique (compression finale)', () => {
     it('quart-de-disque : >120 placements, zéro conflit, bboxes dans la zone', async () => {
         const { smallLattice } = await import('../composables/structureClient')
         const ring = quarterPie()
-        const small = { id: 7, coords: ring, area: 550 }
+        // P-1 (audit 2026-08-31) : rotations explicites — sans elles,
+        // le lattice ne pose plus que 0° (ancien défaut implicite : tout).
+        const small = { id: 7, coords: ring, area: 550, rotations: [0, 90, 180, 270] }
         const out = smallLattice(small, 0.1, [500.4, 500.6, 600.4, 1999.9])
         expect(out).not.toBeNull()
         expect(out.length).toBeGreaterThan(120)
@@ -331,7 +335,9 @@ describe('smallLattice — pavage analytique (compression finale)', () => {
     it('space 1 mm et 2 mm (zone B 1000×2000) : lattice non nul', async () => {
         const { smallLattice } = await import('../composables/structureClient')
         const ring = quarterPie()
-        const small = { id: 7, coords: ring, area: 550 }
+        // P-1 (audit 2026-08-31) : rotations explicites — sans elles,
+        // le lattice ne pose plus que 0° (ancien défaut implicite : tout).
+        const small = { id: 7, coords: ring, area: 550, rotations: [0, 90, 180, 270] }
         // zone B du cas 100 carrés 100 mm / tôle 1000×2000 (space 2 : 614)
         const at1 = smallLattice(small, 1, [514, 1, 999, 1999])
         const at2 = smallLattice(small, 2, [614, 2, 998, 1998])
@@ -354,7 +360,9 @@ describe('smallLattice — pavage analytique (compression finale)', () => {
     it('bande haute étroite : le zigzag tourné 90° tient plus de pièces', async () => {
         const { smallLattice } = await import('../composables/structureClient')
         const ring = quarterPie()
-        const small = { id: 7, coords: ring, area: 550 }
+        // P-1 (audit 2026-08-31) : rotations explicites — sans elles,
+        // le lattice ne pose plus que 0° (ancien défaut implicite : tout).
+        const small = { id: 7, coords: ring, area: 550, rotations: [0, 90, 180, 270] }
         // 100 × 1486 (colonne de reste type) : pas serré sur le grand côté.
         const out = smallLattice(small, 2, [512, 512, 612, 1998])
         expect(out).not.toBeNull()
@@ -364,7 +372,9 @@ describe('smallLattice — pavage analytique (compression finale)', () => {
     it('bande à peine plus haute que la pièce : les deux parités du zigzag', async () => {
         const { smallLattice } = await import('../composables/structureClient')
         const ring = quarterPie()
-        const small = { id: 7, coords: ring, area: 550 }
+        // P-1 (audit 2026-08-31) : rotations explicites — sans elles,
+        // le lattice ne pose plus que 0° (ancien défaut implicite : tout).
+        const small = { id: 7, coords: ring, area: 550, rotations: [0, 90, 180, 270] }
         // rectangle ~508 × 58, pièce ~40 × 28, space 2 : trop court pour 2
         // pas Y, assez pour 1 rangée des DEUX parités si on ancre les deux.
         const out = smallLattice(small, 2, [2, 1940, 510, 1998])
@@ -382,5 +392,118 @@ describe('smallLattice — pavage analytique (compression finale)', () => {
         const out = smallLattice({ id: 1, coords: ring, area: 600 }, 0.1, [0, 0, 100.1, 500])
         expect(out).not.toBeNull()
         expect(out.length).toBeGreaterThan(0)
+    })
+})
+
+// ---------------------------------------------------------------------------
+// Verrous audit 2026-08-31 (docs/PLAN-P-Q-moteur.md — miroirs T4, T6-T14)
+// ---------------------------------------------------------------------------
+
+describe('layoutFitsSheet — filet tôle (P-4, miroir structure.py)', () => {
+    const geoms = { 0: geom(SQUARE), 1: geom(FAN) }
+
+    it('rejette un placement dont la bbox sort de la tôle', () => {
+        const layout = { placed_items: [
+            { item_id: 0, transformation: { rotation: 0, translation: [960, 50] } },
+        ] }
+        expect(layoutFitsSheet(layout, (i) => geoms[i], 1000, 2000)).toBe(false)
+    })
+
+    it('accepte un placement dedans (eps 1e-3)', () => {
+        const layout = { placed_items: [
+            { item_id: 0, transformation: { rotation: 0, translation: [50, 50] } },
+        ] }
+        expect(layoutFitsSheet(layout, (i) => geoms[i], 1000, 2000)).toBe(true)
+    })
+})
+
+describe('smallLattice — rotations permises (P-1, miroir structure.py)', () => {
+    const quarterPie = () => {
+        const r = 27.95
+        const cy = 2.9
+        const pts = []
+        for (let k = -22; k <= 22; k++) {
+            const a = (k * 45 / 22) * Math.PI / 180
+            pts.push([r * Math.sin(a), cy + r * Math.cos(a)])
+        }
+        pts.push([0, cy])
+        pts.push(pts[0])
+        return pts
+    }
+
+    it('rotations=[0] : toutes les poses à 0°, aucune 90/180/270 (T6)', () => {
+        const small = { id: 7, coords: quarterPie(), rotations: [0] }
+        const zone = [500.4, 500.6, 600.4, 1999.9]
+        const out = smallLattice(small, 0.1, zone)
+        expect(out).not.toBeNull()
+        for (const p of out) {
+            expect((Number(p.transformation.rotation) % 360 + 360) % 360).toBe(0)
+        }
+        const four = smallLattice({ ...small, rotations: QUARTERS }, 0.1, zone)
+        expect(out.length).toBeLessThan(four.length)
+    })
+
+    it('rotations=[0,180] : poses ∈ {0,180}, jamais 90/270 (T7)', () => {
+        const small = { id: 7, coords: quarterPie(), rotations: [0, 180] }
+        const out = smallLattice(small, 0.1, [0, 0, 1000, 1999.9])
+        expect(out).not.toBeNull()
+        for (const p of out) {
+            const r = (Number(p.transformation.rotation) % 360 + 360) % 360
+            expect(r === 0 || r === 180).toBe(true)
+        }
+    })
+})
+
+describe('detectStructuralCase — rect sans 0° et rotations vides (P-1/P-m.1)', () => {
+    const make = (rectRots, smallRots) => {
+        const items = [{ id: 0, demand: 100 }, { id: 1, demand: 400 }]
+        const geoms = { 0: geom(SQUARE, rectRots), 1: geom(FAN, smallRots) }
+        const total = 10000 * 100 + 615.7 * 400
+        return { items, geoms, total }
+    }
+
+    it('rect.rotations=[90,270] : pas de grille (T8)', () => {
+        const { items, geoms, total } = make([90, 270], QUARTERS)
+        expect(detectStructuralCase(items, (i) => geoms[i], total)).toBeNull()
+    })
+
+    it('rotations VIDES = [0] (T14, miroir Python [] -> [0])', () => {
+        const { items, geoms, total } = make([], [])
+        const c = detectStructuralCase(items, (i) => geoms[i], total)
+        expect(c).not.toBeNull()
+        expect(c.rect.rotations).toEqual([0])
+        expect(c.small.rotations).toEqual([0])
+    })
+
+    it('rotations ABSENTES = quarts de tour (rétrocompat)', () => {
+        const items = [{ id: 0, demand: 100 }, { id: 1, demand: 400 }]
+        const geoms = { 0: { coords: SQUARE }, 1: { coords: FAN } }
+        const total = 10000 * 100 + 615.7 * 400
+        const c = detectStructuralCase(items, (i) => geoms[i], total)
+        expect(c).not.toBeNull()
+        expect(c.rect.rotations).toEqual(QUARTERS)
+    })
+})
+
+describe('planLattice — emprise ⊆ tôle (P-2, miroir structure.py)', () => {
+    const slatCase = () => ({
+        rect: {
+            id: 0, demand: 310, rotations: QUARTERS, area: 5100,
+            coords: [[0, 0], [510, 0], [510, 10], [0, 10], [0, 0]],
+            bbox: [0, 0, 510, 10],
+        },
+        small: { id: 1, demand: 100, coords: FAN, rotations: QUARTERS, area: 615.7, bbox: [-19.8, 2.8, 19.8, 30.8] },
+    })
+
+    it('310 lattes 510×10 / 1000×2000 / space 1 : null (T9)', () => {
+        expect(planLattice(slatCase(), 1000, 2000, 1)).toBeNull()
+    })
+
+    it('tôle 1100 : la grille tient, dernière colonne dans la tôle', () => {
+        const lat = planLattice(slatCase(), 1100, 2000, 1)
+        expect(lat).not.toBeNull()
+        for (const p of lat.placements) {
+            expect(p.transformation.translation[0] + 510).toBeLessThanOrEqual(1100 + 1e-6)
+        }
     })
 })

@@ -8,6 +8,25 @@ export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
         {
+            title: 'A grid that never leaves the sheet, and parts that only turn where allowed',
+            datetime: '2026-08-31',
+            sections: [
+                {
+                    title: 'Safety nets for the Grid layout',
+                    content: [
+                        'The Grid alternative is now only delivered when every part actually sits inside the sheet — an edge case that used to slip through is now an automatic fallback to the engine layout.',
+                        'The grid tiling only uses part rotations you allowed: with a single allowed orientation, small parts are never placed upside down or sideways anymore.',
+                    ],
+                },
+                {
+                    title: 'Clearer "part too large" errors',
+                    content: [
+                        'A part that barely fits the sheet with the requested spacing is now rejected upfront with the exact message instead of crashing the computation (the engine counts the spacing on both sides of the part).',
+                    ],
+                },
+            ],
+        },
+        {
             title: 'Fairer free quota, live view that keeps moving, settings that survive a reload',
             datetime: '2026-08-31',
             sections: [

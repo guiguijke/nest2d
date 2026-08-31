@@ -107,7 +107,7 @@ async function buildGridAlternative(jobSlug, payload, result, { onZone } = {}) {
 
     const { runPool, deriveSeed } = await import('./localPool')
     const {
-        STRUCT_TOL, buildStructuralLayout, layoutUsedExtent,
+        STRUCT_TOL, buildStructuralLayout, layoutUsedExtent, layoutFitsSheet,
     } = await import('./structureClient')
     const { detectStructuralCase } = await import('./structureClient')
     let totalArea = 0
@@ -215,6 +215,11 @@ async function buildGridAlternative(jobSlug, payload, result, { onZone } = {}) {
     // livrés en rang 0).
     const totalRequested = origItems.reduce((n, it) => n + (Number(it.demand) || 0), 0)
     if (struct.placed_items.length !== totalRequested) return null
+    // P-4 (audit 2026-08-31 §P-4) : garde POSITION en aval du garde COMPTE
+    // (piège #45) — le layout grille ne se répare pas, une pièce hors tôle
+    // = repli moteur. buildStructuralLayout vérifie déjà en interne ; ce
+    // double filet protège contre toute divergence entre les deux appels.
+    if (!layoutFitsSheet(struct, geomOf, sheetW, sheetH)) return null
     const axis = objective === 'y' ? 'y' : 'x'
     const structExtent = layoutUsedExtent(struct, geomOf, space, axis)
     if (typeof window !== 'undefined') {
@@ -246,7 +251,10 @@ async function buildGridAlternative(jobSlug, payload, result, { onZone } = {}) {
         // Layout AUTO-SUFFISANT quand le solve était réduit (ids d'origine,
         // trous remplis ici) : buildAlternativeArtifacts saute remap idMap /
         // expansion meta / post-pass hole-fill pour CETTE alternative.
-        selfContained: !!meta,
+        // R-m.4 (audit 2026-08-31 §R-m.4) : suit holePlan, pas meta — un
+        // meta packs SANS hole_plan ne rend PAS la grille auto-suffisante
+        // (le serveur applique apply_hole_fill, miroir main.py::1233).
+        selfContained: Boolean(holePlan),
         strip_width: objective === 'x' ? structExtent : null,
         used_height: objective === 'y' ? structExtent : null,
         density: structDensity,
@@ -475,7 +483,6 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     }
 
     const rawAlts = result?.alternatives || []
-    const bestRaw = rawAlts[0]
 
     // Artefacts calculés navigateur (SVG/rapport/DXF), forme serveur.
     // buildAlternativeArtifacts applique l'expansion meta + post-pass et
@@ -484,7 +491,22 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     let liveLayout = null
     let placed = 0
     try {
-        const arts = await buildAlternativeArtifacts(result, payload)
+        let arts = await buildAlternativeArtifacts(result, payload)
+        // P-4 (audit 2026-08-31 §P-4) — filet aval miroir de
+        // _finalize_alternative : mesure indépendante (report wasm) et
+        // drop d'une alternative STRUCTURELLE hors tôle. Les alternatives
+        // moteur gardent leur badge insideSheet (piège #6). arts suit la
+        // même permutation que result.alternatives (indices alignés).
+        const keptIdx = []
+        rawAlts.forEach((alt, i) => {
+            if (alt.structural && arts?.[i]?.report?.verify?.insideSheet === false) return
+            keptIdx.push(i)
+        })
+        if (keptIdx.length !== rawAlts.length) {
+            result.alternatives = keptIdx.map((i) => rawAlts[i])
+            arts = keptIdx.map((i) => arts?.[i] ?? null)
+        }
+        const bestRaw = result.alternatives[0]
         placed = normalizeLayouts(bestRaw?.solution)
             .reduce((n, l) => n + (l.placed_items?.length || 0), 0)
         alternatives = toServerShapeAlternatives(result, payload, arts) || []

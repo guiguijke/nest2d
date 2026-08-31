@@ -550,6 +550,19 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     recalcule pas px/py sur la bbox 90°. Score d'une zone : max N
     (jusqu'à `want`) puis bord min sur l'axe objectif.
 
+49. **Garde faisabilité = w + 2·space, pas w + space.** jagua offset
+    space/2 sur l'item ET le conteneur (import.rs). `w + space <= sw`
+    laisse passer 8×8 / tôle 10 / space 2 → panic SPP lbf.rs
+    « strip-width is running away » (panic=abort). BPP dégrade.
+    Verrou : test_feasibility_guard + localPayloadBuilder.test.js.
+50. **Pass structurel : légalité, pas seulement le compte.** Le lattice
+    ne pose que des angles ∈ rotations demandées (rotationCount=1 →
+    pas de 180/90). plan_lattice return None si la grille rect sort
+    de la tôle. Filet final : alt structural avec insideSheet=false
+    → repli moteur (verify_layout déjà le savait, ce n'était qu'un
+    badge). Ne PAS jeter les alts moteur hors tôle (piège #6).
+    transposedBbox = R(-90)=(y,−x), distinct de rotatedBbox(90)=(-y,x).
+
 ## 3. Banc d'essai (workers/nesting/bench/)
 
 Boucle de test de bout en bout, sans UI :

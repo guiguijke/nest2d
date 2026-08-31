@@ -157,12 +157,14 @@ class TestZoneSolve:
 
     def test_success_first_try(self):
         def solve(count, zh, zw, budget, transposed=False):
-            return [{"transformation": {"rotation": 0, "translation": (20 * i, 0)}}
+            # tx >= 19.8 : le FAN (bx0=-19.8) ne doit pas déborder à gauche
+            # de la zone (P-m.2 — condition séparée depuis l'audit).
+            return [{"transformation": {"rotation": 0, "translation": (20 * (i + 1), 0)}}
                     for i in range(count)]
         out = _zone_solve((0.0, 0.0, 100.0, 500.0), self.small(), 0.1, 3, solve, 5)
         assert len(out) == 3
-        assert out[0]["transformation"]["translation"] == (0.0, 0.0)
-        assert out[2]["transformation"]["translation"] == (40.0, 0.0)
+        assert out[0]["transformation"]["translation"] == (20.0, 0.0)
+        assert out[2]["transformation"]["translation"] == (60.0, 0.0)
         assert out[0]["item_id"] == 1
 
     def test_overflow_shrinks(self):
@@ -185,7 +187,7 @@ class TestZoneSolve:
             calls.append(count)
             if count > 5:
                 return None  # EngineError du sous-solve
-            return [{"transformation": {"rotation": 0, "translation": (1.0, 1.0)}}
+            return [{"transformation": {"rotation": 0, "translation": (25.0, 1.0)}}
                     for _ in range(count)]
         out = _zone_solve((0.0, 0.0, 100.0, 500.0), self.small(), 0.1, 20, solve, 5)
         # encadrement : shrink 20→12→7 (échecs), succès 4 puis REGONFLER 5
@@ -199,7 +201,7 @@ class TestZoneSolve:
             calls.append(count)
             if count > 50:
                 return None
-            return [{"transformation": {"rotation": 0, "translation": (1.0, 1.0)}}
+            return [{"transformation": {"rotation": 0, "translation": (25.0, 1.0)}}
                     for _ in range(count)]
         out = _zone_solve((0.0, 0.0, 100.0, 500.0), self.small(), 0.1, 100, solve, 5)
         # shrink 100→60 (échecs) puis succès 36 et regonflées 41, 47 : la
@@ -212,7 +214,7 @@ class TestZoneSolve:
 
         def solve(count, zh, zw, budget, transposed=False):
             calls.append(count)
-            return [{"transformation": {"rotation": 0, "translation": (1.0, 1.0)}}
+            return [{"transformation": {"rotation": 0, "translation": (25.0, 1.0)}}
                     for _ in range(count)]
         out = _zone_solve((0.0, 0.0, 100.0, 500.0), self.small(), 0.1, 30, solve, 5)
         assert len(out) == 30
@@ -241,7 +243,7 @@ class TestBuildStructuralLayout:
             zones_filled.append((count, round(zh, 1), round(zw, 1)))
             return [{"item_id": 0,
                      "transformation": {"rotation": 0,
-                                        "translation": (10.0, 10.0)}}
+                                        "translation": (25.0, 10.0)}}
                     for _ in range(count)]
         out = build_structural_layout(items, lambda i: geoms[i], W, H, space, solve)
         assert out is not None
@@ -330,14 +332,14 @@ class TestObjectiveY:
             assert strip_h == pytest.approx(99.8)   # largeur réelle zone
             assert max_w == pytest.approx(797.6)    # hauteur dispo zone
             return [{"transformation": {"rotation": 90.0,
-                                        "translation": (10.0, 20.0)}}
+                                        "translation": (25.0, 20.0)}}
                     for _ in range(count)]
         zone = (0.1, 1202.3, 99.9, 1999.9)
         out = _zone_solve(zone, small, 0.1, 3, solve, 5, transposed=True)
         assert len(out) == 3
         # map-back transposé : (x0 + (zw − ty), y0 + tx)
         assert out[0]["transformation"]["translation"] == pytest.approx(
-            (0.1 + (99.8 - 20.0), 1202.3 + 10.0))
+            (0.1 + (99.8 - 20.0), 1202.3 + 25.0))
         assert out[0]["transformation"]["rotation"] == 90.0
 
     def test_build_objective_y_calls_transposed_for_b(self):
@@ -349,7 +351,7 @@ class TestObjectiveY:
             seen.append((round(strip_h), round(max_w), transposed))
             return [{"item_id": 0,
                      "transformation": {"rotation": 0,
-                                        "translation": (5.0, 5.0)}}
+                                        "translation": (25.0, 5.0)}}
                     for _ in range(count)]
         from core.structure import build_structural_layout, layout_used_extent
         out = build_structural_layout(items, lambda i: geoms[i], 1000.0,
@@ -400,7 +402,7 @@ class TestHolePlan:
             calls.append((round(strip_h), round(max_w)))
             return [{"item_id": 1,
                      "transformation": {"rotation": 0.0,
-                                        "translation": (1.0, 1.0)}}
+                                        "translation": (25.0, 1.0)}}
                     for _ in range(count)]
         out, _items, _geoms = self.build(80, solve)
         assert out is not None
@@ -457,7 +459,8 @@ class TestSmallLattice:
     def test_quarter_pie_lattice_zero_conflict(self):
         from core.structure import small_lattice
         ring = self.make_quarter_pie()
-        small = {"id": 7, "coords": ring, "area": 550.0}
+        small = {"id": 7, "coords": ring, "area": 550.0,
+                 "rotations": list(QUARTERS)}
         rect = (500.4, 500.6, 600.4, 1999.9)
         out = small_lattice(small, 0.1, rect)
         assert out is not None
@@ -488,7 +491,10 @@ class TestSmallLattice:
         # losange : le zigzag 0/180 peut échouer, la grille bbox doit
         # quand même remplir (méthode générale, pas un repli None).
         ring = [[-19.8, 16.8], [0.0, 30.8], [19.8, 16.8], [0.0, 2.8], [-19.8, 16.8]]
-        small = {"id": 1, "coords": ring, "area": 554.0}
+        small = {"id": 1, "coords": ring, "area": 554.0,
+                 "rotations": list(QUARTERS)}
         out = small_lattice(small, 0.1, (0.0, 0.0, 100.1, 500.0))
         assert out is not None
         assert len(out) > 0
+
+
