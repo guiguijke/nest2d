@@ -524,6 +524,49 @@ export async function assertCanNestDemo(userId) {
 }
 
 /**
+ * Refund a unit consumed by assertCanNest/assertCanNestDemo when the
+ * request fails AFTER the charge but BEFORE any job document exists —
+ * validation errors (403 directions), 409 concurrent_limit, vault_locked
+ * and insertion failures (R-1, audit 2026-08-31 §R-1). The worker-side
+ * refund (workers/common/worker_common/refund.py) only fires on jobs that
+ * exist; this is its mirror for the no-job window. Guards mirror it too
+ * ($gt: 0 so concurrent refunds can't go below zero, skippedQuota demo).
+ *
+ * Idempotent per charge object: the flag is set on the (per-request)
+ * in-memory object so a refund by enqueueNestingJob's own catch is not
+ * repeated by the route's catch.
+ *
+ * @param {string} userId
+ * @param {{type: string}|null} charge
+ */
+export async function refundNestCharge(userId, charge) {
+    if (!charge || charge.refunded) return
+    charge.refunded = true
+    try {
+        const db = await connectDB()
+        if (charge.type === 'free') {
+            await db.collection('users').updateOne(
+                { id: userId, freeNestingUsed: { $gt: 0 } },
+                { $inc: { freeNestingUsed: -1 } },
+            )
+            logger.info(`Refunded free nesting slot to user ${userId} (pre-enqueue failure)`)
+        } else if (charge.type === 'demo' && !charge.skippedQuota) {
+            await db.collection('users').updateOne(
+                { id: userId, demoNestingUsed: { $gt: 0 } },
+                { $inc: { demoNestingUsed: -1 } },
+            )
+            logger.info(`Refunded demo nesting slot to user ${userId} (pre-enqueue failure)`)
+        } else {
+            // grant / subscription / skippedQuota: nothing was consumed.
+            charge.refunded = false
+        }
+    } catch (e) {
+        charge.refunded = false
+        logger.error(`Failed to refund charge for user ${userId}: ${e}`)
+    }
+}
+
+/**
  * Read-only demo quota summary for UI (demo banner).
  * @param {string} userId
  * @returns {Promise<{demoRemaining: number}>}

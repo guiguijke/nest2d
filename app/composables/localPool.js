@@ -423,12 +423,23 @@ export function runPool(jobSlug, payload, { onLive, walks, concurrency } = {}) {
             liveGapMs: 0,
             patienceMs: Math.max(2000, (Number(payload?.engineConfig?.plateau_patience_sec) || 3) * 1000),
             champTimer: null,
+            // R-4 (audit 2026-08-31 §R-3) : merge adressé à un worker mort
+            // (postMessage sur worker terminé = silencieusement droppé) →
+            // pool.settle jamais appelé → promesse jamais résolue → slot de
+            // calcul occupé à vie. Cible vivante + timeout de merge.
+            mergeTimer: null,
+            mergeTarget: null,
+            mergeAttempts: 0,
             settle(outcome) {
                 if (pool.settled) return
                 pool.settled = true
                 if (pool.champTimer) {
                     clearTimeout(pool.champTimer)
                     pool.champTimer = null
+                }
+                if (pool.mergeTimer) {
+                    clearTimeout(pool.mergeTimer)
+                    pool.mergeTimer = null
                 }
                 for (const slot of pool.slots) {
                     try {
@@ -580,6 +591,10 @@ function onWorkerMessage(jobSlug, pool, slot, event, payload, masterSeed) {
         })
         return
     }
+    // Réponse à une op adressée que ce slot n'attend plus (merge reposté
+    // ailleurs après perte de la cible — R-4) : JAMAIS un règlement de
+    // solve, ne doit pas écraser slot.outcome.
+    if (data.id) return
     // Règlement du solve de ce walk : { ok, result|error, memory }.
     slot.outcome = data
     if (!data.ok) {
@@ -596,6 +611,9 @@ function onWorkerMessage(jobSlug, pool, slot, event, payload, masterSeed) {
 function failSlot(jobSlug, pool, slot, payload, message, masterSeed) {
     if (pool.settled) return
     if (!slot.outcome) slot.outcome = { ok: false, error: String(message || 'worker error') }
+    // R-4 : ce worker est MORT (terminate ci-dessous) — il ne peut plus
+    // recevoir l'op merge, ni répondre à celle déjà postée.
+    slot.dead = true
     try {
         slot.worker?.terminate()
     } catch {
@@ -633,6 +651,37 @@ function checkAllSettled(jobSlug, pool, payload) {
     // les survivants. runs = concaténation des alternatives par index de
     // worker (ordre stable), chaque alternative porte déjà seed / bias /
     // evaluations|iterations / solution (export moteur).
+    postMerge(jobSlug, pool, payload)
+}
+
+// R-4 (audit 2026-08-31 §R-3) : le merge doit être posté à un worker
+// VIVANT, sous peine d'impasse — postMessage sur un worker terminé est
+// silencieusement droppé (checkAllSettled re-postait au même survivor[0]
+// mort, pool.settle jamais appelé, promesse jamais résolue, slot de calcul
+// occupé à vie). Un timeout de merge réessaie une fois sur un autre
+// survivant puis livre le premier run survivant tel quel (dégradé, borné).
+const MERGE_TIMEOUT_MS = 30_000
+const MERGE_MAX_ATTEMPTS = 2
+
+function postMerge(jobSlug, pool, payload) {
+    if (pool.settled) return
+    // Merge déjà en vol sur un worker vivant : ne pas re-poster (le timeout
+    // ci-dessous couvre la perte de la cible).
+    if (pool.mergeTarget && !pool.mergeTarget.dead) return
+    const survivors = pool.slots.filter((s) => s.outcome?.ok)
+    const alive = survivors.filter((s) => !s.dead && s.worker)
+    if (!alive.length || pool.mergeAttempts >= MERGE_MAX_ATTEMPTS) {
+        // Plus personne (ou plus de tentatives) pour merger : on livre le
+        // premier run survivant — une alternative au lieu de la fusion,
+        // dégradé mais le job TERMINE (le quota n'est pas brûlé pour rien).
+        const best = survivors[0]
+        pool.settle({
+            ok: true,
+            result: best.outcome.result,
+            memory: poolMemory(pool),
+        })
+        return
+    }
     const masterSeed = String(payload?.engineConfig?.prng_seed ?? '0')
     const runs = []
     for (const slot of pool.slots) {
@@ -648,9 +697,12 @@ function checkAllSettled(jobSlug, pool, payload) {
             runs.push({ ...alt, seed: runSeed })
         }
     }
-    // Le merge s'exécute sur le worker 0 quand il a réussi (contrat), sinon
-    // sur le premier survivant — un worker crashé est terminé, inutilisable.
-    const target = survivors[0]
+    const target = alive[0]
+    pool.mergeAttempts += 1
+    // Une seule cible à la fois : les réponses tardives d'une cible perdue
+    // sont ignorées (mergeId vidé + garde `if (data.id) return`).
+    for (const s of pool.slots) if (s !== target) s.mergeId = null
+    pool.mergeTarget = target
     const mergeId = `merge:${jobSlug}`
     target.mergeId = mergeId
     target.worker.postMessage({
@@ -670,4 +722,12 @@ function checkAllSettled(jobSlug, pool, payload) {
             n_alternatives: payload?.engineConfig?.n_alternatives,
         },
     })
+    if (pool.mergeTimer) clearTimeout(pool.mergeTimer)
+    pool.mergeTimer = setTimeout(() => {
+        if (pool.settled) return
+        // Cible perdue : retry sur un autre survivant, sinon settle dégradé
+        // (postMerge gère les deux via alive/tentatives).
+        target.dead = true
+        postMerge(jobSlug, pool, payload)
+    }, MERGE_TIMEOUT_MS)
 }

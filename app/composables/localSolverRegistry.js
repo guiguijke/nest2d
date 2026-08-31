@@ -18,6 +18,7 @@
  * Le runner est injectable pour les tests (défaut : runLocalJobPrivate).
  */
 import { reactive, readonly } from 'vue'
+import { frameIsBetter } from '../utils/liveJob'
 
 const state = reactive({
     /** slug -> { slug, projectSlug, phase, frame, evals, zone, walks,
@@ -69,19 +70,13 @@ function entry(jobSlug, projectSlug, itemMap) {
     return state.jobs[jobSlug]
 }
 
-/** Narrower strip / shorter used height / denser — same order as the view. */
+/** Meilleure frame live — définition partagée avec LiveNestingView
+ * (utils/liveJob.js, R-6 audit 2026-08-31) : fenêtre de corridor phase 2
+ * SPP, remnant/bins en BPP, fraîcheur à égalité parfaite en BPP. L'ancien
+ * filtre en égalité stricte court-circuitait la vue et refigeait le live
+ * (« 1 maj et c'est tout », régression du fix B.4). */
 function liveFrameBetter(a, b) {
-    if (!a) return false
-    if (!b) return true
-    if (a.feasible === false) return false
-    if (b && b.feasible === false) return true
-    const aw = a.strip_width ?? Infinity
-    const bw = b.strip_width ?? Infinity
-    if (aw !== bw) return aw < bw
-    const ah = a.used_height ?? Infinity
-    const bh = b.used_height ?? Infinity
-    if (ah !== bh) return ah < bh
-    return (a.density || 0) > (b.density || 0) + 1e-9
+    return frameIsBetter(a, b)
 }
 
 function pump() {
@@ -126,8 +121,29 @@ async function launch(jobSlug, projectSlug, itemMap) {
     } finally {
         job.finishedAt = Date.now()
         state.running -= 1
+        scheduleEviction(jobSlug)
         pump()
     }
+}
+
+// R-8 (audit 2026-08-31 §R-7) : le résultat complet vit dans IndexedDB
+// (localResultsStore) — le registre ne retenait par ailleurs JAMAIS rien :
+// chaque job done gardait alternatives (SVG + DXF texte, plusieurs Mo) et
+// frame en RAM pour toute la session. Après un délai de grâce (le modal lit
+// result/liveLayout juste après done), on ne conserve que les scalaires
+// (statut de liste, badge projet, message d'erreur).
+const HEAVY_RETAIN_MS = 120_000
+function scheduleEviction(jobSlug) {
+    setTimeout(() => {
+        const j = state.jobs[jobSlug]
+        if (!j) return
+        if (j.phase === 'done' || j.phase === 'error' || j.phase === 'cancelled') {
+            j.result = null
+            j.frame = null
+            j.itemMap = null
+            j.zone = null
+        }
+    }, HEAVY_RETAIN_MS)
 }
 
 /**
@@ -142,6 +158,23 @@ export function ensureJob(job, { projectSlug = null, maxConcurrent = 1 } = {}) {
     const existing = state.jobs[jobSlug]
     if (existing && ['queued', 'running', 'done'].includes(existing.phase)) {
         return readonly(existing)
+    }
+    // Re-file d'un job terminé en ERREUR (R-5, audit 2026-08-31 §R-5) : sans
+    // reset de phase, l'entrée restait hors du garde ci-dessus → chaque
+    // ensureJob la re-pushait → DOUBLE run du même slug (2× local-payload,
+    // pool écrasé par pools.set). Un job 'cancelled' reste terminal : le
+    // serveur l'a déjà finalisé + refundé, on ne le relance jamais.
+    if (existing) {
+        existing.phase = 'queued'
+        existing.result = null
+        existing.frame = null
+        existing.evals = null
+        existing.zone = null
+        existing.error = null
+        existing.ok = null
+        existing.finishedAt = null
+        existing.startedAt = Date.now()
+        existing.itemMap = job?.itemMap || existing.itemMap
     }
     entry(jobSlug, projectSlug, job?.itemMap)
     state.queue.push({ jobSlug, projectSlug, itemMap: job?.itemMap })

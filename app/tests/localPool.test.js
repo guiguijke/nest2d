@@ -478,6 +478,92 @@ describe('runPool — politique d’échec (le walk perdu ne vide pas le job)', 
 })
 
 // ---------------------------------------------------------------------------
+// Merge : cible morte / sans réponse — verrou R-4 (audit 2026-08-31 §R-3).
+// postMessage sur un worker terminé est silencieusement droppé : sans
+// garde, le pool ne settle JAMAIS et le slot de calcul reste occupé à vie.
+// ---------------------------------------------------------------------------
+
+describe('runPool — merge vers un worker mort : jamais d\'impasse (verrou R-4)', () => {
+    const mergePosted = (i) => MockWorker.instances[i].messages.some((m) => m.op === 'merge')
+
+    it('la cible du merge crashe APRÈS son solve : repost immédiat sur l\'autre survivant', async () => {
+        MockWorker.respond = null
+        const promise = runPool('job-merge-dead', makePayload({ walks: 2 }))
+        MockWorker.instances[0].emit({ ok: true, jobSlug: 'job-merge-dead', result: engineOut(0) })
+        MockWorker.instances[1].emit({ ok: true, jobSlug: 'job-merge-dead', result: engineOut(1) })
+        expect(mergePosted(0)).toBe(true) // survivor[0] reçoit le merge
+        // Crash après le solve : outcome reste ok, worker mort — postMessage
+        // y serait droppé. Sans garde : re-post au même mort → impasse.
+        MockWorker.instances[0].crash('boom after solve')
+        expect(MockWorker.instances[0].terminated).toBe(true)
+        expect(mergePosted(1)).toBe(true) // repost sur le vivant
+        MockWorker.instances[1].emit({
+            id: 'merge:job-merge-dead',
+            ok: true,
+            result: JSON.stringify({ problem: 'spp', alternatives: [{ rank: 0, strip_width: 850 }] }),
+        })
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives[0].strip_width).toBe(850)
+    })
+
+    it('plus AUCUN survivant vivant pour merger : livraison dégradée du 1er run (job borné)', async () => {
+        MockWorker.respond = null
+        const promise = runPool('job-merge-alldead', makePayload({ walks: 2 }))
+        MockWorker.instances[0].emit({ ok: true, jobSlug: 'job-merge-alldead', result: engineOut(0) })
+        MockWorker.instances[1].emit({ ok: true, jobSlug: 'job-merge-alldead', result: engineOut(1) })
+        MockWorker.instances[0].crash('boom')
+        MockWorker.instances[1].crash('boom') // même la cible du repost meurt
+        const out = await promise
+        expect(out.ok).toBe(true)
+        // Dégradé : le run du worker 0 livré tel quel (une alternative, pas
+        // de fusion) — le job TERMINE au lieu de tourner à vide.
+        expect(out.result.alternatives[0].seed).toBe(1000)
+    })
+
+    it('merge sans réponse : timeout 30 s → retry sur l\'autre survivant', async () => {
+        vi.useFakeTimers()
+        MockWorker.respond = null
+        const promise = runPool('job-merge-timeout', makePayload({ walks: 2 }))
+        MockWorker.instances[0].emit({ ok: true, jobSlug: 'job-merge-timeout', result: engineOut(0) })
+        MockWorker.instances[1].emit({ ok: true, jobSlug: 'job-merge-timeout', result: engineOut(1) })
+        expect(mergePosted(0)).toBe(true)
+        // 30 s de silence : la cible est déclarée perdue, nouveau merge.
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(mergePosted(1)).toBe(true)
+        MockWorker.instances[1].emit({
+            id: 'merge:job-merge-timeout',
+            ok: true,
+            result: JSON.stringify({ problem: 'spp', alternatives: [] }),
+        })
+        const out = await promise
+        expect(out.ok).toBe(true)
+        vi.useRealTimers()
+    })
+
+    it('une réponse merge tardive d\'une cible perdue n\'écrase pas un slot (garde data.id)', async () => {
+        MockWorker.respond = null
+        const promise = runPool('job-merge-late', makePayload({ walks: 2 }))
+        MockWorker.instances[0].emit({ ok: true, jobSlug: 'job-merge-late', result: engineOut(0) })
+        MockWorker.instances[1].emit({ ok: true, jobSlug: 'job-merge-late', result: engineOut(1) })
+        MockWorker.instances[0].crash('boom') // cible initiale perdue → repost w1
+        expect(mergePosted(1)).toBe(true)
+        // Réponse tardive de w0 APRÈS résolution elsewhere : ignorée.
+        MockWorker.instances[1].emit({
+            id: 'merge:job-merge-late',
+            ok: true,
+            result: JSON.stringify({ problem: 'spp', alternatives: [{ rank: 0, strip_width: 111 }] }),
+        })
+        const out = await promise
+        expect(out.ok).toBe(true)
+        expect(out.result.alternatives[0].strip_width).toBe(111)
+        // Le même id renvoyé au worker 0 (mergeId vidé) : tombé dans la
+        // garde `data.id` — jamais un règlement de solve.
+        expect(() => MockWorker.instances[0].emit({ id: 'merge:job-merge-late', ok: true, result: '{}' })).not.toThrow()
+    })
+})
+
+// ---------------------------------------------------------------------------
 // Annulation
 // ---------------------------------------------------------------------------
 

@@ -8,7 +8,7 @@ import {
   titleFromFileName,
   PROJECT_SLUG_RANDOM_LEN,
 } from "~~/server/utils/strings";
-import { assertCanNest } from "~~/server/utils/entitlement";
+import { assertCanNest, refundNestCharge } from "~~/server/utils/entitlement";
 import { requireFileAccess, resolvePolygonParts } from "~~/server/utils/vault";
 import { resolvePartColor } from "~~/server/utils/colors";
 import {
@@ -351,32 +351,42 @@ export async function enqueueNestingJob(
   // stored on the job so the worker can refund it if the nesting fails.
   const finalCharge = charge ?? (await assertCanNest(userId));
 
-  // Encrypted vaults must be unlocked before a job can be enqueued — the
-  // workers need an active session to read the source files. Also refreshes
-  // the sliding TTL so the session outlives the job. Demo jobs skip this:
-  // the demo files are plaintext and shared, the user's vault is irrelevant.
-  if (!skipVaultGate) {
-    await requireFileAccess(userId);
+  // R-1 (audit 2026-08-31 §R-1) : les échecs APRÈS la charge mais AVANT
+  // l'insertion (vault_locked, Mongo indisponible) brûlaient une unité
+  // sans qu'aucun job n'existe — le refund worker ne peut pas les voir.
+  // Refund puis relance de l'erreur ; le drapeau sur l'objet charge rend
+  // le refund idempotent vis-à-vis du catch de la route appelante.
+  try {
+    // Encrypted vaults must be unlocked before a job can be enqueued — the
+    // workers need an active session to read the source files. Also refreshes
+    // the sliding TTL so the session outlives the job. Demo jobs skip this:
+    // the demo files are plaintext and shared, the user's vault is irrelevant.
+    if (!skipVaultGate) {
+      await requireFileAccess(userId);
+    }
+
+    const jobSlug = buildJobSlug(domain, fileMetadata);
+
+    await db.collection(domain.jobsCollection).insertOne({
+      slug: jobSlug,
+      [domain.projectSlugField]: projectSlug,
+      files: fileMetadata,
+      params: params,
+      status: initialStatus,
+      // J-090 : profil compute imposé serveur pour un job 100 % navigateur
+      // (null pour les jobs classiques — champ absent de la projection).
+      ...(localConfig ? { localConfig } : {}),
+      ...extraFields,
+      createdAt: new Date(),
+      ownerId: userId,
+      charge: finalCharge,
+    });
+  } catch (error) {
+    await refundNestCharge(userId, finalCharge).catch(() => {});
+    throw error;
   }
 
-  const jobSlug = buildJobSlug(domain, fileMetadata);
-
-  await db.collection(domain.jobsCollection).insertOne({
-    slug: jobSlug,
-    [domain.projectSlugField]: projectSlug,
-    files: fileMetadata,
-    params: params,
-    status: initialStatus,
-    // J-090 : profil compute imposé serveur pour un job 100 % navigateur
-    // (null pour les jobs classiques — champ absent de la projection).
-    ...(localConfig ? { localConfig } : {}),
-    ...extraFields,
-    createdAt: new Date(),
-    ownerId: userId,
-    charge: finalCharge,
-  });
-
   return {
-    slug: jobSlug,
+    slug: buildJobSlug(domain, fileMetadata),
   };
 }

@@ -8,6 +8,33 @@ export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
         {
+            title: 'Fairer free quota, live view that keeps moving, settings that survive a reload',
+            datetime: '2026-08-31',
+            sections: [
+                {
+                    title: 'Free quota honesty',
+                    content: [
+                        'A submission that never starts a job — another nest already running, a locked vault, a server hiccup — no longer consumes one of your 10 free monthly nestings: the unit is refunded automatically.',
+                        'The Nest button now blocks double-clicks while the request is in flight, and a rejected submission shows a clear message instead of failing silently with a frozen button.',
+                    ],
+                },
+                {
+                    title: 'Live view and local jobs',
+                    content: [
+                        'The live view keeps animating through the whole optimization: height-compaction frames and sheet-by-sheet plateau progress now count again, on every device mode.',
+                        'Cancelling a queued local nesting really cancels it (no more zombie job waking up as an error), and a compute worker that dies mid-merge can no longer freeze a job forever.',
+                    ],
+                },
+                {
+                    title: 'Settings and results',
+                    content: [
+                        'Project settings (sheets, spacing, quantities) survive a full page reload even when you never left the project.',
+                        'Layout options are ordered the same way on-device and on the server, and long working sessions release memory sooner.',
+                    ],
+                },
+            ],
+        },
+        {
             title: 'Tighter Grid packing, live view stays on the right project',
             datetime: '2026-08-31',
             sections: [

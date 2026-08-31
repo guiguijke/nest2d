@@ -22,6 +22,12 @@ import {
     decorateLiveLayout,
     expandMeta,
 } from './localBridge'
+// Import STATIQUE (audit 2026-08-31 §R-i) : la sentinelle d'annulation des
+// zones est comparée dans runLocalJobPrivate — référencée sans import, elle
+// ne résolvait que par l'auto-import Nuxt (fragile : ReferenceError pile
+// dans le chemin d'annulation hors transform Nuxt). Le reste du pass
+// structurel reste en import dynamique (lazy).
+import { ZONE_CANCELLED } from './structureClient'
 
 /**
  * Pass structurel navigateur (miroir de core/structure.py + intégration
@@ -34,7 +40,7 @@ import {
  * alternative moteur-shaped {structural: true} si elle reste à STRUCT_TOL
  * de la meilleure moteur.
  */
-async function buildGridAlternative(jobSlug, payload, result, { onZone, isCancelled } = {}) {
+async function buildGridAlternative(jobSlug, payload, result, { onZone } = {}) {
     if ((result?.problem || payload?.problem) !== 'spp') return null
     const instance = payload?.instance || {}
     const items = instance.items || []
@@ -101,7 +107,7 @@ async function buildGridAlternative(jobSlug, payload, result, { onZone, isCancel
 
     const { runPool, deriveSeed } = await import('./localPool')
     const {
-        STRUCT_TOL, buildStructuralLayout, layoutUsedExtent, ZONE_CANCELLED,
+        STRUCT_TOL, buildStructuralLayout, layoutUsedExtent,
     } = await import('./structureClient')
     const { detectStructuralCase } = await import('./structureClient')
     let totalArea = 0
@@ -347,7 +353,13 @@ function buildLiveLayout(result, payload, bestAlt) {
 }
 
 export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) {
-    const fetched = await $fetch(`/api/results/${jobSlug}/local-payload`)
+    // §M.3 (audit 2026-08-29, durci 2026-08-31) : fetch SANS timeout — un
+    // serveur qui ne répond jamais laissait le slot du registre occupé à vie
+    // (running=1, bouton « Imbriquer » muet jusqu'au rechargement). Borné :
+    // l'erreur remonte, le job passe en error (re-filable — R-5 registre).
+    const fetched = await $fetch(`/api/results/${jobSlug}/local-payload`, {
+        timeout: 60_000,
+    })
     let payload
     let sources
     // J-090 : correspondance id moteur → {slug, part} — construite par le
@@ -435,16 +447,19 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     // (le remap J-085 de buildAlternativeArtifacts s'applique pareil).
     // Échec quelconque ⇒ silencieux, résultat moteur inchangé. onZone remonte
     // la progression de remplissage (feedback pendant la phase silencieuse).
-    let gridCancelled = false
+    // L'annulation réelle transite par cancelPool (préfixe zones) qui fait
+    // lever ZONE_CANCELLED par les sous-solves — l'ancien hook isCancelled
+    // (drapeau jamais armé) était du code mort, supprimé (audit 2026-08-31).
     try {
         const struct = await buildGridAlternative(jobSlug, payload, result, {
             onZone: (z) => onLive && onLive({ type: 'zone', ...z }),
-            isCancelled: () => gridCancelled,
         })
         if (typeof window !== 'undefined') {
+            // Fusion et non écrasement : le second write détruisait le
+            // diagnostic détaillé de buildGridAlternative (sonde QA).
             window.__structDiag = struct
-                ? { built: true, width: struct.strip_width }
-                : { built: false }
+                ? { ...(window.__structDiag || {}), built: true, width: struct.strip_width }
+                : { ...(window.__structDiag || {}), built: false }
         }
         if (struct) result.alternatives = [struct, ...(result.alternatives || [])]
     } catch (e) {
@@ -453,7 +468,9 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             // carte du job suit le flux « cancelled » — JAMAIS de local-fail.
             return { ok: false, error: 'cancelled' }
         }
-        if (typeof window !== 'undefined') window.__structDiag = { built: false, error: String(e) }
+        if (typeof window !== 'undefined') {
+            window.__structDiag = { ...(window.__structDiag || {}), built: false, error: String(e) }
+        }
         console.warn('structural grid pass failed', e)
     }
 
@@ -471,9 +488,32 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         placed = normalizeLayouts(bestRaw?.solution)
             .reduce((n, l) => n + (l.placed_items?.length || 0), 0)
         alternatives = toServerShapeAlternatives(result, payload, arts) || []
+        // m-1 (audit 2026-08-31 §R-m.1) : même ordre d'affichage que la
+        // finalisation SERVEUR (main.py — grille d'abord par choix produit,
+        // puis classes canoniques left/bottom/balanced, qualité mesurée
+        // layoutCount/usedSheetShare au sein de chaque classe). Sans ce tri,
+        // « Option 1 » différait entre THIS DEVICE et le serveur. La
+        // permutation réordonne les containers d'artefacts EN PARALLÈLE
+        // (arts est indexé sur l'ordre moteur, pas l'ordre affiché).
+        const DIRECTION_ORDER = { grid: -1, left: 0, bottom: 1, balanced: 2 }
+        const known = alternatives.some((a) => a.strategy in DIRECTION_ORDER)
+        const cmp = (x, y) => {
+            if (known) {
+                const dx = DIRECTION_ORDER[x.strategy] ?? 99
+                const dy = DIRECTION_ORDER[y.strategy] ?? 99
+                if (dx !== dy) return dx - dy
+            }
+            const lx = x.layoutCount || 0
+            const ly = y.layoutCount || 0
+            if (lx !== ly) return lx - ly
+            return (x.usedSheetShare ?? 1.0) - (y.usedSheetShare ?? 1.0)
+        }
+        const idx = alternatives.map((_, i) => i).sort((a, b) => cmp(alternatives[a], alternatives[b]))
+        const containersOrdered = idx.map((i) => arts?.[i]?.containers || [])
+        alternatives = idx.map((i) => alternatives[i])
         // DXF combiné par tôle (nommage serveur : {slug}_alt{r}_part_{n}.dxf).
         for (let rank = 0; rank < alternatives.length; rank++) {
-            const containers = arts?.[rank]?.containers || []
+            const containers = containersOrdered[rank]
             const dxfs = []
             for (let li = 0; li < containers.length; li++) {
                 const d = await buildSheetDxf(

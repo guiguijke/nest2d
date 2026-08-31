@@ -145,12 +145,15 @@ const cancelNesting = async () => {
     if (cancelling.value) return;
     cancelling.value = true;
     try {
-        await $fetch(`/api/results/${props.result.slug}/cancel`, { method: 'POST' });
-        // J-093 : si ce job tournait dans le navigateur (pool local), le
-        // serveur a finalisé + refundé — on termine le pool ici (no-op si
-        // le job n'était pas local). JAMAIS de local-fail ensuite.
-        const { cancelPool } = await import('~/composables/localPool');
-        cancelPool(props.result.slug);
+        // R-3 (audit 2026-08-31 §R-2) : passer par le REGISTRE de solves
+        // locaux — cancelJob fait le POST /cancel (le serveur finalise +
+        // refund, le worker tue l'engine sous ~2 s), termine les pools par
+        // PRÉFIXE (zones du pass structurel comprises) ET retire un
+        // éventuel job EN FILE (l'ancien chemin POST+cancelPool ne voyait
+        // pas la file : le job relancé par pump() échouait ensuite en 409
+        // avec un bandeau d'erreur mensonger sur un job annulé).
+        const { cancelJob } = await import('~/composables/localSolverRegistry');
+        await cancelJob(props.result.slug);
     } catch (e) {
         console.warn('cancel failed', e);
         cancelling.value = false;

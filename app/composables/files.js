@@ -90,6 +90,23 @@ function snapshotCurrentProject() {
     persistSnapshotsToStorage()
 }
 
+// R-7 (audit 2026-08-31 §R-6) : la persistance ne se déclenchait qu'au
+// CHANGEMENT de projet — un F5 SANS navigation préalable ramenait les
+// défauts d'usine (et au retour sur un projet déjà snapshoté, l'ANCIEN
+// snapshot). Débounce sur chaque mutation des réglages/quantités, plus
+// pagehide en filet de sécurité (charge d'onglet, F5).
+let snapshotPersistTimer = null
+function scheduleSnapshotPersist() {
+    if (snapshotPersistTimer) clearTimeout(snapshotPersistTimer)
+    snapshotPersistTimer = setTimeout(() => {
+        snapshotPersistTimer = null
+        snapshotCurrentProject()
+    }, 500)
+}
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', snapshotCurrentProject)
+}
+
 const state = reactive({
     projectFiles: null,
     projectSlug: null,
@@ -107,6 +124,13 @@ const state = reactive({
     // sheet_cap_exceeded) — defense-in-depth: the project page mirror
     // normally disables the launch before this can happen.
     sheetCapError: false,
+    // R-2 (audit 2026-08-31 §R-1) : clé i18n de la dernière erreur de
+    // soumission non gérée ailleurs (409 concurrent_limit, 5xx…) — avant,
+    // l'erreur était avalée ET lastParams marqué → bouton grisé muet.
+    nestError: '',
+    // Soumission en vol : bloque le double-clic pendant la latence du POST
+    // (2 requêtes = 2 charges possibles chez un Free, cf. R-1 serveur).
+    nestBusy: false,
     params: factoryParams(),
     isSvgLoaded: computed(
         () =>
@@ -134,9 +158,12 @@ const state = reactive({
     currentFilesSlug: computed(
         () => new Set(state.projectFiles?.map((file) => file.slug) || [])
     ),
-    isValidParams: computed(() => {
+    // Nom honnête (m-7 audit 2026-08-31 §R-m.7) : ce computed vaut « les
+    // paramètres sont INVALIDES » — l'ancien nom isValidParams (sémantique
+    // inversée) était un piège de maintenance.
+    isInvalidParams: computed(() => {
         const sheets = normalizedSheets(state.params)
-        if (sheets.length === 0) return true
+        if (sheets.length === 0) return false
         const invalid = sheets.some(
             (sheet) =>
                 !isValidNumber(sheet.width) ||
@@ -220,9 +247,16 @@ function scheduleFilesRefresh(path) {
     }
 }
 
+// m-6 (audit 2026-08-31 §R-m.6) : sur navigation rapide, la réponse la plus
+// LENTE gagnait et collait les fichiers/params d'un AUTRE projet sur l'URL
+// courante. On ne retient que la réponse de la dernière demande émise.
+let lastProjectRequest = null
+
 async function getProject(path) {
+    lastProjectRequest = path
     try {
         const data = await $fetch(path)
+        if (path !== lastProjectRequest) return
         state.projectLocal = Boolean(data.local)
         state.projectDemo = Boolean(data.isDemo)
         if (data.local) {
@@ -241,6 +275,7 @@ async function getProject(path) {
             setProjectFiles(data.files, path)
         }
     } catch (error) {
+        if (path !== lastProjectRequest) return
         if (error?.data?.statusMessage === 'vault_locked') {
             const vaultUnlockDialog = useVaultUnlockDialog();
             vaultUnlockDialog.value = true;
@@ -356,17 +391,20 @@ function normalizedSheets(params) {
 }
 function updateParams(param) {
     state.params = { ...state.params, ...param }
+    scheduleSnapshotPersist()
 }
 function updateSheet(index, patch) {
     const sheets = normalizedSheets(state.params).map((sheet, i) =>
         i === index ? { ...sheet, ...patch } : sheet
     )
     state.params = { ...state.params, sheets }
+    scheduleSnapshotPersist()
 }
 function addSheet() {
     const sheets = normalizedSheets(state.params)
     const last = sheets[sheets.length - 1] || { ...DEFAULT_SHEET.mm, count: '1' }
     state.params = { ...state.params, sheets: [...sheets, { ...last, count: '1' }] }
+    scheduleSnapshotPersist()
 }
 
 // The unit state.params is CURRENTLY expressed in. Starts at mm (factory
@@ -398,11 +436,13 @@ function syncParamsToUnit(toUnit) {
         space: conv(p.space),
     }
     paramsUnit = toUnit
+    scheduleSnapshotPersist()
 }
 function removeSheet(index) {
     const sheets = normalizedSheets(state.params)
     if (sheets.length <= 1) return
     state.params = { ...state.params, sheets: sheets.filter((_, i) => i !== index) }
+    scheduleSnapshotPersist()
 }
 /**
  * Builds the array of allowed rotation angles (in degrees) from a rotation
@@ -427,6 +467,7 @@ function increment(index, event) {
     } else {
         state.projectFiles[index].count = 999
     }
+    scheduleSnapshotPersist()
 }
 function decrement(index, event) {
     const step = event && event.shiftKey ? 10 : 1
@@ -435,6 +476,7 @@ function decrement(index, event) {
     } else {
         state.projectFiles[index].count = 0
     }
+    scheduleSnapshotPersist()
 }
 function updateCount(value, index) {
     if (!isValidNumber(value)) {
@@ -444,15 +486,23 @@ function updateCount(value, index) {
     } else {
         state.projectFiles[index].count = Number(value)
     }
+    scheduleSnapshotPersist()
 }
 function updateRotation(value, index) {
     if (state.projectFiles[index]) {
         state.projectFiles[index].rotation = value
     }
+    scheduleSnapshotPersist()
 }
 async function nest(slug) {
+    // R-2 (audit 2026-08-31 §R-1) : garde de double soumission — un 2e clic
+    // pendant la latence du POST passait le compteur de concurrence serveur
+    // et pouvait doubler la charge de quota.
+    if (state.nestBusy) return
+    state.nestBusy = true
     try {
         try {
+            state.nestError = ''
             state.demoQuotaReached = false
             state.sheetCapError = false
             const data = await $fetch(API_ROUTES.NEST(slug), {
@@ -500,6 +550,15 @@ async function nest(slug) {
                 vaultUnlockDialog.value = true;
                 return
             }
+            // Erreur non gérée (409 concurrent_limit, 5xx…) : AVANT, on
+            // tombait dans la suite de la fonction — rien à l'écran ET
+            // lastParams marqué → bouton grisé jusqu'à modifier les
+            // réglages à la main. Message visible + sortie propre :
+            // isNewParams reste vrai, le bouton reste utilisable.
+            state.nestError = error?.data?.statusMessage === 'concurrent_limit'
+                ? 'nest.error.concurrent'
+                : 'nest.error.generic'
+            return
         }
 
         await Promise.all([getProjects()])
@@ -507,6 +566,8 @@ async function nest(slug) {
         state.lastParams = state.requestBody
     } catch (err) {
         console.error('Nest operation failed:', err)
+    } finally {
+        state.nestBusy = false
     }
 }
 
@@ -524,13 +585,15 @@ export const filesStore = readonly({
         isNewParams: computed(() => state.requestBody !== state.lastParams),
         demoQuotaReached: computed(() => state.demoQuotaReached),
         sheetCapError: computed(() => state.sheetCapError),
+        nestError: computed(() => state.nestError),
+        nestBusy: computed(() => state.nestBusy),
         params: computed(() => state.params),
         nestRequestError: computed(() => {
             if (filesStore.getters.filesCount < 1) {
                 // Local empty IndexedDB is a state, not a form error (ux1).
                 return state.projectLocal ? '' : 'project.needFiles'
             }
-            if (state.isValidParams) {
+            if (state.isInvalidParams) {
                 return 'project.invalidParams'
             }
 

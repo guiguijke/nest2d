@@ -200,6 +200,8 @@ const dict = {
         'nest.computing': 'Computing…',
         'nest.sheetCapHint': '2 sheets max on the Free plan — Unlimited removes the cap',
         'nest.error.sheetCap': 'Sheet limit exceeded: the Free plan allows up to 2 sheets per job.',
+        'nest.error.concurrent': 'A nesting job is already running — wait for it to finish before starting another.',
+        'nest.error.generic': 'The nesting request failed — please try again.',
         // Purge 24 h (D-PRV-10) : états « expiré » (la phrase live est privacy.status.*).
         'results.expired': 'Expired (24 h purge)',
         'files.expired': 'Expired (24 h purge) — re-upload this file to nest it again',
@@ -358,6 +360,8 @@ const dict = {
 
         'result.option': 'Option {n}',
         'result.used': 'used',
+        'result.cleanOffcut': 'Clean offcut: {w} × {h}',
+        'result.layoutOption': 'Layout option',
         'result.sheet': 'Sheet {n} / {total}',
         'result.downloadSheet': 'Download sheet {n}',
         'result.allPlaced': 'All parts are placed',
@@ -375,6 +379,7 @@ const dict = {
         'progress.stage.bpp-search': 'Optimizing sheets',
         'progress.stage.reveal': 'Revealing final layouts',
         'progress.stage.building': 'Building result files',
+        'progress.stage.final': 'Final layout',
         'results.nesting': 'Nesting',
         'results.cancel': 'Cancel',
         'live.width': 'Used width',
@@ -750,6 +755,8 @@ const dict = {
         'nest.computing': 'Calcul en cours…',
         'nest.sheetCapHint': "2 tôles max avec l'offre Free — Unlimited supprime la limite",
         'nest.error.sheetCap': "Limite de tôles dépassée : l'offre Free permet jusqu'à 2 tôles par tâche.",
+        'nest.error.concurrent': "Un calcul d'imbrication est déjà en cours — attendez sa fin avant d'en lancer un autre.",
+        'nest.error.generic': "La requête d'imbrication a échoué — veuillez réessayer.",
         // Purge 24 h (D-PRV-10) : états « expiré » (la phrase live est privacy.status.*).
         'results.expired': "Expiré (purge 24 h)",
         'files.expired': "Expiré (purge 24 h) — réimportez ce fichier pour le nester à nouveau",
@@ -908,6 +915,8 @@ const dict = {
 
         'result.option': 'Option {n}',
         'result.used': 'utilisé',
+        'result.cleanOffcut': 'Chute réutilisable : {w} × {h}',
+        'result.layoutOption': 'Option de placement',
         'result.sheet': 'Plaque {n} / {total}',
         'result.downloadSheet': 'Télécharger la plaque {n}',
         'result.allPlaced': 'Toutes les pièces sont placées',
@@ -925,6 +934,7 @@ const dict = {
         'progress.stage.bpp-search': 'Optimisation des plaques',
         'progress.stage.reveal': 'Révélation des placements finaux',
         'progress.stage.building': 'Génération des fichiers résultat',
+        'progress.stage.final': 'Placement final',
         'results.nesting': 'Imbrication en cours',
         'results.cancel': 'Annuler',
         'live.width': 'Largeur utilisée',

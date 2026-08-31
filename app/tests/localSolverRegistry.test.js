@@ -137,4 +137,51 @@ describe('localSolverRegistry — navigation isolée, file tier, idempotence', (
         await new Promise(r => setTimeout(r, 20))
         expect(started).toEqual(['j1'])
     })
+
+    it('re-file d\'un job en ERREUR : phase remise à queued, un seul run en plus (verrou R-5)', async () => {
+        let runs = 0
+        const mod = await freshRegistry(async () => {
+            runs += 1
+            return runs === 1 ? { ok: false, error: 'payload_timeout' } : { ok: true }
+        })
+        mod.ensureJob(job('j1'), { projectSlug: 'p1', maxConcurrent: 1 })
+        await new Promise(r => setTimeout(r, 20))
+        expect(mod.progressFor('p1').phase).toBe('error')
+        // Double re-file (re-navigation pendant qu'un autre job tient le
+        // slot) : l'entrée doit repasser queued UNE fois — pas deux entrées
+        // en file → pas de double run du même slug.
+        mod.ensureJob(job('j1'), { projectSlug: 'p1', maxConcurrent: 1 })
+        mod.ensureJob(job('j1'), { projectSlug: 'p1', maxConcurrent: 1 })
+        await new Promise(r => setTimeout(r, 30))
+        expect(runs).toBe(2)
+        expect(mod.progressFor('p1').phase).toBe('done')
+    })
+
+    it('champion registre : fenêtre phase 2 SPP (+1 mm, hauteur plus basse) remplace (verrou R-6)', async () => {
+        const frames = [
+            { feasible: true, isSpp: true, sheets: [[3000, 1000]], strip_width: 700, used_height: 1900, items: [1] },
+            { feasible: true, isSpp: true, sheets: [[3000, 1000]], strip_width: 701, used_height: 1500, items: [1] },
+        ]
+        const mod = await freshRegistry(async (_slug, { onLive }) => {
+            frames.forEach((f) => onLive(f))
+            return { ok: true }
+        })
+        mod.ensureJob(job('j1'), { projectSlug: 'pA', maxConcurrent: 1 })
+        await new Promise((r) => setTimeout(r, 30))
+        // L'ancien comparateur (égalité stricte sur strip_width) rejetait la
+        // frame phase 2 et la vue live restait figée sur le layout phase 1.
+        expect(mod.progressFor('pA').frame.used_height).toBe(1500)
+    })
+
+    it('champion registre : BPP à l\'égalité parfaite, la frame fraîche remplace (verrou R-6)', async () => {
+        const mk = (i) => ({ feasible: true, isSpp: false, bins: 2, remnant: 400, items: [i] })
+        const seen = []
+        const mod = await freshRegistry(async (_slug, { onLive }) => {
+            onLive(mk(1)); onLive(mk(2)); seen.push('sent')
+            return { ok: true }
+        })
+        mod.ensureJob(job('j1'), { projectSlug: 'pA', maxConcurrent: 1 })
+        await new Promise((r) => setTimeout(r, 30))
+        expect(mod.progressFor('pA').frame.items).toEqual([2])
+    })
 })

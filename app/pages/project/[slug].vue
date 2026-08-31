@@ -96,6 +96,9 @@
         <div v-if="nestRequestError" class="content__error">
             {{ t(nestRequestError) }}
         </div>
+        <div v-if="nestSubmitError" class="content__error">
+            {{ t(nestSubmitError) }}
+        </div>
         <div v-if="localImportError" class="content__error">
             {{ t(localImportError) }}
         </div>
@@ -310,6 +313,10 @@ const { setProjectFiles, setProjectName, nest, getProject, consumePendingLocalFi
 const filesCount = computed(() => filesGetters.filesCount);
 const isNewParams = computed(() => filesGetters.isNewParams);
 const nestRequestError = computed(() => filesGetters.nestRequestError);
+// R-2 (audit 2026-08-31 §R-1) : erreur de soumission (409 concurrent_limit,
+// 5xx…) autrement muette + verrou de double soumission pendant le POST.
+const nestSubmitError = computed(() => filesGetters.nestError);
+const nestBusy = computed(() => filesGetters.nestBusy);
 const localImportError = computed(() => filesGetters.localImportError);
 const demoQuotaReached = computed(() => filesGetters.demoQuotaReached);
 const slug = pageSlug;
@@ -491,7 +498,7 @@ const sheetCapExceeded = computed(() => {
 // Server-side defense actually fired (client mirror bypassed) — from the store.
 const sheetCapServerError = computed(() => filesGetters.sheetCapError)
 const btnIsDisable = computed(() => {
-    return Boolean(unref(nestRequestError)) || unref(filesCount) < 1 || !unref(isNewParams) || !unref(resultsList) || !unref(sizesIsAvailable) || unref(sheetCapExceeded)
+    return Boolean(unref(nestRequestError)) || unref(filesCount) < 1 || !unref(isNewParams) || !unref(resultsList) || !unref(sizesIsAvailable) || unref(sheetCapExceeded) || unref(nestBusy)
 })
 const addFiles = (files) => {
     actions.addFiles(files, unref(slug))

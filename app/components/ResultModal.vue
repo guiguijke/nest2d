@@ -696,7 +696,10 @@ const exportCsv = () => {
     a.href = url
     a.download = `nesting-report-${slug}-alt${unref(activeAlt) + 1}.csv`
     a.click()
-    URL.revokeObjectURL(url)
+    // m-7 (audit 2026-08-31 §R-m.7) : la révocation immédiate pouvait
+    // avorter le téléchargement sur certains navigateurs — même filet que
+    // localDownloads (grâce 1 s).
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
     trackEvent('report_csv_exported', { altId: unref(activeAlt) })
 }
 const reportBadges = computed(() => {
@@ -740,9 +743,12 @@ const altTitle = (alt) => {
     const parts = []
     if (alt.strategy) parts.push(strategyLabel(alt.strategy))
     if (alt.offcut && alt.offcut.area > 1) {
-        parts.push(`Clean offcut: ${fmtLength(alt.offcut.width)} × ${fmtLength(alt.offcut.height)}`)
+        parts.push(t('result.cleanOffcut', {
+            w: fmtLength(alt.offcut.width),
+            h: fmtLength(alt.offcut.height),
+        }))
     }
-    return parts.join('\n') || 'Layout option'
+    return parts.join('\n') || t('result.layoutOption')
 }
 const displayClasses = computed(() => ({
     'modal__display--is-fullscreen': unref(isFullScreen) && !unref(isHaveError)

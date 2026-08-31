@@ -63,15 +63,35 @@ export function uniquifyDxfHandles(dxf) {
 }
 
 /** Contenu DXF → blob: URL (DxfViewerComponent fetch l'URL). Les URLs sont
- * créées paresseusement et mises en cache ; elles vivent le temps de la
- * session (révoquer casserait la vue ouverte). */
+ * créées paresseusement et mises en cache — R-8 (audit 2026-08-31 §R-7) :
+ * le cache était NON BORNÉ et indexé par le TEXTE DXF complet (clé de
+ * plusieurs Mo retenue pour toute la session, blob jamais révoqué). Cap
+ * LRU : l'entrée la moins récemment utilisée est révoquée — une URL
+ * réutilisée ensuite est recréée proprement (nouvelle entrée, nouveau
+ * blob), le seul effet visible est un re-fetch du viewer. */
+const BLOB_URL_MAX = 24
 const blobUrls = new Map()
 export function dxfToBlobUrl(content) {
     const text = uniquifyDxfHandles(typeof content === 'string' ? content : String(content || ''))
-    if (!blobUrls.has(text)) {
-        blobUrls.set(text, URL.createObjectURL(new Blob([text], { type: 'application/dxf' })))
+    if (blobUrls.has(text)) {
+        // Réutilisation = plus récent (ordre LRU par insertion).
+        const url = blobUrls.get(text)
+        blobUrls.delete(text)
+        blobUrls.set(text, url)
+        return url
     }
-    return blobUrls.get(text)
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/dxf' }))
+    blobUrls.set(text, url)
+    while (blobUrls.size > BLOB_URL_MAX) {
+        const [evictText, evictUrl] = blobUrls.entries().next().value
+        blobUrls.delete(evictText)
+        try {
+            URL.revokeObjectURL(evictUrl)
+        } catch {
+            // déjà révoquée — sans conséquence
+        }
+    }
+    return url
 }
 
 /**
