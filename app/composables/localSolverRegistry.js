@@ -9,6 +9,8 @@
  * - `ensureJob(job, { projectSlug, maxConcurrent })` : idempotent (refresh /
  *   re-navigation = no-op), file d'attente plafonnée (gratuit 1, Pro
  *   plusieurs — le cap vient du TIER côté serveur, jamais deviné ici).
+ *   `projectSlug` is immutable once set — a page B subscribe must not steal
+ *   a job that belongs to A (live leak on navigation).
  * - `progressFor(projectSlug)` : progression réactive du projet (frame live,
  *   compteur, phase zones) — continue de vivre même page démontée.
  * - `cancelJob(slug)` : POST /cancel + cancelPool PRÉFIXE (zones comprises).
@@ -67,6 +69,21 @@ function entry(jobSlug, projectSlug, itemMap) {
     return state.jobs[jobSlug]
 }
 
+/** Narrower strip / shorter used height / denser — same order as the view. */
+function liveFrameBetter(a, b) {
+    if (!a) return false
+    if (!b) return true
+    if (a.feasible === false) return false
+    if (b && b.feasible === false) return true
+    const aw = a.strip_width ?? Infinity
+    const bw = b.strip_width ?? Infinity
+    if (aw !== bw) return aw < bw
+    const ah = a.used_height ?? Infinity
+    const bh = b.used_height ?? Infinity
+    if (ah !== bh) return ah < bh
+    return (a.density || 0) > (b.density || 0) + 1e-9
+}
+
 function pump() {
     while (state.running < Math.max(1, state.maxConcurrent) && state.queue.length) {
         const { jobSlug, projectSlug, itemMap } = state.queue.shift()
@@ -92,7 +109,10 @@ async function launch(jobSlug, projectSlug, itemMap) {
                 if (evt.type === 'zone') { j.zone = evt; return }
                 if (evt.walks) j.walks = evt.walks
                 if (evt.itemMap) j.itemMap = evt.itemMap
-                j.frame = evt
+                // Keep the BEST feasible snapshot, not the last walk's
+                // working state (a worse live frame used to replace the
+                // compact −X champion and unmount LiveNestingView).
+                if (!j.frame || liveFrameBetter(evt, j.frame)) j.frame = evt
             },
         })
         job.result = res || null
@@ -121,7 +141,6 @@ export function ensureJob(job, { projectSlug = null, maxConcurrent = 1 } = {}) {
     if (!jobSlug) return null
     const existing = state.jobs[jobSlug]
     if (existing && ['queued', 'running', 'done'].includes(existing.phase)) {
-        existing.projectSlug = projectSlug || existing.projectSlug
         return readonly(existing)
     }
     entry(jobSlug, projectSlug, job?.itemMap)
@@ -148,6 +167,23 @@ export function progressFor(projectSlug) {
     if (!jobs.length) return null
     jobs.sort((a, b) => b.startedAt - a.startedAt)
     return readonly(jobs[0])
+}
+
+const ACTIVE_PHASES = new Set(['queued', 'running'])
+
+/** True while this project has a local solve queued or running. */
+export function hasActiveJob(projectSlug) {
+    if (!projectSlug) return false
+    return Object.values(state.jobs).some(
+        (j) => j.projectSlug === projectSlug && ACTIVE_PHASES.has(j.phase),
+    )
+}
+
+/** Active local solves (for the project-list badge). */
+export function activeJobs() {
+    return Object.values(state.jobs)
+        .filter((j) => ACTIVE_PHASES.has(j.phase))
+        .map((j) => readonly(j))
 }
 
 export function solverState() {

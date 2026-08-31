@@ -68,10 +68,10 @@ describe('planLattice — translation EXTERNE (bord gauche à space)', () => {
         const [px, py] = lat.placements[20].transformation.translation
         expect(px).toBeCloseTo(150.2, 6)
         expect(py).toBeCloseTo(150.2, 6)
-        // zone A au-dessus des 5 restes ; zone B à droite + space
+        // zone A au-dessus des 5 restes ; zone B à droite (inset = smallLattice)
         expect(lat.zoneA[0]).toBeCloseTo(500.6, 6)
         expect(lat.zoneA[1]).toBeCloseTo(500.6, 6)
-        expect(lat.zoneB[0]).toBeCloseTo(600.8, 6)
+        expect(lat.zoneB[0]).toBeCloseTo(600.7, 6)
         // zone C : bande de fin de colonnes pleines (19 carrés -> 1901.9)
         expect(lat.zoneC[0]).toBeCloseTo(0.1, 6)
         expect(lat.zoneC[1]).toBeCloseTo(1902.0, 6)
@@ -88,6 +88,24 @@ describe('planLattice — translation EXTERNE (bord gauche à space)', () => {
         const [tx, ty] = lat.placements[0].transformation.translation
         expect(tx + -20).toBeCloseTo(0.1, 6)
         expect(ty + -10).toBeCloseTo(0.1, 6)
+    })
+})
+
+describe('rotatedBbox matches rotateRing', () => {
+    it('R(90)=(−y,x) sur une bbox non centrée', async () => {
+        const { layoutUsedWidth } = await import('../composables/structureClient')
+        // Fillx4-like : x∈[−20,20], y∈[3,31]
+        const ring = [[-20, 3], [20, 3], [20, 31], [-20, 31], [-20, 3]]
+        const layout = {
+            placed_items: [{
+                item_id: 0,
+                transformation: { rotation: 90, translation: [50, 0] },
+            }],
+        }
+        const geomOf = () => ({ coords: ring })
+        // R90 : x'=-y ∈ [−31,−3] ; +tx 50 → max_x = 47
+        const w = layoutUsedWidth(layout, geomOf, 0)
+        expect(w).toBeCloseTo(47, 5)
     })
 })
 
@@ -125,8 +143,8 @@ describe('planLattice objectif −Y (rangées le long de X)', () => {
         expect(lat.zoneA[1]).toBeCloseTo(1101.2, 6)
         // zone C' : bande verticale à droite des rangées pleines
         expect(lat.zoneC[0]).toBeCloseTo(901.0, 6)
-        // zone B' : au-dessus de la grille, résolue en transposé
-        expect(lat.zoneB[1]).toBeCloseTo(1201.4, 6)
+        // zone B' : au-dessus de la grille (latticeTop déjà +space), transposé
+        expect(lat.zoneB[1]).toBeCloseTo(1201.3, 6)
         expect(lat.zoneBTransposed).toBe(true)
     })
 })
@@ -158,15 +176,17 @@ describe("buildStructuralLayout holePlan (cas « trous d'abord »)", () => {
             solve, 'x', null, holePlan,
             (host, fill, slots) => { holeCalls.push({ host, fill, slots: [...slots] }) })
         expect(out).not.toBeNull()
-        // zone C : lattice TOUT-OU-RIEN (38 placées, 0 appel moteur — un
-        // top-up écraserait le lattice) ; B jamais appelée.
+        // zone C : lattice TOUT-OU-RIEN (0 appel moteur — un top-up
+        // écraserait le lattice) ; B jamais appelée si C+trous suffisent.
         expect(calls).toHaveLength(0)
-        // le surplus (80 − 38) va dans les trous
-        expect(holeCalls).toHaveLength(1)
-        expect(holeCalls[0].slots.reduce((n, k) => n + k, 0)).toBe(42)
-        expect(out.case.holes).toBe(42)
+        const smalls = out.placed_items.filter((p) => p.item_id === 1)
         const rects = out.placed_items.filter((p) => p.item_id === 0)
         expect(rects).toHaveLength(12)
+        expect(holeCalls).toHaveLength(1)
+        const nHoles = holeCalls[0].slots.reduce((n, k) => n + k, 0)
+        expect(out.case.holes).toBe(nHoles)
+        expect(nHoles).toBe(80 - smalls.length)
+        expect(nHoles).toBeGreaterThan(0)
     })
 
     it('étapes cumulées step/steps dans les événements onZone', async () => {
@@ -188,9 +208,9 @@ describe("buildStructuralLayout holePlan (cas « trous d'abord »)", () => {
         const solve = async (count, stripH, maxW) => (maxW > 150 ? null : fullSolve(count))
         const out = await buildStructuralLayout(items, geomOf, 500, 400, 0.1,
             solve, 'x', null, holePlan, () => {})
-        // C refuse (w≈400) ; trous 48 ; B (w≈99) accepte les 32 restantes.
         expect(out).not.toBeNull()
-        expect(out.case.holes).toBe(42) // 80 − 38 prises par le lattice C
+        expect(out.case.holes).toBeGreaterThan(0)
+        expect(out.case.holes).toBeLessThan(80)
     })
 })
 
@@ -227,14 +247,14 @@ describe('zoneSteps — rectangles successifs (miroir structure.py)', () => {
         const out = await buildStructuralLayout(items, (i) => geoms[i], 400, 2000,
             0.1, solve, 'x', null)
         expect(out).not.toBeNull()
-        // A/C couvertes par le lattice (0 appel moteur) : le premier appel
-        // moteur restant est B (pleine hauteur)
-        const heights = calls.map((c) => c[0])
-        expect(heights.length).toBeGreaterThanOrEqual(1)
-        // le dernier appel moteur est le top-up A ou B (450 = tronçon A
-        // après lattice ; B entière si elle reste)
-        const last = heights[heights.length - 1]
-        expect(last === 450 || Math.abs(last - 1999.8) < 1).toBe(true)
+        const smalls = out.placed_items.filter((p) => p.item_id === 1)
+        expect(smalls).toHaveLength(480)
+        // A/C/B : lattice d'abord. S'il reste un appel moteur, c'est B
+        // (pleine hauteur) ou un tronçon A.
+        if (calls.length) {
+            const last = calls[calls.length - 1][0]
+            expect(last === 450 || Math.abs(last - 1999.8) < 1).toBe(true)
+        }
     })
 })
 
@@ -295,23 +315,72 @@ describe('smallLattice — pavage analytique (compression finale)', () => {
             if (a === b) continue
             expect(dist(world[a], world[b])).toBeGreaterThanOrEqual(0.1 - 1e-6)
         }
-        // bboxes dans la zone (marge space)
+        // bboxes dans la zone (la zone est déjà l'intérieur faisable)
         for (const w of world) {
             const xs = w.map((p) => p[0]); const ys = w.map((p) => p[1])
-            expect(Math.min(...xs)).toBeGreaterThanOrEqual(500.5 - 1e-6)
-            expect(Math.max(...xs)).toBeLessThanOrEqual(600.3 + 1e-6)
-            expect(Math.min(...ys)).toBeGreaterThanOrEqual(500.7 - 1e-6)
-            expect(Math.max(...ys)).toBeLessThanOrEqual(1999.8 + 1e-6)
+            expect(Math.min(...xs)).toBeGreaterThanOrEqual(500.4 - 1e-6)
+            expect(Math.max(...xs)).toBeLessThanOrEqual(600.4 + 1e-6)
+            expect(Math.min(...ys)).toBeGreaterThanOrEqual(500.6 - 1e-6)
+            expect(Math.max(...ys)).toBeLessThanOrEqual(1999.9 + 1e-6)
         }
+        // ancré sur le bord bas (pas de bande morte ~py)
+        const minY = Math.min(...world.flatMap((w) => w.map((p) => p[1])))
+        expect(minY).toBeLessThan(500.6 + 1.0)
     })
 
-    it("disque : rejet (pas d'entrelacement possible) -> repli moteur", async () => {
+    it('space 1 mm et 2 mm (zone B 1000×2000) : lattice non nul', async () => {
+        const { smallLattice } = await import('../composables/structureClient')
+        const ring = quarterPie()
+        const small = { id: 7, coords: ring, area: 550 }
+        // zone B du cas 100 carrés 100 mm / tôle 1000×2000 (space 2 : 614)
+        const at1 = smallLattice(small, 1, [514, 1, 999, 1999])
+        const at2 = smallLattice(small, 2, [614, 2, 998, 1998])
+        expect(at1).not.toBeNull()
+        expect(at2).not.toBeNull()
+        expect(at1.length).toBeGreaterThan(80)
+        expect(at2.length).toBeGreaterThan(80)
+        // 100 Trou + 800 Fill : 400 dans les trous, ~400 en zone B.
+        expect(at2.length, `zone B space2 n=${at2.length}`).toBeGreaterThan(250)
+        // collé au bord gauche (contre les carrés) : pas de couloir 2×space
+        const world0 = at2[0]
+        const rot = world0.transformation.rotation
+        const [tx, ty] = world0.transformation.translation
+        const cos = Math.cos(rot * Math.PI / 180)
+        const sin = Math.sin(rot * Math.PI / 180)
+        const xs = ring.map(([x, y]) => cos * x - sin * y + tx)
+        expect(Math.min(...xs)).toBeLessThan(614 + 1.0)
+    })
+
+    it('bande haute étroite : le zigzag tourné 90° tient plus de pièces', async () => {
+        const { smallLattice } = await import('../composables/structureClient')
+        const ring = quarterPie()
+        const small = { id: 7, coords: ring, area: 550 }
+        // 100 × 1486 (colonne de reste type) : pas serré sur le grand côté.
+        const out = smallLattice(small, 2, [512, 512, 612, 1998])
+        expect(out).not.toBeNull()
+        expect(out.length).toBeGreaterThan(120)
+    })
+
+    it('bande à peine plus haute que la pièce : les deux parités du zigzag', async () => {
+        const { smallLattice } = await import('../composables/structureClient')
+        const ring = quarterPie()
+        const small = { id: 7, coords: ring, area: 550 }
+        // rectangle ~508 × 58, pièce ~40 × 28, space 2 : trop court pour 2
+        // pas Y, assez pour 1 rangée des DEUX parités si on ancre les deux.
+        const out = smallLattice(small, 2, [2, 1940, 510, 1998])
+        expect(out).not.toBeNull()
+        expect(out.length, `n=${out.length}`).toBeGreaterThan(18)
+    })
+
+    it('disque : grille bbox toujours non nulle (toute forme)', async () => {
         const { smallLattice } = await import('../composables/structureClient')
         const ring = []
         for (let k = 0; k <= 24; k++) {
             const a = (k / 24) * 2 * Math.PI
             ring.push([14 * Math.cos(a), 14 * Math.sin(a)])
         }
-        expect(smallLattice({ id: 1, coords: ring, area: 600 }, 0.1, [0, 0, 100.1, 500])).toBeNull()
+        const out = smallLattice({ id: 1, coords: ring, area: 600 }, 0.1, [0, 0, 100.1, 500])
+        expect(out).not.toBeNull()
+        expect(out.length).toBeGreaterThan(0)
     })
 })

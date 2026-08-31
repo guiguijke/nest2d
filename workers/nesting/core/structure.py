@@ -110,8 +110,8 @@ def _rotated_bbox(bbox, rot_deg):
     r = (rot_deg % 360 + 360) % 360
     if r in (0.0, 180.0):
         return (x0, y0, x1, y1) if r == 0.0 else (-x1, -y1, -x0, -y0)
-    # 90/270 : (x, y) -> (y, -x)
-    return (y0, -x1, y1, -x0) if r == 90.0 else (-y1, x0, -y0, x1)
+    # R(90)·(x,y) = (−y, x) — même convention que JS rotateRing.
+    return (-y1, x0, -y0, x1) if r == 90.0 else (y0, -x1, y1, -x0)
 
 
 def detect_structural_case(solve_items, geom_of, total_area):
@@ -202,7 +202,7 @@ def plan_lattice(case, sheet_w, sheet_h, space, objective="x"):
         if n_full >= 1 and full_right + space < sheet_w - space:
             zone_c = (full_right + space, space, sheet_w - space,
                       space + n_full * pitch_y)
-        zone_b = (space, lattice_top + space, sheet_w - space, sheet_h - space)
+        zone_b = (space, lattice_top, sheet_w - space, sheet_h - space)
         return {
             "placements": placements,
             "lattice_extent": lattice_top,
@@ -247,7 +247,7 @@ def plan_lattice(case, sheet_w, sheet_h, space, objective="x"):
     if n_full >= 1 and band_y0 < sheet_h - space:
         full_right = space + (n_full - 1) * pitch_x + w
         zone_c = (space, band_y0, full_right, sheet_h - space)
-    zone_b = (lattice_right + space, space, sheet_w - space, sheet_h - space)
+    zone_b = (lattice_right, space, sheet_w - space, sheet_h - space)
     return {
         "placements": placements,
         "lattice_extent": lattice_right,
@@ -344,15 +344,13 @@ def _zone_solve(zone, small, space, want, solve_fn, budget_sec,
     return [to_sheet(p) for p in best]
 
 
-def small_lattice(small, space, rect):
-    """Lattice entrelacé des petites pièces dans le rect (convention moteur :
-    {rotation, translation} du repère PIÈCE). None si invalide.
+def small_lattice(small, space, rect, want=None, axis="x"):
+    """Remplit un rectangle libre (miroir JS). Toute forme, tout space.
 
-    Génération par cellules (i, j) : centroïde placé en
-    (cx0 + i·px, C0.y + j·py + [impair]·dy), orientation (i+j)%2 — le
-    particule est CENTROÏDE-normalisée par rotation. La bbox entière doit
-    vivre dans le rect inset de `space` (parois carrés/tôle). Validation :
-    toutes paires proches ≥ space (STRtree).
+    1. grille bbox (pas = dim+space, rot 0 et 90) — toujours valide ;
+    2. zigzag 0/180 et 90/270, ancrages X/Y, pas dichotomié si
+       distance ≥ space — gardé seulement s'il casse plus.
+    Score : max pièces (jusqu'à want), puis bord min sur `axis` (chute max).
     """
     try:
         from shapely.geometry import Polygon
@@ -366,67 +364,302 @@ def small_lattice(small, space, rect):
     base = Polygon(coords).buffer(0)
     if not base.is_valid or base.is_empty:
         return None
-    area = base.area
-    c0 = base.centroid
     bx0, by0, bx1, by1 = base.bounds
-    w, h = bx1 - bx0, by1 - by0
-    if w <= 0 or h <= 0:
+    w0, h0 = bx1 - bx0, by1 - by0
+    if w0 <= 0 or h0 <= 0:
         return None
-
-    def _rot(deg):
-        r = math.radians(deg)
-        c, s = math.cos(r), math.sin(r)
-        q = affinity.affine_transform(base, [c, s, -s, c, 0, 0])
-        return affinity.translate(q, c0.x - q.centroid.x, c0.y - q.centroid.y)
-
-    f0 = _rot(0)
-    f180 = _rot(180)
-    px = w / 2 + space
-    py = LATTICE_PY_RATIO * h
-    dy = LATTICE_DY_RATIO * py
     x0, y0, x1, y1 = rect
-    ix0, iy0, ix1, iy1 = x0 + space, y0 + space, x1 - space, y1 - space
+    if x1 - x0 <= 0 or y1 - y0 <= 0:
+        return None
+    threshold = space + 2 * LATTICE_SIMPLIFY_MM
+    cap = want if (want is not None and want > 0) else None
+    ax = 0 if axis != "y" else 1
+    best = None
+    best_score = None
+
+    def far_edge(got):
+        take = got[:cap] if cap else got
+        far = -1e300
+        for p in take:
+            deg = p["transformation"]["rotation"]
+            t = p["transformation"]["translation"][ax]
+            bb = _rotated_bbox(base.bounds, deg)
+            far = max(far, t + (bb[3] if ax else bb[2]))
+        return len(take), far
+
+    def consider(got):
+        nonlocal best, best_score
+        if not got:
+            return
+        n, far = far_edge(got)
+        score = (n, -far)
+        if best_score is None or score > best_score:
+            best = got[:cap] if cap else got
+            best_score = score
+
+    for deg0 in (0.0, 90.0):
+        consider(_bbox_grid(base, small.get("id"), space, rect, deg0))
+        consider(_bbox_grid_brick(base, small.get("id"), space, rect, deg0))
+        for y_phase in (0, 1):
+            for x_phase in (0, 1):
+                consider(_lattice_variant(base, small.get("id"), space, rect,
+                                         threshold, deg0, y_phase, x_phase))
+    for y_phase in (0, 1):
+        for x_phase in (0, 1):
+            consider(_lattice_rotated(base, small.get("id"), space, rect,
+                                     threshold, y_phase, x_phase))
+    return best
+
+
+def _bbox_grid(base, item_id, space, rect, deg0):
+    from shapely import affinity
+    ix0, iy0, ix1, iy1 = rect
+    rot = affinity.rotate(base, deg0, origin=(0.0, 0.0))
+    c0 = rot.centroid
+    bx0, by0, bx1, by1 = rot.bounds
+    w, h = bx1 - bx0, by1 - by0
     if ix1 - ix0 < w or iy1 - iy0 < h:
         return None
-    cx0 = ix0 + w / 2
+    x_l, x_r = c0.x - bx0, bx1 - c0.x
+    y_d, y_u = c0.y - by0, by1 - c0.y
+    px, py = w + space, h + space
+    cx0, cy0 = ix0 + x_l, iy0 + y_d
+    c_orig = base.centroid
 
+    def rot_pt(deg):
+        x, y = c_orig.x, c_orig.y
+        d = abs(deg) % 360
+        if d < 1e-9:
+            return x, y
+        if abs(d - 180) < 1e-9:
+            return -x, -y
+        if abs(d - 90) < 1e-9:
+            return -y, x
+        return y, -x
+
+    rcx, rcy = rot_pt(deg0)
     out = []
     i = 0
-    while cx0 + i * px + w / 2 <= ix1 + 1e-9:
-        cx = cx0 + i * px
-        j = -40
-        while j < 220:
-            even = (i + j) % 2 == 0
-            cy = c0.y + j * py + (0.0 if even else dy)
-            if cy - h / 2 >= iy0 - 1e-9 and cy + h / 2 <= iy1 + 1e-9:
-                p = f0 if even else f180
-                p = affinity.translate(p, cx - c0.x, cy - c0.y)
-                out.append((0.0 if even else 180.0, p))
+    while cx0 + i * px + x_r <= ix1 + 1e-9:
+        j = 0
+        while cy0 + j * py + y_u <= iy1 + 1e-9:
+            cx, cy = cx0 + i * px, cy0 + j * py
+            out.append({
+                "item_id": item_id,
+                "transformation": {
+                    "rotation": deg0,
+                    "translation": (cx - rcx, cy - rcy),
+                },
+            })
             j += 1
         i += 1
+    return out or None
+
+
+def _bbox_grid_brick(base, item_id, space, rect, deg0):
+    from shapely import affinity
+    ix0, iy0, ix1, iy1 = rect
+    rot = affinity.rotate(base, deg0, origin=(0.0, 0.0))
+    c0 = rot.centroid
+    bx0, by0, bx1, by1 = rot.bounds
+    w, h = bx1 - bx0, by1 - by0
+    if ix1 - ix0 < w or iy1 - iy0 < h:
+        return None
+    x_l, x_r = c0.x - bx0, bx1 - c0.x
+    y_d, y_u = c0.y - by0, by1 - c0.y
+    px, py = w + space, h + space
+    cx0, cy0 = ix0 + x_l, iy0 + y_d
+    c_orig = base.centroid
+
+    def rot_pt(deg):
+        x, y = c_orig.x, c_orig.y
+        d = abs(deg) % 360
+        if d < 1e-9:
+            return x, y
+        if abs(d - 180) < 1e-9:
+            return -x, -y
+        if abs(d - 90) < 1e-9:
+            return -y, x
+        return y, -x
+
+    rcx, rcy = rot_pt(deg0)
+    out = []
+    j = 0
+    while cy0 + j * py + y_u <= iy1 + 1e-9:
+        odd = j % 2 == 1
+        ox = px / 2 if odd else 0.0
+        i = 0
+        while cx0 + ox + i * px + x_r <= ix1 + 1e-9:
+            if not (odd and cx0 + ox + i * px - x_l < ix0 - 1e-9):
+                cx, cy = cx0 + ox + i * px, cy0 + j * py
+                out.append({
+                    "item_id": item_id,
+                    "transformation": {
+                        "rotation": deg0,
+                        "translation": (cx - rcx, cy - rcy),
+                    },
+                })
+            i += 1
+        j += 1
+    return out or None
+
+
+def _lattice_rotated(base, item_id, space, rect, threshold, y_phase, x_phase):
+    x0, y0, x1, y1 = rect
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return None
+    packed = _lattice_variant(base, item_id, space, (0.0, 0.0, h, w),
+                              threshold, 0.0, y_phase, x_phase)
+    if not packed:
+        return None
+    c_orig = base.centroid
+
+    def rot_pt(deg):
+        x, y = c_orig.x, c_orig.y
+        d = abs(deg) % 360
+        if d < 1e-9:
+            return x, y
+        if abs(d - 180) < 1e-9:
+            return -x, -y
+        if abs(d - 90) < 1e-9:
+            return -y, x
+        return y, -x
+
+    out = []
+    for p in packed:
+        src_deg = p["transformation"]["rotation"]
+        tx, ty = p["transformation"]["translation"]
+        sx, sy = rot_pt(src_deg)
+        fx, fy = sx + tx, sy + ty
+        deg = (src_deg + 90.0) % 360
+        rcx, rcy = rot_pt(deg)
+        nx, ny = x0 + w - fy - rcx, y0 + fx - rcy
+        bb = _rotated_bbox(base.bounds, deg)
+        if nx + bb[0] < x0 - 1e-6 or nx + bb[2] > x1 + 1e-6:
+            continue
+        if ny + bb[1] < y0 - 1e-6 or ny + bb[3] > y1 + 1e-6:
+            continue
+        out.append({
+            "item_id": item_id,
+            "transformation": {"rotation": deg, "translation": (nx, ny)},
+        })
+    return out or None
+
+
+def _lattice_variant(base, item_id, space, rect, threshold, deg0, y_phase,
+                     x_phase=0):
+    from shapely import affinity
+    from shapely.strtree import STRtree
+    ix0, iy0, ix1, iy1 = rect
+    rot0 = affinity.rotate(base, deg0, origin=(0.0, 0.0))
+    c0 = rot0.centroid
+    bx0, by0, bx1, by1 = rot0.bounds
+    w, h = bx1 - bx0, by1 - by0
+    if ix1 - ix0 < w or iy1 - iy0 < h:
+        return None
+    x_l0, x_r0 = c0.x - bx0, bx1 - c0.x
+    y_d0, y_u0 = c0.y - by0, by1 - c0.y
+    f_even = rot0
+    f_odd = affinity.rotate(rot0, 180.0, origin=(0.0, 0.0))
+    c_odd = f_odd.centroid
+
+    def extents(even):
+        return (x_l0, x_r0, y_d0, y_u0) if even else (x_r0, x_l0, y_u0, y_d0)
+
+    def generate(py, px, max_i=80, max_j=220):
+        dy = LATTICE_DY_RATIO * py
+        y_base = (iy0 + y_d0) if y_phase == 0 else (iy0 + y_u0 - dy)
+        x_base = (ix0 + x_l0) if x_phase == 0 else (ix0 + x_r0)
+        out = []
+        for i in range(max_i):
+            cx = x_base + i * px
+            if cx - min(x_l0, x_r0) > ix1 + 1e-9:
+                break
+            for j in range(max_j):
+                even = (i + j) % 2 == 0
+                cy = y_base + j * py + (0.0 if even else dy)
+                left, right, down, up = extents(even)
+                if cx - left < ix0 - 1e-9 or cx + right > ix1 + 1e-9:
+                    continue
+                if cy - down < iy0 - 1e-9 or cy + up > iy1 + 1e-9:
+                    continue
+                src = f_even if even else f_odd
+                src_c = c0 if even else c_odd
+                p = affinity.translate(src, cx - src_c.x, cy - src_c.y)
+                out.append((deg0 if even else deg0 + 180.0, p))
+        return out
+
+    def try_pitch(py, px):
+        patch = generate(py, px, max_i=5, max_j=8)
+        if not patch:
+            return False
+        polys = [p for _d, p in patch]
+        tree = STRtree(polys)
+        for a, pa in enumerate(polys):
+            for b in tree.query(pa.buffer(threshold)):
+                b = int(b)
+                if b <= a:
+                    continue
+                if pa.distance(polys[b]) < threshold - 1e-9:
+                    return False
+        return True
+
+    c_orig = base.centroid
+
+    def rot_pt(deg):
+        x, y = c_orig.x, c_orig.y
+        d = abs(deg) % 360
+        if d < 1e-9:
+            return x, y
+        if abs(d - 180) < 1e-9:
+            return -x, -y
+        if abs(d - 90) < 1e-9:
+            return -y, x
+        return y, -x
+
+    py0 = LATTICE_PY_RATIO * h
+    px0 = w / 2 + space
+    py = py0
+    if not try_pitch(py0, px0):
+        found = False
+        for _ in range(24):
+            py *= 1.08
+            if try_pitch(py, px0):
+                found = True
+                break
+        if not found:
+            return None
+    lo = min(h * 0.85, py * 0.75)
+    if lo >= py:
+        lo = py * 0.75
+    for _ in range(8):
+        mid = (lo + py) / 2
+        if try_pitch(mid, px0):
+            py = mid
+        else:
+            lo = mid
+    px = px0
+    lo_px = max(w * 0.35, w / 2)
+    for _ in range(8):
+        mid = (lo_px + px) / 2
+        if try_pitch(py, mid):
+            px = mid
+        else:
+            lo_px = mid
+    out = generate(py, px)
     if not out:
         return None
-    polys = [p for _d, p in out]
-    threshold = space + 2 * LATTICE_SIMPLIFY_MM
-    tree = STRtree(polys)
-    for a, pa in enumerate(polys):
-        for b in tree.query(pa.buffer(threshold)):
-            b = int(b)
-            if b <= a:
-                continue
-            if pa.distance(polys[b]) < threshold - 1e-9:
-                return None  # forme non compatible : repli moteur
-    # -> placements moteur : world = R·p + t  =>  t = centroid_monde - R·centroid_pièce
     placements = []
     for deg, p in out:
         cw = p.centroid
-        if deg == 0.0:
-            t = (cw.x - c0.x, cw.y - c0.y)
-        else:
-            t = (cw.x + c0.x, cw.y + c0.y)
+        rcx, rcy = rot_pt(deg)
         placements.append({
-            "item_id": small.get("id"),
-            "transformation": {"rotation": deg, "translation": (t[0], t[1])},
+            "item_id": item_id,
+            "transformation": {
+                "rotation": deg,
+                "translation": (cw.x - rcx, cw.y - rcy),
+            },
         })
     return placements
 
@@ -505,7 +738,8 @@ def build_structural_layout(solve_items, geom_of, sheet_w, sheet_h, space,
             return 0
         got_total = 0
         if not transposed:
-            lat = small_lattice(case["small"], space, zone)
+            lat = small_lattice(case["small"], space, zone, want=want,
+                                axis=objective)
             if lat:
                 # TOUT-OU-RIEN : le sous-solve moteur ne voit PAS les pièces
                 # déjà posées — un top-up dans la même zone les écraserait
@@ -564,9 +798,16 @@ def build_structural_layout(solve_items, geom_of, sheet_w, sheet_h, space,
 
     left = n_small - used - hole_used
     if left > 0:
-        got = _zone_solve(lat["zone_b"], small_solve, space, left,
-                          solve_zone_fn, ZONE_B_BUDGET_SEC,
-                          transposed=lat["zone_b_transposed"])
+        got = []
+        if not lat.get("zone_b_transposed"):
+            lat_b = small_lattice(case["small"], space, lat["zone_b"],
+                                  want=left, axis=objective)
+            if lat_b and len(lat_b) >= left:
+                got = lat_b
+        if not got:
+            got = _zone_solve(lat["zone_b"], small_solve, space, left,
+                              solve_zone_fn, ZONE_B_BUDGET_SEC,
+                              transposed=lat["zone_b_transposed"])
         if len(got) < left:
             return None  # zone B saturée : repli moteur
         placements.extend(got)

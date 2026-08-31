@@ -13,6 +13,10 @@
                 :mode="privacyMode"
                 class="project__badge"
             />
+            <span
+                v-if="nestingInProgress"
+                class="project__nesting"
+            >{{ t('project.nestingInProgress') }}</span>
         </NuxtLink>
         <div class="project__info info">
             <p class="info__time">
@@ -86,6 +90,7 @@ import { iconType } from '~~/constants/icon.constants';
 import { sizeType } from '~~/constants/size.constants';
 import { themeType } from '~~/constants/theme.constants';
 import { projectPrivacyMode } from '~/utils/privacyMode';
+import { hasActiveJob } from '~/composables/localSolverRegistry';
 
 const { project } = defineProps({
     project: {
@@ -113,6 +118,7 @@ const vaultEnabled = computed(() =>
 const privacyMode = computed(() =>
     projectPrivacyMode(unref(project), vaultEnabled.value)
 )
+const nestingInProgress = computed(() => hasActiveJob(unref(project).slug))
 
 // Suppression (logique dans composables/projects.js — testée en node).
 const canDelete = computed(() => canDeleteProject(unref(project)))
@@ -223,6 +229,16 @@ onBeforeUnmount(() => {
     &__badge {
         position: relative;
         z-index: 0;
+    }
+
+    &__nesting {
+        position: relative;
+        z-index: 0;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        color: var(--accent-primary);
+        text-transform: lowercase;
     }
 
     &__btn {

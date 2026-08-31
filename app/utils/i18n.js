@@ -328,6 +328,7 @@ const dict = {
         'project.invalidParams': 'Enter valid values for every sheet (width, height, count) and spacing.',
         'project.result': 'result',
         'project.results': 'results',
+        'project.nestingInProgress': 'nesting in progress',
         'project.minSheet':
             'The biggest part needs a sheet of at least {w} × {h} {unit} — no declared sheet type is large enough.',
         'project.changeToRegenerate': 'Change settings or files to generate again',
@@ -877,6 +878,7 @@ const dict = {
         'project.invalidParams': "Saisissez des valeurs valides pour chaque tôle (largeur, hauteur, quantité) et l'espacement.",
         'project.result': 'résultat',
         'project.results': 'résultats',
+        'project.nestingInProgress': 'calcul en cours',
         'project.minSheet':
             "La plus grande pièce nécessite une plaque d'au moins {w} × {h} {unit} — aucun type de plaque déclaré n'est assez grand.",
         'project.changeToRegenerate': 'Modifiez les réglages ou les fichiers pour relancer',

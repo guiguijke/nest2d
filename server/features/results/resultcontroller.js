@@ -35,6 +35,9 @@ export async function getResults(userId, projectSlug) {
         }
         return {
             slug: queueItem.slug,
+            // Additive: page live/running pickers filter by this so a stale
+            // SSE list from project A cannot drive project B's atelier.
+            projectSlug: queueItem.projectSlug ?? null,
             status: status,
             isMultiSheet: isMultiSheet,
             createdAt: queueItem.createdAt,

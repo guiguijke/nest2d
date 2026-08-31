@@ -97,8 +97,9 @@ function makeCollection(docs) {
                               return out
                           })
                         : matched
-                    return { toArray: async () => projected }
+                    return { sort() { return this }, toArray: async () => projected }
                 },
+                sort() { return this },
                 toArray: async () => matched,
             }
         },

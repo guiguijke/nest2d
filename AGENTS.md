@@ -525,6 +525,30 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     (défaut préexistant, devenu très visible au 1 Hz du heartbeat B.4 ;
     l'export final, lui, compose toujours — une vérif physique de l'exporté
     ne peut pas l'attraper, il faut un verrou frame-live ≈ export BPP).
+47. **Job local : `projectSlug` immuable, live filtré par projet.**
+    `ensureJob` ne réécrit JAMAIS le `projectSlug` d'un job déjà
+    queued/running/done — un `watch` immediate sur la page B (liste SSE
+    encore celle de A le temps que UserResults reconnecte) volait le job
+    et peignait le live de A sur B (`progressFor('A')` vide = « reset »).
+    Pickers (`pickLiveJob` / `pickAwaitingLocal` / `pickRunningJob`)
+    exigent `item.projectSlug === page` (les items SSE portent le champ,
+    additif). `progressFor` null ⇒ vider les refs live de l'instance page
+    (le composant `[slug].vue` EST réutilisé entre A et B).
+    Verrous : `app/tests/localSolverRegistry.test.js`, `liveJob.test.js`.
+    Corollaire : `[slug].vue` est réutilisé — un fetch `data` de setup (démo)
+    ne doit JAMAIS alimenter `isDemo` / `projectFiles` après navigation.
+    `watch(pageSlug, getProject, { immediate: true })` est la source de
+    vérité ; `isDemo` = slug === `DEMO_PROJECT_SLUG` uniquement.
+48. **`rotatedBbox` 90° = `(-y, x)`, comme `rotateRing` / le moteur.**
+    Un `(y, −x)` (sens horaire) sur une pièce non centrée (Fillx4 :
+    y ∈ [2,8 ; 30,8]) produit une bbox **autre** que le polygone tourné.
+    Conséquences : clip du zigzag R90 (144 → 72 cellules dans le L),
+    `layoutUsedExtent` faux dès qu'un filler est à 90°. Verrou :
+    `app/tests/structureClient.test.js` « R(90)=(−y,x) ». Python
+    `_rotated_bbox` est le miroir. Corollaire grille : le zigzag calibré
+    0/180 se **tourne** (R90 du pavage, distances conservées) — on ne
+    recalcule pas px/py sur la bbox 90°. Score d'une zone : max N
+    (jusqu'à `want`) puis bord min sur l'axe objectif.
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 
@@ -562,7 +586,7 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 ## 5. Avant de pousser
 
 ```bash
-npx vitest run                                             # app+server (321)
+npx vitest run                                             # app+server (330)
 cd workers/nesting/engine && cargo test --release -p nest-engine   # 66 + 1 ignore (dont le verrou bpp_live_frame)
 cd workers/nesting && python -m pytest tests/ -q --ignore=tests/test_integration_holes.py   # 104 (fixtures holes absentes en dev local)
 cd workers/common && python -m pytest tests/ -q            # 48

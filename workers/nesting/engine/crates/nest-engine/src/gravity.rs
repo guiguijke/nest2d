@@ -36,14 +36,16 @@ pub fn gravity_compact(prob: &mut SPProblem) {
 /// « left » est aussi la gravité par défaut quand le placement est libre.
 pub fn gravity_order_for(bias: Option<&str>) -> Vec<Axis> {
     match bias {
-        Some("left") => vec![Axis::Left, Axis::Down, Axis::Left],
+        Some("left") => vec![Axis::Left, Axis::Down, Axis::Left, Axis::Down, Axis::Left],
         Some("bottom") => vec![Axis::Down, Axis::Left, Axis::Down],
         // balanced : coin bas-gauche (la largeur est pilotée par le corridor
         // de la phase 2, spp.rs, pour égaliser chute droite / haut).
         Some("balanced") => vec![Axis::Down, Axis::Left],
         // J-088 : gravité par DÉFAUT = gauche (placement libre → colonne qui
-        // hug x=0, grosse chute à droite).
-        _ => vec![Axis::Left, Axis::Down, Axis::Left],
+        // hug x=0, grosse chute à droite). Un 2e cycle Down/Left referme
+        // les poches des petites pièces après le 1er tassement des hôtes
+        // (constat user 2026-08-30 : –X encore trop lâche à space 2 mm).
+        _ => vec![Axis::Left, Axis::Down, Axis::Left, Axis::Down, Axis::Left],
     }
 }
 

@@ -513,6 +513,7 @@ async function nest(slug) {
 export const filesStore = readonly({
     getters: {
         projectFiles: computed(() => state.projectFiles),
+        projectSlug: computed(() => state.projectSlug),
         projectName: computed(() => state.projectName),
         projectDemo: computed(() => state.projectDemo),
         projectLocal: computed(() => state.projectLocal),

@@ -115,8 +115,8 @@ class TestPlanLattice:
         assert p == pytest.approx((150.2, 150.2))
         # zone A : au-dessus des 5 restes de la colonne 6
         assert lat["zone_a"] == pytest.approx((500.6, 500.6, 600.6, 1999.9))
-        # zone B : à droite de la grille + space
-        assert lat["zone_b"][0] == pytest.approx(600.8)
+        # zone B : à droite de la grille (lattice_right déjà +space)
+        assert lat["zone_b"][0] == pytest.approx(600.7)
 
     def test_zone_c_end_of_column_band(self):
         # 19 carrés par colonne : la bande au-dessus des colonnes pleines
@@ -328,8 +328,8 @@ class TestObjectiveY:
         assert lat["zone_a"][1] == pytest.approx(1101.2)
         # zone C' : bande verticale à droite des rangées pleines
         assert lat["zone_c"][0] == pytest.approx(901.0)
-        # zone B' : AU-DESSUS de la grille, transposée
-        assert lat["zone_b"][1] == pytest.approx(1201.4)
+        # zone B' : AU-DESSUS de la grille (lattice_top déjà +space)
+        assert lat["zone_b"][1] == pytest.approx(1201.3)
         assert lat["zone_b_transposed"] is True
 
     def test_zone_solve_transposed_map_back(self):
@@ -503,17 +503,20 @@ class TestSmallLattice:
         for i in range(len(polys)):
             for j in range(i + 1, len(polys)):
                 assert polys[i].distance(polys[j]) >= 0.1 - 1e-6, (i, j)
-        # bbox entière dans la zone (marge space)
+        # bbox entière dans la zone (déjà l'intérieur faisable)
         for p in polys:
             b = p.bounds
-            assert b[0] >= 500.4 + 0.1 - 1e-6 and b[2] <= 600.4 - 0.1 + 1e-6
-            assert b[1] >= 500.6 + 0.1 - 1e-6 and b[3] <= 1999.9 - 0.1 + 1e-6
+            assert b[0] >= 500.4 - 1e-6 and b[2] <= 600.4 + 1e-6
+            assert b[1] >= 500.6 - 1e-6 and b[3] <= 1999.9 + 1e-6
+        min_y = min(p.bounds[1] for p in polys)
+        assert min_y < 500.6 + 1.0
 
-    def test_rhombus_rejected_fallback(self):
+    def test_rhombus_bbox_grid_always_fills(self):
         from core.structure import small_lattice
-        # losange convexe (corpus de test) : l'entrelacement ne tient pas ->
-        # None (repli tronçons moteur)
+        # losange : le zigzag 0/180 peut échouer, la grille bbox doit
+        # quand même remplir (méthode générale, pas un repli None).
         ring = [[-19.8, 16.8], [0.0, 30.8], [19.8, 16.8], [0.0, 2.8], [-19.8, 16.8]]
         small = {"id": 1, "coords": ring, "area": 554.0}
         out = small_lattice(small, 0.1, (0.0, 0.0, 100.1, 500.0))
-        assert out is None
+        assert out is not None
+        assert len(out) > 0

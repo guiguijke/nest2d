@@ -8,6 +8,26 @@ export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
         {
+            title: 'Tighter Grid packing, live view stays on the right project',
+            datetime: '2026-08-31',
+            sections: [
+                {
+                    title: 'Grid packing',
+                    content: [
+                        'The Grid alternative now fills leftover pockets with a general tiling (axis-aligned grid, brick, interlocking zigzag, and the same zigzag rotated 90°) and keeps the variant that places the leftover parts closest to the origin — more reusable sheet, still a regular block.',
+                        'A 90° bounding-box mismatch that silently dropped half the rotated tiles is fixed; Grid leftover now matches the compact –X engine on the 100-host + fillers bench (about 73.6 % of the strip).',
+                    ],
+                },
+                {
+                    title: 'Live view isolation',
+                    content: [
+                        'Switching project while a nest runs no longer paints project A’s live layout on project B, and a missed progress beat no longer throws away the best live frame.',
+                        'The home project list shows a “nesting in progress” hint on the project that is computing.',
+                    ],
+                },
+            ],
+        },
+        {
             title: 'Grid layouts, reliable multi-sheet nesting, live view that never freezes',
             datetime: '2026-08-29',
             sections: [

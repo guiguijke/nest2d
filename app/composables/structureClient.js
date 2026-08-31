@@ -40,11 +40,8 @@ export const ZONE_STEP_MIN_MM = 150
 // Abandon d'un tronçon (et des suivants) sous cette fraction du demandé —
 // le plafond RÉEL mesuré par tronçon est ~0,57-0,60 du cap 0,95.
 export const ZONE_STEP_BREAK = 0.45
-// Lattice analytique des petites pièces (« compression finale » user
-// 2026-08-29) — colonnes entrelacées rot0/rot180, paramètres validés
-// empiriquement (0 conflit, min-dist 0,113 à space 0,1 ; miroir exact de
-// structure.py::small_lattice) : px = W/2 + space, py = 1.3·H,
-// dy = -0.382·py, orientation (i+j)%2, centroïdes normalisés.
+// Zigzag 0/180 : guess initial du pas Y (le vrai pas est le plus petit
+// qui passe la distance ≥ space). Pas une constante de pièce.
 export const LATTICE_PY_RATIO = 1.3554
 export const LATTICE_DY_RATIO = -0.378
 // Marge vs courbes brutes exportées (anneaux simplifiés à ~0,05 mm) :
@@ -115,69 +112,280 @@ function ringDist(c1, c2) {
 }
 
 /**
- * Lattice entrelacé des petites pièces dans la zone (miroir de
- * structure.py::small_lattice). Retourne des placements {item_id,
- * transformation} (convention moteur, repère PIÈCE) ou null si la forme ne
- * valide pas (repli tronçons moteur). Validation : paires de cellules
- * voisines (|Δi|,|Δj| ≤ 2) à distance ≥ space.
+ * Remplit un rectangle libre. Méthode GÉNÉRALE (toute forme, tout space) :
+ *   1. grille bbox (pas = dim+space, rot 0 et 90) — toujours valide dès
+ *      qu'une pièce tient ;
+ *   2. zigzag 0/180, 90/270, et le même zigzag tourné (R90 du pavage) ;
+ *      pas dichotomié sous distance ≥ space ; score = max N puis bord min
+ *      sur l'axe objectif (chute max). Null si rien ne rentre.
  */
-export function smallLattice(small, space, zone) {
+function decimateRing(coords, n = 20) {
+    const closed = coords.length > 1
+        && coords[0][0] === coords[coords.length - 1][0]
+        && coords[0][1] === coords[coords.length - 1][1]
+    const m = closed ? coords.length - 1 : coords.length
+    if (m <= n) return coords
+    const out = []
+    for (let i = 0; i < n; i++) out.push(coords[Math.floor(i * m / n)])
+    out.push(out[0])
+    return out
+}
+
+export function smallLattice(small, space, zone, opts = {}) {
     const coords = (small && small.coords) || []
     if (coords.length < 3) return null
-    const [x0, y0, x1, y1] = zone
-    const bb = bbox(coords)
-    const w = bb[2] - bb[0]
-    const h = bb[3] - bb[1]
-    if (w <= 0 || h <= 0) return null
-    const c0 = ringCentroid(coords)
-    const px = w / 2 + space
-    const py = LATTICE_PY_RATIO * h
-    const dy = LATTICE_DY_RATIO * py
-    const ix0 = x0 + space; const iy0 = y0 + space
-    const ix1 = x1 - space; const iy1 = y1 - space
-    if (ix1 - ix0 < w || iy1 - iy0 < h) return null
-    const cx0 = ix0 + w / 2
-
-    const cells = []
-    for (let i = 0; cx0 + i * px + w / 2 <= ix1 + 1e-9; i++) {
-        const cx = cx0 + i * px
-        for (let j = -40; j < 220; j++) {
-            const even = ((i + j) % 2 + 2) % 2 === 0
-            const cy = c0[1] + j * py + (even ? 0 : dy)
-            if (cy - h / 2 >= iy0 - 1e-9 && cy + h / 2 <= iy1 + 1e-9) {
-                cells.push({ i, j, even, cx, cy })
+    const [zx0, zy0, zx1, zy1] = zone
+    if (zx1 - zx0 <= 0 || zy1 - zy0 <= 0) return null
+    const bb0 = bbox(coords)
+    const w0 = bb0[2] - bb0[0]
+    const h0 = bb0[3] - bb0[1]
+    if (w0 <= 0 || h0 <= 0) return null
+    const threshold = space + 2 * LATTICE_SIMPLIFY_MM
+    const want = Number.isFinite(opts.want) && opts.want > 0 ? opts.want : Infinity
+    const axis = opts.axis === 'y' ? 'y' : 'x'
+    let best = null
+    let bestScore = -Infinity
+    const consider = (cells) => {
+        if (!cells || !cells.length) return
+        const take = want < Infinity ? cells.slice(0, want) : cells
+        const n = take.length
+        const far = placementsFar(take, coords, axis)
+        // Max pièces (jusqu'à want), puis bord le plus près de l'origine
+        // = chute max sur l'axe objectif, toute forme.
+        const score = n * 1e9 - far
+        if (score > bestScore) { best = take; bestScore = score }
+    }
+    for (const deg0 of [0, 90]) {
+        consider(bboxGrid(coords, small.id, space, zone, deg0))
+        consider(bboxGridBrick(coords, small.id, space, zone, deg0))
+        for (const yPhase of [0, 1]) {
+            for (const xPhase of [0, 1]) {
+                consider(latticeVariant(coords, small.id, space, zone,
+                    threshold, deg0, yPhase, xPhase))
             }
         }
     }
-    if (!cells.length) return null
-    // anneaux monde (rotation puis translation centroïde)
-    for (const c of cells) {
-        const ring0 = rotateRing(coords, c.even ? 0 : 180)
-        // re-centrer sur c0 : rot0 déjà centrée ; rot180 : centroïde = -c0
-        const rc = c.even ? c0 : [-c0[0], -c0[1]]
-        c.ring = ring0.map(([x, y]) => [x - rc[0] + (c.cx - c0[0]) + c0[0], y - rc[1] + (c.cy - c0[1]) + c0[1]])
-    }
-    // validation : voisins de cellule uniquement (le lattice ne conflite
-    // qu'entre cellules proches — sinon O(n²) rédhibitoire en navigateur) ;
-    // seuil = space + 2×tol simplification (courbes brutes exportées).
-    const threshold = space + 2 * LATTICE_SIMPLIFY_MM
-    for (let a = 0; a < cells.length; a++) {
-        for (let b = a + 1; b < cells.length; b++) {
-            const A = cells[a]; const B = cells[b]
-            if (Math.abs(A.i - B.i) > 2 || Math.abs(A.j - B.j) > 2) continue
-            if (ringDist(A.ring, B.ring) < threshold - 1e-9) return null
+    // Même zigzag tourné de 90° (pas X/Y échangés, distances préservées) :
+    // une bande haute et étroite reçoit le pas serré sur le grand côté.
+    for (const yPhase of [0, 1]) {
+        for (const xPhase of [0, 1]) {
+            consider(latticeRotated(coords, small.id, space, zone,
+                threshold, yPhase, xPhase))
         }
     }
-    // placements moteur : t = centroid_monde − R·centroid_pièce
-    return cells.map((c) => {
-        const deg = c.even ? 0 : 180
-        const rc = rotatePoint(c0, deg)
+    return best
+}
+
+function placementsFar(placements, coords, axis) {
+    let far = -Infinity
+    for (const p of placements) {
+        const bb = rotatedBbox(bbox(coords), Number(p.transformation?.rotation) || 0)
+        const t = p.transformation.translation[axis === 'y' ? 1 : 0]
+        far = Math.max(far, t + (axis === 'y' ? bb[3] : bb[2]))
+    }
+    return far
+}
+
+/** Grille axis-alignée, pas = bbox+space. Valide pour n'importe quel polygone. */
+function bboxGrid(coords, itemId, space, zone, deg0) {
+    const rot = rotateRing(coords, deg0)
+    const c0 = ringCentroid(rot)
+    const bb = bbox(rot)
+    const w = bb[2] - bb[0]
+    const h = bb[3] - bb[1]
+    const [ix0, iy0, ix1, iy1] = zone
+    if (ix1 - ix0 < w || iy1 - iy0 < h) return null
+    const xL = c0[0] - bb[0]
+    const xR = bb[2] - c0[0]
+    const yD = c0[1] - bb[1]
+    const yU = bb[3] - c0[1]
+    const px = w + space
+    const py = h + space
+    const cx0 = ix0 + xL
+    const cy0 = iy0 + yD
+    const cells = []
+    for (let i = 0; cx0 + i * px + xR <= ix1 + 1e-9; i++) {
+        for (let j = 0; cy0 + j * py + yU <= iy1 + 1e-9; j++) {
+            cells.push({ cx: cx0 + i * px, cy: cy0 + j * py })
+        }
+    }
+    if (!cells.length) return null
+    const cOrig = ringCentroid(coords)
+    const rc = rotatePoint(cOrig, deg0)
+    return cells.map((c) => ({
+        item_id: itemId,
+        transformation: { rotation: deg0, translation: [c.cx - rc[0], c.cy - rc[1]] },
+    }))
+}
+
+/** Grille bbox en quinconce (rangées impaires décalées de px/2). */
+function bboxGridBrick(coords, itemId, space, zone, deg0) {
+    const rot = rotateRing(coords, deg0)
+    const c0 = ringCentroid(rot)
+    const bb = bbox(rot)
+    const w = bb[2] - bb[0]
+    const h = bb[3] - bb[1]
+    const [ix0, iy0, ix1, iy1] = zone
+    if (ix1 - ix0 < w || iy1 - iy0 < h) return null
+    const xL = c0[0] - bb[0]
+    const xR = bb[2] - c0[0]
+    const yD = c0[1] - bb[1]
+    const yU = bb[3] - c0[1]
+    const px = w + space
+    const py = h + space
+    const cx0 = ix0 + xL
+    const cy0 = iy0 + yD
+    const cells = []
+    for (let j = 0; cy0 + j * py + yU <= iy1 + 1e-9; j++) {
+        const odd = j % 2 === 1
+        const ox = odd ? px / 2 : 0
+        for (let i = 0; cx0 + ox + i * px + xR <= ix1 + 1e-9; i++) {
+            if (odd && cx0 + ox + i * px - xL < ix0 - 1e-9) continue
+            cells.push({ cx: cx0 + ox + i * px, cy: cy0 + j * py })
+        }
+    }
+    if (!cells.length) return null
+    const cOrig = ringCentroid(coords)
+    const rc = rotatePoint(cOrig, deg0)
+    return cells.map((c) => ({
+        item_id: itemId,
+        transformation: { rotation: deg0, translation: [c.cx - rc[0], c.cy - rc[1]] },
+    }))
+}
+
+/** Zigzag 0/180 généré dans le rectangle transposé, puis R(+90) vers la zone.
+ *  Préserve l'emboîtement (contrairement à recalculer px/py sur la bbox 90°). */
+function latticeRotated(coords, itemId, space, zone, threshold, yPhase, xPhase) {
+    const [x0, y0, x1, y1] = zone
+    const W = x1 - x0
+    const H = y1 - y0
+    if (W <= 0 || H <= 0) return null
+    const fake = [0, 0, H, W]
+    const packed = latticeVariant(coords, itemId, space, fake, threshold, 0, yPhase, xPhase)
+    if (!packed || !packed.length) return null
+    const cOrig = ringCentroid(coords)
+    // R(+90) du pavage : (x,y) → (−y, x), puis calé sur (x0+W, y0).
+    // Transpose (x,y)→(y,x) + rot 90 cassait les bboxes (moitié clipée).
+    const out = packed.map((p) => {
+        const srcDeg = Number(p.transformation.rotation) || 0
+        const [tx, ty] = p.transformation.translation
+        const srcC = rotatePoint(cOrig, srcDeg)
+        const fx = srcC[0] + tx
+        const fy = srcC[1] + ty
+        const deg = (srcDeg + 90) % 360
+        const rc = rotatePoint(cOrig, deg)
         return {
-            item_id: small.id,
+            item_id: itemId,
             transformation: {
                 rotation: deg,
-                translation: [c.cx - rc[0], c.cy - rc[1]],
+                translation: [x0 + W - fy - rc[0], y0 + fx - rc[1]],
             },
+        }
+    })
+    const keep = out.filter((p) => {
+        const bb = rotatedBbox(bbox(coords), p.transformation.rotation)
+        const [tx, ty] = p.transformation.translation
+        return tx + bb[0] >= x0 - 1e-6 && tx + bb[2] <= x1 + 1e-6
+            && ty + bb[1] >= y0 - 1e-6 && ty + bb[3] <= y1 + 1e-6
+    })
+    return keep.length ? keep : null
+}
+
+function latticeVariant(coords, itemId, space, zone, threshold, deg0, yPhase, xPhase = 0) {
+    const [ix0, iy0, ix1, iy1] = zone
+    const rot0 = rotateRing(coords, deg0)
+    const c0 = ringCentroid(rot0)
+    const bb = bbox(rot0)
+    const w = bb[2] - bb[0]
+    const h = bb[3] - bb[1]
+    if (ix1 - ix0 < w || iy1 - iy0 < h) return null
+    const xL0 = c0[0] - bb[0]; const xR0 = bb[2] - c0[0]
+    const yD0 = c0[1] - bb[1]; const yU0 = bb[3] - c0[1]
+    const extents = (even) => even
+        ? { left: xL0, right: xR0, down: yD0, up: yU0 }
+        : { left: xR0, right: xL0, down: yU0, up: yD0 }
+
+    const generate = (py, px, maxI = 80, maxJ = 220) => {
+        const dy = LATTICE_DY_RATIO * py
+        const yBase = yPhase === 0
+            ? iy0 + yD0
+            : iy0 + yU0 - dy
+        const xBase = xPhase === 0 ? ix0 + xL0 : ix0 + xR0
+        const cells = []
+        for (let i = 0; i < maxI; i++) {
+            const cx = xBase + i * px
+            if (cx - Math.min(xL0, xR0) > ix1 + 1e-9) break
+            for (let j = 0; j < maxJ; j++) {
+                const even = ((i + j) % 2 + 2) % 2 === 0
+                const cy = yBase + j * py + (even ? 0 : dy)
+                const e = extents(even)
+                if (cx - e.left < ix0 - 1e-9 || cx + e.right > ix1 + 1e-9) continue
+                if (cy - e.down < iy0 - 1e-9 || cy + e.up > iy1 + 1e-9) continue
+                cells.push({ i, j, even, cx, cy })
+            }
+        }
+        return cells
+    }
+
+    const attachRings = (cells, src = coords) => {
+        for (const c of cells) {
+            const deg = c.even ? deg0 : deg0 + 180
+            const ring1 = rotateRing(src, deg)
+            const rc = rotatePoint(c0, c.even ? 0 : 180)
+            c.ring = ring1.map(([x, y]) => [x - rc[0] + c.cx, y - rc[1] + c.cy])
+        }
+        return cells
+    }
+
+    const coarse = decimateRing(coords, 20)
+    const tryPitch = (py, px) => {
+        const patch = attachRings(generate(py, px, 5, 8), coarse)
+        if (!patch.length) return false
+        for (let a = 0; a < patch.length; a++) {
+            for (let b = a + 1; b < patch.length; b++) {
+                const A = patch[a]; const B = patch[b]
+                if (Math.abs(A.i - B.i) > 2 || Math.abs(A.j - B.j) > 2) continue
+                if (ringDist(A.ring, B.ring) < threshold - 1e-9) return false
+            }
+        }
+        return true
+    }
+
+    const py0 = LATTICE_PY_RATIO * h
+    const px0 = w / 2 + space
+    let py = py0
+    if (!tryPitch(py0, px0)) {
+        let found = false
+        py = py0
+        for (let i = 0; i < 24; i++) {
+            py *= 1.08
+            if (tryPitch(py, px0)) { found = true; break }
+        }
+        if (!found) return null
+    }
+    let lo = Math.min(h * 0.85, py * 0.75)
+    if (lo >= py) lo = py * 0.75
+    for (let k = 0; k < 8; k++) {
+        const mid = (lo + py) / 2
+        if (tryPitch(mid, px0)) py = mid
+        else lo = mid
+    }
+    let px = px0
+    let loPx = Math.max(w * 0.35, w / 2)
+    for (let k = 0; k < 8; k++) {
+        const mid = (loPx + px) / 2
+        if (tryPitch(py, mid)) px = mid
+        else loPx = mid
+    }
+    const cells = generate(py, px)
+    if (!cells.length) return null
+    const cOrig = ringCentroid(coords)
+    return cells.map((c) => {
+        const deg = c.even ? deg0 : deg0 + 180
+        const rc = rotatePoint(cOrig, deg)
+        return {
+            item_id: itemId,
+            transformation: { rotation: deg, translation: [c.cx - rc[0], c.cy - rc[1]] },
         }
     })
 }
@@ -217,14 +425,15 @@ export function isAxisRect(coords) {
     return true
 }
 
-/** Bbox d'un anneau de bbox donnée tourné de rot (multiple de 90°). */
+/** Bbox d'un anneau de bbox donnée tourné de rot (multiple de 90°).
+ *  Même convention que rotateRing : R(90)·(x,y) = (−y, x). */
 function rotatedBbox(bb, rotDeg) {
     const [x0, y0, x1, y1] = bb
     const r = ((rotDeg % 360) + 360) % 360
     if (r === 0) return [x0, y0, x1, y1]
     if (r === 180) return [-x1, -y1, -x0, -y0]
-    if (r === 90) return [y0, -x1, y1, -x0]
-    return [-y1, x0, -y0, x1]
+    if (r === 90) return [-y1, x0, -y0, x1]
+    return [y0, -x1, y1, -x0]
 }
 
 /**
@@ -298,7 +507,8 @@ export function planLattice(caseInfo, sheetW, sheetH, space, objective = 'x') {
         if (nFull >= 1 && fullRight + space < sheetW - space) {
             zoneC = [fullRight + space, space, sheetW - space, space + nFull * pitchY]
         }
-        const zoneB = [space, latticeTop + space, sheetW - space, sheetH - space]
+        // latticeTop inclut déjà `space` après la dernière rangée.
+        const zoneB = [space, latticeTop, sheetW - space, sheetH - space]
         return { placements, latticeExtent: latticeTop, zoneA, zoneB, zoneC,
                  zoneBTransposed: true, perLine, lines, remainder }
     }
@@ -332,7 +542,9 @@ export function planLattice(caseInfo, sheetW, sheetH, space, objective = 'x') {
         const fullRight = space + (nFull - 1) * pitchX + w
         zoneC = [space, bandY0, fullRight, sheetH - space]
     }
-    const zoneB = [latticeRight + space, space, sheetW - space, sheetH - space]
+    // latticeRight = dernier carré + space. smallLattice clippe sur la
+    // zone telle quelle (plus de 2e inset).
+    const zoneB = [latticeRight, space, sheetW - space, sheetH - space]
     return { placements, latticeExtent: latticeRight, zoneA, zoneB, zoneC,
              zoneBTransposed: false, perLine: perCol, lines: cols, remainder }
 }
@@ -481,7 +693,8 @@ export async function buildStructuralLayout(instanceItems, geomBy, sheetW, sheet
         // si la forme ne valide pas.
         let gotTotal = 0
         if (!z.transposed) {
-            const lat = smallLattice(caseInfo.small, space, z.zone)
+            const lat = smallLattice(caseInfo.small, space, z.zone,
+                { want, axis: objective === 'y' ? 'y' : 'x' })
             if (lat && lat.length) {
                 // TOUT-OU-RIEN : un top-up moteur dans la même zone
                 // écraserait le lattice (le solve ne voit pas les pièces
@@ -551,12 +764,21 @@ export async function buildStructuralLayout(instanceItems, geomBy, sheetW, sheet
     const bZone = plan.find((z) => z.key === 'B')
     if (left > 0) {
         if (!bZone) return null
-        // B = UNE bande pleine hauteur à largeur minimisée (mesuré ~81 %
-        // de densité, contrairement aux bandes étroites ~57 %) — PAS de
-        // découpage en tronçons. Miroir de structure.py (zone_b direct).
-        const got = await zoneSolve(bZone.zone, smallSolve, space, left,
-            solveFn, bZone.budget, bZone.transposed, onZone, 'B', steps, steps)
-        if (nSmall - used - got.length > 0) return null // B saturée : repli moteur
+        // Lattice d'abord (même pavage que A/C) : à space 2 mm le zigzag
+        // calé à 0,1 était rejeté → zoneSolve moteur = tas qui élargit +X.
+        // Si le lattice tient TOUT le reliquat, on l'utilise (tout-ou-rien :
+        // un top-up moteur dans B écraserait les cellules).
+        let got = []
+        if (!bZone.transposed) {
+            const latB = smallLattice(caseInfo.small, space, bZone.zone,
+                { want: left, axis: objective === 'y' ? 'y' : 'x' })
+            if (latB && latB.length >= left) got = latB
+        }
+        if (!got.length) {
+            got = await zoneSolve(bZone.zone, smallSolve, space, left,
+                solveFn, bZone.budget, bZone.transposed, onZone, 'B', steps, steps)
+        }
+        if (!got.length || nSmall - used - got.length > 0) return null
         placements.push(...got)
         used += got.length
     }

@@ -95,6 +95,36 @@ describe('localSolverRegistry — navigation isolée, file tier, idempotence', (
         expect(p.result.liveLayout.stage).toBe('final')
     })
 
+    it('onLive garde la meilleure frame, pas la dernière (pire −X)', async () => {
+        const mod = await freshRegistry(async (_slug, { onLive }) => {
+            onLive({ feasible: true, strip_width: 700, density: 0.8, items: [1] })
+            onLive({ feasible: true, strip_width: 900, density: 0.5, items: [1] })
+            return { ok: true }
+        })
+        mod.ensureJob(job('j1'), { projectSlug: 'pA', maxConcurrent: 1 })
+        await new Promise((r) => setTimeout(r, 30))
+        expect(mod.progressFor('pA').frame.strip_width).toBe(700)
+    })
+
+    it('re-subscribe depuis un autre projet ne vole pas le projectSlug', async () => {
+        let release
+        const gate = new Promise((r) => { release = r })
+        const mod = await freshRegistry(async () => { await gate; return { ok: true } })
+        mod.ensureJob(job('j1'), { projectSlug: 'pA', maxConcurrent: 1 })
+        await new Promise((r) => setTimeout(r, 10))
+        expect(mod.progressFor('pA').phase).toBe('running')
+        expect(mod.hasActiveJob('pA')).toBe(true)
+        expect(mod.hasActiveJob('pB')).toBe(false)
+        mod.ensureJob(job('j1'), { projectSlug: 'pB', maxConcurrent: 1 })
+        expect(mod.progressFor('pA').phase).toBe('running')
+        expect(mod.progressFor('pB')).toBe(null)
+        expect(mod.hasActiveJob('pA')).toBe(true)
+        expect(mod.hasActiveJob('pB')).toBe(false)
+        expect(mod.activeJobs().map((j) => j.projectSlug)).toEqual(['pA'])
+        release()
+        await new Promise((r) => setTimeout(r, 20))
+    })
+
     it('un job annulé en file ne démarre jamais', async () => {
         const started = []
         let release

@@ -1,4 +1,4 @@
-# ARCHITECTURE — NestorCut (état au 2026-08-30)
+# ARCHITECTURE — NestorCut (état au 2026-08-31)
 
 Référence de l'architecture **déployée** : topologie, composants, flux de
 données, frontières de sécurité. Le « pourquoi » des décisions vit dans
@@ -71,9 +71,11 @@ runbook privé `specs/infra/DEPLOY-HETZNER.md` § Débordement.
 
 - **nest-engine** : modes **SPP** (bande, minimise la largeur — sparrow) et
   **BPP** (multi-tôles — recuit simulé maison + constructif `HoleFillEvaluator`) ;
-  post-pass déterministes (`column_fill`), export alternatives classées par
-  classe de biais. Pile : jagua-rs 0.7.2 **vendored** (patch wasm
-  mono-thread + libm pour le déterminisme cross-device).
+  post-pass déterministes (`column_fill`, gravité left à 5 axes), export
+  alternatives classées par classe de biais. Pile : jagua-rs 0.7.2
+  **vendored** (patch wasm mono-thread + libm pour le déterminisme
+  cross-device). Pass **grille** (JS + Python, D-MOT-17) : rectangle
+  dominant + petites pièces, pavage générique des zones, chute max.
 - **Compilation** : natif (workers, via image Docker) ET
   `wasm32-unknown-unknown` (navigateur, artefact committé
   `public/engine/nest_wasm_bg.wasm`, rechargé avec `cache:'reload'`).

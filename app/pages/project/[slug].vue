@@ -118,13 +118,14 @@
     </div>
 </template>
 
-<script setup async>
+<script setup>
 import { themeType } from "~~/constants/theme.constants";
 import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
 import { isLocalComputeEnabled } from "~/composables/localCompute";
-import { progressFor } from "~/composables/localSolverRegistry";
+import { hasActiveJob, progressFor } from "~/composables/localSolverRegistry";
 import { invalidateLocalRecords } from "~/composables/localHydrate";
 import { useLocalMode } from "~/composables/useLocalMode";
+import { pickAwaitingLocal, pickLiveJob, pickRunningJob } from "~/utils/liveJob";
 import {
     DEMO_NESTING_LIMIT,
     DEMO_PROJECT_SLUG,
@@ -143,7 +144,6 @@ const { t } = useLocale()
 // Part dims arrive in canonical mm; sheet params are display-unit strings —
 // displayToMm normalizes them for the fit check.
 const { unit, unitLabel, fmtLengthValue, displayToMm } = useUnit()
-const $apiFetch = useApiFetch();
 
 const vaultEnabled = computed(() =>
     Boolean(unref(authStore.getters.user)?.encryption?.enabled)
@@ -151,17 +151,19 @@ const vaultEnabled = computed(() =>
 
 const { getters } = globalStore;
 const resultsList = computed(() => getters.resultsList);
+const route = useRoute();
+const pageSlug = computed(() => route.params.slug);
 // The currently-running job's live layout stream (engine snapshots pushed
 // over SSE): drives the big real-time preview above the settings.
-const liveResult = computed(() => {
-    const list = unref(resultsList) || [];
-    return list.find((r) => r.liveLayout) || null;
-});
+// Filtered by THIS page's project — the layout SSE list can still hold
+// the previous project's jobs for a tick after navigation.
+const liveResult = computed(() => pickLiveJob(unref(resultsList), unref(pageSlug)));
 // The job currently being computed (if any): drives the animated state of
 // the nest button (spinning wheel + vcore count while the engine works).
 const runningJob = computed(() => {
-    const list = unref(resultsList) || [];
-    return list.find((r) => r.isInProgress) || null;
+    const fromSse = pickRunningJob(unref(resultsList), unref(pageSlug))
+    if (fromSse) return fromSse
+    return hasActiveJob(unref(pageSlug)) ? { isInProgress: true } : null
 });
 const runningCores = computed(() => {
     const n = unref(runningJob)?.compute?.vcores;
@@ -190,7 +192,6 @@ watch(
 // couleurs, rapport, téléchargements) est hydraté depuis IndexedDB par
 // localHydrate ; rien ne dépend des artefacts serveur pour ces jobs.
 // Échec ⇒ message i18n propre + refund (jamais de crash de page).
-const route = useRoute();
 const localModeCtl = useLocalMode(null);
 const localComputeRunning = ref(false);
 const localComputeError = ref(null);
@@ -223,7 +224,7 @@ const attemptedLocalJobs = new Set();
 const localZonePhase = ref(null);
 // Job local en file (cap tier atteint) : affiché dans la ligne d'état.
 const localQueued = computed(() => {
-    const p = progressFor(route.params.slug);
+    const p = progressFor(unref(pageSlug));
     return p?.phase === 'queued';
 });
 // Registre GLOBAL des solves locaux (survit à la navigation entre projets —
@@ -232,7 +233,7 @@ const localQueued = computed(() => {
 // de file d'attente côté serveur, le registre file côté client).
 const activeLocalSlug = ref(null);
 watch(
-    () => (unref(resultsList) || []).find((r) => r.status === 'awaiting_local'),
+    () => pickAwaitingLocal(unref(resultsList), unref(pageSlug)),
     async (job) => {
         if (!job || !isLocalComputeEnabled() || attemptedLocalJobs.has(job.slug)) return;
         attemptedLocalJobs.add(job.slug);
@@ -247,7 +248,7 @@ watch(
         const user = useNuxtData('user').value;
         activeLocalSlug.value = job.slug;
         ensureJob(job, {
-            projectSlug: route.params.slug,
+            projectSlug: job.projectSlug || unref(pageSlug),
             maxConcurrent: maxParallelLocalNests(user),
         });
     },
@@ -257,8 +258,12 @@ watch(
 // est démontée — en y revenant, l'état (frame live, compteur, phase zones)
 // est déjà là, sans redémarrer le calcul.
 watch(
-    () => progressFor(route.params.slug),
+    () => progressFor(unref(pageSlug)),
     async (p) => {
+        // Do NOT wipe live on a missed beat (p null while SSE reconnects):
+        // that unmounts LiveNestingView (v-if), drops the champion lock,
+        // and the next mid-search frame paints as a new −X (constat:
+        // compact 92 % → tas 85 %). Isolation clear is on pageSlug change.
         if (!p) return;
         localComputeError.value = p.phase === 'error'
             ? (p.error === 'memory_cap' ? 'memory_cap'
@@ -307,22 +312,19 @@ const isNewParams = computed(() => filesGetters.isNewParams);
 const nestRequestError = computed(() => filesGetters.nestRequestError);
 const localImportError = computed(() => filesGetters.localImportError);
 const demoQuotaReached = computed(() => filesGetters.demoQuotaReached);
-const slug = route.params.slug;
-const apiPath = API_ROUTES.PROJECT(slug);
-const data = filesGetters.projectFiles || await $apiFetch(apiPath);
+const slug = pageSlug;
+const apiPath = computed(() => API_ROUTES.PROJECT(unref(slug)));
 
 // Shared read-only demo project: files are not editable, but quantities AND
 // nesting settings are — the demo plays like a regular project. Only the
 // compute profile (4 vcores, 90 s, 3 directions) and the monthly demo quota
-// stay server-imposed.
-const isDemo = computed(() =>
-    Boolean(filesGetters.projectDemo)
-    || Boolean(data?.isDemo)
-    || route.params.slug === DEMO_PROJECT_SLUG
-);
+// stay server-imposed. Route slug is the source of truth: [slug].vue is
+// reused on SPA navigation, so a setup-time fetch of the demo must never
+// keep isDemo true on the next project.
+const isDemo = computed(() => unref(pageSlug) === DEMO_PROJECT_SLUG);
 // J-090 : projet « 100 % privé » — fichiers en IndexedDB, jamais uploadés.
 const isLocalProject = computed(() =>
-    Boolean(filesGetters.projectLocal) || Boolean(data?.local)
+    Boolean(filesGetters.projectLocal && filesGetters.projectSlug === unref(apiPath))
 );
 const privacyMode = computed(() =>
     projectPrivacyMode(
@@ -375,7 +377,7 @@ const applyDemoDefaults = () => {
     actions.markCuratedDefaults();
 };
 watch(isDemo, (val) => {
-    if (val && !demoDefaultsApplied.value) {
+    if (val && unref(pageSlug) === DEMO_PROJECT_SLUG && !demoDefaultsApplied.value) {
         demoDefaultsApplied.value = true;
         applyDemoDefaults();
     }
@@ -383,7 +385,8 @@ watch(isDemo, (val) => {
 
 const pageTitle = computed(() => {
     if (isDemo.value) return t('demo.projectName')
-    return filesGetters.projectName || data?.name || t('project.files', { n: unref(filesCount) })
+    if (filesGetters.projectSlug !== unref(apiPath)) return ''
+    return filesGetters.projectName || t('project.files', { n: unref(filesCount) })
 });
 
 const stageLive = computed(() => {
@@ -412,7 +415,8 @@ const idleTransform = computed(() =>
 );
 
 const projectFiles = computed(() => {
-    return filesGetters.projectFiles || data.files.map(file => ({ ...file, count: file.demoQuantity ?? 1 }))
+    if (filesGetters.projectSlug !== unref(apiPath)) return []
+    return filesGetters.projectFiles || []
 })
 const biggestPartSizes = computed(() => {
     const parts = projectFiles.value
@@ -444,25 +448,31 @@ const sizesIsAvailable = computed(() => {
         return width >= partWidth && height >= partHeight;
     });
 })
-onMounted(() => {
-    if (isLocalProject.value) {
-        // J-090 : hydration IndexedDB (jamais le serveur) + import des
-        // fichiers déposés sur la home à la création du projet.
-        (async () => {
-            await getProject(apiPath)
-            const pending = consumePendingLocalFiles()
-            if (pending.length) await actions.addFiles(pending, slug)
-        })()
-    } else if (!filesGetters.projectFiles) {
-        setProjectFiles(data.files, apiPath)
-        setProjectName(data.name)
+// [slug].vue is reused across projects: load THIS slug on every change
+// (home → new local project after visiting the demo used to keep marine files).
+watch(pageSlug, async (s, prev) => {
+    if (!s) return
+    if (prev && prev !== s) {
+        localModeCtl.stopTimer()
+        localComputeRunning.value = false
+        localComputeError.value = null
+        localWalks.value = 1
+        localEvals.value = null
+        localZonePhase.value = null
+        localLiveFrame.value = null
+        localReveal.value = null
+        lastLiveSlug.value = null
     }
-
+    await getProject(API_ROUTES.PROJECT(s))
+    const pending = consumePendingLocalFiles()
+    if (pending.length && filesGetters.projectLocal) {
+        await actions.addFiles(pending, s)
+    }
     trackEvent("page_view", {
         page: "project",
-        projectSlug: slug,
-    });
-})
+        projectSlug: s,
+    })
+}, { immediate: true })
 const btnLabel = computed(() => {
     return t('settings.nestFiles', { n: unref(filesCount) })
 })
@@ -484,12 +494,12 @@ const btnIsDisable = computed(() => {
     return Boolean(unref(nestRequestError)) || unref(filesCount) < 1 || !unref(isNewParams) || !unref(resultsList) || !unref(sizesIsAvailable) || unref(sheetCapExceeded)
 })
 const addFiles = (files) => {
-    actions.addFiles(files, slug)
+    actions.addFiles(files, unref(slug))
 }
 
 const startsNest = () => {
     if (btnIsDisable.value) return;
-    nest(slug);
+    nest(unref(slug));
 }
 </script>
 
