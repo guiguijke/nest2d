@@ -8,6 +8,18 @@ export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
         {
+            title: 'The last sheet is now compacted too',
+            datetime: '2026-09-02',
+            sections: [
+                {
+                    title: 'Multi-sheet nesting',
+                    content: [
+                        'On multi-sheet jobs, leftover parts on the last sheet are now packed into a compact block right behind the host parts, following the optimization direction — the remaining offcut is once again a single clean reusable rectangle.',
+                    ],
+                },
+            ],
+        },
+        {
             title: 'Multi-sheet: clean live view and complete band filling',
             datetime: '2026-09-01',
             sections: [

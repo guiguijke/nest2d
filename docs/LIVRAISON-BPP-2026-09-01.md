@@ -12,6 +12,10 @@ déployé le même jour). Chronologie complète :
 2. **2026-09-01** : re-test user (2 tôles 1000×1000, 100 trous + 800
    fillers, space 0,1, THIS DEVICE) → 3 nouveaux symptômes → 3 causes
    racines corrigées (ci-dessous) → tout commité/déployé ensemble.
+3. **2026-09-02** : re-test user en prod → la tôle 2 reste un amas
+   dispersé (« pas optimisée −X ») → **compaction de la dernière tôle**
+   (§2.4) : les libres y sont re-posées en lattice compact derrière le
+   bloc ancré, la chute redevient un rectangle unique.
 
 ---
 
@@ -130,6 +134,46 @@ est couvert » des deux côtés
 avec parité chiffrée JS == Python sur le scénario de régression
 (moved=334, AABB [16, 2, 998, 984]).
 
+### 2.4 Tôle 2 « pas optimisée −X » : compaction de la dernière tôle
+
+**Symptôme** (re-test prod 2026-09-02) : la tôle 2 reste un amas
+fragmenté à front dentelé (carrés à gauche + fans dispersées avec vides
+internes) au lieu d'un bloc compact ancré −X avec une chute
+rectangulaire.
+
+**Cause racine** : le moteur BPP n'applique AUCUNE compaction direction
+par tôle (coût = nombre de tôles + remnant moyen) — en SPP le −X vient
+du constructif left-compact, en BPP rien ne le fournit. Le pass bandes
+remplit les tôles PRÉCÉDENTES mais ne réorganise pas la donneuse ; en
+plus le choix des donneuses « anti-compacts » (les plus excentrées du
+centre) retire des fans partout dans l'amas et y laisse des trous.
+
+**Fix** : `_compact_last_sheet` (`core/residual.py`, miroir JS
+`compactLastSheet` dans `residualClient.js`), appelé en fin de
+`fill_residual_bands` sur la tôle la moins remplie (uniquement s'il
+reste ≥ 2 tôles — contrat T8) :
+
+- les pièces LIBRES de la tôle sont détachées ; l'ancre = AABB des
+  non-libres (hôtes + nichées, jamais déplacées) ;
+- les bandes autour de l'ancre (typiquement la seule bande droite,
+  l'ancre touchant les autres bords) sont remplies par le MÊME mécanisme
+  lattice/batch/validation (`_fill_one_batch`, paramètre `free`) — les
+  colonnes poussent depuis l'ancre ;
+- tout-ou-rien : les libres non replacées (capacité < donneuses —
+  géométries imbriquées denses) retournent à leur pose d'origine
+  VALIDÉE contre le layout final ; si ça ne passe pas, restauration
+  complète (no-op) ;
+- au passage, la couverture tôle de `_validate_batch` passe aux bornes
+  ±ε sur anneau BRUT (miroir exact du bbox-check JS) : le simplify peut
+  plonger un sommet sous un bord exactement touché et le lattice cale
+  ses rangées au bord avec un bruit flottant (~1e-16) que `covers`
+  strict refusait.
+
+**Banc** (2×1000×1000, space 0,1) : tôle 2 AABB x[0, 499] (avant :
+amas dentelé jusqu'à ~549), rotations 126×0° + 126×180° = lattice pur,
+min-dist 0,1000 exact, 0 chevauchement, **chute rapportée
+500,7×1000 réutilisable** ; tôle 1 inchangée (591 pièces, 81,2 %).
+
 ## 3. Validation finale (tout appliqué)
 
 | Vérification | Résultat |
@@ -137,6 +181,7 @@ avec parité chiffrée JS == Python sur le scénario de régression
 | vitest (app) | **377/377** (31 fichiers) |
 | pytest (worker image, monté) | **142 passed + 2 skipped** (3 erreurs `core.geometry` préexistantes : module du worker fileprocessing absent de l'image nesting) |
 | Banc serveur 2×1000×1000 space 0,1 (`check_physical`) | **VERDICT OK** — 591 + 309 pièces, 0 chevauchement, 0 hors tôle, min-dist 0,0994-0,0996 (= bruit simplify/raw documenté), 0 pose dupliquée, in-hole = 4/trou exactement |
+| Banc serveur 2×1000×1000 space 0,1 + compaction (2026-09-02) | **VERDICT OK** — tôle 2 AABB x[0,499], chute 500,7×1000 réutilisable, min-dist 0,1000 exact |
 | Re-test navigateur complet (QA Mirror, mêmes params que le user) | tôle 1 : **665 pièces, 85,2 %, chute 1000×2,1 mm, coin TR couvert (18 fans)** ; tôle 2 : 235 pièces, 0 pose dupliquée, chute réutilisable 471×1000 ; vue live = 2 panneaux côte à côte |
 | SPP (T5/M3) | no-op strict, 1 layout |
 
@@ -157,7 +202,7 @@ localisées) et `inspect_plan.py` (rejoue `plan_hole_fills` +
 
 | Fichier | Rôle |
 |---|---|
-| `workers/nesting/core/residual.py` | pass bandes (nouveau) |
+| `workers/nesting/core/residual.py` | pass bandes + compaction dernière tôle (nouveau) |
 | `app/composables/residualClient.js` | miroir JS du pass (nouveau) |
 | `workers/nesting/core/holefill.py` | `apply_hole_fill` scopé par tôle |
 | `app/composables/localBridge.js` | wiring pass + `_fillOneSheetHoles` |

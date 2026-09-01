@@ -599,6 +599,19 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     Toute évolution d'AABB tournée se verrouille par T9 (coin couvert)
     des DEUX côtés — parité chiffrée moved/AABB JS == Python.
 
+54. **BPP : le moteur ne compacte PAS la dernière tôle (constat
+    2026-09-02 « pas optimisé −X »).** Coût moteur = tôles + remnant,
+    pas la direction par tôle — sans post-pass, la donneuse finit en
+    amas dentelé et la « chute » n'est pas un rectangle.
+    `_compact_last_sheet` / `compactLastSheet` : détacher les libres,
+    re-poser en lattice derrière l'ancre (AABB des non-libres) via
+    `_fill_one_batch(free=…)`, tout-ou-rien (restauration si les
+    non-placées ne revalident pas leur pose d'origine). Uniquement
+    ≥ 2 tôles (contrat T8). Piège associé : la couverture tôle se
+    teste en BORNES ±ε sur anneau BRUT — `covers` strict refuse le
+    simplify (sommet plongé de ~0,05 sous un bord touché) ET le bruit
+    flottant du lattice calé au bord (ty=-2.8000000000000007).
+
 ## 3. Banc d'essai (workers/nesting/bench/)
 
 Boucle de test de bout en bout, sans UI :
