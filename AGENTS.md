@@ -563,6 +563,42 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     badge). Ne PAS jeter les alts moteur hors tôle (piège #6).
     transposedBbox = R(-90)=(y,−x), distinct de rotatedBbox(90)=(-y,x).
 
+51. **BPP multi-tôles : le constructif ne backfill pas les bandes.**
+    Perte = croissance de bbox ; séquence gros-d'abord → les petites
+    pièces libres s'empilent sur la DERNIÈRE tôle (bbox encore petite)
+    et laissent 80 mm vides sur les précédentes. Le SA permute une
+    séquence, il ne pose pas — changer le coût remnant ne suffit pas.
+    Post-pass `fill_residual_bands` (après hole-fill) : lattice dans
+    5 rectangles (4 côtés clipés à l'AABB + coin), inset space.
+    Identité tôle = index de `layouts[]`, pas `container_id` (stock
+    N du même format = N layouts, même id). Hôtes et pièces dans un
+    trou : immobiles. Validation = BATCH SEULEMENT (les paires
+    préexistantes ne sont pas re-jugées : les jumeaux expand_meta à
+    distance 0 paralysaient la validation whole-sheet). Échec →
+    rollback batch, alt intacte.
+    Verrou : test_residual.py / residualClient.test.js + banc
+    seed_bpp_2sheets.py.
+
+52. **BPP : les tôles partagent le repère de coordonnées — tout
+    post-pass POOLÉ à travers les layouts est faux.** Constat
+    2026-09-01 (2×1000×1000, trous coïncidants par grille canonique) :
+    `apply_hole_fill` poolé classait les fans nichés d'une tôle comme
+    occupants du trou coïncidant d'une AUTRE → le repli pinwheel posait
+    un second pinwheel PAR-DESSUS (paires « jumeaux » à pose identique,
+    71 paires/tôle) et téléportait des fans aux coordonnées d'une autre
+    tôle. Fix : `_fill_one_sheet_holes` — trous/libres/membres scopés
+    PAR TÔLE (miroir JS `_fillOneSheetHoles`). Verrous :
+    test_holefill_bpp.py / localBridge.test.js (cas distinguant : trous
+    de la tôle 2 vides + libres sur la tôle 1 → RIEN ne bouge).
+
+53. **layoutAabb JS — coquille tx/ty (constat 2026-09-01).** Le miroir
+    écrivait `maxy = tx + bb[3]` : après un fill de la bande droite
+    (fans à tx≈996), maxy dépassait la tôle → la bande haut redevenait
+    dégénérée et n'était JAMAIS remplie (coin TR vide + arrêt « en
+    escalier » côté navigateur ; le Python, correct, remplissait tout).
+    Toute évolution d'AABB tournée se verrouille par T9 (coin couvert)
+    des DEUX côtés — parité chiffrée moved/AABB JS == Python.
+
 ## 3. Banc d'essai (workers/nesting/bench/)
 
 Boucle de test de bout en bout, sans UI :

@@ -8,6 +8,32 @@ export function useChangelog() {
     const { supportEmail } = useSiteConfig()
     return [
         {
+            title: 'Multi-sheet: clean live view and complete band filling',
+            datetime: '2026-09-01',
+            sections: [
+                {
+                    title: 'Multi-sheet nesting',
+                    content: [
+                        'During computation, each sheet now animates side by side in the live view instead of every sheet being drawn on top of the first one.',
+                        'The side-band filling of the earlier sheets now completes the top band and the top-right corner (a coordinate mix-up could leave an empty staircase gap), and parts are no longer duplicated on top of cutout fillers when two sheets have coincident hole positions.',
+                    ],
+                },
+            ],
+        },
+        {
+            title: 'Fuller first sheets on multi-sheet jobs',
+            datetime: '2026-08-31',
+            sections: [
+                {
+                    title: 'Multi-sheet nesting',
+                    content: [
+                        'Leftover small parts now fill the empty side bands of the earlier sheets instead of piling onto the last one, so the last sheet keeps a larger, cleaner reusable offcut.',
+                        'Host parts and parts nested inside cutouts never move; the filling is validated part by part and silently skipped whenever it cannot be done safely.',
+                    ],
+                },
+            ],
+        },
+        {
             title: 'A grid that never leaves the sheet, and parts that only turn where allowed',
             datetime: '2026-08-31',
             sections: [

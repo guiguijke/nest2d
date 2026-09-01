@@ -148,6 +148,7 @@ le flip Y SVG `translate(x, H−y) scale(1,−1) rotate(θ)` est obligatoire
 - Push `main` → GitHub Actions « Build and publish Docker images » : tests
   (cargo + pytest avec le vrai moteur) puis build/push des **6 images** sur
   `ghcr.io/guiguijke/*` (`:latest` + `:<sha>`).
+- Post-pass BPP multi-tôles : remplissage des bandes résiduelles (D-MOT-19, après hole-fill — lattice des pièces libres de la dernière tôle dans les bandes AABB des tôles précédentes)
 - Pré-check de faisabilité jagua `w + 2·space` (audit 2026-08-31 Q-1) + filets du pass grille : lattice ⊆ rotations permises, grille ⊆ tôle, `insideSheet` bloquant pour l'alternative structurelle (repli moteur, pièges #49/#50)
 - Prod : `docker compose pull && docker compose up -d` sur Hetzner
   (`/opt/nestorcut`) ; débordement : idem dans `/containers/nestorcut-overflow`
