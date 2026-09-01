@@ -388,7 +388,15 @@ def apply_hole_fill(input_items, layouts, space):
     """Rewrite in-place les transforms des fillers libres replacés en
     pinwheel dans un trou ayant de la place. Renvoie le nb de fillers
     relocalisés. Déterministe : ordre de parcours des layouts/placements.
-    Validation exacte : trou érodé de `space`, spacing ≥ `space`."""
+    Validation exacte : trou érodé de `space`, spacing ≥ `space`.
+
+    BPP : tout est scopé PAR TÔLE (2026-09-01). Les layouts BPP partagent
+    le repère de coordonnées — pooler les trous/libres à travers les tôles
+    laissait `nested_hole` classer un fan d'une tôle comme occupant du trou
+    coïncidant d'une AUTRE tôle, et le repli pinwheel posait alors deux
+    jeux de poses canoniques au même point (paires « jumeaux » à pose
+    identique) tout en téléportant des fans entre tôles (le placement reste
+    dans la liste de SA tôle). SPP (un layout) : comportement inchangé."""
     by_id = {i["id"]: i for i in input_items}
     space = float(space or 0)
     placed = []  # [layout][k] = (item, rot, tx, ty, poly)
@@ -401,6 +409,19 @@ def apply_hole_fill(input_items, layouts, space):
                         _placed(it, tr["rotation"], tr["translation"][0], tr["translation"][1])])
         placed.append(row)
 
+    deadline = time.monotonic() + PACK_BUDGET_SEC
+    recovered = 0
+    for row in placed:
+        recovered += _fill_one_sheet_holes(row, by_id, space, deadline)
+    if recovered:
+        _write_back(layouts, placed)
+    return recovered
+
+
+def _fill_one_sheet_holes(row, by_id, space, deadline):
+    """apply_hole_fill d'UNE tôle : trous, libres et membres ne mélangent
+    jamais les layouts (voir apply_hole_fill). Retourne le nb relocalisés."""
+
     def holes_world(entry):
         it, rot, tx, ty, _ = entry
         out = []
@@ -408,7 +429,7 @@ def apply_hole_fill(input_items, layouts, space):
             out.append(translate(rotate(Polygon(h), rot, origin=(0, 0)), tx, ty))
         return out
 
-    hosts = [e for row in placed for e in row if e[0]["holes"]]
+    hosts = [e for e in row if e[0]["holes"]]
     holes = [(h_entry, hw) for h_entry in hosts for hw in holes_world(h_entry)]
 
     def nested_hole(poly):
@@ -420,18 +441,16 @@ def apply_hole_fill(input_items, layouts, space):
 
     free = []
     hole_members = {hi: [] for hi in range(len(holes))}
-    for row in placed:
-        for e in row:
-            if e[0]["holes"]:
-                continue
-            hi = nested_hole(e[4])
-            if hi is None:
-                free.append(e)
-            else:
-                hole_members[hi].append(e)
+    for e in row:
+        if e[0]["holes"]:
+            continue
+        hi = nested_hole(e[4])
+        if hi is None:
+            free.append(e)
+        else:
+            hole_members[hi].append(e)
 
     recovered = 0
-    deadline = time.monotonic() + PACK_BUDGET_SEC
 
     def hole_capacity(ring, fill_item):
         """Capacité pinwheel VALIDÉE du trou pour ce type de filler, à
@@ -526,8 +545,6 @@ def apply_hole_fill(input_items, layouts, space):
             if e in free:
                 free.remove(e)
                 recovered += 1
-    if recovered:
-        _write_back(layouts, placed)
     return recovered
 
 

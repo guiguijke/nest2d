@@ -426,14 +426,28 @@ export function expandPacks(parts, packs, layouts) {
 export function applyHoleFill(parts, layouts, space) {
     const margin = Math.max(0, Number(space) || 0)
     const byId = new Map(parts.map((p) => [String(p.id), p]))
-    const entries = [] // {item, pi, poly}
+    // BPP : scopé PAR TÔLE (2026-09-01) — les layouts BPP partagent le
+    // repère de coordonnées ; pooler trous/libres à travers les tôles
+    // laissait nestedHole classer un fan d'une tôle comme occupant du trou
+    // coïncidant d'une AUTRE, et le repli pinwheel posait deux jeux de
+    // poses canoniques au même point (« jumeaux » à pose identique) en
+    // téléportant des fans entre tôles. SPP (un layout) : inchangé.
+    // Miroir de holefill._fill_one_sheet_holes.
+    const deadline = Date.now() + PACK_BUDGET_MS
+    let recovered = 0
     for (const layout of layouts) {
-        for (const pi of layout.placed_items || []) {
-            const item = byId.get(String(pi.item_id))
-            if (!item) continue
-            const t = pi.transformation || {}
-            entries.push({ item, pi, poly: _placedPoly(item.coords, t.rotation ?? 0, ...(t.translation || [0, 0])) })
-        }
+        recovered += _fillOneSheetHoles(layout, byId, margin, deadline)
+    }
+    return recovered
+}
+
+function _fillOneSheetHoles(layout, byId, margin, deadline) {
+    const entries = [] // {item, pi, poly}
+    for (const pi of layout.placed_items || []) {
+        const item = byId.get(String(pi.item_id))
+        if (!item) continue
+        const t = pi.transformation || {}
+        entries.push({ item, pi, poly: _placedPoly(item.coords, t.rotation ?? 0, ...(t.translation || [0, 0])) })
     }
     const holes = [] // {holeRing(world), members[], }
     for (const e of entries) {
@@ -455,7 +469,6 @@ export function applyHoleFill(parts, layouts, space) {
         else holes[hi].members.push(e)
     }
     let recovered = 0
-    const deadline = Date.now() + PACK_BUDGET_MS
     // Capacité pinwheel VALIDÉE du trou pour ce type de filler, à
     // l'espacement courant (jamais la capacité théorique) — miroir de
     // holefill.hole_capacity.
@@ -810,6 +823,14 @@ export async function buildAlternativeArtifacts(result, payload) {
                 }
             }
             if (!selfContained && payload?.fillHoles !== false) applyHoleFill(parts, layouts, space)
+            // D-MOT-19 : bandes résiduelles BPP (miroir core/residual.py) —
+            // APRÈS hole-fill (les trous sont de meilleurs emplacements),
+            // AVANT SVG/rapport/DXF sinon le livrable ignore le pass.
+            if (!selfContained && !alt.structural
+                && ((payload?.problem || 'spp') !== 'spp' || layouts.length >= 2)) {
+                const { fillResidualBands } = await import('./residualClient')
+                fillResidualBands(parts, layouts, space, payload)
+            }
             const containers = []
             const sheets = []
             for (const layout of layouts) {

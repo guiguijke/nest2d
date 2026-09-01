@@ -345,6 +345,79 @@ describe('applyHoleFill — gardes anti double-remplissage (miroir d57cbea)', ()
     })
 })
 
+describe('applyHoleFill BPP — scoping par tôle (miroir test_holefill_bpp.py)', () => {
+    // Constat 2026-09-01 : les layouts BPP partagent le repère de
+    // coordonnées ; pooler trous/libres à travers les tôles téléportait
+    // les fans d'une tôle vers les coordonnées du trou coïncidant d'une
+    // autre (« jumeaux » à pose identique sur le banc 2×1000×1000).
+    const circle = (cx, cy, r, n = 64) => {
+        const pts = Array.from({ length: n }, (_, i) => [
+            cx + r * Math.cos((2 * Math.PI * i) / n),
+            cy + r * Math.sin((2 * Math.PI * i) / n),
+        ])
+        pts.push([...pts[0]])
+        return pts
+    }
+    const sector = (() => {
+        const pts = [[2.83, 2.83]]
+        for (let i = 0; i <= 8; i++) {
+            const a = (5 * Math.PI) / 180 + ((80 * Math.PI) / 180) * (i / 8)
+            pts.push([28 * Math.cos(a), 28 * Math.sin(a)])
+        }
+        pts.push([2.83, 2.83])
+        return pts
+    })()
+    const host = (count) => ({
+        id: 0,
+        coords: [[-50, -50], [-50, 50], [50, 50], [50, -50], [-50, -50]],
+        holes: [circle(0, 0, 35)],
+        count,
+    })
+    const fill = (count) => ({ id: 1, coords: sector, holes: [], count, rotations: [0, 90, 180, 270] })
+    const t = (id, rot, x, y) => ({ item_id: id, transformation: { rotation: rot, translation: [x, y] } })
+    const posesOf = (layout) => layout.placed_items
+        .filter((pi) => pi.item_id === 1)
+        .map((pi) => `${pi.transformation.rotation}|${pi.transformation.translation}`)
+
+    it('trous coïncidants : chaque tôle remplit SON trou avec SES fans, aucun jumeau', () => {
+        const layouts = [
+            { placed_items: [
+                t(0, 0, 500, 500),
+                t(1, 0, 800, 200), t(1, 90, 850, 200), t(1, 180, 900, 200), t(1, 270, 950, 200),
+            ] },
+            { placed_items: [
+                t(0, 0, 500, 500),
+                t(1, 0, 100, 200), t(1, 90, 150, 200), t(1, 180, 200, 200), t(1, 270, 250, 200),
+            ] },
+        ]
+        const rec = applyHoleFill([host(2), fill(8)], layouts, 2)
+        expect(rec).toBe(8)
+        for (const layout of layouts) {
+            const inHole = layout.placed_items.filter((pi) => pi.item_id === 1
+                && Math.hypot(pi.transformation.translation[0] - 500,
+                    pi.transformation.translation[1] - 500) < 1)
+            expect(inHole).toHaveLength(4)
+            expect(new Set(posesOf({ placed_items: inHole })).size).toBe(4) // aucun jumeau
+        }
+    })
+
+    it('pas de téléport : les libres de la tôle 1 ne remplissent pas le trou vide de la tôle 2', () => {
+        const layouts = [
+            { placed_items: [
+                t(0, 0, 500, 500),
+                t(1, 0, 500, 500), t(1, 90, 500, 500), t(1, 180, 500, 500), t(1, 270, 500, 500),
+                t(1, 0, 800, 800), t(1, 90, 850, 800),
+            ] },
+            { placed_items: [t(0, 0, 500, 500)] },
+        ]
+        const before = JSON.stringify(layouts[0].placed_items)
+        const rec = applyHoleFill([host(2), fill(6)], layouts, 2)
+        expect(rec).toBe(0)
+        expect(JSON.stringify(layouts[0].placed_items)).toBe(before)
+        expect(layouts[1].placed_items).toHaveLength(1)
+    })
+})
+
 describe('holesFillCap (miroir verify_layout, d57cbea)', () => {
     // Mêmes fixtures que test_metrics.py : hôte 40×40 trou [15..25]², filler
     // 6×6 empilé n fois en (17,17) (centroïde (20,20) dans le trou).
