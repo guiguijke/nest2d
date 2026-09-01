@@ -4,6 +4,7 @@ import {
     displayDirectionArrow,
     engineToDisplay,
     isSheetPortrait,
+    livePaneLayout,
     sheetAxesDisplay,
     sheetDisplaySize,
     sheetLandscapeTransform,
@@ -61,5 +62,51 @@ describe('sheetView landscape display', () => {
             expect(p.x).toBeLessThan(ax.viewW)
             expect(p.y).toBeLessThan(ax.viewH)
         }
+    })
+})
+
+describe('livePaneLayout — vue live BPP, une tôle par panneau', () => {
+    // Constat 2026-09-01 : le rendu live ignorait l'index de tôle des
+    // items BPP et superposait toutes les tôles sur un seul contour.
+    it('SPP / bins absents : un seul panneau ancré à l\'origine (rendu inchangé)', () => {
+        const pl = livePaneLayout([[1000, 2000]], [])
+        expect(pl.panes).toHaveLength(1)
+        expect(pl.panes[0]).toMatchObject({ bin: 0, dx: 0, w: 1000, h: 2000 })
+        // 1000×2000 portrait → affichage paysage 2000 de large.
+        expect(pl.panes[0].viewW).toBe(2000)
+        expect(pl.panes[0].landscape).toBe('translate(2000 0) rotate(90)')
+        expect(pl.totalW).toBe(2000)
+        expect(pl.truncated).toBe(0)
+    })
+
+    it('deux tôles : panneaux côte à côte, décalés de viewW + gap', () => {
+        const pl = livePaneLayout([[1000, 1000]], [0, 1])
+        expect(pl.panes.map((p) => p.bin)).toEqual([0, 1])
+        expect(pl.panes[0].dx).toBe(0)
+        expect(pl.gap).toBeCloseTo(1000 * 0.05, 6)
+        expect(pl.panes[1].dx).toBeCloseTo(1000 + 1000 * 0.05, 6)
+        expect(pl.totalW).toBeCloseTo(pl.panes[1].dx + 1000, 6)
+    })
+
+    it('formats mixtes : chaque bin prend SES dims (repli entrée 0 si absente)', () => {
+        const pl = livePaneLayout([[1000, 1000], [1500, 3000]], [0, 1])
+        expect(pl.panes[0]).toMatchObject({ w: 1000, h: 1000, viewW: 1000 })
+        expect(pl.panes[1]).toMatchObject({ w: 1500, h: 3000, viewW: 3000 })
+        // Frames locales sans per-bin : repli sur l'entrée 0 pour le bin 3.
+        const fallback = livePaneLayout([[1000, 1000]], [3])
+        expect(fallback.panes[0]).toMatchObject({ bin: 3, w: 1000, h: 1000 })
+    })
+
+    it('plafond : au-delà de max, tôles tronquées comptées, pas de panneaux', () => {
+        const pl = livePaneLayout([[1000, 1000]], [0, 1, 2, 3, 4, 5, 6, 7], 6)
+        expect(pl.panes).toHaveLength(6)
+        expect(pl.panes.map((p) => p.bin)).toEqual([0, 1, 2, 3, 4, 5])
+        expect(pl.truncated).toBe(2)
+    })
+
+    it('bins non contigus triés (0 et 3 → deux panneaux ordonnés)', () => {
+        const pl = livePaneLayout([[1000, 1000]], [3, 0])
+        expect(pl.panes.map((p) => p.bin)).toEqual([0, 3])
+        expect(pl.panes[1].dx).toBeGreaterThan(pl.panes[0].dx)
     })
 })

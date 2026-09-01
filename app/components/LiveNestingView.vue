@@ -24,7 +24,10 @@
         </div>
 
         <div class="live__body">
-            <!-- Main view: champion of the selected strategy (default: left). -->
+            <!-- Main view: champion of the selected strategy (default: left).
+                 BPP : une tôle par panneau côte à côte (jusqu'à
+                 MAX_LIVE_SHEETS) — l'ancien rendu ignorait l'index de
+                 tôle des items et superposait tout sur un seul contour. -->
             <svg
                 v-if="sheet"
                 :viewBox="viewBox"
@@ -32,36 +35,54 @@
                 preserveAspectRatio="xMidYMid meet"
             >
                 <defs>
+                    <!-- clipPathUnits=userSpaceOnUse : le rect est lu dans
+                         l'espace local de CHAQUE groupe référençant — un
+                         seul rect sert tous les panneaux. -->
                     <clipPath :id="clipId">
                         <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" />
                     </clipPath>
                 </defs>
-                <g :transform="landscapeTransform">
-                    <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" class="live__sheet-bg" />
-                    <g :clip-path="`url(#${clipId})`">
-                        <path
-                            v-for="(item, i) in mainItems"
-                            :key="i"
-                            :d="item.d"
-                            :transform="partTransform(item, sheet[1])"
-                            class="live__part"
-                            :fill="item.color"
-                            :fill-opacity="partFillOpacity"
-                            :stroke="item.color"
-                            fill-rule="evenodd"
-                        />
+                <g
+                    v-for="pane in mainPanes.panes"
+                    :key="pane.bin"
+                    :transform="`translate(${pane.dx} 0)`"
+                >
+                    <g :transform="pane.landscape">
+                        <rect x="0" y="0" :width="pane.w" :height="pane.h" class="live__sheet-bg" />
+                        <g :clip-path="`url(#${clipId})`">
+                            <path
+                                v-for="(item, i) in mainItemsByBin.get(pane.bin) || []"
+                                :key="i"
+                                :d="item.d"
+                                :transform="partTransform(item, pane.h)"
+                                class="live__part"
+                                :fill="item.color"
+                                :fill-opacity="partFillOpacity"
+                                :stroke="item.color"
+                                fill-rule="evenodd"
+                            />
+                        </g>
+                        <text
+                            v-if="!mainItems.length && pane.bin === mainPanes.panes[0].bin"
+                            :x="pane.w / 2"
+                            :y="pane.h / 2"
+                            text-anchor="middle"
+                            class="live__placeholder"
+                        >
+                            {{ t('live.waiting') }}
+                        </text>
                     </g>
-                    <text
-                        v-if="!mainItems.length"
-                        :x="sheet[0] / 2"
-                        :y="sheet[1] / 2"
-                        text-anchor="middle"
-                        class="live__placeholder"
-                    >
-                        {{ t('live.waiting') }}
-                    </text>
+                    <SheetAxes :width="pane.w" :height="pane.h" />
                 </g>
-                <SheetAxes :width="sheet[0]" :height="sheet[1]" />
+                <text
+                    v-if="mainPanes.truncated"
+                    :x="mainPanes.totalW - mainPanes.gap / 2"
+                    :y="mainPanes.totalH / 2"
+                    text-anchor="middle"
+                    class="live__placeholder"
+                >
+                    +{{ mainPanes.truncated }}
+                </text>
             </svg>
 
             <!-- One card per strategy: its own champion-locked track. Click
@@ -78,25 +99,31 @@
                     <span class="live__card-label">{{ t(`settings.directions.${card.cls}`) }}</span>
                     <svg
                         v-if="card.champ && sheet"
-                        :viewBox="displayViewBoxFull"
+                        :viewBox="`0 0 ${card.panes.totalW} ${card.panes.totalH}`"
                         class="live__card-sheet"
                         preserveAspectRatio="xMidYMid meet"
                     >
-                        <g :transform="landscapeTransform">
-                        <rect x="0" y="0" :width="sheet[0]" :height="sheet[1]" class="live__sheet-bg" />
-                        <g :clip-path="`url(#${clipId})`">
-                            <path
-                                v-for="(item, i) in card.items"
-                                :key="i"
-                                :d="item.d"
-                                :transform="partTransform(item, sheet[1])"
-                                class="live__part"
-                                :fill="item.color"
-                                :fill-opacity="partFillOpacity"
-                                :stroke="item.color"
-                                fill-rule="evenodd"
-                            />
-                        </g>
+                        <g
+                            v-for="pane in card.panes.panes"
+                            :key="pane.bin"
+                            :transform="`translate(${pane.dx} 0)`"
+                        >
+                            <g :transform="pane.landscape">
+                                <rect x="0" y="0" :width="pane.w" :height="pane.h" class="live__sheet-bg" />
+                                <g :clip-path="`url(#${clipId})`">
+                                    <path
+                                        v-for="(item, i) in card.paneItems.get(pane.bin) || []"
+                                        :key="i"
+                                        :d="item.d"
+                                        :transform="partTransform(item, pane.h)"
+                                        class="live__part"
+                                        :fill="item.color"
+                                        :fill-opacity="partFillOpacity"
+                                        :stroke="item.color"
+                                        fill-rule="evenodd"
+                                    />
+                                </g>
+                            </g>
                         </g>
                     </svg>
                     <span v-if="card.champ" class="live__card-metric">
@@ -126,9 +153,8 @@
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import {
     engineToDisplay,
+    livePaneLayout,
     sheetAxesDisplay,
-    sheetDisplaySize,
-    sheetLandscapeTransform,
 } from '~/utils/sheetView';
 // Champion live partagé avec le registre de solves (R-6 audit 2026-08-31) :
 // une seule définition de « meilleure frame » — la couche registre filtrait
@@ -213,7 +239,9 @@ function buildItems(snap, itemMap, cache) {
         const m = byId[id];
         const part = m && cache[m.slug]?.[m.part];
         if (!part) continue;
-        out.push({ d: part.d, color: part.color || FALLBACK_PART_COLOR, rot, x, y });
+        // bin conservé (0 pour le SPP) : le rendu BPP répartit les pièces
+        // par tôle au lieu de les superposer sur le contour unique.
+        out.push({ d: part.d, color: part.color || FALLBACK_PART_COLOR, rot, x, y, bin: bin ?? 0 });
     }
     return out;
 }
@@ -374,27 +402,37 @@ function mapPlacedEngine(px, py, item) {
     return [item.x + rx, item.y + ry]
 }
 
-const landscapeTransform = computed(() => {
-    const s = sheet.value
-    if (!s) return ''
-    return sheetLandscapeTransform(s[0], s[1])
-})
+// ---- BPP : panneaux (une tôle visible par panneau) ---------------------------
+// Plafond d'affichage — au-delà, les tôles restantes ne sont pas dessinées
+// et un « +N » l'indique (limite de visualisation demandée 2026-09-01).
+const MAX_LIVE_SHEETS = 6;
 
-const displayViewBoxFull = computed(() => {
-    const s = sheet.value
-    if (!s) return '0 0 1 1'
-    const { viewW, viewH } = sheetDisplaySize(s[0], s[1])
-    return `0 0 ${viewW} ${viewH}`
-})
+function paneLayoutFor(snap, items) {
+    const sheets = snap?.sheets?.length ? snap.sheets : (sheet.value ? [sheet.value] : [[1, 1]]);
+    return livePaneLayout(sheets, items.map((it) => it.bin ?? 0), MAX_LIVE_SHEETS);
+}
+
+function itemsByPane(panes, items) {
+    const map = new Map(panes.panes.map((p) => [p.bin, []]));
+    for (const it of items) {
+        const arr = map.get(it.bin ?? 0);
+        if (arr) arr.push(it);
+    }
+    return map;
+}
+
+const mainPanes = computed(() => paneLayoutFor(best.value, mainItems.value));
+const mainItemsByBin = computed(() => itemsByPane(mainPanes.value, mainItems.value));
 
 // Zoom onto the used region in DISPLAY space. Axes stay in frame (origin
 // is always included). Export geometry is unchanged.
 const viewBox = computed(() => {
     const s = sheet.value
     if (!s) return '0 0 1 1'
-    const [W, H] = s
-    const { viewW, viewH } = sheetDisplaySize(W, H)
-    const full = `0 0 ${viewW} ${viewH}`
+    const pl = mainPanes.value
+    const totalW = pl.totalW
+    const totalH = Math.max(pl.totalH, 1)
+    const full = `0 0 ${totalW} ${totalH}`
     const items = mainItems.value
     if (!items.length) return full
     let minX = Infinity
@@ -407,26 +445,32 @@ const viewBox = computed(() => {
         if (x > maxX) maxX = x
         if (y > maxY) maxY = y
     }
-    const ax = sheetAxesDisplay(W, H)
-    include(ax.origin.x, ax.origin.y)
-    include(ax.xTo.x, ax.xTo.y)
-    include(ax.yTo.x, ax.yTo.y)
+    for (const pane of pl.panes) {
+        const ax = sheetAxesDisplay(pane.w, pane.h)
+        include(pane.dx + ax.origin.x, ax.origin.y)
+        include(pane.dx + ax.xTo.x, ax.xTo.y)
+        include(pane.dx + ax.yTo.x, ax.yTo.y)
+    }
+    const paneByBin = new Map(pl.panes.map((p) => [p.bin, p]))
     for (const item of items) {
+        const pane = paneByBin.get(item.bin ?? 0)
+        // Tôle au-delà du plafond d'affichage : non dessinée, hors zoom.
+        if (!pane) continue
         for (const [px, py] of itemLocalCorners(item)) {
             const [ex, ey] = mapPlacedEngine(px, py, item)
-            const [dx, dy] = engineToDisplay(ex, ey, W, H)
-            include(dx, dy)
+            const [dx, dy] = engineToDisplay(ex, ey, pane.w, pane.h)
+            include(pane.dx + dx, dy)
         }
     }
     if (!Number.isFinite(minX)) return full
     const bw = Math.max(1, maxX - minX)
     const bh = Math.max(1, maxY - minY)
-    if ((bw * bh) / (viewW * viewH) >= 0.4) return full
-    const pad = Math.max(bw, bh) * 0.14 + Math.max(viewW, viewH) * 0.02
+    if ((bw * bh) / (totalW * totalH) >= 0.4) return full
+    const pad = Math.max(bw, bh) * 0.14 + Math.max(totalW, totalH) * 0.02
     const vx = Math.max(0, minX - pad)
     const vy = Math.max(0, minY - pad)
-    const vw = Math.min(viewW - vx, bw + pad * 2)
-    const vh = Math.min(viewH - vy, bh + pad * 2)
+    const vw = Math.min(totalW - vx, bw + pad * 2)
+    const vh = Math.min(totalH - vy, bh + pad * 2)
     return `${vx} ${vy} ${vw} ${vh}`
 });
 
@@ -443,10 +487,14 @@ const classCards = computed(() => {
     );
     return classes.map((cls) => {
         const champ = champions.value[cls] || null;
+        const items = buildItems(champ, props.result?.itemMap, geometryCache.value);
+        const panes = paneLayoutFor(champ, items);
         return {
             cls,
             champ,
-            items: buildItems(champ, props.result?.itemMap, geometryCache.value),
+            items,
+            panes,
+            paneItems: itemsByPane(panes, items),
         };
     });
 });

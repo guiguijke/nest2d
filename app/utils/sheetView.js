@@ -34,6 +34,49 @@ export function engineToDisplay(ex, ey, width, height) {
 }
 
 /**
+ * Vue live BPP : un PANNEAU par tôle visible, côte à côte en espace écran
+ * (dx) — les items BPP portent l'index de tôle mais l'ancien rendu
+ * l'ignorait et superposait toutes les tôles sur le contour unique
+ * (constat 2026-09-01). `sheets` = dims par bin ([[w, h], …], repli sur
+ * l'entrée 0 — les frames locales ne portent qu'un format). Au-delà de
+ * `max` tôles, les suivantes ne sont pas dessinées : `truncated` les
+ * compte pour l'indicateur « +N ».
+ */
+export function livePaneLayout(sheets, bins, max = 6, gapRatio = 0.05) {
+    const dims = (bin) => {
+        const s = (sheets != null && sheets.length)
+            ? (sheets[Math.min(bin, sheets.length - 1)] || sheets[0])
+            : null
+        return { w: Number(s?.[0]) || 1, h: Number(s?.[1]) || 1 }
+    }
+    const uniq = [...new Set(bins)]
+    const shown = uniq.sort((a, b) => a - b).slice(0, max)
+    if (!shown.length) shown.push(0)
+    const gap = sheetDisplaySize(dims(0).w, dims(0).h).viewW * gapRatio
+    let dx = 0
+    const panes = shown.map((bin) => {
+        const { w, h } = dims(bin)
+        const pane = {
+            bin,
+            w,
+            h,
+            ...sheetDisplaySize(w, h),
+            landscape: sheetLandscapeTransform(w, h),
+            dx,
+        }
+        dx += pane.viewW + gap
+        return pane
+    })
+    return {
+        panes,
+        truncated: Math.max(0, uniq.length - panes.length),
+        totalW: Math.max(...panes.map((p) => p.dx + p.viewW)),
+        totalH: Math.max(...panes.map((p) => p.viewH)),
+        gap,
+    }
+}
+
+/**
  * Origin + axis tips in DISPLAY coordinates.
  * Landscape (W≥H): origin bottom-left, +X right, +Y up.
  * Portrait rotated: origin top-left, +X down, +Y right (length along the screen).
