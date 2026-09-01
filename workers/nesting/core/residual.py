@@ -47,15 +47,20 @@ N_ITER = 4
 _EPS = 1e-6
 
 
-def _placed_poly(item, rot, tx, ty):
+def _placed_poly(item, rot, tx, ty, simplify=True):
     from shapely.affinity import rotate, translate
     from shapely.geometry import Polygon
     # Pièce AVEC ses trous (un hôte sans ses trous intersecte ses propres
     # fillers nichés) et SIMPLIFIÉE : le moteur solve sur anneaux
     # simplifiés — c'est à cette échelle que l'espacement est garanti.
+    # simplify=False : anneau BRUT — le test de couverture tôle l'exige
+    # (le simplify peut plonger un sommet de ~0,05 sous un bord touché
+    # exactement, cf. compaction ancre au bord, 2026-09-02).
     poly = Polygon(item["coords"], item.get("holes") or [])
     poly = translate(rotate(poly, float(rot), origin=(0, 0)), float(tx), float(ty))
-    return poly.simplify(_SIMPLIFY_MM, preserve_topology=True)
+    if simplify:
+        poly = poly.simplify(_SIMPLIFY_MM, preserve_topology=True)
+    return poly
 
 
 def layout_aabb(layout, items_by_id):
@@ -199,7 +204,16 @@ def _validate_batch(new_pis, layout, items_by_id, sheet_w, sheet_h, space):
         tr = pi["transformation"]
         poly = _placed_poly(it, tr["rotation"], tr["translation"][0],
                             tr["translation"][1])
-        if not sheet.covers(poly):
+        # Couverture tôle sur l'anneau BRUT et par bornes ±_EPS (miroir
+        # exact du bbox-check JS) : le simplify peut plonger un sommet sous
+        # un bord exactement touché, et le lattice cale ses rangées au
+        # bord avec un bruit flottant (ty=-2.8000000000000007 → y_min
+        # = -6.7e-16) — `covers` strict refusait les deux (2026-09-02).
+        raw = _placed_poly(it, tr["rotation"], tr["translation"][0],
+                           tr["translation"][1], simplify=False)
+        bminx, bminy, bmaxx, bmaxy = raw.bounds
+        if (bminx < -_EPS or bminy < -_EPS
+                or bmaxx > sheet_w + _EPS or bmaxy > sheet_h + _EPS):
             return False
         for other_pi, other in all_polys:
             if other_pi is pi:
@@ -209,17 +223,21 @@ def _validate_batch(new_pis, layout, items_by_id, sheet_w, sheet_h, space):
     return True
 
 
-def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space):
+def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
+                    free=None):
     """Un batch : une bande de layouts[dst_i] remplie depuis les libres de
     layouts[src_i]. Retourne le nombre de pièces déplacées (0 = plus rien
-    à faire sur cette tôle). Rollback du batch si la validation échoue."""
+    à faire sur cette tôle). Rollback du batch si la validation échoue.
+    `free` surcharge la liste des donneuses (compaction : donneuses
+    détachées, src == dst)."""
     dst = layouts[dst_i]
     src = layouts[src_i]
     sw, sh = bin_dims[dst["container_id"]]
     used = layout_aabb(dst, items_by_id)
     if used is None:
         return 0
-    free = _free_pis(src, items_by_id)
+    if free is None:
+        free = _free_pis(src, items_by_id)
     if not free:
         return 0
 
@@ -257,7 +275,12 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space):
             tr = lp["transformation"]
             pi["transformation"] = {"rotation": tr["rotation"],
                                     "translation": tuple(tr["translation"])}
-            src["placed_items"].remove(pi)
+            # Compaction (src == dst) : la donneuse est détachée, le
+            # remove par valeur la lèverait — l'identité suffit.
+            try:
+                src["placed_items"].remove(pi)
+            except ValueError:
+                pass
             dst["placed_items"].append(pi)
         if _validate_batch([pi for pi, _ in batch], dst, items_by_id,
                            sw, sh, space):
@@ -268,6 +291,65 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space):
             pi["transformation"] = old_tr
             src["placed_items"].append(pi)
     return 0
+
+
+class _CompactRollback(Exception):
+    """Compaction avortée : restauration complète de la tôle (no-op)."""
+
+
+def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space):
+    """Compaction de la tôle donneuse (constat 2026-09-02 « pas optimisé
+    −X ») : le moteur BPP ne compacte PAS la dernière tôle (coût = tôles +
+    remnant, pas la direction par tôle) et le remplissage des tôles
+    précédentes y laisse un amas dispersé. Ici les pièces LIBRES de la
+    tôle sont détachées puis re-posées en lattice compact DERRIÈRE le
+    bloc ancré (hôtes + nichées) — les colonnes poussent depuis l'ancre,
+    la chute redevient un rectangle unique. Tout-ou-rien : des libres non
+    replacées qui ne rentrent plus à leur pose d'origine restaurent
+    l'état d'avant."""
+    last = layouts[sheet_i]
+    sw, sh = bin_dims[last["container_id"]]
+    free = _free_pis(last, items_by_id)
+    if not free:
+        return 0
+    free_ids = {id(pi) for pi in free}
+    anchor = [pi for pi in last.get("placed_items", []) if id(pi) not in free_ids]
+    if not anchor:
+        return 0
+    snapshot = copy.deepcopy(last.get("placed_items", []))
+    saved_poses = {id(pi): dict(pi["transformation"]) for pi in free}
+    try:
+        for pi in free:
+            last["placed_items"] = [x for x in last["placed_items"]
+                                    if x is not pi]
+        moved = 0
+        while True:
+            remaining = [pi for pi in free
+                         if not any(x is pi for x in last["placed_items"])]
+            if not remaining:
+                break
+            n = _fill_one_batch(layouts, sheet_i, sheet_i, items_by_id,
+                                bin_dims, space, free=remaining)
+            if not n:
+                break
+            moved += n
+        # Libres non replacées (capacité < donneuses) : retour à la pose
+        # d'origine — validé contre le layout final, les nouvelles colonnes
+        # ont pu recouvrir leur ancienne position.
+        restore = [pi for pi in free
+                   if not any(x is pi for x in last["placed_items"])]
+        for pi in restore:
+            pi["transformation"] = saved_poses[id(pi)]
+            last["placed_items"].append(pi)
+        if restore and not _validate_batch(restore, last, items_by_id,
+                                           sw, sh, space):
+            raise _CompactRollback()
+        if not moved:
+            raise _CompactRollback()
+        return moved
+    except _CompactRollback:
+        last["placed_items"] = snapshot
+        return 0
 
 
 def fill_residual_bands(layouts, input_items, bin_dims, space):
@@ -304,6 +386,19 @@ def fill_residual_bands(layouts, input_items, bin_dims, space):
             layouts[:] = [l for l in layouts if l.get("placed_items")]
             if len(layouts) < 2 or not progress:
                 break
+        # Compaction de la tôle la moins remplie (la donneuse — ses libres
+        # non consommées par les bandes des tôles précédentes) : le moteur
+        # BPP ne la compacte pas dans la direction d'optimisation, la
+        # « chute » y serait un amas dispersé à front dentelé (constat
+        # user 2026-09-02 : « pas optimisé −X »). Uniquement s'il reste
+        # PLUSIEURS tôles : une tôle unique = la donneuse a été vidée et
+        # retirée, rien à compacter (contrat T8). Miroir JS :
+        # residualClient._compactLastSheet.
+        if len(layouts) >= 2:
+            ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
+            last = min(range(len(layouts)), key=lambda i: (ratios[i], -i))
+            moved += _compact_last_sheet(layouts, last, items_by_id,
+                                         bin_dims, space)
         return moved
     except Exception as e:
         # Filet : l'alternative reste INTACTE (contrat apply_hole_fill).

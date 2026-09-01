@@ -100,6 +100,39 @@ describe('smallLattice dans une bande de 79 mm (T2)', () => {
     })
 })
 
+describe('fillResidualBands — compaction de la dernière tôle (T10, miroir test_residual.py)', () => {
+    it("libres re-posées en bloc compact derrière l'ancre (constat 2026-09-02 « pas optimisé −X »)", () => {
+        // Tôle 0 pleine (AABB collée aux bords → aucune bande) ; donneuse =
+        // colonne d'hôtes à gauche (seule la bande DROITE existe) + 25 fans
+        // dispersées jusqu'à x=880. Après le pass : tout est recompacté
+        // derrière l'ancre, la chute redevient un rectangle unique.
+        const hosts0 = []
+        for (let gx = 0; gx < 10; gx++) {
+            for (let gy = 0; gy < 10; gy++) hosts0.push(pi(0, 50 + 100 * gx, 50 + 100 * gy))
+        }
+        const hosts1 = []
+        for (let k = 0; k < 10; k++) hosts1.push(pi(0, 150, 50 + 100 * k))
+        const free = []
+        for (let k = 0; k < 25; k++) {
+            free.push(pi(1, 500 + 60 * (k % 7), 100 + 70 * Math.floor(k / 7)))
+        }
+        const layouts = [layout(hosts0), layout([...hosts1, ...free])]
+
+        const n = fillResidualBands(PARTS, layouts, 2, payload)
+        expect(n).toBeGreaterThan(0)
+        expect(layouts[0].placed_items).toHaveLength(100)
+        const l1Fans = layouts[1].placed_items.filter((p) => p.item_id === 1)
+        expect(l1Fans).toHaveLength(25)
+        for (const p of l1Fans) {
+            const tx = p.transformation.translation[0]
+            expect(tx).toBeGreaterThanOrEqual(195)
+            expect(tx).toBeLessThanOrEqual(450)
+        }
+        const aabb = layoutAabb(layouts[1], new Map(PARTS.map((p) => [String(p.id), p])))
+        expect(aabb[2]).toBeLessThanOrEqual(500)
+    })
+})
+
 describe('fillResidualBands — miroir Python (T3/T4/T5)', () => {
     it('T9 : donneurs suffisants → le coin TR est couvert (constat 2026-09-01)', () => {
         // Scénario user 2×1000×1000 : tôle 1 = bloc AABB x[100,900] y[100,900],

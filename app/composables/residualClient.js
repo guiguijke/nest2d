@@ -218,13 +218,15 @@ function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
     return true
 }
 
-function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space, payload) {
+function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space, payload, freeArg = null) {
     const dst = layouts[dstI]
     const src = layouts[srcI]
     const [sw, sh] = sheetDimsOf(dst)
     const used = layoutAabb(dst, partsById)
     if (!used) return 0
-    const free = freePis(src, partsById)
+    // `freeArg` surcharge la liste des donneuses (compaction : donneuses
+    // détachées, src == dst) — miroir du paramètre `free` Python.
+    const free = freeArg || freePis(src, partsById)
     if (!free.length) return 0
 
     for (const band of residualBands(used, sw, sh, space)) {
@@ -282,6 +284,57 @@ function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space, payloa
  * @param {object} payload payload local (problem, instance, engineConfig)
  * @returns {number} pièces déplacées (0 = no-op)
  */
+/**
+ * Compaction de la tôle donneuse (miroir de residual._compact_last_sheet,
+ * constat user 2026-09-02 « pas optimisé −X ») : le moteur BPP ne compacte
+ * pas la dernière tôle (coût = tôles + remnant, pas la direction par
+ * tôle). Les pièces LIBRES sont détachées puis re-posées en lattice
+ * compact DERRIÈRE le bloc ancré (hôtes + nichées) — les colonnes
+ * poussent depuis l'ancre, la chute redevient un rectangle unique.
+ * Tout-ou-rien : des libres non replacées qui ne rentrent plus à leur
+ * pose d'origine restaurent l'état d'avant (no-op).
+ */
+function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space, payload) {
+    const last = layouts[sheetI]
+    const [sw, sh] = sheetDimsOf(last)
+    const free = freePis(last, partsById)
+    if (!free.length) return 0
+    const freeSet = new Set(free)
+    const hasAnchor = (last.placed_items || []).some((pi) => !freeSet.has(pi))
+    if (!hasAnchor) return 0
+    const snapshot = JSON.parse(JSON.stringify(last.placed_items || []))
+    const savedPoses = new Map(free.map((pi) => [pi, { ...pi.transformation }]))
+    const placedHas = (pi) => (last.placed_items || []).some((x) => x === pi)
+    try {
+        last.placed_items = (last.placed_items || []).filter((pi) => !freeSet.has(pi))
+        let moved = 0
+        while (true) {
+            const remaining = free.filter((pi) => !placedHas(pi))
+            if (!remaining.length) break
+            const n = fillOneBatch(layouts, sheetI, sheetI, partsById,
+                sheetDimsOf, space, payload, remaining)
+            if (!n) break
+            moved += n
+        }
+        // Libres non replacées (capacité < donneuses) : retour à la pose
+        // d'origine — validé contre le layout final, les nouvelles colonnes
+        // ont pu recouvrir leur ancienne position.
+        const restore = free.filter((pi) => !placedHas(pi))
+        for (const pi of restore) {
+            pi.transformation = savedPoses.get(pi)
+            ;(last.placed_items || (last.placed_items = [])).push(pi)
+        }
+        if (restore.length && !validateBatch(restore, last, partsById, sw, sh, space)) {
+            throw new Error('compact rollback')
+        }
+        if (!moved) throw new Error('compact noop')
+        return moved
+    } catch (e) {
+        last.placed_items = snapshot
+        return 0
+    }
+}
+
 export function fillResidualBands(parts, layouts, space, payload) {
     if (!layouts || layouts.length < 2) return 0
     const partsById = new Map(parts.map((p) => [String(p.id), p]))
@@ -320,6 +373,21 @@ export function fillResidualBands(parts, layouts, space, payload) {
                 layouts.push(...kept)
             }
             if (layouts.length < 2 || !progress) break
+        }
+        // Compaction de la tôle la moins remplie (la donneuse) : le moteur
+        // BPP ne la compacte pas dans la direction d'optimisation — sans
+        // ça la « chute » est un amas dispersé à front dentelé (constat
+        // user 2026-09-02 « pas optimisé −X »). Miroir de
+        // residual._compact_last_sheet.
+        // Uniquement s'il reste PLUSIEURS tôles : une tôle unique = la
+        // donneuse a été vidée et retirée, rien à compacter (contrat T8).
+        if (layouts.length >= 2) {
+            const ratios2 = layouts.map((l) => fillRatio(l, partsById, sheetDimsOf))
+            let last2 = 0
+            for (let i = 1; i < layouts.length; i++) {
+                if (ratios2[i] <= ratios2[last2]) last2 = i
+            }
+            moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload)
         }
         return moved
     } catch (e) {

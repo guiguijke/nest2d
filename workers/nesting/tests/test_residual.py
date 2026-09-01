@@ -202,6 +202,89 @@ class TestT6ValidateBatch:
         assert _validate_batch([new], l, BY_ID, 1000.0, 1000.0, 2.0) is False
 
 
+class TestT10CompactLastSheet:
+    """Constat 2026-09-02 « pas optimisé −X » : le moteur BPP ne compacte
+    pas la dernière tôle. La compaction détache les libres et les re-pose
+    en lattice derrière le bloc ancré (hôtes + nichées) — la chute
+    redevient un rectangle unique."""
+
+    def _full_sheet0(self):
+        # 100 hôtes 10×10 → AABB collée aux bords : AUCUNE bande, la tôle
+        # pleine ne peut rien recevoir (les libres restent sur la donneuse).
+        hosts = [pi(0, 52.0 + 100 * gx, 52.0 + 100 * gy)
+                 for gx in range(10) for gy in range(10)]
+        return layout(hosts)
+
+    def test_libres_repacked_compact_behind_anchor(self):
+        # Donneuse : colonne d'hôtes à gauche (AABB x[100,200] y[0,1000]
+        # → seule la bande DROITE existe) + 25 fans dispersées jusqu'à x900.
+        hosts = [pi(0, 150.0, 50.0 + 100 * k) for k in range(10)]
+        free = [pi(1, 500.0 + 60 * (k % 7), 100.0 + 70 * (k // 7))
+                for k in range(25)]
+        layouts = [self._full_sheet0(), layout(hosts + free)]
+
+        n = fill_residual_bands(layouts, ITEMS, BIN, 2.0)
+        assert n > 0
+        # Comptes invariants : rien n'a bougé vers la tôle pleine.
+        assert len(layouts[0]["placed_items"]) == 100
+        l1_fans = [p for p in layouts[1]["placed_items"] if p["item_id"] == 1]
+        assert len(l1_fans) == 25
+        # Hôtes jamais déplacés.
+        for p in layouts[1]["placed_items"]:
+            if p["item_id"] == 0:
+                assert p["transformation"]["translation"] ==                     (150.0, p["transformation"]["translation"][1])
+        # TOUTES les fans restantes sont dans le bloc compact derrière
+        # l'ancre (x ≥ 200+space) et ne s'étalent plus jusqu'à 900.
+        for p in l1_fans:
+            tx = p["transformation"]["translation"][0]
+            assert 195 <= tx <= 450, f"fan non compactée : tx={tx}"
+        aabb = layout_aabb(layouts[1], BY_ID)
+        assert aabb[2] <= 500  # chute = rectangle x[500,1000]
+
+    def test_fixture_legal_tout_compacte_sans_chevauchement(self):
+        # Originals LÉGAUX (grille 60 mm, sans contact hôtes) : tout est
+        # re-posé derrière l'ancre, layout final valide par paires.
+        # NB : le chemin « restauration des non-placées » ne peut pas être
+        # atteint avec ce filler simple (la capacité du lattice EST sa
+        # densité max) — il ne se déclenche qu'avec des géométries
+        # imbriquées (Fillx4 réel) : filet de sécurité, pas un objectif.
+        hosts = [pi(0, 152.0, 50.0 + 100 * k) for k in range(10)]
+        free = [pi(1, 300.0 + 60 * gx, 20.0 + 60 * gy)
+                for gx in range(12) for gy in range(16)]
+        layouts = [self._full_sheet0(), layout(hosts + free)]
+
+        n = fill_residual_bands(layouts, ITEMS, BIN, 2.0)
+        assert n == 192  # tout a été re-posé (capacité >> donneuses)
+        l1_fans = [p for p in layouts[1]["placed_items"] if p["item_id"] == 1]
+        assert len(l1_fans) == 192
+        # Bloc compact derrière l'ancre (x ≥ 202), fini bien avant x=960.
+        for p in l1_fans:
+            tx = p["transformation"]["translation"][0]
+            assert 195 <= tx <= 420, f"fan non compactée : tx={tx}"
+        if HAS_SHAPELY:
+            import math as _math
+            from shapely.geometry import Polygon
+            polys = []
+            for p in layouts[1]["placed_items"]:
+                it = BY_ID[p["item_id"]]
+                tr = p["transformation"]
+                r = _math.radians(tr["rotation"])
+                c, si = _math.cos(r), _math.sin(r)
+                pts = [(tr["translation"][0] + c * x - si * y,
+                        tr["translation"][1] + si * x + c * y)
+                       for x, y in it["coords"]]
+                polys.append(Polygon(pts))
+            # Paires impliquant une FAN uniquement : les hôtes se
+            # touchent dans ce fixture (grille 100 mm, artefact local) —
+            # état PRÉEXISTANT que le pass ne rejuge pas.
+            ids = [p["item_id"] for p in layouts[1]["placed_items"]]
+            for i in range(len(polys)):
+                for j in range(i + 1, len(polys)):
+                    if ids[i] == 0 and ids[j] == 0:
+                        continue
+                    assert polys[i].distance(polys[j]) >= 2.0 - 0.05,                         f"chevauchement {i}-{j}"
+
+
 class TestT9CornerCovered:
     """Constat 2026-09-01 : donneurs suffisants → la 2e bande, recalculée
     sur l'AABB étendue par la 1re, couvre le coin TR — aucun vide « en
