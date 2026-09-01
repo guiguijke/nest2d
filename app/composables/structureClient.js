@@ -73,7 +73,7 @@ function ringCentroid(coords) {
 }
 
 /** Rotation quarter-turn exacte (repère moteur : R(90)·(x,y) = (−y, x)). */
-function rotateRing(coords, deg) {
+export function rotateRing(coords, deg) {
     const r = ((deg % 360) + 360) % 360
     if (r === 0) return coords
     if (r === 180) return coords.map(([x, y]) => [-x, -y])
@@ -96,7 +96,7 @@ function segPointDist(px, py, ax, ay, bx, by) {
 }
 
 /** Distance exacte entre deux anneaux (sommets↔arêtes, suffisant convexe). */
-function ringDist(c1, c2) {
+export function ringDist(c1, c2) {
     let m = Infinity
     const edges = (ring) => ring.map((p, i) => [p, ring[(i + 1) % ring.length]])
     for (const [px, py] of c1) {
@@ -426,7 +426,7 @@ function shoelace(coords) {
     return Math.abs(s) / 2
 }
 
-function bbox(coords) {
+export function bbox(coords) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
     for (const [x, y] of coords) {
         if (x < x0) x0 = x
@@ -454,7 +454,7 @@ export function isAxisRect(coords) {
 
 /** Bbox d'un anneau de bbox donnée tourné de rot (multiple de 90°).
  *  Même convention que rotateRing : R(90)·(x,y) = (−y, x). */
-function rotatedBbox(bb, rotDeg) {
+export function rotatedBbox(bb, rotDeg) {
     const [x0, y0, x1, y1] = bb
     const r = ((rotDeg % 360) + 360) % 360
     if (r === 0) return [x0, y0, x1, y1]

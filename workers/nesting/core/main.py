@@ -1354,6 +1354,28 @@ def _nesting_process_impl(doc):
             if n:
                 logger.info("hole-fill post-pass relocated fillers", extra={"n": n})
 
+    # D-MOT-19 (docs/PLAN-bpp-impl.md) : remplissage des bandes résiduelles
+    # — BPP multi-tôles uniquement. Le constructif empile les petites
+    # pièces libres sur la DERNIÈRE tôle (croissance de bbox minimale) et
+    # le recuit ne backfill pas (remnant moyen = optimum local) : ce pass
+    # pose au lattice les pièces libres de la tôle la moins remplie dans
+    # les bandes vides des tôles plus remplies. Après hole-fill (les trous
+    # sont de meilleurs emplacements), avant reveal/artefacts. Miroir JS :
+    # localBridge.js → residualClient.js.
+    if not is_spp:
+        from core.residual import fill_residual_bands
+        for engine_alt in engine_alternatives:
+            if engine_alt.get("structural"):
+                continue
+            sol = engine_alt.get("solution") or {}
+            if "layouts" not in sol and "layout" in sol:
+                sol = {**sol, "layouts": [sol["layout"]]}
+                engine_alt["solution"] = sol
+            n = fill_residual_bands(sol.get("layouts") or [], input_items,
+                                    bin_dims, space)
+            if n:
+                logger.info("residual-band pass moved parts", extra={"n": n})
+
     # Strategy-labelled alternatives — the engine already returns its best
     # distinct layouts, ranked. SPP layouts are inherently max-offcut (used
     # length minimized); BPP layouts are inherently min-sheets.
