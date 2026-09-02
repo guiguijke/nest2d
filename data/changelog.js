@@ -14,7 +14,8 @@ export function useChangelog() {
                 {
                     title: 'Multi-sheet nesting',
                     content: [
-                        'On multi-sheet jobs, leftover parts on the last sheet are now packed into a compact block right behind the host parts, following the optimization direction — the remaining offcut is once again a single clean reusable rectangle.',
+                        'On multi-sheet jobs, the last sheet is now fully compacted along the optimization direction: host parts with their cutout fillers are re-packed into columns from the sheet edge, and leftover parts fill a compact block right behind them — the remaining offcut is once again a single clean reusable rectangle.',
+                        'Fixed overlapping parts in browser-computed layouts for parts with finely detailed outlines.',
                     ],
                 },
             ],

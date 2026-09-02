@@ -599,18 +599,36 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     Toute évolution d'AABB tournée se verrouille par T9 (coin couvert)
     des DEUX côtés — parité chiffrée moved/AABB JS == Python.
 
+55. **JS : une distance d'anneaux doit être ARÊTE↔ARÊTE (constat
+    2026-09-02 « les pièces se chevauchent »).** L'ancien ringDist
+    (sommet→arête) ne voyait pas deux arêtes se croisant en leur
+    milieu : une paire à 33 mm² de chevauchement rendait 0,11 —
+    acceptée. Fix : segSegDist (0 si croisement) ; shapely côté serveur
+    a toujours été exact. EN COMPLÉMENT, l'acceptation d'un pas de
+    pavage smallLattice se fait sur l'anneau COMPLET et le couple
+    (py,px) CONJOINTEMENT (la dichotomie court sur un décimé pour la
+    perf, et l'ancien code ne revalidait jamais py×px ensemble — même
+    un anneau convexe s'y faisait piéger). Verrous :
+    latticeScallop.test.js + dump→shapely (0 chevauchement, min-dist
+    1,36 ; l'ancien : 95 paires à 33 mm²).
+
 54. **BPP : le moteur ne compacte PAS la dernière tôle (constat
     2026-09-02 « pas optimisé −X »).** Coût moteur = tôles + remnant,
     pas la direction par tôle — sans post-pass, la donneuse finit en
     amas dentelé et la « chute » n'est pas un rectangle.
-    `_compact_last_sheet` / `compactLastSheet` : détacher les libres,
-    re-poser en lattice derrière l'ancre (AABB des non-libres) via
-    `_fill_one_batch(free=…)`, tout-ou-rien (restauration si les
-    non-placées ne revalident pas leur pose d'origine). Uniquement
-    ≥ 2 tôles (contrat T8). Piège associé : la couverture tôle se
-    teste en BORNES ±ε sur anneau BRUT — `covers` strict refuse le
-    simplify (sommet plongé de ~0,05 sous un bord touché) ET le bruit
-    flottant du lattice calé au bord (ty=-2.8000000000000007).
+    v1 : détacher les libres, re-poser en lattice derrière l'ancre via
+    `_fill_one_batch(free=…)`. v2 (même jour, re-test user) : d'abord
+    RE-GRILLER les hélices en colonnes depuis le bord gauche
+    (`_regrid_helices` — unités rigides hôte+fans nichées, la fan suit
+    en transformation rigide ; une fan nichée vit dans le polygone
+    externe de son hôte → distance aux autres unités = celle des hôtes,
+    lattice-validée) PUIS les libres derrière. Tout-ou-rien par phase ;
+    hôtes des tôles receveuses JAMAIS déplacés (seule la donneuse) ;
+    T3 compte le solde L0↔L1. Uniquement ≥ 2 tôles (contrat T8).
+    Piège associé : la couverture tôle se teste en BORNES ±ε sur anneau
+    BRUT — `covers` strict refuse le simplify (sommet plongé de ~0,05
+    sous un bord touché) ET le bruit flottant du lattice calé au bord
+    (ty=-2.8000000000000007).
 
 ## 3. Banc d'essai (workers/nesting/bench/)
 

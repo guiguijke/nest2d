@@ -12,10 +12,15 @@ déployé le même jour). Chronologie complète :
 2. **2026-09-01** : re-test user (2 tôles 1000×1000, 100 trous + 800
    fillers, space 0,1, THIS DEVICE) → 3 nouveaux symptômes → 3 causes
    racines corrigées (ci-dessous) → tout commité/déployé ensemble.
-3. **2026-09-02** : re-test user en prod → la tôle 2 reste un amas
-   dispersé (« pas optimisée −X ») → **compaction de la dernière tôle**
-   (§2.4) : les libres y sont re-posées en lattice compact derrière le
-   bloc ancré, la chute redevient un rectangle unique.
+3. **2026-09-02 (matin)** : re-test user en prod → la tôle 2 reste un
+   amas dispersé (« pas optimisée −X ») → **compaction de la dernière
+   tôle** (§2.4) : les libres y sont re-posées en lattice compact
+   derrière le bloc ancré, la chute redevient un rectangle unique.
+4. **2026-09-02 (re-test suivant)** : deux problèmes restants →
+   **chevauchements réels dans le lattice du miroir JS** (validation des
+   pas sur anneau décimé — §2.5) et hélices toujours éparses sur la
+   donneuse → **v2 : re-grille des hélices** en colonnes depuis le bord
+   gauche (§2.6).
 
 ---
 
@@ -174,6 +179,61 @@ amas dentelé jusqu'à ~549), rotations 126×0° + 126×180° = lattice pur,
 min-dist 0,1000 exact, 0 chevauchement, **chute rapportée
 500,7×1000 réutilisable** ; tôle 1 inchangée (591 pièces, 81,2 %).
 
+### 2.5 Chevauchements du lattice JS (anneaux scallopés)
+
+**Symptôme** (re-test user 2026-09-02) : « les pièces se chevauchent, ça
+ne va pas du tout » — chevauchements massifs fan/fan (~33 mm² chacun, 95
+paires sur 83 fans analysées) dans les colonnes du lattice côté
+NAVIGATEUR uniquement (le banc serveur, lui, restait exact : min-dist
+0,1000 au dixième près).
+
+**Cause racine (double)** :
+1. `ringDist` (structureClient.js) ne mesurait que des distances
+   **sommet→arête** : deux arêtes qui se croisent EN LEUR MILIEU
+   n'impliquent aucun sommet proche — une paire chevauchant de 33 mm²
+   rendait 0,11 (≥ seuil = acceptée !). Le Python shapely
+   (`Polygon.distance`), lui, est exact.
+2. `smallLattice` validait en plus ses pas de pavage sur un anneau
+   **décimé** (`decimateRing(coords, 20)` — perf) : le scallopé réel de
+   Fillx4 (95 sommets) y acceptait des pas (≈62,99) que l'anneau complet
+   rejette (≈74-77). Et le couple final (py, px) n'était jamais validé
+   CONJOINTEMENT.
+
+**Fix** :
+1. `ringDist` passe en distance **arête↔arête** exacte (`segSegDist` :
+   0 si croisement/toucher, sinon min des 4 sommet-segment) — miroir
+   des frontières shapely. Toutes les validations du pass en bénéficient.
+2. la dichotomie des pas court toujours sur le décimé (perf), mais
+   l'acceptation FINALE du (py, px) se fait sur l'anneau COMPLET,
+   conjointement — rescale ×1,06 (≤12 essais) si échec, sinon variante
+   rejetée. `latticeRotated` passe par `latticeVariant`, donc couvert.
+
+**Preuve indépendante** (shapely sur les poses du lattice JS) : 150
+poses, 0 chevauchement, min-dist 1,36 — l'ancien rendait 95 paires à
+33 mm². Verrou : `app/tests/latticeScallop.test.js` + fake solve
+adaptatif du test structurel (l'ancien lattice relâché absorbait tout,
+le nouveau délègue le surplus au moteur — comportement voulu).
+
+### 2.6 v2 : hélices re-grillées (le « principe −X » complet)
+
+**Symptôme** : même compactée en v1, la donneuse gardait ses hélices là
+où le moteur les avait posées (2 colonnes + éparses) — l'AABB ancre
+s'étendait jusqu'à l'hôte égaré et le vide intercalaire restait.
+
+**Fix** (`_regrid_helices` / `regridHelices`, phase 1 de la compaction) :
+les HÉLICES (hôte + fans nichées) sont re-groupées en unités RIGIDES
+(`_helix_units_and_free`) et re-posées en lattice de colonnes DEPUIS le
+bord gauche (`small_lattice`, rotations permises, validation exacte) ;
+les fans nichées suivent en transformation rigide (rotation relative +
+translation conservées). Sécurité : une fan nichée vit dans le polygone
+externe de son hôte → sa distance aux autres unités est celle des hôtes
+(lattice-validée). Tout-ou-rien par phase : si une classe d'hôtes ne
+tient pas en grille, aucun hôte ne bouge ; le rollback des libres ne
+touche pas la grille des hélices. Les hôtes des tôles RECEVEUSES
+restent immobiles (seule la donneuse est re-grillée). Conséquence
+contrat : T3 compte le SOLDE L0↔L1 (l'hôte de la donneuse bouge, les
+fans recompactées sur L1 ne la quittent pas).
+
 ## 3. Validation finale (tout appliqué)
 
 | Vérification | Résultat |
@@ -182,6 +242,7 @@ min-dist 0,1000 exact, 0 chevauchement, **chute rapportée
 | pytest (worker image, monté) | **142 passed + 2 skipped** (3 erreurs `core.geometry` préexistantes : module du worker fileprocessing absent de l'image nesting) |
 | Banc serveur 2×1000×1000 space 0,1 (`check_physical`) | **VERDICT OK** — 591 + 309 pièces, 0 chevauchement, 0 hors tôle, min-dist 0,0994-0,0996 (= bruit simplify/raw documenté), 0 pose dupliquée, in-hole = 4/trou exactement |
 | Banc serveur 2×1000×1000 space 0,1 + compaction (2026-09-02) | **VERDICT OK** — tôle 2 AABB x[0,499], chute 500,7×1000 réutilisable, min-dist 0,1000 exact |
+| Banc serveur 2×1000×1000 space 0,1 + compaction v2 (2026-09-02) | **VERDICT OK** — tôle 2 : 19 hélices re-grillées (`square:0`), AABB x[0,499], chute 500,8×1000 réutilisable, min-dist 0,1000 exact, 0 chevauchement |
 | Re-test navigateur complet (QA Mirror, mêmes params que le user) | tôle 1 : **665 pièces, 85,2 %, chute 1000×2,1 mm, coin TR couvert (18 fans)** ; tôle 2 : 235 pièces, 0 pose dupliquée, chute réutilisable 471×1000 ; vue live = 2 panneaux côte à côte |
 | SPP (T5/M3) | no-op strict, 1 layout |
 
