@@ -240,10 +240,22 @@ describe('zoneSteps — rectangles successifs (miroir structure.py)', () => {
         const items = [{ id: 0, demand: 40 }, { id: 1, demand: 480 }]
         const geoms = { 0: geom(SQUARE), 1: geom(FAN) }
         const calls = []
+        // Fake ADAPTATIF : grille légale dans la bande solve (l'ancien
+        // (1,1) échouait toujours au garde de débordement gauche de
+        // zoneSolve — le test ne passait que parce que le lattice
+        // relâché absorbait tout ; avec l'acceptation exacte des pas
+        // (2026-09-02) le surplus va au moteur, le fake doit être valide.
         const solve = async (count, stripH, maxW) => {
             calls.push([Math.round(stripH), Math.round(maxW)])
-            return Array.from({ length: count }, () => ({
-                item_id: 1, transformation: { rotation: 0, translation: [1, 1] },
+            const rows = Math.max(1, Math.floor((stripH - 44) / 31))
+            const cols = Math.max(1, Math.ceil(count / rows))
+            const pitchX = cols > 1 ? (maxW - 42) / (cols - 1) : 0
+            return Array.from({ length: count }, (_, k) => ({
+                item_id: 1,
+                transformation: {
+                    rotation: 0,
+                    translation: [22 + pitchX * Math.floor(k / rows), 22 + 31 * (k % rows)],
+                },
             }))
         }
         const out = await buildStructuralLayout(items, (i) => geoms[i], 400, 2000,

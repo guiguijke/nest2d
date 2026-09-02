@@ -101,11 +101,11 @@ describe('smallLattice dans une bande de 79 mm (T2)', () => {
 })
 
 describe('fillResidualBands — compaction de la dernière tôle (T10, miroir test_residual.py)', () => {
-    it("libres re-posées en bloc compact derrière l'ancre (constat 2026-09-02 « pas optimisé −X »)", () => {
+    it("hélices re-grillées depuis la gauche + libres compactées derrière (v2, constat 2026-09-02)", () => {
         // Tôle 0 pleine (AABB collée aux bords → aucune bande) ; donneuse =
-        // colonne d'hôtes à gauche (seule la bande DROITE existe) + 25 fans
-        // dispersées jusqu'à x=880. Après le pass : tout est recompacté
-        // derrière l'ancre, la chute redevient un rectangle unique.
+        // colonne d'hôtes à x=150 + 25 fans dispersées jusqu'à x=880.
+        // v2 : hélices re-grillées en colonnes DEPUIS le bord gauche,
+        // fans derrière la grille — tout −X, chute rectangulaire unique.
         const hosts0 = []
         for (let gx = 0; gx < 10; gx++) {
             for (let gy = 0; gy < 10; gy++) hosts0.push(pi(0, 50 + 100 * gx, 50 + 100 * gy))
@@ -119,13 +119,18 @@ describe('fillResidualBands — compaction de la dernière tôle (T10, miroir te
         const layouts = [layout(hosts0), layout([...hosts1, ...free])]
 
         const n = fillResidualBands(PARTS, layouts, 2, payload)
-        expect(n).toBeGreaterThan(0)
+        expect(n).toBeGreaterThanOrEqual(35) // hôtes re-grillés + fans
         expect(layouts[0].placed_items).toHaveLength(100)
         const l1Fans = layouts[1].placed_items.filter((p) => p.item_id === 1)
+        const l1Hosts = layouts[1].placed_items.filter((p) => p.item_id === 0)
         expect(l1Fans).toHaveLength(25)
+        expect(l1Hosts).toHaveLength(10)
+        for (const p of l1Hosts) {
+            expect(p.transformation.translation[0]).toBeLessThanOrEqual(160)
+        }
         for (const p of l1Fans) {
             const tx = p.transformation.translation[0]
-            expect(tx).toBeGreaterThanOrEqual(195)
+            expect(tx).toBeGreaterThanOrEqual(155)
             expect(tx).toBeLessThanOrEqual(450)
         }
         const aabb = layoutAabb(layouts[1], new Map(PARTS.map((p) => [String(p.id), p])))
@@ -187,16 +192,18 @@ describe('fillResidualBands — miroir Python (T3/T4/T5)', () => {
         expect(all.filter((p) => p.item_id === 0).length).toBe(5)
         expect(all.filter((p) => p.item_id === 1).length).toBe(24)
         expect(layouts.length).toBe(2)
-        expect(layouts[0].placed_items.length).toBe(8 + n)
-        expect(layouts[1].placed_items.length).toBe(21 - n)
-        // Hôtes immobiles ; nichés immobiles.
-        for (const l of layouts) {
-            for (const p of l.placed_items) {
-                if (p.item_id === 0) {
-                    const [tx, ty] = p.transformation.translation
-                    expect([[52, 52], [154, 52], [52, 154], [154, 154], [500, 500]])
-                        .toEqual(expect.arrayContaining([[tx, ty]]))
-                }
+        // L0 gagne exactement ce que L1 perd (les fans recompactées SUR L1
+        // — v2 — ne quittent pas L1, et l'hôte de la donneuse peut avoir
+        // été re-grillé : n inclut ces déplacements internes).
+        const gain0 = layouts[0].placed_items.length - 8
+        expect(layouts[1].placed_items.length).toBe(21 - gain0)
+        // Hôtes de la RECEVEUSE immobiles ; nichés immobiles (l'hôte de
+        // la donneuse est re-grillé par la compaction v2).
+        for (const p of l0.placed_items) {
+            if (p.item_id === 0) {
+                const [tx, ty] = p.transformation.translation
+                expect([[52, 52], [154, 52], [52, 154], [154, 154]])
+                    .toEqual(expect.arrayContaining([[tx, ty]]))
             }
         }
         for (const h of hosts) {

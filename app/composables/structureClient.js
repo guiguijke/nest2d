@@ -95,19 +95,48 @@ function segPointDist(px, py, ax, ay, bx, by) {
     return Math.hypot(px - qx, py - qy)
 }
 
-/** Distance exacte entre deux anneaux (sommets↔arêtes, suffisant convexe). */
+/** Distance EXACTE entre deux segments : 0 s'ils se croisent ou se
+ * touchent, sinon min des 4 distances sommet-segment. */
+function segSegDist(ax, ay, bx, by, cx, cy, dx, dy) {
+    const orient = (px, py, qx, qy, rx, ry) =>
+        (qx - px) * (ry - py) - (qy - py) * (rx - px)
+    const o1 = orient(ax, ay, bx, by, cx, cy)
+    const o2 = orient(ax, ay, bx, by, dx, dy)
+    const o3 = orient(cx, cy, dx, dy, ax, ay)
+    const o4 = orient(cx, cy, dx, dy, bx, by)
+    const onSeg = (px, py, qx, qy, rx, ry) =>
+        Math.min(px, qx) <= rx && rx <= Math.max(px, qx)
+        && Math.min(py, qy) <= ry && ry <= Math.max(py, qy)
+    if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0))
+        && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) return 0
+    if (o1 === 0 && onSeg(ax, ay, bx, by, cx, cy)) return 0
+    if (o2 === 0 && onSeg(ax, ay, bx, by, dx, dy)) return 0
+    if (o3 === 0 && onSeg(cx, cy, dx, dy, ax, ay)) return 0
+    if (o4 === 0 && onSeg(cx, cy, dx, dy, bx, by)) return 0
+    return Math.min(
+        segPointDist(ax, ay, cx, cy, dx, dy),
+        segPointDist(bx, by, cx, cy, dx, dy),
+        segPointDist(cx, cy, ax, ay, bx, by),
+        segPointDist(dx, dy, ax, ay, bx, by))
+}
+
+/** Distance exacte entre deux anneaux : arête↔arête (le seul test
+ * sommet↔arête laissait passer des chevauchements réels — deux arêtes
+ * qui se croisent EN LEUR MILIEU n'impliquent aucun sommet proche,
+ * constat 2026-09-02 : 95 paires à ~33 mm² vues 0,11 par l'ancien
+ * ringDist alors que shapely (serveur) les rejetait ; miroir exact de
+ * shapely Polygon.distance sur les frontières). */
 export function ringDist(c1, c2) {
     let m = Infinity
-    const edges = (ring) => ring.map((p, i) => [p, ring[(i + 1) % ring.length]])
-    for (const [px, py] of c1) {
-        for (const [[ax, ay], [bx, by]] of edges(c2)) {
-            m = Math.min(m, segPointDist(px, py, ax, ay, bx, by))
-            if (m < 1e-9) return 0
-        }
-    }
-    for (const [px, py] of c2) {
-        for (const [[ax, ay], [bx, by]] of edges(c1)) {
-            m = Math.min(m, segPointDist(px, py, ax, ay, bx, by))
+    const n1 = c1.length
+    const n2 = c2.length
+    for (let i = 0; i < n1; i++) {
+        const ax = c1[i][0]; const ay = c1[i][1]
+        const bx = c1[(i + 1) % n1][0]; const by = c1[(i + 1) % n1][1]
+        for (let j = 0; j < n2; j++) {
+            const cx = c2[j][0]; const cy = c2[j][1]
+            const dx = c2[(j + 1) % n2][0]; const dy = c2[(j + 1) % n2][1]
+            m = Math.min(m, segSegDist(ax, ay, bx, by, cx, cy, dx, dy))
             if (m < 1e-9) return 0
         }
     }
@@ -359,9 +388,13 @@ function latticeVariant(coords, itemId, space, zone, threshold, deg0, yPhase, xP
         return cells
     }
 
-    const coarse = decimateRing(coords, 20)
-    const tryPitch = (py, px) => {
-        const patch = attachRings(generate(py, px, 5, 8), coarse)
+    // tryPitch sur un anneau DONNÉ : la dichotomie court sur l'anneau
+    // décimé (perf), l'acceptation finale doit être EXACTE (anneau
+    // complet) — un scallopé fin décimé accepte des pas qui chevauchent
+    // en réel (constat 2026-09-02 : 95 paires à ~33 mm² sur Fillx4 en
+    // navigateur, le banc serveur shapely restait exact).
+    const tryPitchOn = (py, px, ring) => {
+        const patch = attachRings(generate(py, px, 5, 8), ring)
         if (!patch.length) return false
         for (let a = 0; a < patch.length; a++) {
             for (let b = a + 1; b < patch.length; b++) {
@@ -372,6 +405,8 @@ function latticeVariant(coords, itemId, space, zone, threshold, deg0, yPhase, xP
         }
         return true
     }
+    const coarse = decimateRing(coords, 20)
+    const tryPitch = (py, px) => tryPitchOn(py, px, coarse)
 
     const py0 = LATTICE_PY_RATIO * h
     const px0 = w / 2 + space
@@ -398,6 +433,16 @@ function latticeVariant(coords, itemId, space, zone, threshold, deg0, yPhase, xP
         const mid = (loPx + px) / 2
         if (tryPitch(py, mid)) px = mid
         else loPx = mid
+    }
+    // Acceptation EXACTE (anneau complet) : la dichotomie ci-dessus a
+    // convergé sur l'anneau décimé — si le pas retenu chevauche l'anneau
+    // réel, on rescale (py ET px) jusqu'à validation exacte ; variante
+    // rejetée sinon (miroir de la validation shapely de structure.py).
+    let guard = 0
+    while (!tryPitchOn(py, px, coords)) {
+        py *= 1.06
+        px *= 1.06
+        if (++guard > 12) return null
     }
     const cells = generate(py, px)
     if (!cells.length) return null

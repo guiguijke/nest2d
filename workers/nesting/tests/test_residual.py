@@ -119,18 +119,20 @@ class TestT3MoveFreeParts:
         assert len(all_pis) == 29
         assert sum(1 for p in all_pis if p["item_id"] == 0) == 5
         assert sum(1 for p in all_pis if p["item_id"] == 1) == 24
-        # L0 a gagné exactement ce que L1 a perdu ; 2 tôles conservées.
+        # 2 tôles conservées ; L0 a gagné exactement ce que L1 a perdu
+        # (les fans recompactées SUR L1 — v2 — ne quittent pas L1, et
+        # l'hôte de la donneuse peut avoir été re-grillé : n inclut ces
+        # déplacements internes, seul le SOLDE L0↔L1 est invariant).
         assert len(layouts) == 2
-        assert len(layouts[0]["placed_items"]) == 8 + n
-        assert len(layouts[1]["placed_items"]) == 21 - n
-        # Hôtes immobiles (transformation d'origine).
-        for l in layouts:
-            for p in l["placed_items"]:
-                if p["item_id"] == 0:
-                    tx, ty = p["transformation"]["translation"]
-                    assert (tx, ty) in {(52.0, 52.0), (154.0, 52.0),
-                                        (52.0, 154.0), (154.0, 154.0),
-                                        (500.0, 500.0)}
+        gain0 = len(layouts[0]["placed_items"]) - 8
+        assert len(layouts[1]["placed_items"]) == 21 - gain0
+        # Hôtes de la tôle RECEVEUSE immobiles (l'hôte de la donneuse,
+        # lui, est re-grillé par la compaction v2).
+        for p in layouts[0]["placed_items"]:
+            if p["item_id"] == 0:
+                tx, ty = p["transformation"]["translation"]
+                assert (tx, ty) in {(52.0, 52.0), (154.0, 52.0),
+                                    (52.0, 154.0), (154.0, 154.0)}
         # Les nichés non plus : les 4 fans restent au centre des trous L0.
         kept_nested = 0
         for h in hosts:
@@ -215,29 +217,32 @@ class TestT10CompactLastSheet:
                  for gx in range(10) for gy in range(10)]
         return layout(hosts)
 
-    def test_libres_repacked_compact_behind_anchor(self):
-        # Donneuse : colonne d'hôtes à gauche (AABB x[100,200] y[0,1000]
-        # → seule la bande DROITE existe) + 25 fans dispersées jusqu'à x900.
+    def test_helices_regrillees_et_libres_compactees(self):
+        # Donneuse : colonne d'hôtes à x=150 + 25 fans dispersées jusqu'à
+        # x=900. v2 : hélices re-grillées en colonnes DEPUIS le bord
+        # gauche, fans re-posées derrière la grille — tout −X, chute
+        # rectangulaire unique.
         hosts = [pi(0, 150.0, 50.0 + 100 * k) for k in range(10)]
         free = [pi(1, 500.0 + 60 * (k % 7), 100.0 + 70 * (k // 7))
                 for k in range(25)]
         layouts = [self._full_sheet0(), layout(hosts + free)]
 
         n = fill_residual_bands(layouts, ITEMS, BIN, 2.0)
-        assert n > 0
+        assert n >= 25 + 10  # hôtes re-grillés + fans recompactées
         # Comptes invariants : rien n'a bougé vers la tôle pleine.
         assert len(layouts[0]["placed_items"]) == 100
         l1_fans = [p for p in layouts[1]["placed_items"] if p["item_id"] == 1]
+        l1_hosts = [p for p in layouts[1]["placed_items"] if p["item_id"] == 0]
         assert len(l1_fans) == 25
-        # Hôtes jamais déplacés.
-        for p in layouts[1]["placed_items"]:
-            if p["item_id"] == 0:
-                assert p["transformation"]["translation"] ==                     (150.0, p["transformation"]["translation"][1])
-        # TOUTES les fans restantes sont dans le bloc compact derrière
-        # l'ancre (x ≥ 200+space) et ne s'étalent plus jusqu'à 900.
+        assert len(l1_hosts) == 10
+        # Hélices compactées à gauche (2 colonnes max depuis x≈2+50).
+        for p in l1_hosts:
+            tx = p["transformation"]["translation"][0]
+            assert tx <= 160, f"hôte non re-grillé : tx={tx}"
+        # Fans derrière la grille des hélices, en bloc compact.
         for p in l1_fans:
             tx = p["transformation"]["translation"][0]
-            assert 195 <= tx <= 450, f"fan non compactée : tx={tx}"
+            assert 155 <= tx <= 450, f"fan non compactée : tx={tx}"
         aabb = layout_aabb(layouts[1], BY_ID)
         assert aabb[2] <= 500  # chute = rectangle x[500,1000]
 
@@ -254,13 +259,18 @@ class TestT10CompactLastSheet:
         layouts = [self._full_sheet0(), layout(hosts + free)]
 
         n = fill_residual_bands(layouts, ITEMS, BIN, 2.0)
-        assert n == 192  # tout a été re-posé (capacité >> donneuses)
+        assert n >= 192  # fans re-posées + hôtes re-grillés
         l1_fans = [p for p in layouts[1]["placed_items"] if p["item_id"] == 1]
+        l1_hosts = [p for p in layouts[1]["placed_items"] if p["item_id"] == 0]
         assert len(l1_fans) == 192
-        # Bloc compact derrière l'ancre (x ≥ 202), fini bien avant x=960.
+        assert len(l1_hosts) == 10
+        for p in l1_hosts:
+            assert p["transformation"]["translation"][0] <= 160
+        # Bloc compact derrière la grille des hélices, fini bien avant
+        # x=960.
         for p in l1_fans:
             tx = p["transformation"]["translation"][0]
-            assert 195 <= tx <= 420, f"fan non compactée : tx={tx}"
+            assert 155 <= tx <= 420, f"fan non compactée : tx={tx}"
         if HAS_SHAPELY:
             import math as _math
             from shapely.geometry import Polygon

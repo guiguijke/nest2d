@@ -297,32 +297,150 @@ class _CompactRollback(Exception):
     """Compaction avortée : restauration complète de la tôle (no-op)."""
 
 
+def _helix_units_and_free(layout, items_by_id):
+    """Classe la tôle en unités RIGIDES : une hélice = hôte (item à trous)
+    + les fans dont le centroïde est dans UN de ses trous (classification
+    miroir de _free_pis, mais groupée par hôte). Retourne
+    (units [{host, fans}], free)."""
+    from shapely.affinity import rotate as sh_rotate, translate as sh_translate
+    from shapely.geometry import Polygon
+
+    hosts = []      # [(pi, hole_polys_world)]
+    others = []     # [(pi, poly)]
+    for pi in layout.get("placed_items", []):
+        it = items_by_id[pi["item_id"]]
+        tr = pi["transformation"]
+        poly = _placed_poly(it, tr["rotation"],
+                            tr["translation"][0], tr["translation"][1],
+                            simplify=False)
+        if it.get("holes"):
+            hp = []
+            for h in it["holes"]:
+                q = sh_translate(sh_rotate(Polygon(h), tr["rotation"],
+                                           origin=(0, 0)),
+                                 tr["translation"][0], tr["translation"][1])
+                hp.append(q)
+            hosts.append((pi, hp))
+        else:
+            others.append((pi, poly))
+    units = []
+    free = []
+    for pi, poly in others:
+        c = poly.centroid
+        unit = None
+        for host_pi, hp in hosts:
+            if any(h.covers(c) for h in hp):
+                unit = host_pi
+                break
+        if unit is None:
+            free.append(pi)
+        else:
+            for u in units:
+                if u["host"] is unit:
+                    u["fans"].append(pi)
+                    break
+            else:
+                units.append({"host": unit, "fans": [pi]})
+    for host_pi, _hp in hosts:
+        if not any(u["host"] is host_pi for u in units):
+            units.append({"host": host_pi, "fans": []})
+    return units, free
+
+
+def _regrid_helices(last, units, items_by_id, sw, sh, space):
+    """Phase 1 de la compaction : les hélices re-grillées en colonnes
+    DEPUIS le bord gauche (−X) par small_lattice (validation STRtree sur
+    anneaux réels ; rotations permises seulement). Les fans nichées
+    suivent en TRANSFORMATION RIGIDE (rotation relative + translation
+    conservées) — elles vivent dans le polygone externe de leur hôte,
+    leur distance aux autres unités est celle des hôtes. Tout-ou-rien :
+    si une classe d'hôtes ne tient pas entièrement, aucun hôte ne bouge.
+    Retourne le nombre de pièces déplacées."""
+    from math import cos, radians, sin
+
+    by_cls = {}
+    for u in units:
+        by_cls.setdefault(u["host"]["item_id"], []).append(u)
+    saved = [(u, dict(u["host"]["transformation"]),
+              [dict(f["transformation"]) for f in u["fans"]])
+             for u in units]
+    x_from = space
+    moved = 0
+    for cls in sorted(by_cls, key=lambda c: (-len(by_cls[c]), c)):
+        group = by_cls[cls]
+        it = items_by_id[cls]
+        small = {"id": cls, "coords": it["coords"],
+                 "rotations": it.get("rotations") or [0.0]}
+        rect = (x_from, space, sw - space, sh - space)
+        lat = small_lattice(small, space, rect, want=len(group), axis="x")
+        if not lat or len(lat) < len(group):
+            # Ne tient pas : restauration complète des hôtes (tout-ou-rien).
+            for u, host_tr, fan_trs in saved:
+                u["host"]["transformation"] = host_tr
+                for f, ft in zip(u["fans"], fan_trs):
+                    f["transformation"] = ft
+            return 0
+        order = sorted(group, key=lambda u: (
+            u["host"]["transformation"]["translation"][0],
+            u["host"]["transformation"]["translation"][1]))
+        cls_maxx = 0.0
+        for u, lp in zip(order, lat):
+            new = lp["transformation"]
+            old = u["host"]["transformation"]
+            dr = float(new["rotation"]) - float(old["rotation"])
+            r = radians(dr)
+            ox, oy = old["translation"]
+            nx, ny = new["translation"]
+            u["host"]["transformation"] = {
+                "rotation": new["rotation"],
+                "translation": (nx, ny)}
+            for f in u["fans"]:
+                ft = f["transformation"]
+                fx, fy = ft["translation"]
+                dx, dy = fx - ox, fy - oy
+                f["transformation"] = {
+                    "rotation": ft["rotation"] + dr,
+                    "translation": (nx + cos(r) * dx - sin(r) * dy,
+                                    ny + sin(r) * dx + cos(r) * dy)}
+            bb = _rotated_bbox(_bbox(it["coords"]), float(new["rotation"]))
+            cls_maxx = max(cls_maxx, nx + bb[2])
+            moved += 1 + len(u["fans"])
+        x_from = cls_maxx + space
+    return moved
+
+
 def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space):
-    """Compaction de la tôle donneuse (constat 2026-09-02 « pas optimisé
-    −X ») : le moteur BPP ne compacte PAS la dernière tôle (coût = tôles +
-    remnant, pas la direction par tôle) et le remplissage des tôles
-    précédentes y laisse un amas dispersé. Ici les pièces LIBRES de la
-    tôle sont détachées puis re-posées en lattice compact DERRIÈRE le
-    bloc ancré (hôtes + nichées) — les colonnes poussent depuis l'ancre,
-    la chute redevient un rectangle unique. Tout-ou-rien : des libres non
-    replacées qui ne rentrent plus à leur pose d'origine restaurent
-    l'état d'avant."""
+    """Compaction −X de la tôle donneuse (constats 2026-09-02). Le moteur
+    BPP ne compacte PAS la dernière tôle (coût = tôles + remnant, pas la
+    direction par tôle) : v1 re-posait seulement les libres derrière
+    l'ancre — les hôtes restaient épars et le principe « tout au bord
+    −X » n'était pas appliqué. v2 :
+
+    1. les HÉLICES (hôte + fans nichées, groupe rigide) sont re-grillées
+       en colonnes depuis le bord gauche (_regrid_helices, tout-ou-rien) ;
+    2. les LIBRES sont détachées puis re-posées en lattice derrière la
+       grille des hélices (bandes autour de l'ancre = AABB des non-libres)
+       — colonnes depuis l'ancre, chute rectangulaire unique ; les
+       non-placées retournent à leur pose d'origine VALIDÉE, sinon
+       restauration complète (no-op sur les libres)."""
     last = layouts[sheet_i]
     sw, sh = bin_dims[last["container_id"]]
-    free = _free_pis(last, items_by_id)
-    if not free:
+    units, free = _helix_units_and_free(last, items_by_id)
+    if not units and not free:
         return 0
+    moved = _regrid_helices(last, units, items_by_id, sw, sh, space)
+    if not free:
+        return moved
     free_ids = {id(pi) for pi in free}
     anchor = [pi for pi in last.get("placed_items", []) if id(pi) not in free_ids]
     if not anchor:
-        return 0
-    snapshot = copy.deepcopy(last.get("placed_items", []))
+        return moved
     saved_poses = {id(pi): dict(pi["transformation"]) for pi in free}
+    fans_snapshot = copy.deepcopy(last.get("placed_items", []))
     try:
         for pi in free:
             last["placed_items"] = [x for x in last["placed_items"]
                                     if x is not pi]
-        moved = 0
         while True:
             remaining = [pi for pi in free
                          if not any(x is pi for x in last["placed_items"])]
@@ -344,12 +462,12 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space):
         if restore and not _validate_batch(restore, last, items_by_id,
                                            sw, sh, space):
             raise _CompactRollback()
-        if not moved:
-            raise _CompactRollback()
         return moved
     except _CompactRollback:
-        last["placed_items"] = snapshot
-        return 0
+        # Rollback des LIBRES uniquement : la grille des hélices reste
+        # (validée par small_lattice indépendamment).
+        last["placed_items"] = fans_snapshot
+        return moved
 
 
 def fill_residual_bands(layouts, input_items, bin_dims, space):

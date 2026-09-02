@@ -284,6 +284,145 @@ function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space, payloa
  * @param {object} payload payload local (problem, instance, engineConfig)
  * @returns {number} pièces déplacées (0 = no-op)
  */
+/** Classe la tôle en unités RIGIDES (miroir de
+ * residual._helix_units_and_free) : une hélice = hôte (item à trous) +
+ * fans dont le centroïde est dans un de SES trous ; classification
+ * identique à freePis (même centroïde, même point-in-ring). */
+function helixUnitsAndFree(layout, partsById) {
+    const entries = (layout.placed_items || []).map((pi) => {
+        const part = partsById.get(String(pi.item_id))
+        const t = pi.transformation || {}
+        const [tx, ty] = t.translation || [0, 0]
+        return { pi, part, rot: Number(t.rotation) || 0, tx, ty }
+    })
+    const hostHoles = [] // {hostPi, ring}
+    for (const e of entries) {
+        for (const h of (e.part?.holes || [])) {
+            hostHoles.push({
+                hostPi: e.pi,
+                ring: rotateRing(h, e.rot).map(([x, y]) => [x + e.tx, y + e.ty]),
+            })
+        }
+    }
+    const pointInRing = (pt, ring) => {
+        let inside = false
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const [xi, yi] = ring[i]
+            const [xj, yj] = ring[j]
+            if ((yi > pt[1]) !== (yj > pt[1])
+                && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) {
+                inside = !inside
+            }
+        }
+        return inside
+    }
+    const centroid = (ring) => {
+        let x = 0, y = 0
+        for (const [px, py] of ring) { x += px; y += py }
+        return ring.length ? [x / ring.length, y / ring.length] : [0, 0]
+    }
+    const units = []
+    const free = []
+    const unitOf = new Map()
+    for (const e of entries) {
+        if (!e.part) continue
+        if ((e.part.holes || []).length) {
+            if (!unitOf.has(e.pi)) {
+                const u = { host: e.pi, fans: [] }
+                unitOf.set(e.pi, u)
+                units.push(u)
+            }
+            continue
+        }
+        const ring = rotateRing(itemCoords(e.part), e.rot)
+            .map(([x, y]) => [x + e.tx, y + e.ty])
+        const c = centroid(ring)
+        const host = hostHoles.find((h) => pointInRing(c, h.ring))
+        if (host) {
+            let u = unitOf.get(host.hostPi)
+            if (!u) {
+                u = { host: host.hostPi, fans: [] }
+                unitOf.set(host.hostPi, u)
+                units.push(u)
+            }
+            u.fans.push(e.pi)
+        } else {
+            free.push(e.pi)
+        }
+    }
+    return { units, free }
+}
+
+/** Phase 1 de la compaction (miroir de residual._regrid_helices) :
+ * hélices re-grillées en colonnes depuis le bord gauche par smallLattice
+ * (rotations permises, validation exacte) ; fans nichées en
+ * transformation RIGIDE (elles vivent dans le polygone externe de leur
+ * hôte → distance aux autres unités = celle des hôtes). Tout-ou-rien :
+ * si une classe ne tient pas entièrement, aucun hôte ne bouge. */
+function regridHelices(layout, units, partsById, sw, sh, space, payload) {
+    const byCls = new Map()
+    for (const u of units) {
+        const k = String(u.host.item_id)
+        if (!byCls.has(k)) byCls.set(k, [])
+        byCls.get(k).push(u)
+    }
+    const saved = units.map((u) => ({
+        host: { ...u.host.transformation },
+        fans: u.fans.map((f) => ({ ...f.transformation })),
+    }))
+    const restoreAll = () => {
+        units.forEach((u, i) => {
+            u.host.transformation = saved[i].host
+            u.fans.forEach((f, j) => { f.transformation = saved[i].fans[j] })
+        })
+    }
+    let xFrom = space
+    let moved = 0
+    for (const cls of [...byCls.keys()].sort((a, b) => byCls.get(b).length - byCls.get(a).length || (Number(a) - Number(b)))) {
+        const group = byCls.get(cls)
+        const part = partsById.get(cls)
+        if (!part) continue
+        const lat = smallLattice(
+            { id: Number(cls), coords: itemCoords(part), rotations: partRotations(part, payload) },
+            space, [xFrom, space, sw - space, sh - space], { want: group.length, axis: 'x' })
+        if (!lat || lat.length < group.length) {
+            restoreAll()
+            return 0
+        }
+        const order = group.slice().sort((a, b) => {
+            const ta = a.host.transformation.translation
+            const tb = b.host.transformation.translation
+            return (ta[0] - tb[0]) || (ta[1] - tb[1])
+        })
+        let clsMaxX = 0
+        order.forEach((u, k) => {
+            const lp = lat[k].transformation
+            const old = u.host.transformation
+            const dr = (Number(lp.rotation) || 0) - (Number(old.rotation) || 0)
+            const rad = (dr * Math.PI) / 180
+            const [ox, oy] = old.translation
+            const [nx, ny] = lp.translation
+            u.host.transformation = { rotation: lp.rotation, translation: [nx, ny] }
+            for (const f of u.fans) {
+                const ft = f.transformation
+                const [fx, fy] = ft.translation
+                const dx = fx - ox
+                const dy = fy - oy
+                f.transformation = {
+                    rotation: (Number(ft.rotation) || 0) + dr,
+                    translation: [nx + Math.cos(rad) * dx - Math.sin(rad) * dy,
+                                  ny + Math.sin(rad) * dx + Math.cos(rad) * dy],
+                }
+            }
+            const bb = rotatedBbox(bbox(itemCoords(part)), Number(lp.rotation) || 0)
+            clsMaxX = Math.max(clsMaxX, nx + bb[2])
+            moved += 1 + u.fans.length
+        })
+        xFrom = clsMaxX + space
+    }
+    return moved
+}
+
 /**
  * Compaction de la tôle donneuse (miroir de residual._compact_last_sheet,
  * constat user 2026-09-02 « pas optimisé −X ») : le moteur BPP ne compacte
@@ -297,17 +436,22 @@ function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space, payloa
 function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space, payload) {
     const last = layouts[sheetI]
     const [sw, sh] = sheetDimsOf(last)
-    const free = freePis(last, partsById)
-    if (!free.length) return 0
+    const { units, free } = helixUnitsAndFree(last, partsById)
+    if (!units.length && !free.length) return 0
+    // Phase 1 : hélices re-grillées en colonnes depuis le bord gauche
+    // (transformation rigide des fans nichées).
+    let moved = regridHelices(last, units, partsById, sw, sh, space, payload)
+    if (!free.length) return moved
     const freeSet = new Set(free)
     const hasAnchor = (last.placed_items || []).some((pi) => !freeSet.has(pi))
-    if (!hasAnchor) return 0
-    const snapshot = JSON.parse(JSON.stringify(last.placed_items || []))
+    if (!hasAnchor) return moved
+    // Phase 2 : libres détachées puis re-posées en lattice derrière la
+    // grille des hélices (bandes autour de l'ancre = AABB des non-libres).
+    const fansSnapshot = JSON.parse(JSON.stringify(last.placed_items || []))
     const savedPoses = new Map(free.map((pi) => [pi, { ...pi.transformation }]))
     const placedHas = (pi) => (last.placed_items || []).some((x) => x === pi)
     try {
         last.placed_items = (last.placed_items || []).filter((pi) => !freeSet.has(pi))
-        let moved = 0
         while (true) {
             const remaining = free.filter((pi) => !placedHas(pi))
             if (!remaining.length) break
@@ -327,11 +471,12 @@ function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space, payloa
         if (restore.length && !validateBatch(restore, last, partsById, sw, sh, space)) {
             throw new Error('compact rollback')
         }
-        if (!moved) throw new Error('compact noop')
         return moved
     } catch (e) {
-        last.placed_items = snapshot
-        return 0
+        // Rollback des LIBRES uniquement : la grille des hélices reste
+        // (validée par smallLattice indépendamment).
+        last.placed_items = fansSnapshot
+        return moved
     }
 }
 
