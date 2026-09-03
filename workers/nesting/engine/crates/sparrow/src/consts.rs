@@ -22,6 +22,13 @@ pub const PRE_REFINE_CD_R_STEPS: (f32, f32) = (f32::to_radians(5.0), f32::to_rad
 /// Ratio of the item's min dimension to be used as initial and limit step size for the second (final) refinement
 pub const SND_REFINE_CD_TL_RATIOS: (f32, f32) = (0.01, 0.001);
 
+/// C6 (audit 2026-09-03) : borne ABSOLUE du pas final de descente. Le pas
+/// ratio seul (0,001 × min_dim) vaut 0,1 mm pour un hôte de 100 mm : les
+/// colonnes dérivent de +0,1/colonne (50,1 / 150,2 / 250,4…), y_max
+/// atteint 904,76 et la 9e rangée ne tient plus — 80 hôtes au lieu de 81
+/// sur une tôle 1000 (une cellule de grille perdue, visible en navigateur).
+pub const SND_REFINE_ABS_LIMIT_MM: f32 = 0.01;
+
 /// Step sizes for rotation in the second (final) refinement
 pub const SND_REFINE_CD_R_STEPS: (f32, f32) = (f32::to_radians(0.5), f32::to_radians(0.05));
 

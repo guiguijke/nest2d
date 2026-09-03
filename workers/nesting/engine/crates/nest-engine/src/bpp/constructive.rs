@@ -890,4 +890,42 @@ mod scale_tests {
             0.0
         );
     }
+
+    /// T7 (plan §2.2, C6) : 81 carrés 100×100 à space 0,1 sur une tôle
+    /// 1000×1000 — le pas final de descente RATIO (0,001 × 100 = 0,1 mm)
+    /// faisait dériver les colonnes (+0,1/colonne) et la 9e rangée ne
+    /// tenait plus : 80 hôtes, une cellule de grille perdue. La borne
+    /// absolue 0,01 mm doit laisser les 81 tenir sur UNE tôle.
+    #[test]
+    fn hosts_pack_9x9_at_space_0_1() {
+        let json = serde_json::json!({
+            "name": "grid9x9",
+            "items": [{
+                "id": 0, "demand": 81,
+                "allowed_orientations": [0.0],
+                "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,100],[0,100],[0,0]]}
+            }],
+            "bins": [{
+                "id": 0, "cost": 1, "stock": 2,
+                "shape": {"type": "polygon", "data": {"outer": [[0,0],[1000,0],[1000,1000],[0,1000],[0,0]]}}
+            }]
+        });
+        let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            None,
+            Some((0.1, 0.1)),
+        );
+        let instance = import_instance(&importer, &ext).unwrap();
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(21);
+        let seq = sa::initial_sequence(&instance);
+        let result = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut rng);
+        assert_eq!(result.unplaced, 0, "les 81 carrés tiennent sur une tôle");
+        assert_eq!(
+            result.solution.layout_snapshots.len(),
+            1,
+            "C6 : 9×9 à space 0,1 = une seule tôle (l'ancien pas 0,1 mm en perdait un)"
+        );
+    }
 }

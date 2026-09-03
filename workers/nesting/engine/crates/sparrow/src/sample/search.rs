@@ -1,4 +1,4 @@
-use crate::consts::{PRE_REFINE_CD_R_STEPS, PRE_REFINE_CD_TL_RATIOS, SND_REFINE_CD_R_STEPS, SND_REFINE_CD_TL_RATIOS, UNIQUE_SAMPLE_THRESHOLD};
+use crate::consts::{PRE_REFINE_CD_R_STEPS, PRE_REFINE_CD_TL_RATIOS, SND_REFINE_ABS_LIMIT_MM, SND_REFINE_CD_R_STEPS, SND_REFINE_CD_TL_RATIOS, UNIQUE_SAMPLE_THRESHOLD};
 use crate::eval::sample_eval::{SampleEval, SampleEvaluator};
 use crate::sample::best_samples::BestSamples;
 use crate::sample::coord_descent::{refine_coord_desc, CDConfig};
@@ -93,7 +93,10 @@ fn final_refine_cd_config(item: &Item) -> CDConfig {
     let wiggle = item.allowed_rotation == RotationRange::Continuous;
     CDConfig {
         t_step_init: item_min_dim * SND_REFINE_CD_TL_RATIOS.0,
-        t_step_limit: item_min_dim * SND_REFINE_CD_TL_RATIOS.1,
+        // C6 : clampé par la borne absolue (voir consts.rs).
+        // C6 : clampé par la borne absolue (voir consts.rs).
+        t_step_limit: (item_min_dim * SND_REFINE_CD_TL_RATIOS.1)
+            .min(SND_REFINE_ABS_LIMIT_MM),
         r_step_init: SND_REFINE_CD_R_STEPS.0,
         r_step_limit: SND_REFINE_CD_R_STEPS.1,
         wiggle
