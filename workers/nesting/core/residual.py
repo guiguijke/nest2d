@@ -223,13 +223,28 @@ def _validate_batch(new_pis, layout, items_by_id, sheet_w, sheet_h, space):
     return True
 
 
+def _remove_by_identity(lst, pi):
+    """list.remove comparant les dicts PAR VALEUR : la transformation du
+    donneur vient d'être écrasée par la pose lattice — un remove par valeur
+    détruit alors une pièce DÉJÀ POSÉE à la pose jumelle au lieu de lever
+    ValueError, et la boucle de compaction pose/dépose les mêmes pièces à
+    l'infini (constaté audit 2026-09-02, fixture T10). Identité uniquement."""
+    for k, x in enumerate(lst):
+        if x is pi:
+            del lst[k]
+            return True
+    return False
+
+
 def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
-                    free=None):
+                    free=None, bands=None):
     """Un batch : une bande de layouts[dst_i] remplie depuis les libres de
     layouts[src_i]. Retourne le nombre de pièces déplacées (0 = plus rien
     à faire sur cette tôle). Rollback du batch si la validation échoue.
     `free` surcharge la liste des donneuses (compaction : donneuses
-    détachées, src == dst)."""
+    détachées, src == dst). `bands` surcharge les zones à remplir
+    (compaction : poches internes du re-grid AVANT les bandes classiques —
+    audit 2026-09-02 F1)."""
     dst = layouts[dst_i]
     src = layouts[src_i]
     sw, sh = bin_dims[dst["container_id"]]
@@ -241,7 +256,8 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
     if not free:
         return 0
 
-    for band in residual_bands(used, sw, sh, space):
+    for band in (bands if bands is not None
+                 else residual_bands(used, sw, sh, space)):
         x0, y0, x1, y1 = band["rect"]
         cls_id = _pick_class(free, items_by_id, x1 - x0, y1 - y0)
         if cls_id is None:
@@ -253,9 +269,13 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
         donors = [pi for pi in free if pi["item_id"] == cls_id]
         lat = small_lattice(small, space, band["rect"], want=len(donors),
                             axis=band["axis"])
-        if not lat or len(lat) < 2:
+        # Batches d'une pose : UNIQUEMENT en zones explicites (poches de la
+        # compaction — audit F2a). Les bandes classiques gardent le seuil 2 :
+        # un balayage complet par pièce isolée coûte un small_lattice par
+        # bande et ralentit la queue du remplissage (constaté : T10 ×10).
+        min_poses = 1 if bands is not None else 2
+        if not lat or len(lat) < min_poses:
             continue
-        take = min(len(lat), len(donors))
         # Donors anti-compacts d'abord (plus excentrés du centre de la
         # tôle source) : la bbox du last se rétracte au fil des batchs.
         used_src = layout_aabb(src, items_by_id)
@@ -269,27 +289,36 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
             key=lambda pi: -(((pi["transformation"]["translation"][0] - cx) ** 2
                               + (pi["transformation"]["translation"][1] - cy) ** 2)),
         )
-        batch = list(zip(order[:take], lat[:take]))
-        saved = [(pi, dict(pi["transformation"])) for pi, _ in batch]
-        for pi, lp in batch:
-            tr = lp["transformation"]
-            pi["transformation"] = {"rotation": tr["rotation"],
-                                    "translation": tuple(tr["translation"])}
-            # Compaction (src == dst) : la donneuse est détachée, le
-            # remove par valeur la lèverait — l'identité suffit.
-            try:
-                src["placed_items"].remove(pi)
-            except ValueError:
-                pass
-            dst["placed_items"].append(pi)
-        if _validate_batch([pi for pi, _ in batch], dst, items_by_id,
-                           sw, sh, space):
-            return take
-        # Rollback de CE batch : transformation d'origine + retour au src.
-        for pi, old_tr in saved:
-            dst["placed_items"].remove(pi)
-            pi["transformation"] = old_tr
-            src["placed_items"].append(pi)
+        # Audit 2026-09-02 F2b : un batch invalide est ré-essayé en tailles
+        # décroissantes (take//2 … 1) au lieu d'un rollback total — une
+        # seule pose fautive ne condamne plus toute la bande. Terminaison :
+        # take décroît strictement, chaque essai ≤ 4 validations.
+        take = min(len(lat), len(donors))
+        while take >= 1:
+            batch = list(zip(order[:take], lat[:take]))
+            saved = [(pi, dict(pi["transformation"])) for pi, _ in batch]
+            # removed_from_src : False en compaction (donneuses détachées,
+            # src == dst) — le rollback ne doit alors PAS les réinsérer au
+            # layout (elles restent détachées, comme avant le batch).
+            removed_from_src = []
+            for pi, lp in batch:
+                tr = lp["transformation"]
+                pi["transformation"] = {"rotation": tr["rotation"],
+                                        "translation": tuple(tr["translation"])}
+                removed_from_src.append(
+                    _remove_by_identity(src["placed_items"], pi))
+                dst["placed_items"].append(pi)
+            if _validate_batch([pi for pi, _ in batch], dst, items_by_id,
+                               sw, sh, space):
+                return take
+            # Rollback de CE batch : transformation d'origine + retour au
+            # src UNIQUEMENT pour les pièces qui en venaient réellement.
+            for (pi, old_tr), was_in_src in zip(saved, removed_from_src):
+                _remove_by_identity(dst["placed_items"], pi)
+                pi["transformation"] = old_tr
+                if was_in_src:
+                    src["placed_items"].append(pi)
+            take //= 2
     return 0
 
 
@@ -355,7 +384,14 @@ def _regrid_helices(last, units, items_by_id, sw, sh, space):
     conservées) — elles vivent dans le polygone externe de leur hôte,
     leur distance aux autres unités est celle des hôtes. Tout-ou-rien :
     si une classe d'hôtes ne tient pas entièrement, aucun hôte ne bouge.
-    Retourne le nombre de pièces déplacées."""
+
+    Retourne (pièces déplacées, rects libres des colonnes PARTIELLES de
+    la grille — « poches » internes à l'AABB, invisibles de
+    residual_bands qui n'extrait que des bandes extérieures ; audit
+    2026-09-02 F1 : 19 hélices = colonnes 9+9+1, ~80 000 mm² au-dessus
+    de la 19e restent vides sans ce retour). Les poches sont consommées
+    par la compaction via _fill_one_batch(bands=...) : chaque pose y est
+    validée par _validate_batch, un rect malvenu ne coûte qu'un no-op."""
     from math import cos, radians, sin
 
     by_cls = {}
@@ -366,6 +402,7 @@ def _regrid_helices(last, units, items_by_id, sw, sh, space):
              for u in units]
     x_from = space
     moved = 0
+    free_rects = []
     for cls in sorted(by_cls, key=lambda c: (-len(by_cls[c]), c)):
         group = by_cls[cls]
         it = items_by_id[cls]
@@ -379,10 +416,42 @@ def _regrid_helices(last, units, items_by_id, sw, sh, space):
                 u["host"]["transformation"] = host_tr
                 for f, ft in zip(u["fans"], fan_trs):
                     f["transformation"] = ft
-            return 0
+            return 0, []
         order = sorted(group, key=lambda u: (
             u["host"]["transformation"]["translation"][0],
             u["host"]["transformation"]["translation"][1]))
+        # Poches des colonnes partielles : les poses d'une même colonne
+        # partagent l'abscisse du centroïde (pas périodique exact). Seule
+        # la DERNIÈRE colonne (x max) peut être incomplète sans chevaucher
+        # ses voisines (grilles et zigzags remplissent colonne par
+        # colonne) ; son rect est clippé à droite du maxx des autres
+        # colonnes (le brick/zigzag décale les colonnes d'un demi-pas).
+        pose_bb = [(_rotated_bbox(_bbox(it["coords"]),
+                                  float(lp["transformation"]["rotation"])),
+                    lp["transformation"]["translation"])
+                   for lp in lat]
+        cols = {}
+        for k, (bb, (tx, _ty)) in enumerate(pose_bb):
+            cols.setdefault(round(tx, 3), []).append(k)
+        cap = max(len(v) for v in cols.values())
+        last_key = sorted(cols)[-1]
+        if len(cols[last_key]) < cap:
+            idxs = cols[last_key]
+            x0 = min(pose_bb[k][1][0] + pose_bb[k][0][0] for k in idxs)
+            x1 = max(pose_bb[k][1][0] + pose_bb[k][0][2] for k in idxs)
+            top = max(pose_bb[k][1][1] + pose_bb[k][0][3] for k in idxs)
+            others_maxx = 0.0
+            for key, ks in cols.items():
+                if key == last_key:
+                    continue
+                others_maxx = max(
+                    others_maxx,
+                    max(pose_bb[k][1][0] + pose_bb[k][0][2] for k in ks))
+            pocket = (max(x0, others_maxx + space), top + space, x1,
+                      sh - space)
+            if (pocket[2] - pocket[0] > _EPS
+                    and pocket[3] - pocket[1] > _EPS):
+                free_rects.append(pocket)
         cls_maxx = 0.0
         for u, lp in zip(order, lat):
             new = lp["transformation"]
@@ -406,7 +475,7 @@ def _regrid_helices(last, units, items_by_id, sw, sh, space):
             cls_maxx = max(cls_maxx, nx + bb[2])
             moved += 1 + len(u["fans"])
         x_from = cls_maxx + space
-    return moved
+    return moved, free_rects
 
 
 def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space):
@@ -422,19 +491,40 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space):
        grille des hélices (bandes autour de l'ancre = AABB des non-libres)
        — colonnes depuis l'ancre, chute rectangulaire unique ; les
        non-placées retournent à leur pose d'origine VALIDÉE, sinon
-       restauration complète (no-op sur les libres)."""
+       restauration complète (no-op sur les libres).
+
+    Audit 2026-09-02 F1/F2 : les libres remplissent d'abord les POCHES
+    des colonnes partielles du re-grid (rects internes, retournés par
+    _regrid_helices) PUIS les bandes classiques — la bande droite ne
+    monopolise plus les donneuses, la poche au-dessus de la colonne
+    partielle d'hélices est comblée (front −X réduit d'autant).
+
+    Audit 2026-09-02 (soir, « trou haut-gauche ») : GRAVITÉ −X — poches
+    et bandes sont consommées par x0 CROISSANT (recalculées après chaque
+    batch, l'AABB bouge). L'ancien tri par aire décroissante envoyait
+    toutes les libres dans la grande bande DROITE et laissait la bande
+    haute au-dessus de la grille d'hélices vide (~6 % de la tôle sur le
+    corpus 100+999) ; en ordre x-croissant, le haut-gauche se remplit
+    avant que la bande droite n'étende le front."""
     last = layouts[sheet_i]
     sw, sh = bin_dims[last["container_id"]]
     units, free = _helix_units_and_free(last, items_by_id)
     if not units and not free:
         return 0
-    moved = _regrid_helices(last, units, items_by_id, sw, sh, space)
+    moved, pocket_rects = _regrid_helices(last, units, items_by_id, sw, sh,
+                                          space)
     if not free:
         return moved
     free_ids = {id(pi) for pi in free}
     anchor = [pi for pi in last.get("placed_items", []) if id(pi) not in free_ids]
     if not anchor:
         return moved
+    pocket_bands = [
+        {"name": f"pocket{i}", "rect": r, "axis": "x"}
+        for i, r in enumerate(sorted(pocket_rects, key=lambda r: (r[0], r)))
+    ]
+    pockets_left = bool(pocket_bands)
+    bands = pocket_bands or None
     saved_poses = {id(pi): dict(pi["transformation"]) for pi in free}
     fans_snapshot = copy.deepcopy(last.get("placed_items", []))
     try:
@@ -446,11 +536,26 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space):
                          if not any(x is pi for x in last["placed_items"])]
             if not remaining:
                 break
+            if bands is None:
+                # Bandes classiques recalculées à chaque tour (l'AABB a
+                # bougé au batch précédent), ordonnées en gravité −X.
+                used = layout_aabb(last, items_by_id)
+                bl = residual_bands(used, sw, sh, space)
+                bl.sort(key=lambda b: (b["rect"][0], -b["area"]))
+                bands = bl
             n = _fill_one_batch(layouts, sheet_i, sheet_i, items_by_id,
-                                bin_dims, space, free=remaining)
+                                bin_dims, space, free=remaining, bands=bands)
             if not n:
+                # Poches épuisées (ou absentes) : une seule bascule vers
+                # les bandes classiques, puis arrêt au premier échec.
+                if pockets_left:
+                    pockets_left = False
+                    bands = None
+                    continue
                 break
             moved += n
+            if not pockets_left:
+                bands = None  # force le recalcul −X au tour suivant
         # Libres non replacées (capacité < donneuses) : retour à la pose
         # d'origine — validé contre le layout final, les nouvelles colonnes
         # ont pu recouvrir leur ancienne position.

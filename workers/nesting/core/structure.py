@@ -470,13 +470,14 @@ def small_lattice(small, space, rect, want=None, axis="x"):
         if {deg0, (deg0 + 180.0) % 360} <= allowed:
             for y_phase in (0, 1):
                 for x_phase in (0, 1):
-                    consider(_lattice_variant(base, small.get("id"), space, rect,
-                                             threshold, deg0, y_phase, x_phase))
+                    consider(_lattice_variant(base, small.get("id"), space,
+                                              rect, threshold, deg0, y_phase,
+                                              x_phase, cap=cap))
     if {90.0, 270.0} <= allowed:
         for y_phase in (0, 1):
             for x_phase in (0, 1):
                 consider(_lattice_rotated(base, small.get("id"), space, rect,
-                                         threshold, y_phase, x_phase))
+                                         threshold, y_phase, x_phase, cap=cap))
     return best
 
 
@@ -573,13 +574,14 @@ def _bbox_grid_brick(base, item_id, space, rect, deg0):
     return out or None
 
 
-def _lattice_rotated(base, item_id, space, rect, threshold, y_phase, x_phase):
+def _lattice_rotated(base, item_id, space, rect, threshold, y_phase, x_phase,
+                     cap=None):
     x0, y0, x1, y1 = rect
     w, h = x1 - x0, y1 - y0
     if w <= 0 or h <= 0:
         return None
     packed = _lattice_variant(base, item_id, space, (0.0, 0.0, h, w),
-                              threshold, 0.0, y_phase, x_phase)
+                              threshold, 0.0, y_phase, x_phase, cap=cap)
     if not packed:
         return None
     c_orig = base.centroid
@@ -617,7 +619,7 @@ def _lattice_rotated(base, item_id, space, rect, threshold, y_phase, x_phase):
 
 
 def _lattice_variant(base, item_id, space, rect, threshold, deg0, y_phase,
-                     x_phase=0):
+                     x_phase=0, cap=None):
     from shapely import affinity
     from shapely.strtree import STRtree
     ix0, iy0, ix1, iy1 = rect
@@ -636,7 +638,7 @@ def _lattice_variant(base, item_id, space, rect, threshold, deg0, y_phase,
     def extents(even):
         return (x_l0, x_r0, y_d0, y_u0) if even else (x_r0, x_l0, y_u0, y_d0)
 
-    def generate(py, px, max_i=80, max_j=220):
+    def generate(py, px, max_i=80, max_j=220, stop_after=None):
         dy = LATTICE_DY_RATIO * py
         y_base = (iy0 + y_d0) if y_phase == 0 else (iy0 + y_u0 - dy)
         x_base = (ix0 + x_l0) if x_phase == 0 else (ix0 + x_r0)
@@ -657,6 +659,14 @@ def _lattice_variant(base, item_id, space, rect, threshold, deg0, y_phase,
                 src_c = c0 if even else c_odd
                 p = affinity.translate(src, cx - src_c.x, cy - src_c.y)
                 out.append((deg0 if even else deg0 + 180.0, p))
+                # Perf (audit BPP 2026-09-02) : seules les `stop_after`
+                # premières poses en ordre de génération servent au scoring
+                # (far_edge tronque à cap) — inutile de translated 17 600
+                # polygones quand want est petit. Résultat identique ;
+                # try_pitch appelle SANS stop_after (le patch 5×8 doit
+                # rester complet pour valider les pas).
+                if stop_after is not None and len(out) >= stop_after:
+                    return out
         return out
 
     def try_pitch(py, px):
@@ -716,7 +726,7 @@ def _lattice_variant(base, item_id, space, rect, threshold, deg0, y_phase,
             px = mid
         else:
             lo_px = mid
-    out = generate(py, px)
+    out = generate(py, px, stop_after=cap)
     if not out:
         return None
     placements = []

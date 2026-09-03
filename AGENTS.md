@@ -612,6 +612,21 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     latticeScallop.test.js + dump→shapely (0 chevauchement, min-dist
     1,36 ; l'ancien : 95 paires à 33 mm²).
 
+56. **Un seuil de validation calculé doit être PLANCHÉ À > 0 (constat
+    2026-09-02 soir « ça overlappe » navigateur, space 0,1).**
+    `validateBatch` JS : `lim = space − 2×SIMPLIFY − EPS` devient
+    NÉGATIF à space 0,1 → `dist < lim` ne rejetait plus JAMAIS rien.
+    Innocent tant que les zones remplies étaient des bandes extérieures
+    (libres par construction), DÈS L'INSTANT où une zone INTÉRIEURE
+    (poche du re-grid) est remplie en plusieurs itérations, des poses
+    dupliquées à distance 0 passaient — 477 paires à 0 sur le fixture de
+    régression, piles de fans visibles chez l'user alors que le serveur
+    (seuil `space − ε`) restait exact. Règle : tout seuil dérivé d'une
+    soustraction reçoit un plancher strictement positif
+    (`Math.max(1e-9, …)`), et toute évolution du pass se verrouille par
+    un test qui compte les paires à distance ≈ 0 SUR le chemin
+    multi-itérations (pas seulement les comptes de pièces).
+
 54. **BPP : le moteur ne compacte PAS la dernière tôle (constat
     2026-09-02 « pas optimisé −X »).** Coût moteur = tôles + remnant,
     pas la direction par tôle — sans post-pass, la donneuse finit en

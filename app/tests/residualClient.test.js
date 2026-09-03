@@ -128,9 +128,12 @@ describe('fillResidualBands — compaction de la dernière tôle (T10, miroir te
         for (const p of l1Hosts) {
             expect(p.transformation.translation[0]).toBeLessThanOrEqual(160)
         }
+        // Borne basse 100 (et non 155) depuis le fix poches (audit
+        // 2026-09-02 F1) : les fans remplissent D'ABORD la poche de la
+        // colonne partielle d'hélices (x[104,204]) avant la bande droite.
         for (const p of l1Fans) {
             const tx = p.transformation.translation[0]
-            expect(tx).toBeGreaterThanOrEqual(155)
+            expect(tx).toBeGreaterThanOrEqual(100)
             expect(tx).toBeLessThanOrEqual(450)
         }
         const aabb = layoutAabb(layouts[1], new Map(PARTS.map((p) => [String(p.id), p])))
@@ -243,5 +246,168 @@ describe('fillResidualBands — miroir Python (T3/T4/T5)', () => {
         expect(n).toBe(4)
         expect(layouts.length).toBe(1)
         expect(layouts[0].placed_items.filter((p) => p.item_id === 1).length).toBe(4)
+    })
+})
+
+// ---------------------------------------------------------------------------
+// Fix poches + retry dégradé (audit 2026-09-02, miroir test_residual.py
+// T11-T15 — docs/AUDIT-BPP-2026-09-02.md F1/F2).
+// ---------------------------------------------------------------------------
+import {
+    fillOneBatch,
+    helixUnitsAndFree,
+    regridHelices,
+} from '../composables/residualClient'
+
+const PARTS_BY_ID = () => new Map(PARTS.map((p) => [String(p.id), p]))
+const SHEET_DIMS = () => (layout) => [1000, 1000]
+
+describe('regridHelices — poches des colonnes partielles (T11)', () => {
+    it('10 hôtes (colonnes 9+1) → 1 poche ≈ x[104,204]×y[104,998]', () => {
+        const hosts = []
+        for (let k = 0; k < 10; k++) hosts.push(pi(0, 500 + 37 * k, 500))
+        const last = layout(hosts)
+        const { units } = helixUnitsAndFree(last, PARTS_BY_ID())
+        const { moved, freeRects } = regridHelices(last, units, PARTS_BY_ID(), 1000, 1000, 2, payload)
+        expect(moved).toBe(10)
+        expect(freeRects).toHaveLength(1)
+        expect(freeRects[0].map((v) => Math.round(v))).toEqual([104, 104, 204, 998])
+    })
+
+    it('18 hôtes (2 colonnes pleines) → aucune poche', () => {
+        const hosts = []
+        for (let k = 0; k < 18; k++) hosts.push(pi(0, 500 + 31 * k, 500))
+        const last = layout(hosts)
+        const { units } = helixUnitsAndFree(last, PARTS_BY_ID())
+        const { moved, freeRects } = regridHelices(last, units, PARTS_BY_ID(), 1000, 1000, 2, payload)
+        expect(moved).toBe(18)
+        expect(freeRects).toEqual([])
+    })
+
+    it('échec lattice → restauration complète, aucune poche', () => {
+        const hosts = []
+        for (let k = 0; k < 200; k++) hosts.push(pi(0, 500 + 5 * (k % 20), 500 + 5 * Math.floor(k / 20)))
+        const last = layout(hosts)
+        const before = last.placed_items.map((p) => ({ ...p.transformation }))
+        const { units } = helixUnitsAndFree(last, PARTS_BY_ID())
+        const { moved, freeRects } = regridHelices(last, units, PARTS_BY_ID(), 1000, 1000, 2, payload)
+        expect(moved).toBe(0)
+        expect(freeRects).toEqual([])
+        last.placed_items.forEach((p, i) => {
+            expect(p.transformation).toEqual(before[i])
+        })
+    })
+})
+
+describe('compaction — poche remplie avant la bande droite (T12)', () => {
+    it('des fans vivent dans la poche x[104,204] et le layout reste intact', () => {
+        const hosts0 = []
+        for (let gx = 0; gx < 10; gx++) for (let gy = 0; gy < 10; gy++) hosts0.push(pi(0, 50 + 100 * gx, 50 + 100 * gy))
+        const hosts1 = []
+        for (let k = 0; k < 10; k++) hosts1.push(pi(0, 500, 300 + 37 * k))
+        const free = []
+        for (let k = 0; k < 25; k++) free.push(pi(1, 400 + 60 * (k % 9), 500 + 50 * Math.floor(k / 9)))
+        const layouts = [layout(hosts0), layout([...hosts1, ...free])]
+
+        const n = fillResidualBands(PARTS, layouts, 2, payload)
+        expect(n).toBeGreaterThan(0)
+        const l1Fans = layouts[1].placed_items.filter((p) => p.item_id === 1)
+        expect(l1Fans).toHaveLength(25)
+        const inPocket = l1Fans.filter((p) => {
+            const tx = p.transformation.translation[0]
+            return tx >= 104 && tx <= 204
+        })
+        expect(inPocket.length).toBeGreaterThan(0)
+    })
+})
+
+describe('fillOneBatch — batch d\'une pose et retry dégradé (T13/T14)', () => {
+    it('poches : une seule pose admise (bands), bandes classiques : seuil 2', () => {
+        // Rect 60×60 : le fan n'y tient qu'une fois.
+        const l0 = layout([pi(0, 100, 100)])
+        const fan = pi(1, 700, 700)
+        const nP = fillOneBatch([l0], 0, 0, PARTS_BY_ID(), SHEET_DIMS(), 2, payload, [fan],
+            [{ name: 'pocket', rect: [500, 500, 560, 560], axis: 'x' }])
+        expect(nP).toBe(1)
+
+        const l1 = layout([pi(0, 500, 500)])
+        const fan2 = pi(1, 700, 700)
+        const nD = fillOneBatch([l1], 0, 0, PARTS_BY_ID(), SHEET_DIMS(), 2, payload, [fan2])
+        expect(nD).toBe(0) // seuil 2 sur les bandes classiques (contrat T4)
+        expect(l1.placed_items).toHaveLength(1)
+    })
+
+    it('leurre sur la 2e pose → subset valide posé (pas de rollback total)', () => {
+        const band = { name: 'pocket', rect: [500, 2, 998, 400], axis: 'x' }
+        const lat = smallLattice({ id: 1, coords: FAN, rotations: QUARTERS }, 2, band.rect,
+            { want: 3, axis: 'x' })
+        expect(lat.length).toBeGreaterThanOrEqual(3)
+        const t1 = lat[0].transformation
+        const t2 = lat[1].transformation
+        const l0 = layout([
+            pi(0, 100, 100),
+            { item_id: 1, transformation: { rotation: t2.rotation, translation: [...t2.translation] } },
+        ])
+        const free = [pi(1, 700, 800), pi(1, 740, 800), pi(1, 780, 800)]
+        const n = fillOneBatch([l0], 0, 0, PARTS_BY_ID(), SHEET_DIMS(), 2, payload, free, [band])
+        expect(n).toBe(1)
+        const moved = l0.placed_items.filter((p) => p.item_id === 1
+            && p.transformation.translation[0] === t1.translation[0]
+            && p.transformation.translation[1] === t1.translation[1])
+        expect(moved).toHaveLength(1)
+    })
+
+    it('identité : deux fans jumelles ne se détruisent pas (T15, régression remove par valeur)', () => {
+        // Le donneur détaché reçoit une pose lattice identique à une fan
+        // déjà posée : le remove doit échouer par IDENTITÉ (indexOf ===),
+        // pas détruire la posée — 2 appels successifs conservent tout.
+        const hosts0 = []
+        for (let gx = 0; gx < 10; gx++) for (let gy = 0; gy < 10; gy++) hosts0.push(pi(0, 50 + 100 * gx, 50 + 100 * gy))
+        const hosts1 = []
+        for (let k = 0; k < 10; k++) hosts1.push(pi(0, 150, 50 + 100 * k))
+        const free = []
+        for (let k = 0; k < 25; k++) free.push(pi(1, 500 + 60 * (k % 7), 100 + 70 * Math.floor(k / 7)))
+        const layouts = [layout(hosts0), layout([...hosts1, ...free])]
+        fillResidualBands(PARTS, layouts, 2, payload)
+        const counts = layouts.map((l) => l.placed_items.length)
+        fillResidualBands(PARTS, layouts, 2, payload) // rejeu : rien ne se perd
+        layouts.forEach((l, i) => expect(l.placed_items).toHaveLength(counts[i]))
+        expect(layouts[1].placed_items.filter((p) => p.item_id === 1)).toHaveLength(25)
+    })
+})
+
+describe('validateBatch — seuil jamais négatif (régression overlap navigateur, 2026-09-02 soir)', () => {
+    it("space 0.1 : plus de fans que la capacité de la poche → 0 chevauchement final", () => {
+        // Constat user : « ça overlappe » sur la tôle 2 en THIS DEVICE. Cause
+        // racine : lim = space - 2*SIMPLIFY devient NÉGATIF à space 0,1 →
+        // `ringDist < lim` ne rejetait plus RIEN → les itérations de poches
+        // empilaient des poses dupliquées à distance 0 (477 paires à 0 sur ce
+        // fixture avant le fix). Le plancher 1e-9 rejette tout chevauchement.
+        const hosts0 = []
+        for (let gx = 0; gx < 10; gx++) for (let gy = 0; gy < 10; gy++) hosts0.push(pi(0, 50 + 100 * gx, 50 + 100 * gy))
+        const hosts1 = []
+        for (let k = 0; k < 10; k++) hosts1.push(pi(0, 150, 50 + 100 * k))
+        const free = []
+        for (let k = 0; k < 300; k++) free.push(pi(1, 300 + 60 * (k % 12), 20 + 60 * Math.floor(k / 12)))
+        const layouts = [layout(hosts0), layout([...hosts1, ...free])]
+
+        fillResidualBands(PARTS, layouts, 0.1, payload)
+
+        const fans = layouts[1].placed_items.filter((p) => p.item_id === 1)
+        expect(fans).toHaveLength(300)
+        const ringOf = (p) => {
+            const t = p.transformation
+            const r = (Number(t.rotation) || 0) * Math.PI / 180
+            const c = Math.cos(r), s = Math.sin(r)
+            return FAN.map(([x, y]) => [x * c - y * s + t.translation[0], x * s + y * c + t.translation[1]])
+        }
+        const rings = fans.map(ringOf)
+        const bad = []
+        for (let i = 0; i < rings.length; i++) {
+            for (let j = i + 1; j < rings.length; j++) {
+                if (ringDist(rings[i], rings[j]) < 0.05) bad.push([i, j])
+            }
+        }
+        expect(bad, `paires chevauchantes: ${bad.length}`).toHaveLength(0)
     })
 })

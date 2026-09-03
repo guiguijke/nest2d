@@ -10,6 +10,10 @@ import pytest
 
 from core.residual import (
     _fill_ratio,
+    _fill_one_batch,
+    _helix_units_and_free,
+    _regrid_helices,
+    _remove_by_identity,
     _validate_batch,
     fill_residual_bands,
     layout_aabb,
@@ -239,10 +243,13 @@ class TestT10CompactLastSheet:
         for p in l1_hosts:
             tx = p["transformation"]["translation"][0]
             assert tx <= 160, f"hôte non re-grillé : tx={tx}"
-        # Fans derrière la grille des hélices, en bloc compact.
+        # Fans derrière la grille des hélices, en bloc compact. Borne basse
+        # 100 (et non 155) depuis le fix poches (audit 2026-09-02 F1) : les
+        # fans remplissent D'ABORD la poche de la colonne partielle
+        # d'hélices (x[104,204]) avant la bande droite.
         for p in l1_fans:
             tx = p["transformation"]["translation"][0]
-            assert 155 <= tx <= 450, f"fan non compactée : tx={tx}"
+            assert 100 <= tx <= 450, f"fan non compactée : tx={tx}"
         aabb = layout_aabb(layouts[1], BY_ID)
         assert aabb[2] <= 500  # chute = rectangle x[500,1000]
 
@@ -267,10 +274,11 @@ class TestT10CompactLastSheet:
         for p in l1_hosts:
             assert p["transformation"]["translation"][0] <= 160
         # Bloc compact derrière la grille des hélices, fini bien avant
-        # x=960.
+        # x=960. Borne basse 100 : poche de la colonne partielle remplie
+        # en premier (fix poches, audit 2026-09-02 F1).
         for p in l1_fans:
             tx = p["transformation"]["translation"][0]
-            assert 155 <= tx <= 420, f"fan non compactée : tx={tx}"
+            assert 100 <= tx <= 420, f"fan non compactée : tx={tx}"
         if HAS_SHAPELY:
             import math as _math
             from shapely.geometry import Polygon
@@ -365,3 +373,149 @@ class TestLayoutAabb:
                                         "translation": (500.0, 500.0)}}])
         got = layout_aabb(l, {2: item})
         assert got == pytest.approx((495.0, 400.0, 505.0, 600.0))
+
+
+class TestT11PocketsFromRegrid:
+    """Fix poches (audit 2026-09-02 F1) : _regrid_helices retourne le rect
+    libre de la colonne PARTIELLE de la grille — 10 hélices = colonnes 9+1,
+    la poche x[104,204]×y[104,998] doit être exposée au remplissage."""
+
+    def _regrid(self, n_hosts):
+        hosts = [pi(0, 500.0 + 37 * k, 500.0) for k in range(n_hosts)]
+        last = layout(list(hosts))
+        units, free = _helix_units_and_free(last, BY_ID)
+        return last, units, free
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_partial_column_yields_pocket(self):
+        last, units, free = self._regrid(10)
+        moved, pockets = _regrid_helices(last, units, BY_ID, 1000.0, 1000.0, 2.0)
+        assert moved == 10
+        assert len(pockets) == 1
+        assert pockets[0] == pytest.approx((104.0, 104.0, 204.0, 998.0), abs=1.5)
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_full_columns_no_pocket(self):
+        last, units, free = self._regrid(18)  # 2 colonnes pleines de 9
+        moved, pockets = _regrid_helices(last, units, BY_ID, 1000.0, 1000.0, 2.0)
+        assert moved == 18
+        assert pockets == []
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_lattice_failure_restores_and_no_pocket(self):
+        last, units, free = self._regrid(200)  # ne tient jamais sur la tôle
+        before = [dict(p["transformation"]) for p in last["placed_items"]]
+        moved, pockets = _regrid_helices(last, units, BY_ID, 1000.0, 1000.0, 2.0)
+        assert moved == 0 and pockets == []
+        for p, b in zip(last["placed_items"], before):
+            assert p["transformation"] == b
+
+
+class TestT12PocketFilledFirst:
+    """La compaction remplit la poche de la colonne partielle AVANT la
+    bande droite : des fans vivent dans x[104,204] même quand la bande
+    droite a de la capacité, et le layout reste physiquement valide."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_fans_in_pocket_and_valid(self):
+        hosts = [pi(0, 500.0 + 37 * k, 300.0) for k in range(10)]
+        free = [pi(1, 400.0 + 60 * (k % 9), 500.0 + 50 * (k // 9))
+                for k in range(25)]
+        layouts = [layout([pi(0, 52.0 + 100 * gx, 52.0 + 100 * gy)
+                           for gx in range(10) for gy in range(10)]),
+                   layout(hosts + free)]
+        n = fill_residual_bands(layouts, ITEMS, BIN, 2.0)
+        assert n > 0
+        l1_fans = [p for p in layouts[1]["placed_items"] if p["item_id"] == 1]
+        assert len(l1_fans) == 25  # rien ne quitte la donneuse (L0 pleine)
+        in_pocket = [p for p in l1_fans
+                     if 104 <= p["transformation"]["translation"][0] <= 204]
+        assert in_pocket, "la poche de la colonne partielle devrait être remplie"
+        # Validité physique des fans du layout final (hélices incluses :
+        # re-grillées par small_lattice, elles sont valides par paires).
+        from shapely.geometry import Polygon
+        polys = []
+        for p in layouts[1]["placed_items"]:
+            it = BY_ID[p["item_id"]]
+            tr = p["transformation"]
+            r = math.radians(tr["rotation"])
+            c, s = math.cos(r), math.sin(r)
+            pts = [(tr["translation"][0] + c * x - s * y,
+                    tr["translation"][1] + s * x + c * y)
+                   for x, y in it["coords"]]
+            polys.append(Polygon(pts))
+        ids = [p["item_id"] for p in layouts[1]["placed_items"]]
+        for i in range(len(polys)):
+            for j in range(i + 1, len(polys)):
+                if ids[i] == 0 and ids[j] == 0:
+                    continue  # hôtes du fixture dispersés : artefact préexistant
+                assert polys[i].distance(polys[j]) >= 2.0 - 0.05, (i, j)
+
+
+class TestT13SinglePosePocketBatch:
+    """Batches d'une pose : autorisés en zones explicites (poches), refusés
+    sur les bandes classiques (T4 verrouille déjà le refus par défaut)."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_pocket_accepts_single_pose(self):
+        # Rect 60×60 : le fan (40×28) n'y tient qu'une fois.
+        l0 = layout([pi(0, 100.0, 100.0)])
+        fan = pi(1, 700.0, 700.0)
+        n = _fill_one_batch([l0], 0, 0, BY_ID, BIN, 2.0, free=[fan],
+                            bands=[{"name": "pocket", "rect": (500.0, 500.0, 560.0, 560.0),
+                                    "axis": "x"}])
+        assert n == 1
+        assert l0["placed_items"][-1] is fan
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_default_bands_refuse_single_donor(self):
+        # Même géométrie via les bandes classiques (bands=None) : une seule
+        # donneuse → lattice tronqué à 1 pose → skip (seuil 2, contrat T4).
+        l0 = layout([pi(0, 500.0, 500.0)])
+        fan = pi(1, 700.0, 700.0)
+        n = _fill_one_batch([l0], 0, 0, BY_ID, BIN, 2.0, free=[fan])
+        assert n == 0
+        assert l0["placed_items"] == [l0["placed_items"][0]]
+
+
+class TestT14RetryDegraded:
+    """Un batch invalide est ré-essayé en tailles décroissantes : une pièce
+    leurre sur la 2e pose du lattice n'empêche plus de poser la 1re (audit
+    F2b — l'ancien code rollbackait tout le batch)."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_degraded_batch_places_valid_subset(self):
+        band = {"name": "pocket", "rect": (500.0, 2.0, 998.0, 400.0), "axis": "x"}
+        small = {"id": 1, "coords": FAN, "rotations": QUARTERS}
+        lat = small_lattice(small, 2.0, band["rect"], want=3, axis="x")
+        assert lat and len(lat) >= 3
+        # Leurre = pièce préexistante POSÉE sur la 2e pose du lattice.
+        t1 = lat[0]["transformation"]
+        t2 = lat[1]["transformation"]
+        l0 = layout([pi(0, 100.0, 100.0),
+                     {"item_id": 1,
+                      "transformation": {"rotation": t2["rotation"],
+                                         "translation": tuple(t2["translation"])}}])
+        free = [pi(1, 700.0 + 40 * k, 800.0) for k in range(3)]
+        n = _fill_one_batch([l0], 0, 0, BY_ID, BIN, 2.0, free=free, bands=[band])
+        assert n == 1  # pose 1 seulement — pas 0 (rollback total), pas 3
+        moved = [p for p in l0["placed_items"]
+                 if p["item_id"] == 1
+                 and p["transformation"]["translation"]
+                 == tuple(t1["translation"])]
+        assert moved, "la 1re pose du lattice doit être occupée"
+
+
+class TestT15RemoveByIdentity:
+    """Régression audit 2026-09-02 : list.remove par VALEUR détruisait une
+    pièce déjà posée à la pose jumelle (pose lattice identique) au lieu de
+    lever — la compaction bouclait à l'infini. Verrou d'identité."""
+
+    def test_removes_the_exact_object(self):
+        a = pi(1, 100.0, 100.0)
+        b = pi(1, 100.0, 100.0)  # == a par valeur, objet distinct
+        lst = [a]
+        assert _remove_by_identity(lst, b) is False
+        assert lst == [a]
+        assert _remove_by_identity(lst, a) is True
+        assert lst == []
