@@ -713,6 +713,14 @@ const reportBadges = computed(() => {
         const gap = fmtLengthValue(r.smallestGapMm, unitLabel.value === '"' ? 4 : 2)
         badges.push({ ok: r.spacingOk, label: t('report.spacing', { v: gap, unit: unitLabel.value }) })
     }
+    // A3/U1 : une tôle au-delà du plafond de vérification ne doit JAMAIS
+    // paraître « validée par absence de badge » — badge explicite.
+    if (r.verifyStatus === 'skipped' || (r.overlapFree == null && r.spacingOk == null)) {
+        badges.push({ ok: false, label: t('report.notVerified') })
+    }
+    // A4 : pose dupliquée = même pièce posée deux fois (la garde anti-perte
+    // par total y était aveugle).
+    if (r.duplicatePoses > 0) badges.push({ ok: false, label: t('report.duplicates', { n: r.duplicatePoses }) })
     const allPlaced = unref(resultModalData).requested === unref(resultModalData).placed
     badges.push({ ok: allPlaced, label: t('report.allPlaced', { n: unref(resultModalData).placed }) })
     return badges

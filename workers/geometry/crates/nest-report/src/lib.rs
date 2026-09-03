@@ -300,8 +300,13 @@ pub fn largest_empty_rectangle(containers: &[Container], items: &[Item]) -> Opti
     best
 }
 
-pub const VERIFY_MAX_PARTS_PER_SHEET: usize = 250;
+pub const VERIFY_MAX_PARTS_PER_SHEET: usize = 5000;
 pub const OVERLAP_EPS_MM2: f64 = 0.01;
+// Paire à distance 0 recouvrant >= 99 % de la plus petite = pose dupliquée.
+pub const DUPLICATE_AREA_FRACTION: f64 = 0.99;
+// Tolérance de couverture tôle : le lattice cale au bord avec du bruit
+// flottant (A15, miroir Python INSIDE_EPS).
+pub const INSIDE_EPS: f64 = 1e-6;
 
 /// verify_layout — validation physique mesurée.
 pub fn verify_layout(containers: &[Container], items: &[Item], space: f64) -> serde_json::Value {
@@ -313,6 +318,11 @@ pub fn verify_layout(containers: &[Container], items: &[Item], space: f64) -> se
     let mut inside_sheet = true;
     let mut holes_filled = 0i64;
     let mut holes_total = 0i64;
+    let mut duplicate_poses = 0i64;
+    // Broadphase : les paires plus loin que space+1 mm ne peuvent être le
+    // minimum (ni violer l'espacement) — on ne paie ring_distance que sur
+    // les candidates bbox (A3/D12, miroir du STRtree Python).
+    let search_r = (space + 1.0).max(1.0);
 
     for c in containers {
         let (sw, sh) = (c.bin_width, c.bin_height);
@@ -324,7 +334,11 @@ pub fn verify_layout(containers: &[Container], items: &[Item], space: f64) -> se
         }
         for (o, _h) in &placed_polys {
             let b = geom::ring_bounds(o);
-            if b[0] < 0.0 || b[1] < 0.0 || b[2] > sw || b[3] > sh {
+            if b[0] < -INSIDE_EPS
+                || b[1] < -INSIDE_EPS
+                || b[2] > sw + INSIDE_EPS
+                || b[3] > sh + INSIDE_EPS
+            {
                 inside_sheet = false;
             }
         }
@@ -346,20 +360,37 @@ pub fn verify_layout(containers: &[Container], items: &[Item], space: f64) -> se
             continue;
         }
         let n = placed_polys.len();
+        // Précalcul (l'ancienne boucle O(n²) recalculait les centroïdes
+        // par paire) + ordre de balayage sur x min.
+        let bounds: Vec<[f64; 4]> = placed_polys.iter().map(|(o, _)| geom::ring_bounds(o)).collect();
+        let centroids: Vec<Pt> = placed_polys.iter().map(|(o, _)| ring_centroid(o)).collect();
+        let areas: Vec<f64> = placed_polys.iter().map(|(o, _)| geom::ring_area_abs(o)).collect();
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| bounds[a][0].partial_cmp(&bounds[b][0]).unwrap());
         for i in 0..n {
             let gap_edge = ring_to_sheet_edge_dist(&placed_polys[i].0, sw, sh);
             if gap_edge < smallest_gap {
                 smallest_gap = gap_edge;
             }
-            for j in (i + 1)..n {
+            let reach = bounds[i][2] + search_r;
+            for &j in &order {
+                if bounds[j][0] > reach {
+                    break;
+                }
+                if j <= i {
+                    continue;
+                }
+                if bounds[j][3] < bounds[i][1] - search_r || bounds[j][1] > bounds[i][3] + search_r {
+                    continue;
+                }
                 // AGENTS #4 : le polygone placé = anneau externe MOINS les
                 // trous. Une pièce nichée dans le trou d'un hôte ne chevauche
                 // PAS le matériau de l'hôte : son espacement se mesure contre
                 // la paroi du trou, pas contre l'anneau externe (matériau
                 // fantôme → faux badge overlap / gap 0 côté Python si on ne
                 // soustrait pas les trous ; ici on traite le cas explicitement).
-                let cc_i = ring_centroid(&placed_polys[i].0);
-                let cc_j = ring_centroid(&placed_polys[j].0);
+                let cc_i = centroids[i];
+                let cc_j = centroids[j];
                 let hole_of_j = placed_polys[j].1.iter().find(|h| geom::point_in_ring(cc_i, h));
                 let hole_of_i = placed_polys[i].1.iter().find(|h| geom::point_in_ring(cc_j, h));
                 match (hole_of_i, hole_of_j) {
@@ -368,8 +399,14 @@ pub fn verify_layout(containers: &[Container], items: &[Item], space: f64) -> se
                         if d < smallest_gap {
                             smallest_gap = d;
                         }
-                        if d <= 0.0 && overlap_area(&placed_polys[i], &placed_polys[j]) > OVERLAP_EPS_MM2 {
-                            overlap_free = false;
+                        if d <= 0.0 {
+                            let inter = overlap_area(&placed_polys[i], &placed_polys[j]);
+                            if inter > OVERLAP_EPS_MM2 {
+                                overlap_free = false;
+                            }
+                            if inter > DUPLICATE_AREA_FRACTION * areas[i].min(areas[j]) {
+                                duplicate_poses += 1;
+                            }
                         }
                     }
                     (Some(h), None) => {
@@ -399,8 +436,14 @@ pub fn verify_layout(containers: &[Container], items: &[Item], space: f64) -> se
                         if d < smallest_gap {
                             smallest_gap = d;
                         }
-                        if d <= 0.0 && overlap_area(&placed_polys[i], &placed_polys[j]) > OVERLAP_EPS_MM2 {
-                            overlap_free = false;
+                        if d <= 0.0 {
+                            let inter = overlap_area(&placed_polys[i], &placed_polys[j]);
+                            if inter > OVERLAP_EPS_MM2 {
+                                overlap_free = false;
+                            }
+                            if inter > DUPLICATE_AREA_FRACTION * areas[i].min(areas[j]) {
+                                duplicate_poses += 1;
+                            }
                         }
                     }
                 }
@@ -415,6 +458,9 @@ pub fn verify_layout(containers: &[Container], items: &[Item], space: f64) -> se
         "spacingOk": serde_json::Value::Null,
         "holesFilled": holes_filled,
         "holesTotal": holes_total,
+        "holesOverflow": 0i64,
+        "duplicatePoses": duplicate_poses,
+        "verifyStatus": if pair_checks_done { "measured" } else { "skipped" },
     });
     if pair_checks_done && smallest_gap != f64::INFINITY {
         report["smallestGapMm"] = serde_json::json!(round(smallest_gap, 3));
@@ -660,5 +706,67 @@ mod tests {
         };
         let r = verify_layout(&[c], &items, 2.0);
         assert_eq!(r["overlapFree"], serde_json::json!(false), "{r}");
+    }
+
+    // A3/D12 : une tôle de 600 pièces est MESURÉE (plus de plafond 250) et
+    // une pose dupliquée est comptée — c'est le filet qui manquait au cas
+    // 100+800 (overlapFree/spacingOk null + aucune détection de doublon).
+    #[test]
+    fn verify_large_sheet_measured_and_duplicate_counted() {
+        let items = vec![Item {
+            id: "a".into(),
+            coords: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [0.0, 0.0]],
+            holes: vec![],
+        }];
+        // Grille 30×20 = 600 pièces, pas 2 mm (10 + 2), sur 1000×700.
+        let mut transforms = Vec::new();
+        for j in 0..20 {
+            for i in 0..30 {
+                transforms.push(Transform {
+                    item_id: "a".into(),
+                    angle: 0.0,
+                    x: i as f64 * 12.0 + 2.0,
+                    y: j as f64 * 12.0 + 2.0,
+                });
+            }
+        }
+        // Doublon : même pièce re-posée sur la case (2,2) → distance 0,
+        // recouvrement 100 %.
+        transforms.push(Transform { item_id: "a".into(), angle: 0.0, x: 2.0, y: 2.0 });
+        let c = Container { bin_width: 1000.0, bin_height: 700.0, transforms };
+        let r = verify_layout(&[c], &items, 2.0);
+        assert_eq!(r["verifyStatus"], serde_json::json!("measured"), "{r}");
+        assert_eq!(r["overlapFree"], serde_json::json!(false), "{r}");
+        assert_eq!(r["duplicatePoses"], serde_json::json!(1), "{r}");
+        assert_eq!(r["smallestGapMm"], serde_json::json!(0.0), "{r}");
+        assert_eq!(r["spacingOk"], serde_json::json!(false), "{r}");
+    }
+
+    // Sans le doublon, la même tôle mesure l'écart réel (2.0) — le
+    // broadphase sweep ne doit pas rater les paires proches.
+    #[test]
+    fn verify_large_sheet_measures_real_gap() {
+        let items = vec![Item {
+            id: "a".into(),
+            coords: vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [0.0, 0.0]],
+            holes: vec![],
+        }];
+        let mut transforms = Vec::new();
+        for j in 0..20 {
+            for i in 0..30 {
+                transforms.push(Transform {
+                    item_id: "a".into(),
+                    angle: 0.0,
+                    x: i as f64 * 12.0 + 2.0,
+                    y: j as f64 * 12.0 + 2.0,
+                });
+            }
+        }
+        let c = Container { bin_width: 1000.0, bin_height: 700.0, transforms };
+        let r = verify_layout(&[c], &items, 2.0);
+        assert_eq!(r["verifyStatus"], serde_json::json!("measured"), "{r}");
+        assert_eq!(r["smallestGapMm"], serde_json::json!(2.0), "{r}");
+        assert_eq!(r["spacingOk"], serde_json::json!(true), "{r}");
+        assert_eq!(r["duplicatePoses"], serde_json::json!(0), "{r}");
     }
 }

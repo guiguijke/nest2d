@@ -301,13 +301,45 @@ def report_totals(sheets):
 
 
 # Above this many placed parts per sheet, the pairwise verification pass is
-# skipped (None = unverified) — O(n^2) distances get too slow to be worth it.
-VERIFY_MAX_PARTS_PER_SHEET = 250
+# skipped (verifyStatus = "skipped") — STRtree keeps 600-piece sheets ~0.1 s,
+# the ceiling only guards pathological inputs (A3).
+VERIFY_MAX_PARTS_PER_SHEET = 5000
 
 # Intersection area below this counts as touching, not overlapping (the
 # engine guarantees separation by construction; this is the measurement
 # noise floor, mm²).
 OVERLAP_EPS_MM2 = 0.01
+
+# Two placed parts at distance 0 whose intersection covers more than this
+# fraction of the smaller one are the same part placed twice (A4).
+DUPLICATE_AREA_FRACTION = 0.99
+
+# Covers() tolerance for the sheet boundary: the lattice pins parts to the
+# edge with floating-point noise (y = -6.7e-16 observed, A15).
+INSIDE_EPS = 1e-6
+
+
+def per_class_placed_counts(containers):
+    """Placed count per item_id across all layouts (A4).
+
+    The part-loss guard compared TOTALS only: one part placed twice and
+    another one lost compensated each other and passed (191 duplicates
+    delivered on the 2026-09-03 audit corpus). Counting per class closes
+    that hole.
+    """
+    placed_by_id = {}
+    for c in containers:
+        for tr in c.transforms:
+            placed_by_id[tr.item_id] = placed_by_id.get(tr.item_id, 0) + 1
+    return placed_by_id
+
+
+def per_class_counts_match(containers, requested_by_id):
+    """True when every item_id is placed exactly `count` times (A4)."""
+    placed = per_class_placed_counts(containers)
+    if len(placed) != len(requested_by_id):
+        return False
+    return all(placed.get(k) == v for k, v in requested_by_id.items())
 
 
 def verify_layout(containers, input_items, space=0.0):
@@ -319,11 +351,18 @@ def verify_layout(containers, input_items, space=0.0):
       - overlap_free: no two parts intersect beyond OVERLAP_EPS_MM2;
       - inside_sheet: every part fully within its sheet;
       - spacing_ok: smallest_gap >= requested space (minus epsilon);
+      - duplicate_poses: pairs of parts at distance 0 covering >= 99% of
+        each other (same part placed twice — anti-loss guard was blind to
+        them because they preserve the total count);
       - holes_filled / holes_total: parts nested inside another part's
         cutout (centroid in hole ring), and total hole slots available.
 
-    Returns a report dict; pairwise fields are None above
-    VERIFY_MAX_PARTS_PER_SHEET parts on a sheet (unverified, not failed).
+    Returns a report dict; pairwise fields are None and verifyStatus is
+    "skipped" above VERIFY_MAX_PARTS_PER_SHEET parts on a sheet
+    (unverified, not failed). Pairwise search runs through an STRtree
+    (candidates within space + 1 mm — any pair closer than the query
+    radius is guaranteed returned, so the measured minimum is exact as
+    long as it is below the radius; above it spacingOk holds regardless).
     """
     items_by_id = {item["id"]: item for item in input_items}
     report = {
@@ -337,17 +376,21 @@ def verify_layout(containers, input_items, space=0.0):
         # (0 en fonctionnement normal — un post-pass buggé a déjà empilé 8
         # fillers dans un trou prévu pour 4, cas trou600).
         "holesOverflow": 0,
+        "duplicatePoses": 0,
+        "verifyStatus": "measured",
     }
 
     smallest_gap = float("inf")
     overlap_free = True
     pair_checks_done = True
+    search_r = max(float(space or 0) + 1.0, 1.0)
 
     for container in containers:
         sheet_w = container.bin_width or 0
         sheet_h = container.bin_height or 0
         sheet = box(0, 0, sheet_w, sheet_h)
         boundary = sheet.boundary
+        sheet_tol = sheet.buffer(INSIDE_EPS)
 
         placed = []       # outer rings at placement (collision geometry)
         holed_hosts = []  # (placed index of the host, hole ring at placement)
@@ -358,7 +401,7 @@ def verify_layout(containers, input_items, space=0.0):
             poly = _placed_polygon(item, transform)
             host_idx = len(placed)
             placed.append(poly)
-            if not sheet.covers(poly):
+            if not sheet_tol.covers(poly):
                 report["insideSheet"] = False
             for hole in item.get("holes") or []:
                 hole_poly = translate(
@@ -385,21 +428,36 @@ def verify_layout(containers, input_items, space=0.0):
         report["holesFilled"] += sum(min(n, HOLE_CAPACITY) for n in occupants)
         report["holesOverflow"] += sum(max(0, n - HOLE_CAPACITY) for n in occupants)
 
-        # Pairwise checks (bounded).
+        # Pairwise checks (STRtree-bounded, see docstring).
         if len(placed) > VERIFY_MAX_PARTS_PER_SHEET:
             pair_checks_done = False
             continue
+        from shapely.strtree import STRtree
+
+        tree = STRtree(placed) if placed else None
         for i, a in enumerate(placed):
             gap_to_edge = a.distance(boundary)
             if gap_to_edge < smallest_gap:
                 smallest_gap = gap_to_edge
-            for b in placed[i + 1:]:
+            if tree is None:
+                continue
+            for j in tree.query(a.buffer(search_r)):
+                j = int(j)
+                if j <= i:
+                    continue
+                b = placed[j]
                 dist = a.distance(b)
                 if dist < smallest_gap:
                     smallest_gap = dist
-                if dist <= 0.0 and a.intersection(b).area > OVERLAP_EPS_MM2:
-                    overlap_free = False
+                if dist <= 0.0:
+                    inter_area = a.intersection(b).area
+                    if inter_area > OVERLAP_EPS_MM2:
+                        overlap_free = False
+                    if inter_area > DUPLICATE_AREA_FRACTION * min(a.area, b.area):
+                        report["duplicatePoses"] += 1
 
+    if not pair_checks_done:
+        report["verifyStatus"] = "skipped"
     if pair_checks_done and smallest_gap != float("inf"):
         report["smallestGapMm"] = round(smallest_gap, 3)
         report["overlapFree"] = overlap_free

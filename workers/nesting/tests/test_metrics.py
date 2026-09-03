@@ -234,6 +234,65 @@ class TestVerifyLayout:
         assert report["holesOverflow"] == 0
 
 
+class TestVerifyLayoutLargeSheets:
+    """A3 : le plafond 250 rendait la vérification muette exactement sur le
+    cas de référence (300-600 pièces/tôle → overlapFree/spacingOk = None,
+    aucun badge). La passe STRtree doit mesurer 600 pièces en < 1 s."""
+
+    def _grid(self, with_duplicate=False):
+        item = _square_item(10.0, 0)
+        transforms = [
+            Transform("f", ["h"], i * 12.0 + 2.0, j * 12.0 + 2.0, 0.0, item_id=0)
+            for j in range(20)
+            for i in range(30)
+        ]
+        if with_duplicate:
+            # Même pièce re-posée sur la case (2,2) : distance 0,
+            # recouvrement 100 %.
+            transforms.append(Transform("f", ["h"], 2.0, 2.0, 0.0, item_id=0))
+        container = ResultContainer(
+            1, transforms, bin_width=1000.0, bin_height=700.0,
+        )
+        return container, item
+
+    def test_600_parts_measured_under_one_second(self):
+        import time
+
+        container, item = self._grid()
+        t0 = time.perf_counter()
+        report = verify_layout([container], [item], space=2.0)
+        elapsed = time.perf_counter() - t0
+        assert report["verifyStatus"] == "measured"
+        assert report["overlapFree"] is True
+        assert report["spacingOk"] is True
+        assert abs(report["smallestGapMm"] - 2.0) < 1e-6
+        assert report["duplicatePoses"] == 0
+        assert elapsed < 1.0, f"STRtree pass too slow: {elapsed:.2f}s"
+
+    def test_injected_duplicate_detected(self):
+        container, item = self._grid(with_duplicate=True)
+        report = verify_layout([container], [item], space=2.0)
+        assert report["verifyStatus"] == "measured"
+        assert report["overlapFree"] is False
+        assert report["spacingOk"] is False
+        assert report["smallestGapMm"] == 0.0
+        assert report["duplicatePoses"] == 1
+
+    def test_skipped_only_above_new_ceiling(self):
+        item = _square_item(10.0, 0)
+        # 5001 poses sur une tôle : au-dessus du plafond 5000 → « skipped »
+        # visible, jamais muet (verifyStatus est TOUJOURS renseigné).
+        transforms = [
+            Transform("f", ["h"], (i % 100) * 12.0 + 2.0, (i // 100) * 12.0 + 2.0, 0.0, item_id=0)
+            for i in range(5001)
+        ]
+        container = ResultContainer(1, transforms, bin_width=100000.0, bin_height=100000.0)
+        report = verify_layout([container], [item], space=2.0)
+        assert report["verifyStatus"] == "skipped"
+        assert report["overlapFree"] is None
+        assert report["spacingOk"] is None
+
+
 class TestEnrichOffcut:
     def test_none_stays_none(self):
         assert enrich_offcut(None) is None
@@ -351,3 +410,47 @@ class TestReportTotals:
         assert totals["sheetCount"] == 0
         assert totals["formats"] == []
         assert totals["densityPct"] is None
+
+
+class TestFinalizeGuardPerClass:
+    """A4 : la garde anti-perte comparait le TOTAL — un doublon + une perte
+    compensée passaient (191 poses dupliquées livrées, audit 2026-09-03)."""
+
+    def test_exact_counts_pass(self):
+        from core.metrics import per_class_counts_match
+
+        container = ResultContainer(
+            1,
+            [
+                Transform("f", ["h"], 0.0, 0.0, 0.0, item_id=0),
+                Transform("f", ["h"], 20.0, 0.0, 0.0, item_id=0),
+                Transform("f", ["h"], 40.0, 0.0, 0.0, item_id=1),
+            ],
+            bin_width=100.0, bin_height=100.0,
+        )
+        assert per_class_counts_match([container], {0: 2, 1: 1})
+
+    def test_duplicate_plus_loss_same_total_is_rejected(self):
+        from core.metrics import per_class_counts_match
+
+        # item 0 posé deux fois, item 1 perdu : total identique (3 poses
+        # pour 3 demandées) mais les classes sont fausses.
+        container = ResultContainer(
+            1,
+            [
+                Transform("f", ["h"], 0.0, 0.0, 0.0, item_id=0),
+                Transform("f", ["h"], 20.0, 0.0, 0.0, item_id=0),
+                Transform("f", ["h"], 40.0, 0.0, 0.0, item_id=0),
+            ],
+            bin_width=100.0, bin_height=100.0,
+        )
+        assert not per_class_counts_match([container], {0: 2, 1: 1})
+
+    def test_missing_class_and_extra_class_rejected(self):
+        from core.metrics import per_class_counts_match
+
+        container = ResultContainer(
+            1, [Transform("f", ["h"], 0.0, 0.0, 0.0, item_id=7)],
+            bin_width=100.0, bin_height=100.0,
+        )
+        assert not per_class_counts_match([container], {0: 1})
