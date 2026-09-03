@@ -564,6 +564,10 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     transposedBbox = R(-90)=(y,−x), distinct de rotatedBbox(90)=(-y,x).
 
 51. **BPP multi-tôles : le constructif ne backfill pas les bandes.**
+    [2026-09-03 : cause racine CORRIGÉE — décision de tôle PAR TÔLE dans
+    le constructif (growth==0 puis first-fit, steer marginal). Le
+    post-pass résiduel reste en FILET de sécurité (banc : moved tombe de
+    694 à ~517), ce paragraphe décrit l'ancien comportement.]
     Perte = croissance de bbox ; séquence gros-d'abord → les petites
     pièces libres s'empilent sur la DERNIÈRE tôle (bbox encore petite)
     et laissent 80 mm vides sur les précédentes. Le SA permute une
@@ -626,6 +630,48 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     (`Math.max(1e-9, …)`), et toute évolution du pass se verrouille par
     un test qui compte les paires à distance ≈ 0 SUR le chemin
     multi-itérations (pas seulement les comptes de pièces).
+
+57. **Space 0 : le seuil de validation est planché des DEUX côtés
+    (constat 2026-09-03, A1/D5).** À space ≤ marge de simplify,
+    `dist < space − ε` ne rejette plus rien : la validation Python
+    laissait passer 3 136 chevauchements au banc. Règle : la paire à
+    distance 0 est rejetée si VRAI chevauchement d'aire (Python :
+    intersection shapely > 0,01 mm² ; JS : croisement propre d'arêtes OU
+    centroïde/sommet/milieu d'arête strictement intérieur — PAS la
+    collinéarité seule, un contact bord à bord en a aussi). Le contact
+    légal (jumeaux pinwheel) reste permis (§8.1). Verrous :
+    TestSpace0Validation + residualClient « pairViolates ».
+58. **Snapshot AVANT toute mutation d'un post-pass multi-phases (constat
+    2026-09-03, A2).** Le rollback de compaction restaurait un état
+    PRIS APRÈS le re-grid : les hôtes re-grillés recouvraient les libres
+    d'origine (47-62 chevauchements livrés). Règle : le snapshot complet
+    précède la PREMIÈRE mutation ; sur échec, restauration complète,
+    `moved = 0`, `postPass.compactRollback = true` — JAMAIS `moved > 0`
+    après un rollback. Miroir exact JS (sentinelle COMPACT_ROLLBACK, un
+    catch n'avale qu'elle — D6 : une TypeError doit se propager).
+59. **Remnant : PLUS GRAND = MIEUX, partout (constat 2026-09-03, D1).**
+    Le moteur maximise le remnant (chute concentrée, Cost.cmp_key le
+    négatif) ; le champion live JS le comparait à l'ENVERS, verrouillé
+    par un test faux — la vue vivait la frame la MOINS compacte et la
+    frame finale post-passée (sans remnant) perdait TOUJOURS contre le
+    champion moteur. `ar > br` ; Infinity (frame finale) bat tout.
+60. **La vérification ne doit JAMAIS être « skipped » en silence (constat
+    2026-09-03, A3/D12).** Le plafond 250 pièces/tôle rendait le cas
+    100+800 invisible : overlapFree/spacingOk null, aucun badge — la
+    tôle à 3 136 chevauchements passait. STRtree/sweep + plafond 5000 +
+    `verifyStatus: measured|skipped` + badge « non vérifié » explicite +
+    `duplicatePoses` (la garde par TOTAL était aveugle aux doublons).
+61. **Rotations non quart de tour : garde OBLIGATOIRE en JS (constat
+    2026-09-03, D3).** `rotateRing`/`rotatedBbox` traitent tout angle
+    non multiple de 90 comme 270° — l'UI autorise pourtant
+    rotationCount 1..360 (45°, 30°…) : la validation comparait des
+    anneaux FAUX et acceptait des poses chevauchantes (navigateur
+    seulement, le serveur shapely est exact). Garde en tête de
+    fillResidualBands/applyHoleFill/buildGridAlternative + Python
+    `_has_non_quarter_rotation` : no-op + postPass.errors, on ne
+    « valide » jamais une géométrie qu'on ne sait pas calculer. Et D4 :
+    les rotations vivent sur `payload.parts[].rotations` (l'instance
+    réduite a des ids réindexés — piège #3b).
 
 54. **BPP : le moteur ne compacte PAS la dernière tôle (constat
     2026-09-02 « pas optimisé −X »).** Coût moteur = tôles + remnant,

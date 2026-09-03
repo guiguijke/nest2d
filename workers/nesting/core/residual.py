@@ -599,6 +599,37 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
     units, free = _helix_units_and_free(last, items_by_id)
     if not units and not free:
         return 0
+    # Phase 3.1 (plan 2026-09-03) : compaction CONDITIONNELLE — no-op
+    # quand il n'y a rien à compacter (hôtes déjà en colonnes depuis le
+    # bord −X et front des libres déjà en colonne unique) : le re-grid
+    # ne ferait que rejouer les mêmes poses. Banc : chute identique à
+    # ±5 mm (le corpus de référence DOIT rester compacté).
+    if units:
+        hosts_x = [float(u["host"]["transformation"]["translation"][0])
+                   for u in units]
+        hosts_col = (max(hosts_x) - min(hosts_x)) <= max(
+            _bbox(items_by_id[u["host"]["item_id"]]["coords"])[2]
+            for u in units) + 4 * space + 1.0
+    else:
+        hosts_col = True
+    if free:
+        frees_x1 = []
+        for pi in free:
+            it = items_by_id[pi["item_id"]]
+            bb = _rotated_bbox(_bbox(it["coords"]),
+                               float(pi["transformation"]["rotation"]))
+            frees_x1.append(pi["transformation"]["translation"][0] + bb[2])
+        min_free_w = min(
+            _rotated_bbox(_bbox(items_by_id[pi["item_id"]]["coords"]),
+                          float(pi["transformation"]["rotation"]))[2]
+            - _rotated_bbox(_bbox(items_by_id[pi["item_id"]]["coords"]),
+                            float(pi["transformation"]["rotation"]))[0]
+            for pi in free)
+        frees_col = (max(frees_x1) - min(frees_x1)) <= 2 * min_free_w + 4 * space + 1.0
+    else:
+        frees_col = True
+    if hosts_col and frees_col:
+        return 0
     full_snapshot = copy.deepcopy(last.get("placed_items", []))
     try:
         moved, pocket_rects = _regrid_helices(last, units, items_by_id, sw,

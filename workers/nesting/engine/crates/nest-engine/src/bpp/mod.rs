@@ -144,14 +144,21 @@ pub fn run_bpp_mem(
         // C11 (audit 2026-09-03) : throttle 500 ms des frames live BPP
         // (miroir du SPP) — chaque amélioration émettait ~30 Ko sans
         // limite, la descente initiale en produit des dizaines par seconde.
-        let last_live = std::cell::Cell::new(Instant::now() - LIVE_THROTTLE);
+        // NB wasm : `now() - LIVE_THROTTLE` PANIQUE (web-time instant
+        // sous-déborde quand l'horloge monotone de la page < 500 ms) —
+        // None = « émettre immédiatement ».
+        let last_live = std::cell::Cell::<Option<Instant>>::new(None);
         let throttled_layout = |cost: &sa::Cost, solution: &jagua_rs::probs::bpp::entities::BPSolution| {
             if !live {
                 return;
             }
             let now = Instant::now();
-            if now.duration_since(last_live.get()) >= LIVE_THROTTLE {
-                last_live.set(now);
+            let due = match last_live.get() {
+                Some(t) => now.duration_since(t) >= LIVE_THROTTLE,
+                None => true,
+            };
+            if due {
+                last_live.set(Some(now));
                 sink(&layout_event(w, cost, solution, instance, &started, bias));
             }
         };

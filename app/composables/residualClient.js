@@ -682,6 +682,36 @@ export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space,
     const [sw, sh] = sheetDimsOf(last)
     const { units, free } = helixUnitsAndFree(last, partsById)
     if (!units.length && !free.length) return 0
+    // Phase 3.1 (plan 2026-09-03, miroir Python) : compaction
+    // CONDITIONNELLE — no-op quand il n'y a rien à compacter (hôtes déjà
+    // en colonnes, front des libres déjà en colonne unique).
+    if (units.length) {
+        const xs = units.map((u) => Number(u.host.transformation?.translation?.[0] || 0))
+        const maxHostW = Math.max(...units.map((u) => {
+            const bb = bbox(itemCoords(partsById.get(String(u.host.item_id))))
+            return bb[2] - bb[0]
+        }))
+        var hostsCol = (Math.max(...xs) - Math.min(...xs)) <= maxHostW + 4 * space + 1.0
+    } else {
+        var hostsCol = true
+    }
+    if (free.length) {
+        const x1s = free.map((pi) => {
+            const part = partsById.get(String(pi.item_id))
+            const bb = rotatedBbox(bbox(itemCoords(part)), Number(pi.transformation?.rotation) || 0)
+            return (pi.transformation?.translation?.[0] || 0) + bb[2]
+        })
+        const widths = free.map((pi) => {
+            const part = partsById.get(String(pi.item_id))
+            const bb = rotatedBbox(bbox(itemCoords(part)), Number(pi.transformation?.rotation) || 0)
+            return bb[2] - bb[0]
+        })
+        const minW = Math.min(...widths)
+        var freesCol = (Math.max(...x1s) - Math.min(...x1s)) <= 2 * minW + 4 * space + 1.0
+    } else {
+        var freesCol = true
+    }
+    if (hostsCol && freesCol) return 0
     const fullSnapshot = JSON.parse(JSON.stringify(last.placed_items || []))
     try {
         // Phase 1 : hélices re-grillées en colonnes depuis le bord gauche
