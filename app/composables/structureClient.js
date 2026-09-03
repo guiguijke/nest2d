@@ -192,10 +192,12 @@ export function smallLattice(small, space, zone, opts = {}) {
         if (!legal.length) return
         const take = want < Infinity ? legal.slice(0, want) : legal
         const n = take.length
-        const far = placementsFar(take, coords, axis)
-        // Max pièces (jusqu'à want), puis bord le plus près de l'origine
-        // = chute max sur l'axe objectif, toute forme.
-        const score = n * 1e9 - far
+        const [far, near] = placementsFar(take, coords, axis)
+        // P2 (audit 2026-09-03) : tie-break sur le bord PROCHE — une bande
+        // saturée a le même bord lointain pour toutes ses variantes : le
+        // bloc collé à l'origine de l'axe doit gagner (miroir du tuple
+        // Python (n, -far, -near)).
+        const score = n * 1e12 - far * 1e6 - near
         if (score > bestScore) { best = take; bestScore = score }
     }
     for (const deg0 of [0, 90]) {
@@ -229,12 +231,14 @@ export function smallLattice(small, space, zone, opts = {}) {
 
 function placementsFar(placements, coords, axis) {
     let far = -Infinity
+    let near = Infinity
     for (const p of placements) {
         const bb = rotatedBbox(bbox(coords), Number(p.transformation?.rotation) || 0)
         const t = p.transformation.translation[axis === 'y' ? 1 : 0]
         far = Math.max(far, t + (axis === 'y' ? bb[3] : bb[2]))
+        near = Math.min(near, t + (axis === 'y' ? bb[1] : bb[0]))
     }
-    return far
+    return [far, near]
 }
 
 /** Grille axis-alignée, pas = bbox+space. Valide pour n'importe quel polygone. */
@@ -339,7 +343,25 @@ function latticeRotated(coords, itemId, space, zone, threshold, yPhase, xPhase) 
         return tx + bb[0] >= x0 - 1e-6 && tx + bb[2] <= x1 + 1e-6
             && ty + bb[1] >= y0 - 1e-6 && ty + bb[3] <= y1 + 1e-6
     })
-    return keep.length ? keep : null
+    if (!keep.length) return null
+    // P2 (audit 2026-09-03) : la famille est ancrée à DROITE du rect
+    // (mapping x0 + W − fy) — dans une bande étroite gagnée par le
+    // compte, elle laissait un vide à gauche (~18 000 mm² sur la bande
+    // droite de la tôle 1 du cas de référence). Translation rigide du
+    // bloc contre x0 : validité conservée (glissement vers la gauche
+    // dans le rect seulement). Miroir exact du Python.
+    let minX = Infinity
+    for (const p of keep) {
+        const bb = rotatedBbox(bbox(coords), p.transformation.rotation)
+        minX = Math.min(minX, p.transformation.translation[0] + bb[0])
+    }
+    const shift = minX - x0
+    if (shift > 1e-9) {
+        for (const p of keep) {
+            p.transformation.translation[0] -= shift
+        }
+    }
+    return keep
 }
 
 function latticeVariant(coords, itemId, space, zone, threshold, deg0, yPhase, xPhase = 0) {

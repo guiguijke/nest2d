@@ -50,6 +50,19 @@ async function buildGridAlternative(jobSlug, payload, result, { onZone } = {}) {
     if (sheetW <= 0 || sheetH <= 0) return null
     const space = Number(payload?.engineConfig?.min_item_separation) || 0
     const parts = payload?.parts || []
+    // D3 (audit 2026-09-03) : garde non-quart-de-tour — la grille canonique
+    // et sa validation (rotatedBbox/rotateRing) ne savent calculer que les
+    // quarts de tour ; un angle libre (45°, 30°… autorisé par l'UI)
+    // produirait des anneaux faux → poses chevauchantes acceptées.
+    const isQuarter = (deg) => {
+        const m = Math.abs(deg) % 90
+        return m < 1e-6 || 90 - m < 1e-6
+    }
+    for (const part of parts) {
+        for (const r of (part.rotations?.length ? part.rotations : [0, 90, 180, 270])) {
+            if (!isQuarter(Number(r) || 0)) return null
+        }
+    }
     const idMap = payload?.meta?.idMap
     const partsById = new Map(parts.map((p) => [Number(p.id), p]))
     const best = result?.alternatives?.[0]

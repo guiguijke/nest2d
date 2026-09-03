@@ -911,6 +911,12 @@ def _nesting_process_impl(doc):
                 "coords": item.get("coords"),
                 "holes": item.get("holes") or [],
                 "count": item.get("count") or 0,
+                # D4 (audit 2026-09-03) : rotations de la PART, pas de
+                # l'instance réduite — le miroir JS attribuait à un hôte
+                # les rotations d'un autre item dès que la classe fan
+                # était absorbée (idMap non identité).
+                "rotations": item.get("rotations")
+                    or default_allowed_orientations or [0.0],
             }
             for item in input_items
         ]
@@ -927,6 +933,13 @@ def _nesting_process_impl(doc):
                         "meta": meta,
                         "engineConfig": engine_config,
                         "parts": payload_parts,
+                        # D7 (audit 2026-09-03) : gate de trou identique au
+                        # serveur — le navigateur remplissait les trous sur
+                        # un payload préparé trous fermés (space > 2,4 :
+                        # canneaux scellés) alors que le serveur ne le
+                        # fait pas.
+                        "hasHoles": bool(has_holes),
+                        "fillHoles": bool(fill_holes and not channels_sealed),
                         # J-082: the client's DXF export must match the server
                         # byte-for-byte — same unit headers, same sheet outline
                         # option (both come from the job params server-side).

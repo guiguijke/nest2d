@@ -440,12 +440,14 @@ def small_lattice(small, space, rect, want=None, axis="x"):
     def far_edge(got):
         take = got[:cap] if cap else got
         far = -1e300
+        near = 1e300
         for p in take:
             deg = p["transformation"]["rotation"]
             t = p["transformation"]["translation"][ax]
             bb = _rotated_bbox(base.bounds, deg)
             far = max(far, t + (bb[3] if ax else bb[2]))
-        return len(take), far
+            near = min(near, t + (bb[1] if ax else bb[0]))
+        return len(take), far, near
 
     def consider(got):
         nonlocal best, best_score
@@ -457,8 +459,12 @@ def small_lattice(small, space, rect, want=None, axis="x"):
                in allowed]
         if not got:
             return
-        n, far = far_edge(got)
-        score = (n, -far)
+        # P2 (audit 2026-09-03) : tie-break sur le bord PROCHE — une bande
+        # saturée a le même bord lointain pour toutes ses variantes, le
+        # bloc collé à l'origine de l'axe (vide laissé à droite) doit
+        # gagner contre le bloc décollé.
+        n, far, near = far_edge(got)
+        score = (n, -far, -near)
         if best_score is None or score > best_score:
             best = got[:cap] if cap else got
             best_score = score
@@ -580,8 +586,12 @@ def _lattice_rotated(base, item_id, space, rect, threshold, y_phase, x_phase,
     w, h = x1 - x0, y1 - y0
     if w <= 0 or h <= 0:
         return None
+    # D10 (audit 2026-09-03) : cap=None — le variant interne tronquait
+    # AVANT le filtre bbox du retournement, le miroir JS tronque après :
+    # Python rendait < cap poses. La troncature à `cap` se fait dans
+    # consider().
     packed = _lattice_variant(base, item_id, space, (0.0, 0.0, h, w),
-                              threshold, 0.0, y_phase, x_phase, cap=cap)
+                              threshold, 0.0, y_phase, x_phase, cap=None)
     if not packed:
         return None
     c_orig = base.centroid
@@ -615,7 +625,24 @@ def _lattice_rotated(base, item_id, space, rect, threshold, y_phase, x_phase,
             "item_id": item_id,
             "transformation": {"rotation": deg, "translation": (nx, ny)},
         })
-    return out or None
+    if not out:
+        return None
+    # P2 (audit 2026-09-03) : la famille tournée est ancrée à DROITE du
+    # rect (mapping x0 + w − fy) — dans une bande étroite gagnée par le
+    # compte, elle laissait un vide à gauche (~18 000 mm² sur la bande
+    # droite de la tôle 1 du cas de référence). Translation rigide du bloc
+    # contre x0 : validité conservée (on ne fait que glisser vers la
+    # gauche dans le rect, toutes les poses restaient dans les bornes).
+    min_x = min(nx + bb[0] for nx, bb, deg in (
+        (p["transformation"]["translation"][0],
+         _rotated_bbox(base.bounds, p["transformation"]["rotation"]),
+         p["transformation"]["rotation"]) for p in out))
+    shift = min_x - x0
+    if shift > 1e-9:
+        for p in out:
+            tx, ty = p["transformation"]["translation"]
+            p["transformation"]["translation"] = (tx - shift, ty)
+    return out
 
 
 def _lattice_variant(base, item_id, space, rect, threshold, deg0, y_phase,

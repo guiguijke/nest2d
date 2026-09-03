@@ -677,3 +677,38 @@ class TestMovedCountsOnlyRealChanges:
         poses2 = [dict(p["transformation"]) for p in last["placed_items"]]
         assert poses == poses2, "le 2e re-grid doit être idempotent"
         assert moved2 == 0, f"moved = {moved2} sans déplacement"
+
+
+class TestD3NonQuarterRotationGuard:
+    """D3 (audit 2026-09-03) : _rotated_bbox ne sait calculer que les
+    quarts de tour — une rotation libre (45°) rend le pass aveugle. No-op
+    + erreur tracée, jamais une validation sur géométrie incalculable."""
+
+    def test_non_quarter_rotation_noops_with_error(self):
+        item45 = {"id": 1, "coords": SQUARE, "holes": [],
+                  "rotations": [0.0, 45.0]}
+        layouts = [layout([pi(0, 100.0, 100.0)]),
+                   layout([pi(1, 500.0, 500.0)])]
+        stats = {"errors": []}
+        n = fill_residual_bands(layouts, [HOST, item45], BIN, 2.0,
+                                stats=stats)
+        assert n == 0
+        assert any("quart de tour" in e["message"] for e in stats["errors"])
+
+    def test_placed_non_quarter_rotation_noops(self):
+        layouts = [layout([pi(0, 100.0, 100.0)]),
+                   layout([pi(1, 500.0, 500.0, rot=30.0)])]
+        stats = {"errors": []}
+        n = fill_residual_bands(layouts, ITEMS, BIN, 2.0, stats=stats)
+        assert n == 0
+        assert any("quart de tour" in e["message"] for e in stats["errors"])
+
+    def test_quarter_rotations_still_pass(self):
+        hosts = [pi(0, 100.0 + 110 * k, 500.0) for k in range(4)]
+        free = [pi(1, 40.0 + 45 * (k % 8), 40.0 + 45 * (k // 8))
+                for k in range(16)]
+        layouts = [layout(hosts), layout(free)]
+        stats = {"errors": []}
+        n = fill_residual_bands(layouts, ITEMS, BIN, 2.0, stats=stats)
+        assert not stats["errors"]
+        assert n >= 0  # le pass a tourné (no-op éventuel, sans erreur)

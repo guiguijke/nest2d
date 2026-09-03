@@ -762,6 +762,30 @@ export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space,
     }
 }
 
+/** D3 (audit 2026-09-03, miroir _has_non_quarter_rotation) :
+ * rotatedBbox/rotateRing ne savent calculer que les quarts de tour —
+ * toute rotation placée ou permise ≢ 0 mod 90 rend la validation JS
+ * aveugle (anneaux faux → poses chevauchantes ACCEPTÉES, navigateur
+ * seulement). L'UI autorise rotationCount 1..360 (45°, 30°…) : no-op
+ * prudent + erreur tracée. */
+export function hasNonQuarterRotation(parts, layouts, payload) {
+    const isQuarter = (deg) => {
+        const m = Math.abs(deg) % 90
+        return m < 1e-6 || 90 - m < 1e-6
+    }
+    for (const part of parts || []) {
+        for (const r of partRotations(part, payload)) {
+            if (!isQuarter(Number(r) || 0)) return true
+        }
+    }
+    for (const l of layouts || []) {
+        for (const pi of l.placed_items || []) {
+            if (!isQuarter(Number(pi.transformation?.rotation) || 0)) return true
+        }
+    }
+    return false
+}
+
 export function fillResidualBands(parts, layouts, space, payload, stats = null) {
     // A5 (audit 2026-09-03) : `stats` (additif) reçoit residualMoved /
     // residualRounds / compactRollback / errors — le post-pass ne peut
@@ -775,6 +799,15 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null) 
         }
     }
     space = Math.max(0, Number(space) || 0)
+    if (hasNonQuarterRotation(parts, layouts, payload)) {
+        if (!Array.isArray(stats.errors)) stats.errors = []
+        stats.errors.push({
+            stage: 'residual',
+            message: 'rotations non quart de tour : pass ignoré (bbox tournée non calculable, D3)',
+        })
+        console.error('[local] residual-band pass skipped: non-quarter rotations')
+        return 0
+    }
     const sheetDimsOf = (layout) => sheetDims(payload, layout.container_id ?? 0) || [0, 0]
     const snapshot = JSON.parse(JSON.stringify(layouts))
     try {

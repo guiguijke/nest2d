@@ -665,6 +665,25 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
         return 0
 
 
+def _has_non_quarter_rotation(layouts, input_items):
+    """D3 (audit 2026-09-03) : _rotated_bbox ne sait calculer que les
+    quarts de tour — toute rotation placée ou permise ≢ 0 mod 90 rend le
+    pass aveugle (bbox fausse → poses chevauchantes acceptées). L'UI
+    autorise rotationCount 1..360 (45°, 30°…) : no-op prudent + erreur
+    tracée, on ne « valide » jamais sur une géométrie qu'on ne sait pas
+    calculer. Miroir JS : residualClient.hasNonQuarterRotation."""
+    for item in input_items:
+        for r in (item.get("rotations") or [0.0]):
+            if abs(float(r) % 90.0) > 1e-6 and abs(float(r) % 90.0 - 90.0) > 1e-6:
+                return True
+    for l in layouts:
+        for pi in l.get("placed_items", []):
+            rot = float(pi.get("transformation", {}).get("rotation", 0.0))
+            if abs(rot % 90.0) > 1e-6 and abs(rot % 90.0 - 90.0) > 1e-6:
+                return True
+    return False
+
+
 def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None):
     """Mutate layouts in place. Retourne le nombre de pièces déplacées
     (0 = no-op). Voir le module docstring pour le contrat complet.
@@ -685,6 +704,13 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None):
     items_by_id = {i["id"]: i for i in input_items}
     if any(pi["item_id"] not in items_by_id
            for l in layouts for pi in l.get("placed_items", [])):
+        return 0
+    if _has_non_quarter_rotation(layouts, input_items):
+        stats["errors"].append({
+            "stage": "residual",
+            "message": "rotations non quart de tour : pass ignoré (bbox "
+                       "tournée non calculable, D3)"})
+        logger.warning("residual-band pass skipped: non-quarter rotations")
         return 0
     space = float(space or 0)
     snapshot = copy.deepcopy(layouts)

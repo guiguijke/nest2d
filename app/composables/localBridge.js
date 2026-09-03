@@ -424,6 +424,23 @@ export function expandPacks(parts, packs, layouts) {
  * Validation = promesse exacte du moteur (piège #3) : marge `space` à la
  * paroi du trou et entre fillers (l'inflation ±space/2 des deux côtés). */
 export function applyHoleFill(parts, layouts, space) {
+    // D3 (audit 2026-09-03) : garde non-quart-de-tour — rotateRing traite
+    // tout angle non multiple de 90 comme 270 : la validation comparerait
+    // des anneaux FAUX et accepterait des poses chevauchantes.
+    const isQuarter = (deg) => {
+        const m = Math.abs(deg) % 90
+        return m < 1e-6 || 90 - m < 1e-6
+    }
+    for (const part of parts || []) {
+        for (const r of (part.rotations?.length ? part.rotations : [0, 90, 180, 270])) {
+            if (!isQuarter(Number(r) || 0)) return 0
+        }
+    }
+    for (const l of layouts || []) {
+        for (const pi of l.placed_items || []) {
+            if (!isQuarter(Number(pi.transformation?.rotation) || 0)) return 0
+        }
+    }
     const margin = Math.max(0, Number(space) || 0)
     const byId = new Map(parts.map((p) => [String(p.id), p]))
     // BPP : scopé PAR TÔLE (2026-09-01) — les layouts BPP partagent le
@@ -629,6 +646,18 @@ const _ringAreaCentroid = (ring) => {
     return [cx / (6 * a), cy / (6 * a)]
 }
 
+/** D7 (audit 2026-09-03) : gate de trou IDENTIQUE au serveur (main.py
+ * has_holes). Le payload local porte désormais hasHoles/fillHoles ; les
+ * vieux payloads repliquent le calcul client (fillHoles explicite +
+ * présence de trous) — le navigateur remplissait les trous d'un payload
+ * préparé trous fermés (space > 2,4 : canneaux scellés) alors que le
+ * serveur ne le fait pas. */
+export function holesGateOpen(payload, parts) {
+    if (payload?.hasHoles != null) return payload.hasHoles === true
+    if (payload?.fillHoles === false) return false
+    return (parts || []).some((p) => (p?.holes || []).length > 0)
+}
+
 /** Miroir de metrics.per_class_counts_match (A4, audit 2026-09-03) : la
  * garde anti-perte comparait le TOTAL — un doublon + une perte compensée
  * passaient. Conteneurs wasm {transforms:[{item_id}]} contre les comptes
@@ -752,8 +781,8 @@ export function decorateLiveLayout(evt, payload) {
         const space = Number(payload?.engineConfig?.min_item_separation) || 0
         // fillHoles=false (promesse UI « keep cutouts empty ») : pas de
         // post-pass de déplacement des fillers vers les trous — le serveur
-        // gate déjà le sien via has_holes (main.py).
-        if (payload?.fillHoles !== false) {
+        // gate déjà le sien via has_holes (main.py). D7 : gate hasHoles.
+        if (holesGateOpen(payload, parts)) {
             holesFilled += applyHoleFill(parts, layouts, space) || 0
         }
         const items = _layoutsToLiveItems(layouts, bins, isBpp)
@@ -848,7 +877,7 @@ export async function buildAlternativeArtifacts(result, payload) {
             const before = layouts.reduce(
                 (n, l) => n + (l.placed_items?.length || 0), 0)
             let holeFillRecovered = 0
-            if (!selfContained && payload?.fillHoles !== false) {
+            if (!selfContained && holesGateOpen(payload, parts)) {
                 holeFillRecovered = applyHoleFill(parts, layouts, space)
             }
             const postPass = {

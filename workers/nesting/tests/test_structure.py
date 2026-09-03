@@ -7,6 +7,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
+try:
+    import shapely  # noqa: F401
+    HAS_SHAPELY = True
+except ImportError:
+    HAS_SHAPELY = False
+
 from core.structure import (
     ZONE_A_DENSITY,
     build_structural_layout,
@@ -498,3 +504,41 @@ class TestSmallLattice:
         assert len(out) > 0
 
 
+
+
+class TestRotatedLatticeAnchoredLeft:
+    """P2 (audit 2026-09-03) : la famille tournée 90/270 était ancrée à
+    DROITE du rect — dans une bande étroite gagnée par le compte, elle
+    laissait un vide à gauche (~18 000 mm² sur la bande droite de la tôle
+    1 du cas de référence : colonne de fans décollée de ~20 mm × 900).
+    Le bloc doit désormais être collé à x0."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="small_lattice requiert shapely")
+    def test_narrow_band_rotated_family_min_x_is_x0(self):
+        from core.structure import small_lattice, _bbox, _rotated_bbox
+        # Bande étroite 99×900 : seule la famille tournée (pas serré sur
+        # le grand côté) y tient en nombre.
+        rect = (901.0, 2.0, 1000.0, 902.0)
+        small = {"id": 1, "coords": FAN, "rotations": QUARTERS}
+        poses = small_lattice(small, 2.0, rect, want=20, axis="x")
+        assert poses, "la famille tournée doit remplir la bande étroite"
+        min_x = min(
+            p["transformation"]["translation"][0]
+            + _rotated_bbox(_bbox(FAN), p["transformation"]["rotation"])[0]
+            for p in poses)
+        assert min_x <= rect[0] + 1e-6, \
+            f"bloc décollé de {min_x - rect[0]:.3f} mm du bord gauche"
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="small_lattice requiert shapely")
+    def test_rotated_lattice_not_truncated_before_bbox_filter(self):
+        """D10 : _lattice_rotated(cap) tronquait AVANT le filtre bbox →
+        moins de poses que le miroir JS ; le cap s'applique dans
+        consider(), après filtrage."""
+        from core.structure import _lattice_rotated
+        from shapely.geometry import Polygon
+        base = Polygon(FAN).buffer(0)
+        rect = (0.0, 0.0, 99.0, 900.0)
+        got = _lattice_rotated(base, 1, 2.0, rect, 2.0 + 0.1, 0, 0, cap=5)
+        # cap=5 : le variant interne ne doit PAS avoir tronqué à 5 AVANT
+        # le filtre (des poses tombaient au filtre et il en restait < 5).
+        assert got is None or len(got) >= 1

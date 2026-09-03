@@ -519,3 +519,20 @@ describe('planLattice — emprise ⊆ tôle (P-2, miroir structure.py)', () => {
         }
     })
 })
+
+
+describe('latticeRotated ancré à gauche (P2, audit 2026-09-03)', () => {
+    it('bande étroite 99×900 : min_x des poses = x0 + ε', async () => {
+        const { smallLattice, bbox, rotatedBbox } = await import('../composables/structureClient')
+        const rect = [901, 2, 1000, 902]
+        const poses = smallLattice({ id: 1, coords: FAN, rotations: QUARTERS }, 2, rect,
+            { want: 20, axis: 'x' })
+        expect(poses.length).toBeGreaterThan(0)
+        let minX = Infinity
+        for (const p of poses) {
+            const bb = rotatedBbox(bbox(FAN), p.transformation.rotation)
+            minX = Math.min(minX, p.transformation.translation[0] + bb[0])
+        }
+        expect(minX).toBeLessThanOrEqual(rect[0] + 1e-6)
+    })
+})
