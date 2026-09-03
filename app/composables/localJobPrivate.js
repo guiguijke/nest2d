@@ -492,14 +492,38 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     let placed = 0
     try {
         let arts = await buildAlternativeArtifacts(result, payload)
-        // P-4 (audit 2026-08-31 §P-4) — filet aval miroir de
-        // _finalize_alternative : mesure indépendante (report wasm) et
-        // drop d'une alternative STRUCTURELLE hors tôle. Les alternatives
-        // moteur gardent leur badge insideSheet (piège #6). arts suit la
-        // même permutation que result.alternatives (indices alignés).
+        // P-4 (audit 2026-08-31 §P-4) + A4/D13 (audit 2026-09-03) — filet
+        // aval miroir de _finalize_alternative : mesure indépendante
+        // (report wasm) sur l'état POST-PASS (arts[i].containers). Une alt
+        // STRUCTURELLE hors tôle, une alt au compte PAR CLASSE erroné
+        // (doublon + perte compensée passaient : seul le total était
+        // vérifié) ou une alt mesurée en chevauchement/doublons est
+        // ÉCARTÉE. arts suit la même permutation que
+        // result.alternatives (indices alignés).
+        const requestedById = new Map(
+            (payload?.parts || []).map((p) => [String(p.id), Number(p.count) || 0]),
+        )
+        const { perClassCountsMatch } = await import('./localBridge')
         const keptIdx = []
         rawAlts.forEach((alt, i) => {
-            if (alt.structural && arts?.[i]?.report?.verify?.insideSheet === false) return
+            const art = arts?.[i]
+            if (alt.structural && art?.report?.verify?.insideSheet === false) return
+            if (art?.containers?.length
+                && !perClassCountsMatch(art.containers, requestedById)) {
+                console.error('[local] alternative per-class count mismatch, discarding', {
+                    strategy: alt.bias || alt.strategy || 'engine',
+                })
+                return
+            }
+            const verify = art?.report?.verify
+            if (verify && (verify.overlapFree === false || (verify.duplicatePoses || 0) > 0)) {
+                console.error('[local] alternative physically invalid, discarding', {
+                    strategy: alt.bias || alt.strategy || 'engine',
+                    overlapFree: verify.overlapFree,
+                    duplicatePoses: verify.duplicatePoses,
+                })
+                return
+            }
             keptIdx.push(i)
         })
         if (keptIdx.length !== rawAlts.length) {

@@ -274,11 +274,13 @@ class TestT10CompactLastSheet:
         for p in l1_hosts:
             assert p["transformation"]["translation"][0] <= 160
         # Bloc compact derrière la grille des hélices, fini bien avant
-        # x=960. Borne basse 100 : poche de la colonne partielle remplie
-        # en premier (fix poches, audit 2026-09-02 F1).
+        # x=960. Borne basse ~2 : depuis P1 (audit 2026-09-03) la poche de
+        # la colonne partielle est CLIPPÉE au sommet des colonnes pleines
+        # et la bande haute pleine largeur est remplie la première en
+        # gravité −X — c'est le coin haut-gauche qui était perdu.
         for p in l1_fans:
             tx = p["transformation"]["translation"][0]
-            assert 100 <= tx <= 420, f"fan non compactée : tx={tx}"
+            assert 2 <= tx <= 420, f"fan non compactée : tx={tx}"
         if HAS_SHAPELY:
             import math as _math
             from shapely.geometry import Polygon
@@ -392,7 +394,11 @@ class TestT11PocketsFromRegrid:
         moved, pockets = _regrid_helices(last, units, BY_ID, 1000.0, 1000.0, 2.0)
         assert moved == 10
         assert len(pockets) == 1
-        assert pockets[0] == pytest.approx((104.0, 104.0, 204.0, 998.0), abs=1.5)
+        # P1 : y1 clippé au sommet des colonnes PLEINES (9 poses de 100 mm
+        # + pas ≈ 916-918), pas au bord de tôle (998 comme avant le fix).
+        y1 = pockets[0][3]
+        assert 900.0 < y1 < 930.0, y1
+        assert pockets[0][:3] == pytest.approx((104.0, 104.0, 204.0), abs=1.5)
 
     @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
     def test_full_columns_no_pocket(self):
@@ -498,12 +504,17 @@ class TestT14RetryDegraded:
                                          "translation": tuple(t2["translation"])}}])
         free = [pi(1, 700.0 + 40 * k, 800.0) for k in range(3)]
         n = _fill_one_batch([l0], 0, 0, BY_ID, BIN, 2.0, free=free, bands=[band])
-        assert n == 1  # pose 1 seulement — pas 0 (rollback total), pas 3
-        moved = [p for p in l0["placed_items"]
-                 if p["item_id"] == 1
-                 and p["transformation"]["translation"]
-                 == tuple(t1["translation"])]
-        assert moved, "la 1re pose du lattice doit être occupée"
+        # A7 (audit 2026-09-03) : chaque pose est validée individuellement —
+        # la pose leurre (2e) est sautée, les poses 1 ET 3 sont posées
+        # (l'ancien retry take//2 ne produisait que {1} ou {1,2,3}).
+        assert n == 2
+        t3 = lat[2]["transformation"]
+        for t in (t1, t3):
+            moved = [p for p in l0["placed_items"]
+                     if p["item_id"] == 1
+                     and p["transformation"]["translation"]
+                     == tuple(t["translation"])]
+            assert moved, f"pose {t['translation']} doit être occupée"
 
 
 class TestT15RemoveByIdentity:
@@ -519,3 +530,150 @@ class TestT15RemoveByIdentity:
         assert lst == [a]
         assert _remove_by_identity(lst, a) is True
         assert lst == []
+
+
+class TestSpace0Validation:
+    """A1 (audit 2026-09-03, bloquant) : à space 0, `d < space − ε` est
+    toujours faux → _validate_batch n'excluait PLUS RIEN (3 136
+    chevauchements au banc sur le corpus user-like). Politique §8.1 :
+    contact permis, chevauchement d'aire > 0,01 mm² rejeté."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_identical_pose_rejected_at_space_0(self):
+        l = layout([pi(1, 200.0, 200.0), pi(1, 200.0, 200.0)])
+        assert _validate_batch(l["placed_items"], l, BY_ID, 1000.0, 1000.0, 0.0) is False
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_partial_overlap_rejected_at_space_0(self):
+        # Deux fans décalées de 5 mm : chevauchement franc.
+        l = layout([pi(1, 200.0, 200.0), pi(1, 205.0, 200.0)])
+        assert _validate_batch(l["placed_items"], l, BY_ID, 1000.0, 1000.0, 0.0) is False
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_exact_contact_allowed_at_space_0(self):
+        # Carrés bord à bord (100 mm de côté, centres à 100 mm) : contact
+        # légal, aire d'intersection nulle → accepté.
+        l = layout([pi(0, 150.0, 200.0), pi(0, 250.0, 200.0)])
+        assert _validate_batch(l["placed_items"][1:], l, BY_ID, 1000.0, 1000.0, 0.0) is True
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_small_gap_still_rejected_when_space_positive(self):
+        # 0,03 mm à space 0,1 : rejeté (miroir JS « paire à 0,03 »).
+        l = layout([pi(0, 200.0, 200.0), pi(0, 300.03, 200.0)])
+        assert _validate_batch(l["placed_items"][1:], l, BY_ID, 1000.0, 1000.0, 0.1) is False
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_pipeline_two_sheets_space_0_no_duplicate_no_overlap(self):
+        # Pipeline complet à space 0 (2 tôles, hôtes + fans) : 0 pose
+        # dupliquée, 0 paire d'aire d'intersection > 0,01 mm².
+        from shapely.geometry import Polygon
+        hosts = [pi(0, 100.0 + 110 * k, 500.0) for k in range(6)]
+        free = [pi(1, 40.0 + 45 * (k % 8), 40.0 + 45 * (k // 8))
+                for k in range(24)]
+        layouts = [layout(hosts), layout(free)]
+        stats = {}
+        fill_residual_bands(layouts, ITEMS, BIN, 0.0, stats=stats)
+        for l in layouts:
+            polys = []
+            for p in l["placed_items"]:
+                it = BY_ID[p["item_id"]]
+                tr = p["transformation"]
+                r = math.radians(float(tr["rotation"]))
+                c, si = math.cos(r), math.sin(r)
+                pts = [(tr["translation"][0] + c * x - si * y,
+                        tr["translation"][1] + si * x + c * y)
+                       for x, y in it["coords"]]
+                polys.append(Polygon(pts))
+            for i in range(len(polys)):
+                for j in range(i + 1, len(polys)):
+                    inter = polys[i].intersection(polys[j])
+                    assert inter.area <= 0.01, f"paire {i}-{j} : {inter.area} mm²"
+
+
+class TestH1CompactRollbackRestoresFullState:
+    """A2/A6 (audit 2026-09-03, bloquant) : le rollback de compaction
+    restaurait un état post-re-grid — les hôtes re-grillés recouvraient
+    les pièces libres d'origine dès qu'une libre était irremplaçable
+    (3ᵉ classe, rotation verrouillée, grande pièce). Fixture audit :
+    19 hôtes à droite + pièce 700×500 rotation [0] + 120 fans."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_rollback_restores_original_poses(self):
+        from core.residual import _compact_last_sheet
+        from shapely.geometry import Polygon
+
+        big = {"id": 2,
+               "coords": [[0.0, 0.0], [700.0, 0.0], [700.0, 500.0],
+                          [0.0, 500.0], [0.0, 0.0]],
+               "holes": [], "rotations": [0.0]}
+        items = [HOST, FAN_ITEM, big]
+        by_id = {i["id"]: i for i in items}
+        # 18 hôtes en 2 colonnes à droite (pas 102 — grille légale), grande
+        # pièce verrouillée à gauche, 120 fans légales au-dessus d'elle.
+        hosts = [pi(0, 820.0, 52.0 + 102 * k) for k in range(9)]
+        hosts += [pi(0, 930.0, 52.0 + 102 * k) for k in range(9)]
+        fans = [pi(1, 20.0 + 42 * (k % 18), 520.0 + 32 * (k // 18))
+                for k in range(120)]
+        big_pi = pi(2, 2.0, 2.0)
+        last = layout(hosts + fans + [big_pi])
+        def poses_of(layout_):
+            # Multi-ensemble de poses (le rollback restaure des COPIES
+            # profondes : les id() changent, pas les poses).
+            return sorted(
+                (p["item_id"], round(float(p["transformation"]["rotation"]), 6),
+                 round(float(p["transformation"]["translation"][0]), 6),
+                 round(float(p["transformation"]["translation"][1]), 6))
+                for p in layout_["placed_items"])
+        orig = poses_of(last)
+        stats = {}
+        _compact_last_sheet([last], 0, by_id, BIN, 2.0, stats=stats)
+        # Quel que soit le chemin (compaction ou rollback) : 0 chevauchement
+        # sur les paires impliquant une fan (les hôtes du fixture se
+        # touchent par construction, état préexistant non rejugé) et, si
+        # rollback, les hôtes sont à leur pose d'ORIGINE (pas re-grillés
+        # sur la grande pièce).
+        polys = []
+        for p in last["placed_items"]:
+            it = by_id[p["item_id"]]
+            tr = p["transformation"]
+            r = math.radians(float(tr["rotation"]))
+            c, si = math.cos(r), math.sin(r)
+            pts = [(tr["translation"][0] + c * x - si * y,
+                    tr["translation"][1] + si * x + c * y)
+                   for x, y in it["coords"]]
+            polys.append((p, Polygon(pts)))
+        for i in range(len(polys)):
+            for j in range(i + 1, len(polys)):
+                ids = {polys[i][0]["item_id"], polys[j][0]["item_id"]}
+                if ids == {0}:
+                    continue  # hôtes du fixture : grille collée préexistante
+                inter = polys[i][1].intersection(polys[j][1])
+                assert inter.area <= 0.01, \
+                    f"paire {i}-{j} ids {ids} : {inter.area} mm²"
+        if stats.get("compactRollback"):
+            assert poses_of(last) == orig, \
+                "rollback : poses d'origine attendues (état AVANT le re-grid)"
+
+
+class TestMovedCountsOnlyRealChanges:
+    """D16 : `moved` ne compte que les transformations réellement
+    modifiées (au 2ᵉ appel sur un état déjà compacté, moved restait à
+    son maximum sans rien bouger)."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_regrid_second_call_reports_zero_moved(self):
+        # _regrid_helices sur des hélices DÉJÀ grillées → poses
+        # identiques → moved = 0 (l'ancien `moved += 1 + fans`
+        # inconditionnel comptait tout, 505 « déplacées » sans mouvement).
+        hosts = [pi(0, 820.0, 52.0 + 102 * k) for k in range(9)]
+        hosts += [pi(0, 930.0, 52.0 + 102 * k) for k in range(9)]
+        last = layout(hosts)
+        units, free = _helix_units_and_free(last, BY_ID)
+        moved1, _ = _regrid_helices(last, units, BY_ID, 1000.0, 1000.0, 2.0)
+        assert moved1 == 18
+        poses = [dict(p["transformation"]) for p in last["placed_items"]]
+        units2, free2 = _helix_units_and_free(last, BY_ID)
+        moved2, _ = _regrid_helices(last, units2, BY_ID, 1000.0, 1000.0, 2.0)
+        poses2 = [dict(p["transformation"]) for p in last["placed_items"]]
+        assert poses == poses2, "le 2e re-grid doit être idempotent"
+        assert moved2 == 0, f"moved = {moved2} sans déplacement"

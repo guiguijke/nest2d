@@ -19,6 +19,8 @@ from core.metrics import (
     compute_used_sheet_share,
     enrich_offcut,
     largest_empty_rectangle,
+    per_class_counts_match,
+    per_class_placed_counts,
     per_sheet_metrics,
     report_totals,
     verify_layout,
@@ -571,6 +573,9 @@ def _nesting_process_impl(doc):
     )
 
     total_requested_count = 0
+    # A4 : compte demandé PAR item_id (la garde anti-perte par total seul
+    # laissait passer doublon + perte compensée).
+    requested_by_id = {}
     total_part_area = 0.0
     total_outer_area = 0.0
     # Aire ENVELOPPE (anneaux externes, trous NON déduits) : c'est ce que le
@@ -595,6 +600,7 @@ def _nesting_process_impl(doc):
             )
         jaguar_item = build_item(item.get("id"), count, shape_coords, allowed_orientations)
         total_requested_count += count
+        requested_by_id[item.get("id")] = count
         total_part_area += _Polygon(item.get("coords"), item.get("holes") or []).area * count
         total_outer_area += _Polygon(item.get("coords") or []).area * count
         jaguar_items.append(jaguar_item)
@@ -1311,6 +1317,10 @@ def _nesting_process_impl(doc):
         from core.holefill import expand_meta, expand_packs
         id_map = meta["idMap"]
         for engine_alt in engine_alternatives:
+            engine_alt["postPass"] = {
+                "expandMeta": 0, "holeFillRecovered": 0, "residualMoved": 0,
+                "residualRounds": 0, "compactRollback": False, "errors": [],
+            }
             # Alternative structurelle : ids d'ORIGINE + trous déjà remplis
             # par le pass grille (self_contained). Le remap ci-dessous
             # CORROMPRait ses ids (un id d'origine indexé comme id réduit) et
@@ -1329,6 +1339,7 @@ def _nesting_process_impl(doc):
                     pid = pi.get("item_id")
                     if isinstance(pid, int) and 0 <= pid < len(id_map):
                         pi["item_id"] = id_map[pid]
+            before = sum(len(l.get("placed_items", [])) for l in layouts)
             if meta.get("packs"):
                 sol["layouts"] = expand_packs(input_items, meta["packs"], layouts)
             else:
@@ -1336,6 +1347,10 @@ def _nesting_process_impl(doc):
                     input_items, meta["host"], meta["fill"], meta["slots"],
                     layouts, meta.get("ringRotations"),
                 )
+            # A5 : traçabilité du post-pass (additif, jamais muet).
+            engine_alt["postPass"]["expandMeta"] = (
+                sum(len(l.get("placed_items", []))
+                    for l in sol.get("layouts") or []) - before)
 
     # Post-pass hole-fill (SPP et BPP) : AVANT le reveal.
     if has_holes:
@@ -1353,6 +1368,11 @@ def _nesting_process_impl(doc):
             n = apply_hole_fill(input_items, sol.get("layouts", []), space)
             if n:
                 logger.info("hole-fill post-pass relocated fillers", extra={"n": n})
+            engine_alt.setdefault(
+                "postPass",
+                {"expandMeta": 0, "holeFillRecovered": 0, "residualMoved": 0,
+                 "residualRounds": 0, "compactRollback": False, "errors": []},
+            )["holeFillRecovered"] = n
 
     # D-MOT-19 (docs/PLAN-bpp-impl.md) : remplissage des bandes résiduelles
     # — BPP multi-tôles uniquement. Le constructif empile les petites
@@ -1371,10 +1391,24 @@ def _nesting_process_impl(doc):
             if "layouts" not in sol and "layout" in sol:
                 sol = {**sol, "layouts": [sol["layout"]]}
                 engine_alt["solution"] = sol
+            engine_alt.setdefault(
+                "postPass",
+                {"expandMeta": 0, "holeFillRecovered": 0, "residualMoved": 0,
+                 "residualRounds": 0, "compactRollback": False, "errors": []},
+            )
             n = fill_residual_bands(sol.get("layouts") or [], input_items,
-                                    bin_dims, space)
+                                    bin_dims, space,
+                                    stats=engine_alt["postPass"])
             if n:
                 logger.info("residual-band pass moved parts", extra={"n": n})
+            if engine_alt["postPass"].get("compactRollback"):
+                logger.warning("compaction rolled back (donor sheet restored)",
+                               extra={"strategy": engine_alt.get("bias")})
+            # A10 : le retrait d'un layout vide doit rafraîchir le coût de
+            # l'alternative (alternatives[].cost était périmé).
+            sol = engine_alt.get("solution") or {}
+            if sol.get("layouts") is not None and "cost" in sol:
+                sol["cost"] = len(sol["layouts"])
 
     # Strategy-labelled alternatives — the engine already returns its best
     # distinct layouts, ranked. SPP layouts are inherently max-offcut (used
@@ -1438,7 +1472,12 @@ def _nesting_process_impl(doc):
             if rank < len(engine_alternatives) - 1:
                 _time.sleep(REVEAL_STEP_SEC)
 
+    invalid_alt_count = [0]
+
     def _finalize_alternative(engine_alt, strategy, rank):
+        # Échappatoire debug (A4) : livrer quand même une alternative
+        # mesurée invalide pour inspection.
+        allow_invalid_alts = os.environ.get("NEST_ALLOW_INVALID_ALTS") == "1"
         result_containers, placed_count, density, cost = parse_result_containers(
             {"solution": engine_alt["solution"]}, input_items, bin_dims
         )
@@ -1454,6 +1493,20 @@ def _nesting_process_impl(doc):
             )
             return
 
+        # A4 : garde par CLASSE — le total seul était aveugle : une pièce
+        # posée deux fois + une autre perdue compensée PASSAIENT (191
+        # doublons livrés au banc, audit 2026-09-03 §A4). Compte par item_id.
+        if not per_class_counts_match(result_containers, requested_by_id):
+            logger.error(
+                "Alternative per-class count mismatch, discarding it",
+                extra={
+                    "strategy": strategy,
+                    "placed_by_id": per_class_placed_counts(result_containers),
+                    "requested_by_id": requested_by_id,
+                },
+            )
+            return
+
         # Measured physical verification — AVANT l'export DXF (P-4 : ne pas
         # payer l'export d'un layout qu'on jette). Filet structurel : le
         # layout grille ne se « répare » pas (piège #41), une alt
@@ -1465,6 +1518,24 @@ def _nesting_process_impl(doc):
             logger.warning(
                 "structural alternative outside sheet, discarding",
                 extra={"strategy": strategy},
+            )
+            return
+        # A4/U1 : un post-pass qui échoue ne doit plus être livré avec un
+        # badge rouge — l'alternative mesurée en chevauchement ou en poses
+        # dupliquées est ÉCARTÉE (les autres walks restent). Échappatoire
+        # debug uniquement.
+        if not allow_invalid_alts and (
+            verification.get("overlapFree") is False
+            or verification.get("duplicatePoses")
+        ):
+            invalid_alt_count[0] += 1
+            logger.error(
+                "alternative physically invalid (overlap/duplicates), discarding",
+                extra={
+                    "strategy": strategy,
+                    "overlapFree": verification.get("overlapFree"),
+                    "duplicatePoses": verification.get("duplicatePoses"),
+                },
             )
             return
 
@@ -1506,6 +1577,9 @@ def _nesting_process_impl(doc):
                 "sheets": sheets_metrics,
                 "totals": report_totals(sheets_metrics),
                 "offcut": enrich_offcut(offcut),
+                # A5 : observabilité des post-pass (additif — les jobs
+                # antérieurs n'ont pas le champ, l'UI l'ignore).
+                "postPass": engine_alt.get("postPass"),
             },
         })
 
@@ -1534,6 +1608,13 @@ def _nesting_process_impl(doc):
 
     for rank, engine_alt in enumerate(engine_alternatives):
         _finalize_alternative(engine_alt, _strategy_for(engine_alt, rank), rank)
+
+    if invalid_alt_count[0]:
+        logger.error(
+            "physically invalid alternatives discarded",
+            extra={"count": invalid_alt_count[0],
+                   "kept": len(alternatives)},
+        )
 
     if not alternatives:
         _heartbeat_stop.set()

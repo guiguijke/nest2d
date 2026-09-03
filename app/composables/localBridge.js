@@ -629,6 +629,25 @@ const _ringAreaCentroid = (ring) => {
     return [cx / (6 * a), cy / (6 * a)]
 }
 
+/** Miroir de metrics.per_class_counts_match (A4, audit 2026-09-03) : la
+ * garde anti-perte comparait le TOTAL — un doublon + une perte compensée
+ * passaient. Conteneurs wasm {transforms:[{item_id}]} contre les comptes
+ * demandés par part (clé String(id), comme partsById). */
+export function perClassCountsMatch(containers, requestedById) {
+    const placed = new Map()
+    for (const c of containers || []) {
+        for (const t of c?.transforms || []) {
+            const k = String(t.item_id)
+            placed.set(k, (placed.get(k) || 0) + 1)
+        }
+    }
+    if (placed.size !== requestedById.size) return false
+    for (const [k, want] of requestedById) {
+        if (placed.get(k) !== want) return false
+    }
+    return true
+}
+
 /** Miroir du plafonnage metrics.verify_layout (d57cbea) : occupants par trou
  * (centroïde d'aire de l'anneau externe posé dans l'anneau du trou, premier
  * hôte retenu) → filled = Σ min(n, CAPACITY) ; l'excédent part dans
@@ -822,14 +841,30 @@ export async function buildAlternativeArtifacts(result, payload) {
                     expandMeta(parts, payload.meta.host, payload.meta.fill, payload.meta.slots, layouts, payload.meta.ringRotations)
                 }
             }
-            if (!selfContained && payload?.fillHoles !== false) applyHoleFill(parts, layouts, space)
+            // A5 (audit 2026-09-03) : traçabilité des post-pass (additif,
+            // miroir de engine_alt.postPass côté main.py) — plus de pass
+            // muet : expandMeta compté, holeFillRecovered = relocations,
+            // residual stats (moved/rounds/rollback/errors).
+            const before = layouts.reduce(
+                (n, l) => n + (l.placed_items?.length || 0), 0)
+            let holeFillRecovered = 0
+            if (!selfContained && payload?.fillHoles !== false) {
+                holeFillRecovered = applyHoleFill(parts, layouts, space)
+            }
+            const postPass = {
+                expandMeta: 0, holeFillRecovered,
+                residualMoved: 0, residualRounds: 0,
+                compactRollback: false, errors: [],
+            }
+            postPass.expandMeta = layouts.reduce(
+                (n, l) => n + (l.placed_items?.length || 0), 0) - before - holeFillRecovered
             // D-MOT-19 : bandes résiduelles BPP (miroir core/residual.py) —
             // APRÈS hole-fill (les trous sont de meilleurs emplacements),
             // AVANT SVG/rapport/DXF sinon le livrable ignore le pass.
             if (!selfContained && !alt.structural
                 && ((payload?.problem || 'spp') !== 'spp' || layouts.length >= 2)) {
                 const { fillResidualBands } = await import('./residualClient')
-                fillResidualBands(parts, layouts, space, payload)
+                fillResidualBands(parts, layouts, space, payload, postPass)
             }
             const containers = []
             const sheets = []
@@ -863,6 +898,7 @@ export async function buildAlternativeArtifacts(result, payload) {
                 sheets,
                 containers,
                 report: report && !report.error ? report : null,
+                postPass,
             })
         }
         return out
@@ -951,6 +987,9 @@ export function toServerShapeAlternatives(result, payload, artifacts) {
             svgs: art.sheets || [],
             report: {
                 ...verify,
+                // A5 : observabilité des post-pass (additif — miroir du
+                // champ report.postPass serveur).
+                postPass: art.postPass ?? null,
                 partsAreaMm2: totals?.partsAreaMm2 ?? null,
                 sheetAreaMm2: totals?.sheetAreaMm2 ?? null,
                 iterations: alt.evaluations ?? alt.iterations ?? null,

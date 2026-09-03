@@ -8,6 +8,7 @@ import {
     applyHoleFill,
     decorateLiveLayout,
     holesFillCap,
+    perClassCountsMatch,
 } from '../composables/localBridge'
 import { uniquifyDxfHandles } from '../composables/localHydrate'
 
@@ -504,5 +505,25 @@ describe('toServerShapeAlternatives — usedSheetShare local (stats du modal)', 
         expect(out[0].strategy).toBe('grid')
         expect(out[0].usedSheetShare).toBeCloseTo((200.1 * 200.1) / (1000 * 2000), 6)
         expect(out[1].usedSheetShare).toBeCloseTo((200.1 * 200.1) / (1000 * 2000), 6)
+    })
+})
+
+
+describe('perClassCountsMatch (miroir metrics A4, audit 2026-09-03)', () => {
+    const containers = (ids) => [
+        { transforms: ids.map((id) => ({ item_id: String(id), angle: 0, x: 0, y: 0 })) },
+    ]
+
+    it('comptes exacts par classe → true', () => {
+        expect(perClassCountsMatch(containers([0, 0, 1]), new Map([['0', 2], ['1', 1]]))).toBe(true)
+    })
+
+    it('doublon + perte compensée (même total) → false', () => {
+        // item 0 posé 3 fois, item 1 perdu : total 3 = demandé 3.
+        expect(perClassCountsMatch(containers([0, 0, 0]), new Map([['0', 2], ['1', 1]]))).toBe(false)
+    })
+
+    it('classe manquante → false', () => {
+        expect(perClassCountsMatch(containers([7]), new Map([['0', 1]]))).toBe(false)
     })
 })

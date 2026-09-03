@@ -263,7 +263,7 @@ const PARTS_BY_ID = () => new Map(PARTS.map((p) => [String(p.id), p]))
 const SHEET_DIMS = () => (layout) => [1000, 1000]
 
 describe('regridHelices — poches des colonnes partielles (T11)', () => {
-    it('10 hôtes (colonnes 9+1) → 1 poche ≈ x[104,204]×y[104,998]', () => {
+    it('10 hôtes (colonnes 9+1) → 1 poche clippée au sommet des colonnes pleines (P1)', () => {
         const hosts = []
         for (let k = 0; k < 10; k++) hosts.push(pi(0, 500 + 37 * k, 500))
         const last = layout(hosts)
@@ -271,7 +271,13 @@ describe('regridHelices — poches des colonnes partielles (T11)', () => {
         const { moved, freeRects } = regridHelices(last, units, PARTS_BY_ID(), 1000, 1000, 2, payload)
         expect(moved).toBe(10)
         expect(freeRects).toHaveLength(1)
-        expect(freeRects[0].map((v) => Math.round(v))).toEqual([104, 104, 204, 998])
+        // P1 (audit 2026-09-03) : y1 = sommet des colonnes pleines (~918),
+        // PAS le bord de tôle (998 avant le fix) — sinon la bande haute
+        // au-dessus des colonnes pleines dégénère et n'est jamais remplie.
+        const r = freeRects[0].map((v) => Math.round(v))
+        expect(r.slice(0, 3)).toEqual([104, 104, 204])
+        expect(r[3]).toBeGreaterThan(900)
+        expect(r[3]).toBeLessThan(930)
     })
 
     it('18 hôtes (2 colonnes pleines) → aucune poche', () => {
@@ -350,11 +356,17 @@ describe('fillOneBatch — batch d\'une pose et retry dégradé (T13/T14)', () =
         ])
         const free = [pi(1, 700, 800), pi(1, 740, 800), pi(1, 780, 800)]
         const n = fillOneBatch([l0], 0, 0, PARTS_BY_ID(), SHEET_DIMS(), 2, payload, free, [band])
-        expect(n).toBe(1)
-        const moved = l0.placed_items.filter((p) => p.item_id === 1
-            && p.transformation.translation[0] === t1.translation[0]
-            && p.transformation.translation[1] === t1.translation[1])
-        expect(moved).toHaveLength(1)
+        // A7 (audit 2026-09-03) : chaque pose est validée individuellement —
+        // la pose leurre (2e) est sautée, les poses 1 ET 3 sont posées
+        // (l'ancien retry take>>1 ne produisait que {1} ou {1,2,3}).
+        expect(n).toBe(2)
+        const t3 = lat[2].transformation
+        for (const t of [t1, t3]) {
+            const moved = l0.placed_items.filter((p) => p.item_id === 1
+                && p.transformation.translation[0] === t.translation[0]
+                && p.transformation.translation[1] === t.translation[1])
+            expect(moved).toHaveLength(1)
+        }
     })
 
     it('identité : deux fans jumelles ne se détruisent pas (T15, régression remove par valeur)', () => {
@@ -409,5 +421,80 @@ describe('validateBatch — seuil jamais négatif (régression overlap navigateu
             }
         }
         expect(bad, `paires chevauchantes: ${bad.length}`).toHaveLength(0)
+    })
+})
+
+
+describe('pairViolates — seuil space 0 et chevauchements à d == 0 (A1/D5, audit 2026-09-03)', () => {
+    // Le seuil dist < space − marge est PLANCHÉ mais seul ; à space 0,1 il
+    // faut quand même rejeter un VRAI chevauchement (d == 0 + aire > 0),
+    // et à space 0 les poses dupliquées.
+    const ring = (coords, tx, ty) => coords.map(([x, y]) => [x + tx, y + ty])
+
+    it('paire à 0,03 mm à space 0,1 → rejetée', async () => {
+        const { pairViolates } = await import('../composables/residualClient')
+        const a = ring(SQUARE, 200, 200)
+        const b = ring(SQUARE, 200 + 100 + 0.03, 200) // carrés de 100 mm
+        expect(pairViolates(a, b, 0.1)).toBe(true)
+    })
+
+    it('paire à 1,95 mm à space 2 → rejetée', async () => {
+        const { pairViolates } = await import('../composables/residualClient')
+        const a = ring(SQUARE, 200, 200)
+        const b = ring(SQUARE, 200 + 100 + 1.95, 200)
+        expect(pairViolates(a, b, 2)).toBe(true)
+    })
+
+    it('pose dupliquée (d == 0, recouvrement total) → rejetée même à space 0', async () => {
+        const { pairViolates } = await import('../composables/residualClient')
+        const a = ring(SQUARE, 200, 200)
+        expect(pairViolates(a, ring(SQUARE, 200, 200), 0)).toBe(true)
+        expect(pairViolates(a, ring(SQUARE, 200, 200), 0.1)).toBe(true)
+    })
+
+    it('contact légal (arêtes qui se touchent, rien croisé) → permis à space 0', async () => {
+        const { pairViolates } = await import('../composables/residualClient')
+        const a = ring(SQUARE, 200, 200)
+        const b = ring(SQUARE, 300, 200) // bord contre bord exactement
+        expect(pairViolates(a, b, 0)).toBe(false)
+    })
+
+    it('chevauchement partiel à d == 0 (croisement d\'arêtes) → rejeté à space 0', async () => {
+        const { pairViolates } = await import('../composables/residualClient')
+        const a = ring(SQUARE, 200, 200)
+        const b = ring(SQUARE, 250, 200) // 50 mm de recouvrement
+        expect(pairViolates(a, b, 0)).toBe(true)
+    })
+})
+
+describe('compaction — rollback A2 : snapshot AVANT le re-grid (audit 2026-09-03)', () => {
+    it('une exception interne du pass remplit stats.errors (A5, plus de catch muet)', async () => {
+        const mod = await import('../composables/residualClient')
+        // parts sabordé : trou null → TypeError dans freePis (le filet
+        // restaure les layouts et TRACE l'erreur au lieu d'avaler).
+        const badHost = { ...HOST, holes: [null] }
+        const l0 = layout([pi(0, 100, 100)])
+        const l1 = layout([pi(0, 500, 500), pi(1, 540, 500)])
+        const stats = {}
+        const origErr = console.error
+        console.error = () => {}
+        try {
+            const n = mod.fillResidualBands([badHost, FAN_PART], [l0, l1], 2, payload, stats)
+            expect(n).toBe(0)
+            expect(Array.isArray(stats.errors)).toBe(true)
+            expect(stats.errors.length).toBeGreaterThan(0)
+            expect(stats.errors[0].stage).toBe('residual')
+        } finally {
+            console.error = origErr
+        }
+    })
+
+    it('compactLastSheet laisse PROPAGER une TypeError (D6 : le catch n’avale que la sentinelle)', async () => {
+        const mod = await import('../composables/residualClient')
+        const badHost = { ...HOST, holes: [null] }
+        const partsById = new Map([['0', badHost], ['1', FAN_PART]])
+        const last = layout([pi(0, 500, 500), pi(1, 700, 700)])
+        expect(() => mod.compactLastSheet([last], 0, partsById, () => [1000, 1000], 2, payload))
+            .toThrow()
     })
 })

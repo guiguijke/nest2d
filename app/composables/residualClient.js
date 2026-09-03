@@ -25,7 +25,6 @@ import {
     rotatedBbox,
     ringDist,
     smallLattice,
-    LATTICE_SIMPLIFY_MM,
 } from './structureClient'
 // Cycle ESM sûr avec localBridge (qui importe fillResidualBands) : les
 // deux modules ne s'utilisent qu'À L'EXÉCUTION de fonctions, jamais à
@@ -52,6 +51,147 @@ function partRotations(part, payload) {
 function placedRing(part, rot, tx, ty) {
     return rotateRing(itemCoords(part), Number(rot) || 0)
         .map(([x, y]) => [x + tx, y + ty])
+}
+
+// ---------------------------------------------------------------------------
+// A1/D5 (audit 2026-09-03) : miroir de residual._pair_violates — à space 0
+// (et dès que space ≤ marge de simplify) `dist < lim` planché ne rejette
+// plus rien. Politique §8.1 : contact PERMIS, chevauchement d'aire REJETÉ.
+// Sans shapely, un chevauchement d'aire > 0 se détecte par : croisement
+// PROPRE d'arêtes, recouvrement COLINÉAIRE (poses dupliquées), ou sommet
+// strictement intérieur (containment). Le contact légal (jumeaux pinwheel
+// à distance 0) ne croise rien et ne plonge aucun sommet.
+// ---------------------------------------------------------------------------
+const OVERLAP_EPS_MM2 = 0.01
+const STRICT_INSIDE_MM = 0.01
+
+function segPointDistLocal(px, py, ax, ay, bx, by) {
+    const dx = bx - ax
+    const dy = by - ay
+    const l2 = dx * dx + dy * dy
+    if (l2 === 0) return Math.hypot(px - ax, py - ay)
+    let t = ((px - ax) * dx + (py - ay) * dy) / l2
+    t = Math.max(0, Math.min(1, t))
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+}
+
+function pointInRingLocal(pt, ring) {
+    let inside = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i]
+        const [xj, yj] = ring[j]
+        if ((yi > pt[1]) !== (yj > pt[1])
+            && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) {
+            inside = !inside
+        }
+    }
+    return inside
+}
+
+function vertexStrictlyInside(ring, other) {
+    for (const [x, y] of ring) {
+        if (!pointInRingLocal([x, y], other)) continue
+        let dmin = Infinity
+        for (let i = 0; i < other.length; i++) {
+            const [ax, ay] = other[i]
+            const [bx, by] = other[(i + 1) % other.length]
+            dmin = Math.min(dmin, segPointDistLocal(x, y, ax, ay, bx, by))
+        }
+        if (dmin > STRICT_INSIDE_MM) return true
+    }
+    return false
+}
+
+/** Vrai chevauchement d'aire entre deux anneaux (frontières qui se
+ * croisent proprement, se recouvrent en colinéaire, ou sommet plongé). */
+export function ringsOverlap(ringA, ringB) {
+    const orient = (px, py, qx, qy, rx, ry) =>
+        (qx - px) * (ry - py) - (qy - py) * (rx - px)
+    const n1 = ringA.length
+    const n2 = ringB.length
+    for (let i = 0; i < n1; i++) {
+        const ax = ringA[i][0]; const ay = ringA[i][1]
+        const bx = ringA[(i + 1) % n1][0]; const by = ringA[(i + 1) % n1][1]
+        for (let j = 0; j < n2; j++) {
+            const cx = ringB[j][0]; const cy = ringB[j][1]
+            const dx = ringB[(j + 1) % n2][0]; const dy = ringB[(j + 1) % n2][1]
+            const o1 = orient(ax, ay, bx, by, cx, cy)
+            const o2 = orient(ax, ay, bx, by, dx, dy)
+            const o3 = orient(cx, cy, dx, dy, ax, ay)
+            const o4 = orient(cx, cy, dx, dy, bx, by)
+            // Croisement propre : les deux segments se coupent en leur
+            // intérieur (strictement) → aire d'intersection > 0.
+            if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0))
+                && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) return true
+        }
+    }
+    // Poses dupliquées / recouvrements bord-à-bord / containment : aucun
+    // croisement STRICT d'arêtes, mais des points INTÉRIEURS de l'un sont
+    // strictement dans l'autre. On échantillonne centroïde + sommets +
+    // MILIEUX d'arêtes : deux carrés décalés de 50 mm n'ont aucun sommet
+    // strictement intérieur (les sommets sont SUR le bord de l'autre) mais
+    // le milieu de l'arête plongée, si. Un contact légal ne plonge rien
+    // (ses points tombent SUR la frontière, jamais dedans).
+    return samplePoints(ringA).some((pt) => pointStrictlyInside(pt, ringB))
+        || samplePoints(ringB).some((pt) => pointStrictlyInside(pt, ringA))
+}
+
+/** Centroïde + sommets + milieux d'arêtes (points stables d'un anneau). */
+function samplePoints(ring) {
+    const pts = [ringCentroidLocal(ring)]
+    for (let i = 0; i < ring.length; i++) {
+        pts.push(ring[i])
+        const [x1, y1] = ring[i]
+        const [x2, y2] = ring[(i + 1) % ring.length]
+        pts.push([(x1 + x2) / 2, (y1 + y2) / 2])
+    }
+    return pts
+}
+
+function ringCentroidLocal(ring) {
+    // centroïde d'AIRE (miroir shapely) — la moyenne des sommets diffère
+    // près d'un bord de trou (D11).
+    let a = 0; let cx = 0; let cy = 0
+    const n = ring.length
+    for (let i = 0; i < n; i++) {
+        const [x1, y1] = ring[i]
+        const [x2, y2] = ring[(i + 1) % n]
+        const f = x1 * y2 - x2 * y1
+        a += f
+        cx += (x1 + x2) * f
+        cy += (y1 + y2) * f
+    }
+    if (a === 0) {
+        let sx = 0; let sy = 0
+        for (const [x, y] of ring) { sx += x; sy += y }
+        return ring.length ? [sx / ring.length, sy / ring.length] : [0, 0]
+    }
+    a *= 0.5
+    return [cx / (6 * a), cy / (6 * a)]
+}
+
+function pointStrictlyInside(pt, ring) {
+    if (!pointInRingLocal(pt, ring)) return false
+    let dmin = Infinity
+    for (let i = 0; i < ring.length; i++) {
+        const [ax, ay] = ring[i]
+        const [bx, by] = ring[(i + 1) % ring.length]
+        dmin = Math.min(dmin, segPointDistLocal(pt[0], pt[1], ax, ay, bx, by))
+    }
+    return dmin > STRICT_INSIDE_MM
+}
+
+/** Miroir de residual._pair_violates : d > 0 → rejet si d < space − ε
+ * (planché ; les anneaux du payload JS sont DÉJÀ simplifiés à la
+ * construction — même géométrie que le simplify Python, la double marge
+ * 2×SIMPLIFY avalait space tout entier à space 0,1, D5) ; d == 0 → rejet
+ * seulement si vrai chevauchement d'aire (contact permis, §8.1). */
+export function pairViolates(ringA, ringB, space) {
+    const d = ringDist(ringA, ringB)
+    if (d > 0) {
+        return d < Math.max(space - EPS, 1e-9)
+    }
+    return ringsOverlap(ringA, ringB)
 }
 
 export function layoutAabb(layout, partsById) {
@@ -191,16 +331,13 @@ function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
         const [tx, ty] = t.translation || [0, 0]
         all.push({ pi, ring: placedRing(part, t.rotation, tx, ty) })
     }
-    // Marge 2×SIMPLIFY_MM : le moteur garantit l'espacement sur les
-    // anneaux SIMPLIFIÉS — en ring brut les layouts préexistants tombent
-    // ~0,005 mm sous space (miroir du simplify Python). PLANCHER > 0 :
-    // à space 0,1 (corpus user) la formule donne un seuil NÉGATIF et la
-    // comparaison `dist < lim` n'a alors PLUS JAMAIS rejeté rien — les
-    // itérations de poches empilaient des poses dupliquées à distance 0
-    // (constat user 2026-09-02 soir : « ça overlappe », 477 paires à 0 au
-    // test de régression). Un chevauchement réel mesure 0 : il doit
-    // toujours être rejeté, même à space fin.
-    const lim = Math.max(1e-9, space - 2 * LATTICE_SIMPLIFY_MM - EPS)
+    // D5/A1 (audit 2026-09-03) : le seuil vit dans pairViolates — à
+    // space ≤ marge de simplify l'ancien `dist < lim` planché ne rejetait
+    // plus rien ; désormais d == 0 rejette les VRAIS chevauchements
+    // (croisement/colinéarité/containment) et PERMET le contact (§8.1).
+    // Les nouvelles entre elles sont jugées aussi (elles sont peu
+    // nombreuses — linéaire suffit).
+    const newRings = []
     for (const pi of newPis) {
         const part = partsById.get(String(pi.item_id))
         const t = pi.transformation || {}
@@ -218,8 +355,12 @@ function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
         }
         for (const { pi: other, ring: otherRing } of all) {
             if (other === pi) continue
-            if (ringDist(ring, otherRing) < lim) return false
+            if (pairViolates(ring, otherRing, space)) return false
         }
+        for (const otherRing of newRings) {
+            if (pairViolates(ring, otherRing, space)) return false
+        }
+        newRings.push(ring)
     }
     return true
 }
@@ -264,38 +405,56 @@ export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space,
             const db = (tb[0] - cx) ** 2 + (tb[1] - cy) ** 2
             return db - da
         })
-        // Audit 2026-09-02 F2b : batch invalide ré-essayé en tailles
-        // décroissantes (take>>1 … 1) — une pose fautive ne tue plus la
-        // bande. take décroît strictement : terminaison garantie.
-        let take = Math.min(lat.length, donors.length)
-        while (take >= 1) {
-            const batch = order.slice(0, take).map((pi, k) => [pi, lat[k]])
-            const saved = batch.map(([pi]) => ({ pi, tr: { ...pi.transformation } }))
-            // wasInSrc : false en compaction (donneuses détachées,
-            // src == dst) — le rollback ne les réinsère pas au layout
-            // (miroir exact du Python, _remove_by_identity).
-            const wasInSrc = []
-            for (const [pi, lp] of batch) {
-                pi.transformation = {
-                    rotation: lp.transformation.rotation,
-                    translation: [...lp.transformation.translation],
-                }
-                const si = src.placed_items.indexOf(pi) // identité (===)
-                wasInSrc.push(si >= 0)
-                if (si >= 0) src.placed_items.splice(si, 1)
-                dst.placed_items.push(pi)
-            }
-            if (validateBatch(batch.map(([pi]) => pi), dst, partsById, sw, sh, space)) {
-                return take
-            }
-            saved.forEach(({ pi, tr }, k) => {
-                const di = dst.placed_items.indexOf(pi)
-                if (di >= 0) dst.placed_items.splice(di, 1)
-                pi.transformation = tr
-                if (wasInSrc[k]) src.placed_items.push(pi)
-            })
-            take = Math.floor(take / 2)
+        // A7 (audit 2026-09-03) : plus de retry take>>1 — il rejouait les
+        // MÊMES premières poses (lat[0] fautive = bande perdue). Chaque
+        // pose est validée individuellement contre l'occupancy de dst
+        // (préexistant, en cross-sheet les donneuses n'y sont jamais) ;
+        // les poses commitées s'ajoutent au fil de l'eau (nouvelles-vs-
+        // nouvelles, piège #51). Une pose fautive n'en coûte qu'elle-même.
+        const occupancy = []
+        for (const pi of dst.placed_items || []) {
+            const part2 = partsById.get(String(pi.item_id))
+            if (!part2) continue
+            const t2 = pi.transformation || {}
+            const [tx2, ty2] = t2.translation || [0, 0]
+            occupancy.push(placedRing(part2, t2.rotation, tx2, ty2))
         }
+        const newRings = []
+        let committed = 0
+        for (let k = 0; k < Math.min(order.length, lat.length); k++) {
+            const pi = order[k]
+            const lp = lat[k].transformation
+            const [ltx, lty] = lp.translation || [0, 0]
+            const ring = placedRing(part, lp.rotation, ltx, lty)
+            let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
+            for (const [x, y] of ring) {
+                if (x < minx) minx = x
+                if (y < miny) miny = y
+                if (x > maxx) maxx = x
+                if (y > maxy) maxy = y
+            }
+            if (minx < -EPS || miny < -EPS || maxx > sw + EPS || maxy > sh + EPS) {
+                continue
+            }
+            if (occupancy.some((otherRing) => pairViolates(ring, otherRing, space))) {
+                continue
+            }
+            if (newRings.some((otherRing) => pairViolates(ring, otherRing, space))) {
+                continue
+            }
+            pi.transformation = {
+                rotation: lp.rotation,
+                translation: [...(lp.translation || [0, 0])],
+            }
+            if (src !== dst) {
+                const si = src.placed_items.indexOf(pi) // identité (===)
+                if (si >= 0) src.placed_items.splice(si, 1)
+            }
+            dst.placed_items.push(pi)
+            newRings.push(ring)
+            committed++
+        }
+        if (committed) return committed
     }
     return 0
 }
@@ -428,9 +587,12 @@ export function regridHelices(layout, units, partsById, sw, sh, space, payload) 
                 tx: t.translation[0], ty: t.translation[1],
             }
         })
+        // D14 (audit 2026-09-03) : clé de colonne par TOLÉRANCE 1e-6 — un
+        // round au millième peut séparer deux x quasi égaux selon le bruit
+        // flottant (miroir Python _col_key).
         const cols = new Map()
         poseBb.forEach((p, k) => {
-            const key = Math.round(p.tx * 1000) / 1000
+            const key = Math.round((p.tx + 1e-9) * 1e6) / 1e6
             if (!cols.has(key)) cols.set(key, [])
             cols.get(key).push(k)
         })
@@ -442,12 +604,20 @@ export function regridHelices(layout, units, partsById, sw, sh, space, payload) 
             const x1 = Math.max(...idxs.map((k) => poseBb[k].tx + poseBb[k].bb[2]))
             const top = Math.max(...idxs.map((k) => poseBb[k].ty + poseBb[k].bb[3]))
             let othersMaxx = 0
+            // P1 (audit 2026-09-03) : poche CLIPPÉE au sommet des colonnes
+            // PLEINES — l'ancienne poche montait jusqu'au bord de tôle :
+            // remplie, l'AABB atteignait y≈990 et la bande haute au-dessus
+            // des colonnes pleines dégénérait (~10 mm, jamais remplie).
+            let fullTop = 0
             for (const [key, ks] of cols) {
                 if (key === lastKey) continue
                 othersMaxx = Math.max(othersMaxx,
                     ...ks.map((k) => poseBb[k].tx + poseBb[k].bb[2]))
+                fullTop = Math.max(fullTop,
+                    ...ks.map((k) => poseBb[k].ty + poseBb[k].bb[3]))
             }
-            const pocket = [Math.max(x0, othersMaxx + space), top + space, x1, sh - space]
+            const pocket = [Math.max(x0, othersMaxx + space), top + space, x1,
+                Math.min(sh - space, fullTop)]
             if (pocket[2] - pocket[0] > EPS && pocket[3] - pocket[1] > EPS) {
                 freeRects.push(pocket)
             }
@@ -463,12 +633,17 @@ export function regridHelices(layout, units, partsById, sw, sh, space, payload) 
             const old = u.host.transformation
             const dr = (Number(lp.rotation) || 0) - (Number(old.rotation) || 0)
             const rad = (dr * Math.PI) / 180
-            const [ox, oy] = old.translation
-            const [nx, ny] = lp.translation
+            const [ox, oy] = old.translation || [0, 0]
+            const [nx, ny] = lp.translation || [0, 0]
+            // D16 (audit 2026-09-03) : moved ne compte que les
+            // transformations RÉELLEMENT modifiées (au 2e appel, moved
+            // valait 505 sans rien bouger).
+            const hostChanged = Math.abs(dr) > 1e-9
+                || Math.abs(nx - ox) > 1e-9 || Math.abs(ny - oy) > 1e-9
             u.host.transformation = { rotation: lp.rotation, translation: [nx, ny] }
             for (const f of u.fans) {
                 const ft = f.transformation
-                const [fx, fy] = ft.translation
+                const [fx, fy] = ft.translation || [0, 0]
                 const dx = fx - ox
                 const dy = fy - oy
                 f.transformation = {
@@ -476,10 +651,11 @@ export function regridHelices(layout, units, partsById, sw, sh, space, payload) 
                     translation: [nx + Math.cos(rad) * dx - Math.sin(rad) * dy,
                                   ny + Math.sin(rad) * dx + Math.cos(rad) * dy],
                 }
+                if (hostChanged) moved++
             }
             const bb = rotatedBbox(bbox(itemCoords(part)), Number(lp.rotation) || 0)
             clsMaxX = Math.max(clsMaxX, nx + bb[2])
-            moved += 1 + u.fans.length
+            if (hostChanged) moved++
         })
         xFrom = clsMaxX + space
     }
@@ -496,36 +672,46 @@ export function regridHelices(layout, units, partsById, sw, sh, space, payload) 
  * Tout-ou-rien : des libres non replacées qui ne rentrent plus à leur
  * pose d'origine restaurent l'état d'avant (no-op).
  */
-function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space, payload) {
+// D6 (audit 2026-09-03) : sentinelle — le catch de compaction ne doit
+// avaler QUE le rollback délibéré, JAMAIS une TypeError (c'est ainsi que
+// le bug `const moved` est resté invisible).
+export const COMPACT_ROLLBACK = Symbol('compact-rollback')
+
+// A2/A6 (audit 2026-09-03, bloquant) : snapshot complet AVANT le re-grid
+// — l'ancien était pris APRÈS, un rollback restaurait les hôtes
+// re-grillés SUR les libres d'origine. Sur échec : restauration COMPLÈTE,
+// moved = 0, stats.compactRollback = true. Jamais moved > 0 après
+// rollback.
+export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space, payload, stats = null) {
     const last = layouts[sheetI]
     const [sw, sh] = sheetDimsOf(last)
     const { units, free } = helixUnitsAndFree(last, partsById)
     if (!units.length && !free.length) return 0
-    // Phase 1 : hélices re-grillées en colonnes depuis le bord gauche
-    // (transformation rigide des fans nichées) — les poches des colonnes
-    // partielles sont retournées pour la phase 2.
-    let { moved, freeRects } = regridHelices(last, units, partsById, sw, sh, space, payload)
-    if (!free.length) return moved
-    const freeSet = new Set(free)
-    const hasAnchor = (last.placed_items || []).some((pi) => !freeSet.has(pi))
-    if (!hasAnchor) return moved
-    // Audit 2026-09-02 F1/F2 : les libres remplissent d'abord les POCHES
-    // des colonnes partielles PUIS les bandes classiques. (Soir, « trou
-    // haut-gauche ») GRAVITÉ −X : poches et bandes consommées par x0
-    // croissant, recalculées après chaque batch — l'ancien tri par aire
-    // envoyait tout dans la bande droite et laissait la bande haute
-    // au-dessus de la grille d'hélices vide (miroir exact du Python).
-    const pocketBands = freeRects
-        .map((r, i) => ({ name: `pocket${i}`, rect: r, axis: 'x' }))
-        .sort((a, b) => (a.rect[0] - b.rect[0]) || a.name.localeCompare(b.name))
-    let pocketsLeft = pocketBands.length > 0
-    let bands = pocketsLeft ? pocketBands : null
-    // Phase 2 : libres détachées puis re-posées en lattice derrière la
-    // grille des hélices (bandes autour de l'ancre = AABB des non-libres).
-    const fansSnapshot = JSON.parse(JSON.stringify(last.placed_items || []))
-    const savedPoses = new Map(free.map((pi) => [pi, { ...pi.transformation }]))
-    const placedHas = (pi) => (last.placed_items || []).some((x) => x === pi)
+    const fullSnapshot = JSON.parse(JSON.stringify(last.placed_items || []))
     try {
+        // Phase 1 : hélices re-grillées en colonnes depuis le bord gauche
+        // (transformation rigide des fans nichées) — les poches des colonnes
+        // partielles sont retournées pour la phase 2.
+        let { moved, freeRects } = regridHelices(last, units, partsById, sw, sh, space, payload)
+        if (!free.length) return moved
+        const freeSet = new Set(free)
+        const hasAnchor = (last.placed_items || []).some((pi) => !freeSet.has(pi))
+        if (!hasAnchor) return moved
+        // Audit 2026-09-02 F1/F2 : les libres remplissent d'abord les POCHES
+        // des colonnes partielles PUIS les bandes classiques. (Soir, « trou
+        // haut-gauche ») GRAVITÉ −X : poches et bandes consommées par x0
+        // croissant, recalculées après chaque batch — l'ancien tri par aire
+        // envoyait tout dans la bande droite et laissait la bande haute
+        // au-dessus de la grille d'hélices vide (miroir exact du Python).
+        const pocketBands = freeRects
+            .map((r, i) => ({ name: `pocket${i}`, rect: r, axis: 'x' }))
+            .sort((a, b) => (a.rect[0] - b.rect[0]) || a.name.localeCompare(b.name))
+        let pocketsLeft = pocketBands.length > 0
+        let bands = pocketsLeft ? pocketBands : null
+        // Phase 2 : libres détachées puis re-posées en lattice derrière la
+        // grille des hélices (bandes autour de l'ancre = AABB des non-libres).
+        const savedPoses = new Map(free.map((pi) => [pi, { ...pi.transformation }]))
+        const placedHas = (pi) => (last.placed_items || []).some((x) => x === pi)
         last.placed_items = (last.placed_items || []).filter((pi) => !freeSet.has(pi))
         while (true) {
             const remaining = free.filter((pi) => !placedHas(pi))
@@ -561,18 +747,26 @@ function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space, payloa
             ;(last.placed_items || (last.placed_items = [])).push(pi)
         }
         if (restore.length && !validateBatch(restore, last, partsById, sw, sh, space)) {
-            throw new Error('compact rollback')
+            throw COMPACT_ROLLBACK
         }
         return moved
     } catch (e) {
-        // Rollback des LIBRES uniquement : la grille des hélices reste
-        // (validée par smallLattice indépendamment).
-        last.placed_items = fansSnapshot
-        return moved
+        if (e !== COMPACT_ROLLBACK) throw e
+        // A2 : restauration COMPLÈTE de la tôle (hôtes + libres à leur
+        // pose d'origine) — l'ancien rollback ne remettait que la liste
+        // post-re-grid : les hôtes re-grillés recouvraient les libres
+        // d'origine. moved = 0 : ce pass n'a rien produit.
+        last.placed_items = JSON.parse(JSON.stringify(fullSnapshot))
+        if (stats) stats.compactRollback = true
+        return 0
     }
 }
 
-export function fillResidualBands(parts, layouts, space, payload) {
+export function fillResidualBands(parts, layouts, space, payload, stats = null) {
+    // A5 (audit 2026-09-03) : `stats` (additif) reçoit residualMoved /
+    // residualRounds / compactRollback / errors — le post-pass ne peut
+    // plus échouer SILENCIEUSEMENT (miroir fill_residual_bands Python).
+    if (!stats) stats = {}
     if (!layouts || layouts.length < 2) return 0
     const partsById = new Map(parts.map((p) => [String(p.id), p]))
     for (const l of layouts) {
@@ -586,6 +780,7 @@ export function fillResidualBands(parts, layouts, space, payload) {
     try {
         let moved = 0
         for (let round = 0; round < N_ITER; round++) {
+            stats.residualRounds = round + 1
             const ratios = layouts.map((l) => fillRatio(l, partsById, sheetDimsOf))
             let last = 0
             for (let i = 1; i < layouts.length; i++) {
@@ -624,14 +819,19 @@ export function fillResidualBands(parts, layouts, space, payload) {
             for (let i = 1; i < layouts.length; i++) {
                 if (ratios2[i] <= ratios2[last2]) last2 = i
             }
-            moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload)
+            moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload, stats)
         }
+        stats.residualMoved = moved
         return moved
     } catch (e) {
-        // Filet : alternative intacte (contrat applyHoleFill).
+        // Filet : alternative intacte (contrat applyHoleFill) — mais plus
+        // en silence (A5) : erreur tracée + compteur.
         layouts.length = 0
         layouts.push(...JSON.parse(JSON.stringify(snapshot)))
-        console.warn('residual-band pass failed, layouts restored', e)
+        stats.residualMoved = 0
+        if (!Array.isArray(stats.errors)) stats.errors = []
+        stats.errors.push({ stage: 'residual', message: String(e && e.message || e) })
+        console.error('residual-band pass failed, layouts restored', e)
         return 0
     }
 }
