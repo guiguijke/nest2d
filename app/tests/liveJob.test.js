@@ -78,8 +78,18 @@ describe('frameIsBetter — ordre de qualité du champion', () => {
     })
 
     it('BPP : à tôles égales le remnant fait le progrès du plateau (verrou R-6)', () => {
-        expect(frameIsBetter(bpp({ remnant: 400 }), bpp())).toBe(true)
-        expect(frameIsBetter(bpp({ remnant: 600 }), bpp())).toBe(false)
+        // D1 (audit 2026-09-03) : le moteur MAXIMISE le remnant (chute
+        // plus propre) — 0,6 bat 0,4 (le sens inversé vivait la frame la
+        // moins compacte).
+        expect(frameIsBetter(bpp({ remnant: 0.6 }), bpp({ remnant: 0.4 }))).toBe(true)
+        expect(frameIsBetter(bpp({ remnant: 0.4 }), bpp({ remnant: 0.6 }))).toBe(false)
+    })
+
+    it('D2 : une frame sans remnant (reveal/finale post-passée) bat le champion live à tôles égales', () => {
+        expect(frameIsBetter(bpp({ stage: 'reveal' }), bpp({ remnant: 0.9 }))).toBe(true)
+        expect(frameIsBetter(bpp({ stage: 'final' }), bpp({ remnant: 0.9 }))).toBe(true)
+        // … mais pas à tôles suppérieures (le bins reste le critère n° 1).
+        expect(frameIsBetter(bpp({ stage: 'reveal', bins: 3 }), bpp({ bins: 2, remnant: 0.1 }))).toBe(false)
     })
 
     it('égalité parfaite : BPP accepte la frame fraîche, SPP garde l\'incumbent', () => {

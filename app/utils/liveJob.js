@@ -77,8 +77,16 @@ export function frameIsBetter(a, b) {
     if (ab !== bb) return ab < bb
     // BPP : à nombre de tôles égal, le « remnant » (marge résiduelle du
     // recuit) est LE critère qui progresse pendant le plateau.
+    // D1 (audit 2026-09-03) : le moteur maximise le remnant (Cost.cmp_key
+    // le NÉGATIF : plus grand = chute plus propre) — le sens était
+    // inversé ici, verrouillé par un test faux : la vue vivait la frame
+    // la MOINS compacte. Et une frame sans remnant (reveal/final
+    // post-passée, D2) vaut Infinity : elle bat tout champion live à
+    // tôles égales — avant, elle perdait TOUJOURS et le panneau vivait
+    // une frame moteur brute dentelée pendant que le modal montrait le
+    // résultat post-passé.
     const ar = a.remnant ?? Infinity, br = b.remnant ?? Infinity
-    if (ar !== br) return ar < br
+    if (ar !== br) return ar > br
     const ah = a.used_height ?? Infinity, bh = b.used_height ?? Infinity
     if (ah !== bh) return ah < bh
     if ((a.density || 0) > (b.density || 0) + 1e-9) return true
