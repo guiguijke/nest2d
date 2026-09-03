@@ -48,6 +48,9 @@ struct WorkerRun {
 /// INTERNE et décale toute pièce non centrée à l'origine. La frame doit être
 /// sérialisée dans la convention EXTERNE (source), comme `emit_layout` SPP
 /// (progress.rs) et l'export final (`export_layout_snapshot`).
+/// C11 : intervalle minimal entre deux frames live BPP par worker.
+const LIVE_THROTTLE: Duration = Duration::from_millis(500);
+
 fn layout_event(
     w: usize,
     cost: &sa::Cost,
@@ -81,10 +84,14 @@ fn layout_event(
         }
     }
     items.push(']');
+    // C12 (audit 2026-09-03) : `bins` = NOMBRE de tôles (l'ancien champ
+    // portait bin_cost, coût 10/tôle — l'UI affichait un « nombre » faux
+    // dès que le coût par tôle ≠ 1) ; le coût part dans bin_cost.
     format!(
-        "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"remnant\":{:.4},\"elapsed_ms\":{},\"items\":{},\"bias\":\"{}\"}}",
+        "{{\"type\":\"layout\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"bin_cost\":{},\"unplaced\":{},\"remnant\":{:.4},\"elapsed_ms\":{},\"items\":{},\"bias\":\"{}\"}}",
         w,
         cost.unplaced == 0,
+        solution.layout_snapshots.len(),
         cost.bin_cost,
         cost.unplaced,
         cost.remnant,
@@ -134,6 +141,20 @@ pub fn run_bpp_mem(
         let seed = derive_seed(config.prng_seed, w);
         let bias = biases[w % biases.len()];
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+        // C11 (audit 2026-09-03) : throttle 500 ms des frames live BPP
+        // (miroir du SPP) — chaque amélioration émettait ~30 Ko sans
+        // limite, la descente initiale en produit des dizaines par seconde.
+        let last_live = std::cell::Cell::new(Instant::now() - LIVE_THROTTLE);
+        let throttled_layout = |cost: &sa::Cost, solution: &jagua_rs::probs::bpp::entities::BPSolution| {
+            if !live {
+                return;
+            }
+            let now = Instant::now();
+            if now.duration_since(last_live.get()) >= LIVE_THROTTLE {
+                last_live.set(now);
+                sink(&layout_event(w, cost, solution, instance, &started, bias));
+            }
+        };
         let report = sa::anneal(
             instance,
             N_SAMPLES_PER_ITEM,
@@ -145,23 +166,23 @@ pub fn run_bpp_mem(
             &mut rng,
                 |cost, solution| {
                     sink(&format!(
-                        "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"unplaced\":{},\"elapsed_sec\":{},\"bias\":\"{}\"}}",
+                        "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"bin_cost\":{},\"unplaced\":{},\"elapsed_sec\":{},\"bias\":\"{}\"}}",
                         w,
                         cost.unplaced == 0,
+                        solution.layout_snapshots.len(),
                         cost.bin_cost,
                         cost.unplaced,
                         started.elapsed().as_secs(),
                         bias.as_str()
                     ));
-                    if live {
-                        sink(&layout_event(w, cost, solution, instance, &started, bias));
-                    }
+                    throttled_layout(cost, solution);
                 },
                 |iterations, cost, solution| {
                     sink(&format!(
-                        "{{\"type\":\"heartbeat\",\"worker\":{},\"stage\":\"bpp-search\",\"iterations\":{},\"bins\":{},\"unplaced\":{},\"elapsed_sec\":{}}}",
+                        "{{\"type\":\"heartbeat\",\"worker\":{},\"stage\":\"bpp-search\",\"iterations\":{},\"bins\":{},\"bin_cost\":{},\"unplaced\":{},\"elapsed_sec\":{}}}",
                         w,
                         iterations,
+                        solution.layout_snapshots.len(),
                         cost.bin_cost,
                         cost.unplaced,
                         started.elapsed().as_secs()
@@ -170,9 +191,7 @@ pub fn run_bpp_mem(
                     // les ameliorations deviennent rares apres la descente
                     // initiale — le heartbeat (1 Hz) embarque le snapshot de
                     // l'incumbent pour que la vue vive comme en SPP.
-                    if live {
-                        sink(&layout_event(w, cost, solution, instance, &started, bias));
-                    }
+                    throttled_layout(cost, solution);
                 },
             );
             WorkerRun {
@@ -278,6 +297,59 @@ mod live_frame_tests {
     /// placements exportés de la meilleure alternative — rotation degrés à
     /// 0,01° et translation à 0,001 mm (arrondis d'impression de la frame).
     #[test]
+    /// T1 (plan §2.4) : identité des bins cohérente live ↔ coût ↔ export —
+    /// les indexes de tôle dans les frames live sont exactement ceux des
+    /// layouts exportés, et `bins` (C12) = NOMBRE de tôles.
+    #[test]
+    fn bpp_bin_index_stable_live_cost_export() {
+        let layouts: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
+        let sink_capture = layouts.clone();
+        let sink: EventSink = std::sync::Arc::new(move |s: &str| {
+            if s.contains("\"type\":\"layout\"") {
+                sink_capture.lock().unwrap().push(s.to_string());
+            }
+        });
+        let config: EngineConfig = serde_json::from_value(serde_json::json!({
+            "time_budget_sec": 1,
+            "prng_seed": 42,
+            "n_workers": 1,
+            "live_events": true,
+            "biases": ["left"],
+        }))
+        .unwrap();
+
+        let out = run_bpp_mem(off_center_bp_instance(), &config, &sink)
+            .expect("small instance must solve");
+
+        let guard = layouts.lock().unwrap();
+        let last: serde_json::Value =
+            serde_json::from_str(guard.last().unwrap()).unwrap();
+        let live_bins: std::collections::BTreeSet<u64> = last["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|it| it[1].as_u64().unwrap())
+            .collect();
+        let live_bins_field = last["bins"].as_u64().unwrap();
+        drop(guard);
+
+        let sol = &out.alternatives[0]["solution"];
+        let n_exported = sol["layouts"].as_array().unwrap().len() as u64;
+        assert_eq!(
+            live_bins.len() as u64, n_exported,
+            "indexes de tôle live == layouts exportés"
+        );
+        assert_eq!(
+            *live_bins.iter().max().unwrap() + 1,
+            n_exported,
+            "indexes consécutifs 0..n-1 (identité d'ouverture)"
+        );
+        assert_eq!(
+            live_bins_field, n_exported,
+            "C12 : champ bins = NOMBRE de tôles (pas le coût)"
+        );
+    }
+
     fn bpp_live_frame_matches_final_export_off_center() {
         let layouts: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
         let sink_capture = layouts.clone();

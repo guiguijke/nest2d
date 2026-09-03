@@ -416,3 +416,38 @@ describe('garde 2xspace via buildLocalPayload (T1/T2 e2e)', () => {
         expect(payload.instance.items[0].demand).toBe(50)
     })
 })
+
+
+describe('C13 : formats count:0 filtrés, containerMapBack (audit 2026-09-03)', () => {
+    it('une tôle vide au milieu ne casse pas les ids consécutifs', async () => {
+        const { buildLocalPayload } = await import('../composables/localPayloadBuilder')
+        const files = [{ slug: 'a', name: 'a', count: 1, parts: [{ coords: [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]], holes: [] }] }]
+        const out = await buildLocalPayload({
+            files,
+            params: {
+                sheets: [
+                    { width: 1000, height: 1000, count: 0 },
+                    { width: 500, height: 500, count: 2 },
+                    { width: 800, height: 600, count: 1 },
+                ],
+                space: 1,
+                timeBudgetSec: 5,
+            },
+        })
+        const bins = out.payload.instance.bins
+        expect(bins).toHaveLength(2)
+        expect(bins.map((b) => b.id)).toEqual([0, 1])
+        expect(out.payload.instance.containerMapBack).toEqual([[0, 1], [1, 2]])
+        // Sans filtrage : pas de clé containerMapBack (parité exacte du
+        // payload — le test J-090 compare l'objet entier).
+        const out2 = await buildLocalPayload({
+            files,
+            params: {
+                sheets: [{ width: 500, height: 500, count: 2 }],
+                space: 1,
+                timeBudgetSec: 5,
+            },
+        })
+        expect(out2.payload.instance.containerMapBack).toBeUndefined()
+    })
+})

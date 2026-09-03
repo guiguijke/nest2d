@@ -149,13 +149,31 @@ pub fn initial_sequence(instance: &BPInstance) -> Vec<usize> {
 }
 
 /// Picks the SA starting sequence: the warm-start if it is complete (one
-/// entry per demanded item), otherwise the decreasing-diameter default.
+/// entry per demanded item) and VALID (C10 : ids dans les bornes ET
+/// multiplicités exactes — un id hors plage panic dans le rayon de
+/// `instance.item()` et avorte le worker SANS JSON), otherwise the
+/// decreasing-diameter default.
 pub(crate) fn pick_initial_sequence(
     instance: &BPInstance,
     warm: Option<Vec<usize>>,
 ) -> Vec<usize> {
-    warm.filter(|s| s.len() == instance.total_item_qty())
+    warm.filter(|s| warm_matches_demand(instance, s))
         .unwrap_or_else(|| initial_sequence(instance))
+}
+
+/// C10 : le warm-start doit être une PERMUTATION exacte de la demande.
+fn warm_matches_demand(instance: &BPInstance, seq: &[usize]) -> bool {
+    if seq.len() != instance.total_item_qty() {
+        return false;
+    }
+    let mut counts = vec![0usize; instance.items.len()];
+    for &id in seq {
+        if id >= counts.len() {
+            return false;
+        }
+        counts[id] += 1;
+    }
+    (0..instance.items.len()).all(|id| counts[id] == instance.item_qty(id))
 }
 
 pub struct SaReport {
@@ -388,6 +406,40 @@ impl Move {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T9 (plan §2.4, C10) : un warm-start invalide (id hors plage,
+    /// mauvaises multiplicités) est IGNORÉ, pas crashé.
+    #[test]
+    fn invalid_warm_start_falls_back_to_default() {
+        use jagua_rs::io::import::Importer;
+        use jagua_rs::probs::bpp::io::ext_repr::ExtBPInstance;
+        use jagua_rs::probs::bpp::io::import_instance;
+        let json = serde_json::json!({
+            "name": "warm",
+            "items": [{"id": 0, "demand": 4,
+                       "allowed_orientations": [0.0],
+                       "shape": {"type": "simple_polygon", "data": [[0,0],[10,0],[10,10],[0,10],[0,0]]}}],
+            "bins": [{"id": 0, "cost": 1, "stock": 1,
+                      "shape": {"type": "polygon", "data": {"outer": [[0,0],[100,0],[100,100],[0,100],[0,0]]}}}]
+        });
+        let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            None,
+            Some((0.01, 0.01)),
+        );
+        let instance = import_instance(&importer, &ext).unwrap();
+        // id hors plage : ignoré (pas de panic).
+        let out_of_range = pick_initial_sequence(&instance, Some(vec![0, 0, 0, 7]));
+        assert_eq!(out_of_range, vec![0, 0, 0, 0]);
+        // mauvaises multiplicités : ignoré.
+        let wrong_counts = pick_initial_sequence(&instance, Some(vec![0, 0, 0]));
+        assert_eq!(wrong_counts, vec![0, 0, 0, 0]);
+        // valide : conservé.
+        let ok = pick_initial_sequence(&instance, Some(vec![0, 0, 0, 0]));
+        assert_eq!(ok, vec![0, 0, 0, 0]);
+    }
 
     /// T4 (plan §2.3, C3) : sur une séquence à forte multiplicité (le
     /// corpus user : 999 fans + 100 trous), chaque move doit CHANGER la

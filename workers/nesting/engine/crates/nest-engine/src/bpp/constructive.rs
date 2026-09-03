@@ -333,22 +333,35 @@ pub fn construct(
         }
         let mut best = growth0.or(first_fit);
 
-        // No open layout admitted the item: open a fresh bin (in id order).
+        // No open layout admitted the item: open a fresh bin.
+        // C5 (audit 2026-09-03) : évaluer TOUS les types en stock et
+        // prendre le min (coût, perte) — l'ancienne ouverture prenait le
+        // PREMIER type où l'item tient (ordre de déclaration) : coût et
+        // adéquation ignorés, et le SA ne peut pas corriger une ouverture.
         if best.is_none() {
+            let mut best_bin: Option<((u64, f32), BPPlacement)> = None;
             for (bin_id, qty) in problem.bin_stock_qtys.iter().enumerate() {
                 if *qty == 0 {
                     continue;
                 }
-                let layout = Layout::new(problem.instance.container(bin_id).clone());
-                if let Some((d_transf, _loss)) = search_layout(&layout, item, bias, rng) {
-                    best = Some(BPPlacement {
-                        layout_id: BPLayoutType::Closed { bin_id },
-                        item_id,
-                        d_transf,
-                    });
-                    break;
+                let bin_cost = problem.instance.bins[bin_id].cost;
+                let container = problem.instance.container(bin_id).clone();
+                let layout = Layout::new(container);
+                if let Some((d_transf, loss)) = search_layout(&layout, item, bias, rng) {
+                    let key = (bin_cost, loss);
+                    if best_bin.as_ref().is_none_or(|(k, _)| key < *k) {
+                        best_bin = Some((
+                            key,
+                            BPPlacement {
+                                layout_id: BPLayoutType::Closed { bin_id },
+                                item_id,
+                                d_transf,
+                            },
+                        ));
+                    }
                 }
             }
+            best = best_bin.map(|(_, p)| p);
         }
 
         match best {
@@ -888,6 +901,113 @@ mod scale_tests {
         assert_eq!(
             DirBias::LeftFirst.marginal_extent(&y_push, &used_full, 1000.0, 1000.0),
             0.0
+        );
+    }
+
+    /// T12 (plan §2.4) : verrou PERMANENT f32 — la distance physique entre
+    /// pièces posées doit rester ≥ space − ε (le moteur garantit la
+    /// séparation par construction ; ce verrou l'attrape si une
+    /// régression de l'inflation la rompt). Carrés axis-alignés : la
+    /// distance exacte se calcule sur les centres.
+    #[test]
+    fn physical_min_distance_ge_space() {
+        let json = serde_json::json!({
+            "name": "phys",
+            "items": [{
+                "id": 0, "demand": 16,
+                "allowed_orientations": [0.0],
+                "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,100],[0,100],[0,0]]}
+            }],
+            "bins": [{
+                "id": 0, "cost": 1, "stock": 1,
+                "shape": {"type": "polygon", "data": {"outer": [[0,0],[500,0],[500,500],[0,500],[0,0]]}}
+            }]
+        });
+        let space = 0.5_f32;
+        let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
+        // L'ordre des args Importer::new : (cde, simplification tol,
+        // MIN_ITEM_SEPARATION, concavity cutoff) — piège #2 : cutoff None.
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            Some(space),
+            None,
+        );
+        let instance = import_instance(&importer, &ext).unwrap();
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(5);
+        let seq = sa::initial_sequence(&instance);
+        let result = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut rng);
+        assert_eq!(result.unplaced, 0);
+        let ls = result.solution.layout_snapshots.values().next().unwrap();
+        let centers: Vec<(f32, f32)> = ls
+            .placed_items
+            .values()
+            .map(|pi| {
+                let c = pi.shape.bbox;
+                (((c.x_min + c.x_max) * 0.5), ((c.y_min + c.y_max) * 0.5))
+            })
+            .collect();
+        let mut min_dist = f32::INFINITY;
+        for i in 0..centers.len() {
+            for j in (i + 1)..centers.len() {
+                let gx = (centers[i].0 - centers[j].0).abs() - 100.0;
+                let gy = (centers[i].1 - centers[j].1).abs() - 100.0;
+                let d = (gx.max(0.0).powi(2) + gy.max(0.0).powi(2)).sqrt();
+                if gx < 0.0 && gy < 0.0 {
+                    panic!("chevauchement franc de carrés axis-alignés {i}-{j}");
+                }
+                min_dist = min_dist.min(d);
+            }
+        }
+        assert!(
+            min_dist >= space - 1e-3,
+            "min-dist {min_dist} < space {space}"
+        );
+    }
+
+    /// T6 (plan §2.4, C5) : à deux formats en stock, l'ouverture choisit
+    /// le type de MOINDRE COÛT qui admet l'item — pas le premier déclaré.
+    #[test]
+    fn bin_opening_prefers_cheapest_admitting_type() {
+        let json = serde_json::json!({
+            "name": "two-formats",
+            "items": [{
+                "id": 0, "demand": 3,
+                "allowed_orientations": [0.0],
+                "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,100],[0,100],[0,0]]}
+            }],
+            "bins": [
+                {"id": 0, "cost": 10, "stock": 1,
+                 "shape": {"type": "polygon", "data": {"outer": [[0,0],[1000,0],[1000,1000],[0,1000],[0,0]]}}},
+                {"id": 1, "cost": 2, "stock": 1,
+                 "shape": {"type": "polygon", "data": {"outer": [[0,0],[400,0],[400,400],[0,400],[0,0]]}}}
+            ]
+        });
+        let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            None,
+            Some((0.01, 0.01)),
+        );
+        let instance = import_instance(&importer, &ext).unwrap();
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(3);
+        let seq = sa::initial_sequence(&instance);
+        let result = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut rng);
+        assert_eq!(result.unplaced, 0);
+        // La solution vit sur la tôle 400×400 (coût 2), pas la 1000×1000
+        // (coût 10, déclarée en premier).
+        let used_bins: Vec<_> = result
+            .solution
+            .layout_snapshots
+            .values()
+            .map(|ls| (ls.container.outer_cd.bbox.width(), ls.container.outer_cd.bbox.height()))
+            .collect();
+        assert_eq!(used_bins.len(), 1);
+        assert!(
+            (used_bins[0].0 - 400.0).abs() < 1.0 && (used_bins[0].1 - 400.0).abs() < 1.0,
+            "C5 : la tôle 400×400 (coût 2) doit être choisie — eu {:?}",
+            used_bins[0]
         );
     }
 

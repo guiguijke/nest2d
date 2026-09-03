@@ -682,10 +682,21 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         instance = { name, items: jaguarItems, strip_height: sheets[0].height }
         maxStripWidth = sheets[0].width
     } else {
+        // C13 (audit 2026-09-03) : jagua exige des ids CONSECUTIFS —
+        // une tôle `count: 0` au milieu cassait l'import. Formats vides
+        // filtrés ; containerMapBack (UNIQUEMENT si filtrage, parité exacte
+        // du payload sinon) retraduit les container_id moteur vers les ids
+        // de formats d'origine (miroir main.py).
+        const nonEmpty = sheets
+            .map((s, i) => ({ ...s, formatId: i }))
+            .filter((s) => (Number(s.count) || 0) > 0)
         instance = {
             name,
             items: jaguarItems,
-            bins: sheets.map((s, i) => buildBin(i, s.count, s.width, s.height)),
+            bins: nonEmpty.map((s, i) => buildBin(i, s.count, s.width, s.height)),
+        }
+        if (nonEmpty.length !== sheets.length) {
+            instance.containerMapBack = nonEmpty.map((s, eid) => [eid, s.formatId])
         }
         maxStripWidth = undefined
     }

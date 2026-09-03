@@ -450,12 +450,26 @@ def _nesting_process_impl(doc):
 
     bin_dims = {}
     bins = []
+    # C13 (audit 2026-09-03) : jagua exige des ids CONSECUTIFS — une tôle
+    # `count: 0` au milieu de la liste cassait l'import (« consecutive
+    # IDs », opaque). Les formats vides sont FILTRÉS ; container_map_back
+    # retraduit les container_id moteur vers les ids de formats d'origine
+    # (bin_dims reste indexé par l'id FORMAT, utilisé par le post-pass).
+    container_map_back = {}
     for bin_id, sheet in enumerate(sheets):
         sheet_width = float(sheet.get("width"))
         sheet_height = float(sheet.get("height"))
         sheet_stock = int(sheet.get("count"))
         bin_dims[bin_id] = (sheet_width, sheet_height)
-        bins.append(build_bin(bin_id, sheet_stock, sheet_width, sheet_height))
+        if sheet_stock <= 0:
+            continue
+        container_map_back[len(bins)] = bin_id
+        bins.append(build_bin(len(bins), sheet_stock, sheet_width, sheet_height))
+    # bin_dims_engine : clés = ids MOTEUR (0..len(bins)-1), valeurs = dims
+    # du format d'origine — le map-back des container_id (identité quand
+    # aucun format n'est filtré).
+    bin_dims_engine = {
+        eid: bin_dims[fid] for eid, fid in container_map_back.items()}
 
     # Time budget (wall-clock cap) and number of alternatives are set
     # server-side at enqueue time based on the owner's tier
@@ -1410,7 +1424,7 @@ def _nesting_process_impl(doc):
                  "residualRounds": 0, "compactRollback": False, "errors": []},
             )
             n = fill_residual_bands(sol.get("layouts") or [], input_items,
-                                    bin_dims, space,
+                                    bin_dims_engine, space,
                                     stats=engine_alt["postPass"])
             if n:
                 logger.info("residual-band pass moved parts", extra={"n": n})
@@ -1470,7 +1484,10 @@ def _nesting_process_impl(doc):
             "feasible": True,
             "strip_width": engine_alt.get("metrics", {}).get("strip_width"),
             "density": engine_alt.get("metrics", {}).get("density"),
-            "bins": engine_alt.get("metrics", {}).get("cost"),
+            # C12 : bins = NOMBRE de tôles (l'ancien champ portait le
+            # coût — fausse « quantité » dès que le coût/tôle ≠ 1).
+            "bins": len(solution.get("layouts") or []),
+            "binCost": engine_alt.get("metrics", {}).get("cost"),
             "elapsed_ms": int((_time.monotonic() - _job_started) * 1000),
             "sheets": [[float(s.get("width")), float(s.get("height"))] for s in sheets],
             "isSpp": is_spp,
@@ -1502,7 +1519,7 @@ def _nesting_process_impl(doc):
         # mesurée invalide pour inspection.
         allow_invalid_alts = os.environ.get("NEST_ALLOW_INVALID_ALTS") == "1"
         result_containers, placed_count, density, cost = parse_result_containers(
-            {"solution": engine_alt["solution"]}, input_items, bin_dims
+            {"solution": engine_alt["solution"]}, input_items, bin_dims_engine
         )
 
         # Part-loss guard: the engine only exports complete placements, but
