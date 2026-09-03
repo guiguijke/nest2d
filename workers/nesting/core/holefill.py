@@ -486,10 +486,16 @@ def _fill_one_sheet_holes(row, by_id, space, deadline):
             e = pool.pop(0)
             e[1], e[2], e[3] = pose["rot"], pose["lx"], pose["ly"]
             e[4] = _placed(e[0], pose["rot"], pose["lx"], pose["ly"])
-            if e in free:
-                free.remove(e)
-                hole_members[hi].append(e)
-                recovered += 1
+            # A11 (audit 2026-09-03) : retrait par IDENTITÉ — list.remove
+            # compare par VALEUR et les jumeaux (fans identiques à poses
+            # égales) retiraient la MAUVAISE entrée, recovered faux (même
+            # famille que _remove_by_identity, audit 2026-09-02).
+            for k in range(len(free)):
+                if free[k] is e:
+                    del free[k]
+                    hole_members[hi].append(e)
+                    recovered += 1
+                    break
 
     for hi, (_, hw) in enumerate(holes):
         if not free:
@@ -542,9 +548,11 @@ def _fill_one_sheet_holes(row, by_id, space, deadline):
         for rot, e, cand in zip(PINWHEEL, pool, new_polys):
             e[1], e[2], e[3] = rot, cx, cy
             e[4] = cand
-            if e in free:
-                free.remove(e)
-                recovered += 1
+            for k in range(len(free)):
+                if free[k] is e:
+                    del free[k]
+                    recovered += 1
+                    break
     return recovered
 
 

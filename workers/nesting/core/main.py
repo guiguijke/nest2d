@@ -1422,6 +1422,16 @@ def _nesting_process_impl(doc):
             sol = engine_alt.get("solution") or {}
             if sol.get("layouts") is not None and "cost" in sol:
                 sol["cost"] = len(sol["layouts"])
+            # A13 (audit 2026-09-03) : le pass résidiel déplace des libres
+            # entre tôles — un trou resté vide sur une tôle SANS libre peut
+            # devenir remplissable maintenant que des libres existent
+            # ailleurs. Deuxième hole-fill, scopé tôle (piège #52).
+            if has_holes:
+                n2 = apply_hole_fill(input_items, sol.get("layouts", []), space)
+                if n2:
+                    logger.info("hole-fill second pass relocated fillers",
+                                extra={"n": n2})
+                engine_alt["postPass"]["holeFillRecovered"] += n2
 
     # Strategy-labelled alternatives — the engine already returns its best
     # distinct layouts, ranked. SPP layouts are inherently max-offcut (used

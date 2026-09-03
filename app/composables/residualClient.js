@@ -23,6 +23,7 @@ import {
     bbox,
     rotateRing,
     rotatedBbox,
+    ringCentroid,
     ringDist,
     smallLattice,
 } from './structureClient'
@@ -284,17 +285,15 @@ function freePis(layout, partsById) {
         }
         return inside
     }
-    const centroid = (ring) => {
-        let x = 0, y = 0
-        for (const [px, py] of ring) { x += px; y += py }
-        return ring.length ? [x / ring.length, y / ring.length] : [0, 0]
-    }
+    // D11 (audit 2026-09-03) : centroïde d'AIRE (ringCentroid) — la
+    // moyenne des sommets diverge du shapely .centroid près d'un bord de
+    // trou et classe différemment libre/nichée (parité serveur).
     return entries
         .filter((e) => {
             if (!e.part || (e.part.holes || []).length) return false
             const ring = rotateRing(itemCoords(e.part), e.rot)
                 .map(([x, y]) => [x + e.tx, y + e.ty])
-            const c = centroid(ring)
+            const c = ringCentroid(ring)
             return !holes.some((h) => pointInRing(c, h))
         })
         .map((e) => e.pi)
@@ -498,11 +497,7 @@ export function helixUnitsAndFree(layout, partsById) {
         }
         return inside
     }
-    const centroid = (ring) => {
-        let x = 0, y = 0
-        for (const [px, py] of ring) { x += px; y += py }
-        return ring.length ? [x / ring.length, y / ring.length] : [0, 0]
-    }
+    // D11 : centroïde d'aire, même classification que freePis/Python.
     const units = []
     const free = []
     const unitOf = new Map()
@@ -518,7 +513,7 @@ export function helixUnitsAndFree(layout, partsById) {
         }
         const ring = rotateRing(itemCoords(e.part), e.rot)
             .map(([x, y]) => [x + e.tx, y + e.ty])
-        const c = centroid(ring)
+        const c = ringCentroid(ring)
         const host = hostHoles.find((h) => pointInRing(c, h.ring))
         if (host) {
             let u = unitOf.get(host.hostPi)

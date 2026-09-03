@@ -17,6 +17,7 @@
  * en string pour les maps JS (l'instance les porte en nombre).
  */
 import { geoExportSvgSheet, geoComputeReport, geoExportDxfSheet } from './geometryClient'
+import { ringCentroid } from './structureClient'
 
 const degToRad = (deg) => (deg * Math.PI) / 180
 
@@ -86,11 +87,9 @@ const _placedPoly = (coords, rotDeg, tx, ty) => {
     const r = (rotDeg * Math.PI) / 180; const c = Math.cos(r); const s = Math.sin(r)
     return coords.map(([x, y]) => [c * x - s * y + tx, s * x + c * y + ty])
 }
-const _centroid = (ring) => {
-    let sx = 0; let sy = 0
-    for (const [x, y] of ring) { sx += x; sy += y }
-    return [sx / ring.length, sy / ring.length]
-}
+// D11 (audit 2026-09-03) : centroïde d'AIRE (miroir shapely .centroid) —
+// la moyenne des sommets diverge près d'un bord de trou.
+const _centroid = (ring) => ringCentroid(ring)
 const _ptSeg = (p, a, b) => {
     const abx = b[0] - a[0]; const aby = b[1] - a[1]
     const l2 = abx * abx + aby * aby
@@ -894,6 +893,13 @@ export async function buildAlternativeArtifacts(result, payload) {
                 && ((payload?.problem || 'spp') !== 'spp' || layouts.length >= 2)) {
                 const { fillResidualBands } = await import('./residualClient')
                 fillResidualBands(parts, layouts, space, payload, postPass)
+                // A13 (audit 2026-09-03) : le pass résidiel déplace des
+                // libres entre tôles — un trou resté vide sur une tôle sans
+                // libre peut devenir remplissable. Deuxième hole-fill,
+                // scopé tôle (piège #52). Miroir main.py.
+                if (holesGateOpen(payload, parts)) {
+                    postPass.holeFillRecovered += applyHoleFill(parts, layouts, space) || 0
+                }
             }
             const containers = []
             const sheets = []

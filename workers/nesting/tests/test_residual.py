@@ -712,3 +712,123 @@ class TestD3NonQuarterRotationGuard:
         n = fill_residual_bands(layouts, ITEMS, BIN, 2.0, stats=stats)
         assert not stats["errors"]
         assert n >= 0  # le pass a tourné (no-op éventuel, sans erreur)
+
+
+class TestPipelineTwoSheetsPhysical:
+    """Verrou de régression global (plan phase 1.6) : la CHAÎNE complète
+    expand_meta → apply_hole_fill → fill_residual_bands sur un corpus
+    2 tôles user-like, paramétrée space ∈ {0, 0.1, 1, 2} — 0
+    chevauchement d'aire, 0 pose dupliquée, bornes tôle ±1e-6, compte
+    PAR CLASSE invariant, < 10 s."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    @pytest.mark.parametrize("space", [0.0, 0.1, 1.0, 2.0])
+    def test_pipeline_physical_all_spacings(self, space):
+        import time as _time
+        from shapely.geometry import Polygon
+        from core.holefill import apply_hole_fill, expand_meta, meta_slots
+
+        # Trou Ø70 en 64-gon (test_holefill) : le 16-gon HOLE_RING coupe
+        # les cordes à r=34,3 et le pinwheel du secteur ne valide plus.
+        hole64 = [(35.0 * math.cos(2 * math.pi * i / 64),
+                   35.0 * math.sin(2 * math.pi * i / 64)) for i in range(64)]
+        hole64.append(hole64[0])
+        host = {"id": 0,
+                "coords": [[-50.0, -50.0], [-50.0, 50.0], [50.0, 50.0],
+                           [50.0, -50.0], [-50.0, -50.0]],
+                "holes": [hole64], "count": 8, "rotations": QUARTERS}
+        # Fan = SECTEUR r=28 (arc 5°..85°) : capacité pinwheel 4 dans un
+        # trou Ø70 (la FAN 40×28, elle, ne s'y niche pas — capacité 0).
+        a0, a1 = math.radians(5.0), math.radians(85.0)
+        sector = [(2.83, 2.83)]
+        for k in range(9):
+            a = a0 + (a1 - a0) * (k / 8.0)
+            sector.append((28.0 * math.cos(a), 28.0 * math.sin(a)))
+        sector.append((2.83, 2.83))
+        # 8 hôtes posés × 4 secteurs nichés + 20 posés en instance réduite.
+        fan = {"id": 1, "coords": sector, "holes": [], "count": 52,
+               "rotations": QUARTERS}
+        items = [host, fan]
+        slots, _remaining = meta_slots(items, 0, 1)
+
+        # Tôle 1 : 8 hôtes en grille légale (2 colonnes de 4, pas 102) ;
+        # instance réduite : 1 hôte + 1 fan posés (le solve réduit).
+        layouts = [
+            {"container_id": 0, "placed_items": [
+                {"item_id": 0, "transformation": {
+                    "rotation": 0.0, "translation": (52.0 + 102 * (k % 2),
+                                                     52.0 + 102 * (k // 2))}}
+                for k in range(8)]},
+            {"container_id": 0, "placed_items": [
+                {"item_id": 1, "transformation": {
+                    "rotation": 0.0, "translation": (600.0, 52.0 + 42 * k)}}
+                for k in range(20)]},
+        ]
+        t0 = _time.perf_counter()
+        # expand_meta RETOURNE de nouveaux layouts (pas de mutation).
+        layouts[:] = expand_meta(items, 0, 1, slots, layouts)
+        apply_hole_fill(items, layouts, space)
+        stats = {}
+        fill_residual_bands(layouts, items, BIN, space, stats=stats)
+        elapsed = _time.perf_counter() - t0
+        assert elapsed < 10.0
+
+        # Compte PAR CLASSE invariant (garde A4) : demandé = posé avant
+        # le pipeline (l'expansion meta rattachait 4 secteurs par hôte).
+        from core.metrics import per_class_counts_match
+        from collections import namedtuple
+        _T = namedtuple("_T", ["item_id"])
+        _C = namedtuple("_C", ["transforms"])
+        assert per_class_counts_match(
+            [_C([_T(p["item_id"]) for l in layouts
+                 for p in l["placed_items"]])], {0: 8, 1: 52})
+
+        seen = set()
+        for l in layouts:
+            for p in l["placed_items"]:
+                t = p["transformation"]
+                key = (p["item_id"], round(float(t["rotation"]), 6),
+                       round(float(t["translation"][0]), 6),
+                       round(float(t["translation"][1]), 6))
+                assert key not in seen, f"pose dupliquée {key}"
+                seen.add(key)
+                # Bornes tôle ±1e-6 sur la bbox BRUTE (A15).
+                it = {0: host, 1: fan}[p["item_id"]]
+                from core.structure import _bbox, _rotated_bbox
+                bb = _rotated_bbox(_bbox(it["coords"]),
+                                   float(t["rotation"]))
+                tx, ty = t["translation"]
+                assert tx + bb[0] >= -1e-6 and ty + bb[1] >= -1e-6
+                assert tx + bb[2] <= 1000.0 + 1e-6
+                assert ty + bb[3] <= 1000.0 + 1e-6
+
+        # 0 chevauchement d'AIRE (> 0,01 mm²) sur TOUTES les paires, tous
+        # espacements (le contact est permis à space 0, l'AIRE ne doit
+        # jamais être positive).
+        polys = []
+        for l in layouts:
+            for p in l["placed_items"]:
+                it = {0: host, 1: fan}[p["item_id"]]
+                t = p["transformation"]
+                r = math.radians(float(t["rotation"]))
+                c, si = math.cos(r), math.sin(r)
+
+                def tf(ring):
+                    return [(t["translation"][0] + c * x - si * y,
+                             t["translation"][1] + si * x + c * y)
+                            for x, y in ring]
+                # Piège #4 : anneau externe MOINS les trous — et le trou
+                # doit être transformé en monde COMME l'externe (un trou
+                # local ne soustrait rien du shell monde).
+                polys.append(Polygon(tf(it["coords"]),
+                                     [tf(h) for h in it.get("holes") or []]))
+        from shapely.strtree import STRtree
+        tree = STRtree(polys)
+        for i, a in enumerate(polys):
+            for j in tree.query(a.buffer(1.0)):
+                j = int(j)
+                if j <= i:
+                    continue
+                inter = a.intersection(polys[j])
+                assert inter.area <= 0.01, \
+                    f"space={space} paire {i}-{j} : {inter.area} mm²"

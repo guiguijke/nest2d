@@ -52,7 +52,7 @@ export const LATTICE_DY_RATIO = -0.378
 export const LATTICE_SIMPLIFY_MM = 0.05
 
 /** Centroïde d'aire (shoelace) — repli moyenne des sommets si dégénéré. */
-function ringCentroid(coords) {
+export function ringCentroid(coords) {
     let a = 0; let cx = 0; let cy = 0
     const n = coords.length
     for (let i = 0; i < n; i++) {

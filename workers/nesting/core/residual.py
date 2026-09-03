@@ -293,7 +293,10 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
     à faire sur cette tôle). `free` surcharge la liste des donneuses
     (compaction : donneuses détachées, src == dst). `bands` surcharge les
     zones à remplir (compaction : poches internes du re-grid AVANT les
-    bandes classiques — audit 2026-09-02 F1).
+    bandes classiques — audit 2026-09-02 F1). NB (A8, audit 2026-09-03) :
+    dès que `bands` est fourni, min_poses = 1 (la compaction EST toujours
+    en mode zones explicites) — le seuil 2 ne vaut QUE pour les bandes
+    classiques.
 
     A7 (audit 2026-09-03) : plus de retry `take //= 2` — il rejouait les
     MÊMES premières poses (lat[0] fautive = bande perdue). L'occupancy de
