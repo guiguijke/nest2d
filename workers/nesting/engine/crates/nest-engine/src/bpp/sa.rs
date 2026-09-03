@@ -9,6 +9,7 @@ use jagua_rs::entities::Instance;
 use jagua_rs::entities::LayoutSnapshot;
 use jagua_rs::probs::bpp::entities::{BPInstance, BPSolution};
 use rand::{Rng, RngExt};
+use rand::rngs::Xoshiro256PlusPlus;
 use jagua_rs::Instant;
 use std::time::Duration;
 
@@ -19,11 +20,14 @@ use std::time::Duration;
 pub struct Cost {
     pub unplaced: usize,
     pub bin_cost: u64,
-    /// Mean remnant score over used bins, as a fraction of one bin's area
-    /// in [0, 1]: biggest free rectangle or L-shape per sheet. Higher = a
-    /// cleaner, more reusable offcut.
+    /// C4 (audit 2026-09-03) : remnant score MAXIMAL des tôles utilisées,
+    /// fraction de l'aire d'une tôle en [0, 1] : plus grand rectangle ou L
+    /// libre. Plus grand = chute plus propre ET CONCENTRÉE — la moyenne
+    /// d'antan était neutre à la concentration (une chute propre répartie
+    /// en bandes inguérables valait une chute pleine tôle).
     pub remnant: f64,
-    /// Falkenauer fitness in (0, 1]: higher = more uneven fill = better.
+    /// C4 : Σ fill² sur les tôles (Falkenauer) — plus grand = remplissage
+    /// plus inégal = mieux.
     pub falkenauer: f64,
 }
 
@@ -101,6 +105,8 @@ fn layout_remnant(ls: &LayoutSnapshot) -> f64 {
 
 pub fn cost_of(solution: &BPSolution, instance: &BPInstance, unplaced: usize) -> Cost {
     let n_layouts = solution.layout_snapshots.len().max(1) as f64;
+    let _ = n_layouts;
+    // C4 : Σ fill² (somme, pas moyenne) et remnant MAX (pas moyenne).
     let falkenauer = solution
         .layout_snapshots
         .values()
@@ -108,14 +114,12 @@ pub fn cost_of(solution: &BPSolution, instance: &BPInstance, unplaced: usize) ->
             let fill = ls.placed_item_area(instance) / ls.container.area();
             (fill * fill) as f64
         })
-        .sum::<f64>()
-        / n_layouts;
+        .sum::<f64>();
     let remnant = solution
         .layout_snapshots
         .values()
         .map(layout_remnant)
-        .sum::<f64>()
-        / n_layouts;
+        .fold(0.0_f64, f64::max);
     Cost {
         unplaced,
         bin_cost: solution.cost(instance),
@@ -191,8 +195,18 @@ pub fn anneal(
 
     let mut seq = pick_initial_sequence(instance, initial_seq);
 
+    // C3 (audit 2026-09-03) : rng d'évaluation DÉRIVÉ de (graine du walk,
+    // hash de la séquence) — le constructif stochastique re-évaluait la
+    // MÊME séquence avec un autre tirage à chaque visite (multi-start
+    // bruité) : le SA comparait du bruit, pas des séquences. Désormais une
+    // séquence donnée produit toujours la même évaluation dans le walk.
+    let base_seed = rng.next_u64();
+    let eval_rng = |seq: &[usize]| -> Xoshiro256PlusPlus {
+        rand::SeedableRng::seed_from_u64(seq_hash(seq) ^ base_seed)
+    };
+
     // Evaluate the initial sequence.
-    let initial = construct(instance, &seq, n_samples, bias, rng);
+    let initial = construct(instance, &seq, n_samples, bias, &mut eval_rng(&seq));
     let mut current_cost = cost_of(&initial.solution, instance, initial.unplaced);
 
     // Incumbent: the actual best solution ever seen (stored, never rebuilt —
@@ -206,10 +220,12 @@ pub fn anneal(
     // Δcost is in "bin-equivalents" (10 per bin), so T0 ~ a few bins.
     const T0: f64 = 5.0;
     const T_END: f64 = 0.01;
-    // Never plateau-stop before this many iterations: on big instances each
-    // iteration is a full constructive pass (~100ms+), so early iterations
-    // are too sparse to judge convergence.
-    const MIN_ITERS_BEFORE_PLATEAU: usize = 200;
+    // C7 (audit 2026-09-03) : plateau calibré en TEMPS — l'ancien plancher
+    // MIN_ITERS_BEFORE_PLATEAU = 200 × ~210 ms/it = 42 s incompressibles sur
+    // le corpus user, non calibré à n. Minimum de recherche avant arrêt :
+    // max(3 s, 20 × durée moyenne d'itération), borné à mi-budget.
+    const PLATEAU_MIN_SEARCH_SEC: f64 = 3.0;
+    const PLATEAU_MIN_ITERS_FACTOR: f64 = 20.0;
 
     let n = seq.len();
     let mut iterations = 0usize;
@@ -226,41 +242,24 @@ pub fn anneal(
 
         // Plateau stop: no incumbent improvement for `patience`.
         if let Some(patience) = plateau_patience {
-            if iterations >= MIN_ITERS_BEFORE_PLATEAU
+            let avg_iter = started.elapsed().as_secs_f64() / (iterations.max(1) as f64);
+            let min_search = PLATEAU_MIN_SEARCH_SEC
+                .max(PLATEAU_MIN_ITERS_FACTOR * avg_iter)
+                .min(deadline.as_secs_f64() * 0.5);
+            if started.elapsed().as_secs_f64() >= min_search
                 && last_improvement.elapsed() >= patience
             {
                 break;
             }
         }
 
-        // Pick and apply a move.
-        let mov = match rng.random_range(0..4) {
-            // swap two positions
-            0 | 1 => {
-                let a = rng.random_range(0..n);
-                let b = rng.random_range(0..n);
-                seq.swap(a, b);
-                Move::Swap(a, b)
-            }
-            // move one element to another position
-            2 => {
-                let from = rng.random_range(0..n);
-                let to = rng.random_range(0..n);
-                let v = seq.remove(from);
-                seq.insert(to, v);
-                Move::Insert(from, to)
-            }
-            // reverse a segment
-            _ => {
-                let a = rng.random_range(0..n);
-                let b = rng.random_range(0..n);
-                let (lo, hi) = (a.min(b), a.max(b));
-                seq[lo..=hi].reverse();
-                Move::Reverse(lo, hi)
-            }
+        // Pick and apply a move (C3 : type-aware — aucun move entre ids
+        // identiques, ~73 % des moves du corpus user étaient des no-ops).
+        let Some(mov) = apply_move(&mut seq, rng) else {
+            continue; // séquence à classe unique : rien à explorer
         };
 
-        let candidate = construct(instance, &seq, n_samples, bias, rng);
+        let candidate = construct(instance, &seq, n_samples, bias, &mut eval_rng(&seq));
         let candidate_cost = cost_of(&candidate.solution, instance, candidate.unplaced);
 
         let elapsed_frac = match max_iterations {
@@ -300,6 +299,72 @@ pub fn anneal(
     }
 }
 
+/// Hash FNV-1a de la séquence (positions prises en compte).
+fn seq_hash(seq: &[usize]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for (i, &v) in seq.iter().enumerate() {
+        h ^= (v as u64).wrapping_mul(0x100000001b3);
+        h ^= (i as u64).wrapping_mul(0x9E3779B97F4A7C15);
+        h = h.rotate_left(13).wrapping_mul(0xff51afd7ed558ccd);
+    }
+    h
+}
+
+/// C3 : un move qui n'échange que des ids IDENTIQUES est un no-op (le
+/// constructif place les items d'une classe de façon interchangeable) —
+/// sur le corpus user, ~73 % des moves étaient perdus. Chaque move
+/// ré-échantillonne sa cible jusqu'à tomber sur un id différent ; None
+/// si la séquence n'a qu'une classe (rien à explorer).
+fn apply_move(seq: &mut Vec<usize>, rng: &mut impl Rng) -> Option<Move> {
+    let n = seq.len();
+    if n < 2 {
+        return None;
+    }
+    fn redraw_until_diff(
+        seq: &[usize],
+        n: usize,
+        rng: &mut impl Rng,
+        a: usize,
+    ) -> Option<usize> {
+        for _ in 0..n.max(4) {
+            let b = rng.random_range(0..n);
+            if seq[b] != seq[a] {
+                return Some(b);
+            }
+        }
+        // dernier recours : scan déterministe d'un id différent
+        (0..n).find(|&b| seq[b] != seq[a])
+    }
+    match rng.random_range(0..4) {
+        // swap two positions of DIFFERENT ids
+        0 | 1 => {
+            let a = rng.random_range(0..n);
+            let b = redraw_until_diff(&seq, n, rng, a)?;
+            seq.swap(a, b);
+            Some(Move::Swap(a, b))
+        }
+        // move one element to a position of a different id (moving inside
+        // a run of identical values is a no-op)
+        2 => {
+            let from = rng.random_range(0..n);
+            let to = redraw_until_diff(&seq, n, rng, from)?;
+            let v = seq.remove(from);
+            let to = to.min(seq.len()); // le remove décale les indices
+            seq.insert(to, v);
+            Some(Move::Insert(from, to))
+        }
+        // reverse a segment whose endpoints differ (a constant segment
+        // reverses to itself)
+        _ => {
+            let a = rng.random_range(0..n);
+            let b = redraw_until_diff(&seq, n, rng, a)?;
+            let (lo, hi) = (a.min(b), a.max(b));
+            seq[lo..=hi].reverse();
+            Some(Move::Reverse(lo, hi))
+        }
+    }
+}
+
 enum Move {
     Swap(usize, usize),
     Insert(usize, usize),
@@ -323,6 +388,121 @@ impl Move {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T4 (plan §2.3, C3) : sur une séquence à forte multiplicité (le
+    /// corpus user : 999 fans + 100 trous), chaque move doit CHANGER la
+    /// séquence — l'ancien tirage uniforme produisait ~73 % de no-ops
+    /// (swap/insert/reverse entre items interchangeables).
+    #[test]
+    fn sa_moves_change_sequence() {
+        use rand::SeedableRng;
+        use rand::rngs::Xoshiro256PlusPlus;
+        let mut seq: Vec<usize> = Vec::new();
+        for _ in 0..999 {
+            seq.push(1);
+        }
+        for _ in 0..100 {
+            seq.push(0);
+        }
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(42);
+        let mut changed = 0usize;
+        let mut applied = 0usize;
+        for _ in 0..2000 {
+            let before = seq.clone();
+            if apply_move(&mut seq, &mut rng).is_some() {
+                applied += 1;
+                if seq != before {
+                    changed += 1;
+                }
+            }
+        }
+        assert!(applied > 1500, "des moves doivent s'appliquer ({applied})");
+        let ratio = changed as f64 / applied as f64;
+        assert!(
+            ratio >= 0.95,
+            "≥ 95 % des moves doivent changer la séquence — {ratio:.3}"
+        );
+    }
+
+    /// C3 : le rng d'évaluation dérivé de (base, hash(seq)) rend le
+    /// constructif DÉTERMINISTE par séquence — deux évaluations de la
+    /// même séquence donnent la même solution.
+    #[test]
+    fn construct_is_deterministic_per_sequence() {
+        use crate::bpp::constructive::{construct, DirBias};
+        use jagua_rs::io::import::Importer;
+        use jagua_rs::probs::bpp::io::ext_repr::ExtBPInstance;
+        use jagua_rs::probs::bpp::io::import_instance;
+        use rand::SeedableRng;
+        use rand::rngs::Xoshiro256PlusPlus;
+        let json = serde_json::json!({
+            "name": "det",
+            "items": [
+                {"id": 0, "demand": 6,
+                 "allowed_orientations": [0.0, 90.0],
+                 "shape": {"type": "simple_polygon", "data": [[0,0],[50,0],[50,50],[0,50],[0,0]]}},
+                {"id": 1, "demand": 20,
+                 "allowed_orientations": [0.0, 90.0, 180.0, 270.0],
+                 "shape": {"type": "simple_polygon", "data": [[0,0],[20,0],[20,14],[0,14],[0,0]]}}
+            ],
+            "bins": [{
+                "id": 0, "cost": 1, "stock": 2,
+                "shape": {"type": "polygon", "data": {"outer": [[0,0],[300,0],[300,300],[0,300],[0,0]]}}
+            }]
+        });
+        let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            None,
+            Some((0.01, 0.01)),
+        );
+        let instance = import_instance(&importer, &ext).unwrap();
+        let seq: Vec<usize> = std::iter::repeat(0).take(6)
+            .chain(std::iter::repeat(1).take(20)).collect();
+        let base = 0xdeadbeefu64;
+        let mut r1 = Xoshiro256PlusPlus::seed_from_u64(seq_hash(&seq) ^ base);
+        let mut r2 = Xoshiro256PlusPlus::seed_from_u64(seq_hash(&seq) ^ base);
+        let a = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut r1);
+        let b = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut r2);
+        let poses = |r: &crate::bpp::constructive::ConstructiveResult| -> Vec<(String, usize, f32, f32, f32)> {
+            let mut out = Vec::new();
+            for (k, ls) in r.solution.layout_snapshots.iter() {
+                for pi in ls.placed_items.values() {
+                    out.push((
+                        format!("{k:?}"),
+                        pi.item_id,
+                        pi.d_transf.rotation.into_inner(),
+                        pi.d_transf.translation.0.into_inner(),
+                        pi.d_transf.translation.1.into_inner(),
+                    ));
+                }
+            }
+            out.sort_by(|x, y| x.partial_cmp(y).unwrap());
+            out
+        };
+        assert_eq!(poses(&a), poses(&b), "même séquence = même solution (rng dérivé du hash)");
+    }
+
+    /// T5 (plan §2.3, C4) : à coût de tôles égal, une chute CONCENTRÉE
+    /// (remnant max) bat une chute diluée — l'ancienne moyenne égalisait
+    /// les deux (neutre à la concentration).
+    #[test]
+    fn cost_prefers_concentrated_remnant() {
+        let concentrated = Cost {
+            unplaced: 0,
+            bin_cost: 2,
+            remnant: 0.6,
+            falkenauer: 0.5,
+        };
+        let diluted = Cost {
+            unplaced: 0,
+            bin_cost: 2,
+            remnant: 0.3,
+            falkenauer: 0.5,
+        };
+        assert!(concentrated.cmp_key() < diluted.cmp_key());
+    }
 
     #[test]
     fn cost_is_lexicographic() {
