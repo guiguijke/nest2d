@@ -132,6 +132,9 @@ def test_local_job_is_prepared_not_solved(monkeypatch):
         "id": 0, "file_slug": "f1", "handles": ["A1", "B2"],
         "color": "#123456", "coords": _square(0, 0, 40), "holes": [],
         "count": 4,
+        # D4 (audit 2026-09-03) : rotations par part dans le payload —
+        # le JS ne consulte plus l'instance réduite (ids réindexés).
+        "rotations": [0.0, 90.0, 180.0, 270.0],
     }]
     # Live progress was cleaned for the handoff.
     assert "progress" in jobs.unsets
