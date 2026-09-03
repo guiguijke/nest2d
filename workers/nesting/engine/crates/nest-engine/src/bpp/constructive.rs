@@ -48,6 +48,9 @@ fn rect_area(r: &Rect) -> f32 {
 
 /// Bottom-left weight inside a placement loss (same shape as sparrow's LBF).
 const BL_X: f32 = 10.0;
+/// Tolérance « growth nul » (mm²) pour la décision par tôle (C1) : bruit
+/// flottant des bboxes f32.
+const GROWTH0_EPS: f32 = 1e-3;
 /// Marginal bbox growth (mm^2) dominates the loss: a placement inside a hole
 /// or pocket grows the used bbox by 0 and always beats an edge placement.
 /// This is what fills cutouts instead of sprinkling parts along the edges.
@@ -112,6 +115,22 @@ impl DirBias {
             DirBias::LeftFirst => xr,
             DirBias::BottomFirst => yr,
             DirBias::Balanced => (xr + yr) * 0.5,
+        }
+        .clamp(0.0, 1.0)
+    }
+
+    /// C2 (audit 2026-09-03) : steer sur le Δ d'EXTENT — la version
+    /// absolue (`merged.x_max / bin_w`) pénalisait la tôle pleine (x_max
+    /// 900) jusqu'à 1,8× plus que la tôle fraîche (x_max 80) : sous
+    /// `left`, toute petite pièce migrait vers la dernière tôle. Le steer
+    /// marginal ne pénalise que la POUSSEE du front, pas son niveau.
+    fn marginal_extent(&self, merged: &Rect, used: &Rect, bin_w: f32, bin_h: f32) -> f32 {
+        let dx = if bin_w > 0.0 { (merged.x_max - used.x_max) / bin_w } else { 0.0 };
+        let dy = if bin_h > 0.0 { (merged.y_max - used.y_max) / bin_h } else { 0.0 };
+        match self {
+            DirBias::LeftFirst => dx,
+            DirBias::BottomFirst => dy,
+            DirBias::Balanced => dx.max(dy),
         }
         .clamp(0.0, 1.0)
     }
@@ -182,7 +201,13 @@ impl<'a> SampleEvaluator for HoleFillEvaluator<'a> {
         let corner = b.corners()[0];
         let poi = self.shape_buff.poi.center;
         let bottom_left = BL_X * (poi.0 + corner.0) + (poi.1 + corner.1);
-        let steer = 1.0 + DIR_ALPHA * self.bias.extent_ratio(&merged, self.bin_w, self.bin_h);
+        // C2 : steer MARGINAL — ne pénalise que la poussée du front dans
+        // la direction découragée, pas le niveau déjà atteint.
+        let steer = 1.0
+            + DIR_ALPHA
+                * self
+                    .bias
+                    .marginal_extent(&merged, &self.used_bbox, self.bin_w, self.bin_h);
         SampleEval::Clear {
             loss: growth * GROWTH_WEIGHT * steer + bottom_left,
         }
@@ -191,6 +216,27 @@ impl<'a> SampleEvaluator for HoleFillEvaluator<'a> {
     fn n_evals(&self) -> usize {
         self.n_evals
     }
+}
+
+/// Croissance marginale de l'AABB utilisé pour une pose donnée (mm²) —
+/// sert à la décision PAR TÔLE (C1) : growth nul = pose dans un
+/// trou/poche interne, elle n'étend pas le front.
+fn marginal_growth(layout: &Layout, item: &jagua_rs::entities::Item, dt: &DTransformation) -> f32 {
+    let used = layout
+        .placed_items
+        .values()
+        .map(|pi| pi.shape.bbox)
+        .reduce(|acc, b| merge_rect(&acc, &b))
+        .unwrap_or(Rect {
+            x_min: 0.0,
+            y_min: 0.0,
+            x_max: 0.0,
+            y_max: 0.0,
+        });
+    let mut buff = item.shape_cd.as_ref().clone();
+    let transf: jagua_rs::geometry::Transformation = (*dt).into();
+    buff.transform_from(&item.shape_cd, &transf);
+    (rect_area(&merge_rect(&used, &buff.bbox)) - rect_area(&used)).max(0.0)
 }
 
 /// Picks a "host" reference item in the layout for focussed sampling: the
@@ -253,25 +299,39 @@ pub fn construct(
         let open_layouts: Vec<BPLayoutType> =
             problem.layouts.keys().map(BPLayoutType::Open).collect();
 
-        // Search ALL open layouts, keep the placement with the lowest loss
-        // (most bottom-left). No layout is skipped on a sampling miss, so a
-        // new bin only opens when the item truly fits nowhere.
-        let mut best: Option<(f32, BPPlacement)> = None;
+        // C1 (audit 2026-09-03, cause racine de la migration des petites
+        // pièces vers la dernière tôle) : le best-fit inter-tôles
+        // comparait des pertes ABSOLUES (growth mm² + bottom_left en
+        // coordonnées absolues) — une poche à x=800 de la tôle 1 perdait
+        // contre n'importe quel point à x<80 de la tôle 2. Décision
+        // lexicographique PAR TÔLE, dans l'ordre d'ouverture :
+        //   (1) première tôle offrant une pose à growth == 0 (trou/poche) ;
+        //   (2) sinon première tôle qui admet l'item (first-fit) ;
+        // la perte (growth × steer + bottom_left) ne départage plus que
+        // les poses D'UNE MÊME tôle (search_layout l'a déjà minimisée).
+        let mut growth0: Option<BPPlacement> = None;
+        let mut first_fit: Option<BPPlacement> = None;
         for layout_id in open_layouts {
             let BPLayoutType::Open(lkey) = layout_id else {
                 unreachable!()
             };
             let layout = &problem.layouts[lkey];
-            if let Some((d_transf, loss)) = search_layout(layout, item, bias, rng) {
-                if best.as_ref().is_none_or(|(best_loss, _)| loss < *best_loss) {
-                    best = Some((loss, BPPlacement {
-                        layout_id,
-                        item_id,
-                        d_transf,
-                    }));
+            if let Some((d_transf, _loss)) = search_layout(layout, item, bias, rng) {
+                let placement = BPPlacement {
+                    layout_id,
+                    item_id,
+                    d_transf,
+                };
+                if first_fit.is_none() {
+                    first_fit = Some(placement);
+                }
+                if marginal_growth(layout, item, &d_transf) <= GROWTH0_EPS {
+                    growth0 = Some(placement);
+                    break; // première tôle à growth nul : décision prise
                 }
             }
         }
+        let mut best = growth0.or(first_fit);
 
         // No open layout admitted the item: open a fresh bin (in id order).
         if best.is_none() {
@@ -280,19 +340,19 @@ pub fn construct(
                     continue;
                 }
                 let layout = Layout::new(problem.instance.container(bin_id).clone());
-                if let Some((d_transf, loss)) = search_layout(&layout, item, bias, rng) {
-                    best = Some((loss, BPPlacement {
+                if let Some((d_transf, _loss)) = search_layout(&layout, item, bias, rng) {
+                    best = Some(BPPlacement {
                         layout_id: BPLayoutType::Closed { bin_id },
                         item_id,
                         d_transf,
-                    }));
+                    });
                     break;
                 }
             }
         }
 
         match best {
-            Some((_, placement)) => {
+            Some(placement) => {
                 problem.place_item(placement);
             }
             None => unplaced += 1,
@@ -739,5 +799,95 @@ mod scale_tests {
             }
         }
     }
-}
 
+    /// Instance « cas user » miniature : 81 carrés 100×100 + petits
+    /// rectangles 40×28 (fans), 2 tôles 1000×1000.
+    fn bands_instance(n_fans: usize) -> BPInstance {
+        let json = serde_json::json!({
+            "name": "bands",
+            "items": [
+                {"id": 0, "demand": 81,
+                 "allowed_orientations": [0.0, 90.0],
+                 "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,100],[0,100],[0,0]]}},
+                {"id": 1, "demand": n_fans,
+                 "allowed_orientations": [0.0, 90.0, 180.0, 270.0],
+                 "shape": {"type": "simple_polygon", "data": [[0,0],[40,0],[40,28],[0,28],[0,0]]}}
+            ],
+            "bins": [{
+                "id": 0, "cost": 1, "stock": 2,
+                "shape": {"type": "polygon", "data": {"outer": [[0,0],[1000,0],[1000,1000],[0,1000],[0,0]]}}
+            }]
+        });
+        let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            None,
+            Some((0.01, 0.01)),
+        );
+        import_instance(&importer, &ext).unwrap()
+    }
+
+    /// T2 (plan 2026-09-03 §2.1, C1) : le best-fit inter-tôles sur pertes
+    /// ABSOLUES faisait migrer les petites pièces vers la dernière tôle
+    /// (rejeu payload user : tôle 1 = 81 hôtes + 8 fans SEULEMENT). La
+    /// décision par tôle (growth==0 puis first-fit) doit remplir les
+    /// bandes de la tôle 1 AVANT d'étendre la tôle 2.
+    #[test]
+    fn constructive_fills_first_sheet_bands_before_growing_second() {
+        let instance = bands_instance(400);
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(7);
+        let seq = sa::initial_sequence(&instance);
+        let result = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut rng);
+        assert_eq!(result.unplaced, 0);
+        assert_eq!(result.solution.layout_snapshots.len(), 2);
+        // Tôle 1 (premier layout ouvert) : 81 carrés + ≥ 150 fans.
+        let first = result
+            .solution
+            .layout_snapshots
+            .iter()
+            .min_by_key(|(k, _ls)| *k)
+            .unwrap()
+            .1;
+        let squares = first
+            .placed_items
+            .values()
+            .filter(|pi| pi.item_id == 0)
+            .count();
+        let fans = first
+            .placed_items
+            .values()
+            .filter(|pi| pi.item_id == 1)
+            .count();
+        // 150 au banc réel (audit_bpp_replay) ; le synthétique sans trous
+        // a un peu moins de bande : ≥ 100 prouve C1 (l'ancien best-fit
+        // inter-tôles n'en mettait que ~8).
+        eprintln!("T2: tôle 1 = {squares} carrés + {fans} fans");
+        assert!(squares >= 75, "la quasi-totalité des carrés sur la tôle 1 — eu {squares}");
+        assert!(
+            fans >= 100,
+            "C1 : la tôle 1 doit recevoir ses fans de bande (≥ 100) — eu {fans}"
+        );
+    }
+
+    /// T3 : le steer est MARGINAL (C2) — deux poussées d'extent identiques
+    /// donnent le même ratio quel que soit le niveau ABSOLU du front
+    /// (l'ancien ratio absolu pénalisait 1,8× la tôle pleine sous `left`).
+    #[test]
+    fn dir_bias_steer_is_per_sheet() {
+        let used_full = Rect { x_min: 0.0, y_min: 0.0, x_max: 900.0, y_max: 900.0 };
+        let used_fresh = Rect { x_min: 0.0, y_min: 0.0, x_max: 80.0, y_max: 80.0 };
+        let push_x = Rect { x_min: 0.0, y_min: 0.0, x_max: 910.0, y_max: 900.0 };
+        let push_fresh = Rect { x_min: 0.0, y_min: 0.0, x_max: 90.0, y_max: 80.0 };
+        // Même poussée (+10 mm / 1000) : même steer, niveaux différents.
+        let a = DirBias::LeftFirst.marginal_extent(&push_x, &used_full, 1000.0, 1000.0);
+        let b = DirBias::LeftFirst.marginal_extent(&push_fresh, &used_fresh, 1000.0, 1000.0);
+        assert!((a - b).abs() < 1e-6, "steer marginal : {a} vs {b}");
+        // Aucune poussée en x (LeftFirst) → steer nul, même si y pousse.
+        let y_push = Rect { x_min: 0.0, y_min: 0.0, x_max: 900.0, y_max: 950.0 };
+        assert_eq!(
+            DirBias::LeftFirst.marginal_extent(&y_push, &used_full, 1000.0, 1000.0),
+            0.0
+        );
+    }
+}
