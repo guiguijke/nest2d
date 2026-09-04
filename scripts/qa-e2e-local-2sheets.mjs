@@ -109,8 +109,10 @@ try {
     const w = await dims.nth(0).inputValue()
     const h = await dims.nth(1).inputValue()
     log(`sheet inputs: ${w} x ${h}`)
+    // Hauteur paramétrable (profil infaisable : QA_SHEET_H=2000).
+    const SHEET_H = process.env.QA_SHEET_H || '1000'
     if (String(w) !== '1000') { await dims.nth(0).fill('1000'); await dims.nth(0).blur() }
-    if (String(h) !== '1000') { await dims.nth(1).fill('1000'); await dims.nth(1).blur() }
+    if (String(h) !== SHEET_H) { await dims.nth(1).fill(SHEET_H); await dims.nth(1).blur() }
     const countInput = sheet.locator('> .input__value, > label.input .input__value').first()
     const cnt = await countInput.inputValue()
     log('sheet count:', cnt)
