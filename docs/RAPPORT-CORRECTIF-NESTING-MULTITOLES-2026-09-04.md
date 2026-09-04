@@ -159,6 +159,41 @@ l'identique** ; moteur (left) : holes **200** (pinwheel plein),
 0 doublon, min-dist 0,1000, 0 hors tôle, **VERDICT OK**. Captures dans
 `.qa-pw/e2e-mono-s01/`.
 
+## 3ter. Plan correctif n° 2 (vérification 2 du 04/09) — exécuté, commit 9913913
+
+La seconde vérification (constats W1-W10 + exigence transverse §5 « le
+nesting doit fonctionner pour toute pièce ») est traitée :
+
+| Id | Traitement | Preuve |
+|---|---|---|
+| **W1** | ✅ receveuse : acceptation **count ≥ before ET front ≤ before+0,5** (générique §5.1, Py+JS) | banc 0,1 ×3 : 591/592/588 pièces, chute 608-611 (≥600 3/3 — l'ancienne acceptation front-seul donnait 583-586/580) |
+| **W2** | ✅ donneuse : front de référence = état d'entrée, refus → restauration + `compactRollbackReason:'front'` | banc space 0 : chute 607 (moteur ≈606) — l'ancien code livrait 437 |
+| **W3** | ✅ remplissage + receveuse FUSIONNÉS (candidates = receveuse détachées + DONNEUSE, avant compaction donneuse, validation de retour dédiée). MESURÉ à space 2 : receveuse AABB-pleine après remplissage moteur → lattice (67 %) ne peut pas battre le moteur → **saturation DÉMONTRÉE**, phase 4 confirmée | merged=0 à space 2 avec AABB bord ; 0,1 inchangé 591/608 |
+| **W4** | ✅ containment JS rejeté aussi à space > 0 (`containedOverlap`) ; shapely rejetait déjà (d=0 par intersection) — test corrigé en conséquence | tests Py + JS |
+| **W5** | ✅ T7 discriminant rétabli : 81 carrés 100, tôle 1000², séparation 0,1 → `len == 1` | cargo 71+1 |
+| **W6** | ⚠️ résiduel documenté : 1 039 paires à 0,0990-0,0999 mm côté navigateur (anneaux bruts, dichotomie décimée D9) — spacingOk vrai (≥ space−0,01), serveur à 0,1000 | replay user |
+| **W7** | ✅ 6,9 Mo d'artefacts retirés du git ; .gitignore + exception fixtures `out_user_*.json` (tests vitest) | `git show 9913913` |
+| **W8** | ✅ retry_overshoot : budget 24 s (échec 1/3 sous charge CPU à 16 s) | cargo |
+| **W9** | ✅ `Move::Restart` sans champ ; AGENTS #54 avant #55 | cargo sans warning |
+| **W10** | ✅ avertissement UI « espacement < kerf laser (0,05 mm) » dans MainSettings, i18n FR/EN | capture e2e 01-preflight |
+
+**§5 — corpus de torture** (`bench/seed_corpus.py` + `eval_corpus.py`,
+commité) : 9 cas joués sur l'image HEAD, **9/9 OK** — T-A référence
+(590/310, rb front = invariant actif), T-B 3 classes rectangles (80/80,
+2 tôles), T-C L+U non convexes (60/60), T-D longues et fines 900×40
+(330/330), T-E rotations 30° (460/460, D3 no-op tracé, résiduel 0), T-F
+deux formats (90/90 : 29 sur la petite 1000² + 61 sur la grande 2000×1000
+— coût ∝ surface), T-G quasi-pleine tôle (201/201), T-H classe unique
+200×3 tôles (recuit vivant V2), T-I formes libres ESICUP-shapes (96/96 ;
+repli rectangles si instance non parsée — noté). Aucun cas « pire que le
+moteur » : l'invariant W1/W2/W3 est structurel (compte ET front, sinon
+restauration tracée) et le corpus valide que les gardes tiennent sur des
+géométries hors corpus de référence.
+
+**Parité finale** (fixture régénérée) : moved JS = Python = 509 exact,
+comptes par tôle identiques, AABB ≤ 2 mm, 400/1099 poses divergentes
+(classe D9 documentée).
+
 ## 4. Décisions demandées (§5 du plan correctif)
 
 1. **Phase 4 (SPP à séparateurs)** : recommandée par la vérification « à
