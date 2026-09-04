@@ -1351,6 +1351,26 @@ def _nesting_process_impl(doc):
             logger.warning("structural pass failed, keeping engine result",
                            extra={"error": str(e)})
 
+    # X4 (vérif tour 4) : état BRUT par tôle AVANT tout post-pass — la
+    # mesure « pire que le moteur ? » du corpus compare pre → final.
+    from core.residual import layout_aabb as _pre_layout_aabb
+    _items_by_id = {it["id"]: it for it in input_items}
+    for engine_alt in engine_alternatives:
+        engine_alt.setdefault("postPass", {})
+        layouts_pre = (engine_alt.get("solution") or {}).get("layouts") or []
+        engine_alt["postPass"].setdefault("pre", [
+            {"sheet": i,
+             "count": len(l.get("placed_items") or []),
+             "frontX": (round(_pre_layout_aabb(l, _items_by_id)[2], 1)
+                        if (l.get("placed_items")
+                            and _pre_layout_aabb(l, _items_by_id)) else None)}
+            for i, l in enumerate(layouts_pre)
+        ])
+    # le bloc meta ci-dessous fait engine_alt["postPass"] = {...} qui
+    # ÉCRASERAIT pre — le préserver.
+    for engine_alt in engine_alternatives:
+        engine_alt["_pre_snapshot"] = engine_alt["postPass"].get("pre")
+
     # J-085 / D-MOT-16 : expansion meta — rattache les fillers figés aux
     # hôtes posés par le solve réduit, avant reveal + finalisation.
     if meta:
@@ -1360,6 +1380,7 @@ def _nesting_process_impl(doc):
             engine_alt["postPass"] = {
                 "expandMeta": 0, "holeFillRecovered": 0, "residualMoved": 0,
                 "residualRounds": 0, "compactRollback": False, "errors": [],
+                "pre": engine_alt.get("_pre_snapshot"),
             }
             # Alternative structurelle : ids d'ORIGINE + trous déjà remplis
             # par le pass grille (self_contained). Le remap ci-dessous
@@ -1547,27 +1568,43 @@ def _nesting_process_impl(doc):
                     getattr(c, "container_id", None),
                     getattr(c, "container_id", None))
 
+        # X2 : posé MOTEUR par classe — référence des deux gardes (une
+        # solution partielle sur stock serré n'est pas une « perte »).
+        engine_placed_by_id = {}
+        for l in (engine_alt.get("solution") or {}).get("layouts") or []:
+            for pi in l.get("placed_items", []):
+                engine_placed_by_id[pi["item_id"]] = (
+                    engine_placed_by_id.get(pi["item_id"], 0) + 1)
+        unplaced_count = max(0, total_requested_count
+                             - sum(engine_placed_by_id.values()))
+
         # Part-loss guard: the engine only exports complete placements, but
         # never trust a solver blindly — discard anything short.
         n = sum(len(c.transforms) for c in result_containers)
-        if n != total_requested_count:
+        engine_total = sum(engine_placed_by_id.values()) or total_requested_count
+        if n != engine_total:
             logger.error(
                 "Alternative lost parts, discarding it",
                 extra={"strategy": strategy, "transforms": n,
-                       "requested": total_requested_count},
+                       "engine": engine_total},
             )
             return
 
         # A4 : garde par CLASSE — le total seul était aveugle : une pièce
         # posée deux fois + une autre perdue compensée PASSAIENT (191
         # doublons livrés au banc, audit 2026-09-03 §A4). Compte par item_id.
-        if not per_class_counts_match(result_containers, requested_by_id):
+        # X2 (vérif tour 4) : une solution PARTIELLE (moteur n'a pas tout
+        # placé, stock serré) compare au posé MOTEUR — l'alternative
+        # partielle est livrée avec son compte non placé, pas rejetée.
+        reference_by_id = (
+            engine_placed_by_id if engine_placed_by_id else requested_by_id)
+        if not per_class_counts_match(result_containers, reference_by_id):
             logger.error(
                 "Alternative per-class count mismatch, discarding it",
                 extra={
                     "strategy": strategy,
                     "placed_by_id": per_class_placed_counts(result_containers),
-                    "requested_by_id": requested_by_id,
+                    "reference_by_id": reference_by_id,
                 },
             )
             return
@@ -1645,6 +1682,9 @@ def _nesting_process_impl(doc):
                 # A5 : observabilité des post-pass (additif — les jobs
                 # antérieurs n'ont pas le champ, l'UI l'ignore).
                 "postPass": engine_alt.get("postPass"),
+                # X2 : solution partielle — compte explicite non placé
+                # (badge UI, jamais une erreur produit).
+                "unplaced": unplaced_count,
             },
         })
 

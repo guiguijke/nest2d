@@ -823,27 +823,32 @@ function relayFreesBehindAnchor(layouts, sheetI, free, pocketRects,
     return moved
 }
 
-// W3 : validation de RETOUR des candidates non posées — pose d'origine
-// = état d'entrée, on ne re-juge que le chevauchement contre le NOUVEL
-// état (miroir residual._validate_return Python).
-function validateReturn(pis, layout, partsById, space) {
+// W3 + X1 (vérif tour 4) : validation de RETOUR des candidates non
+// posées. X1 : ne comparer QUE contre les pièces MODIFIÉES par la passe
+// (`changedIds`) — comparer contre tout le layout re-jugeait des paires
+// moteur inchangées sous le seuil et annulait des passes gagnantes.
+// Sans changedIds : repli tolérance space − 2×SIMPLIFY − ε (A14).
+function validateReturn(pis, layout, partsById, space, changedIds = null) {
     const excl = new Set(pis)
+    const changed = changedIds || null
     const occ = []
     for (const pi of layout.placed_items || []) {
         if (excl.has(pi)) continue
+        if (changed && !changed.has(pi)) continue
         const part = partsById.get(String(pi.item_id))
         if (!part) continue
         const t = pi.transformation || {}
         const [tx, ty] = t.translation || [0, 0]
         occ.push(placedRing(part, t.rotation, tx, ty))
     }
+    const tol = changed != null ? space : Math.max(space - 2 * 0.05 - 1e-9, 0)
     for (const pi of pis) {
         const part = partsById.get(String(pi.item_id))
         if (!part) continue
         const t = pi.transformation || {}
         const [tx, ty] = t.translation || [0, 0]
         const ring = placedRing(part, t.rotation, tx, ty)
-        if (occ.some((other) => pairViolates(ring, other, space))) return false
+        if (occ.some((other) => pairViolates(ring, other, tol))) return false
     }
     return true
 }
@@ -872,15 +877,16 @@ function relayCandidatesInBands(layouts, recvI, candidates, partsById, sheetDims
     return { moved, remaining }
 }
 
-// W3 : remplissage inter-tôles + compaction receveuse FUSIONNÉS —
-// candidates = libres de la receveuse + libres de la DONNEUSE, AVANT la
-// compaction donneuse. Acceptation : count_receveuse_after ≥ before ;
-// non-posées → tôle d'origine validées ; sinon restauration des 2 tôles.
+// W3 + X1 (vérif tour 4) : remplissage inter-tôles + compaction
+// receveuse FUSIONNÉS. X1 : non-posées de la receveuse → DONNEUSE,
+// savedPoses AVANT détachement, validation contre les pièces modifiées
+// seulement, rollback avec RAISON tracée.
 function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, space, payload, stats = null) {
     if (!layouts || !layouts.length || donorI >= layouts.length) return 0
     const donor = layouts[donorI]
     let movedTotal = 0
     let mergedSheets = 0
+    let rollbackReason = null
     for (let recvI = 0; recvI < layouts.length; recvI++) {
         if (recvI === donorI) continue
         const recv = layouts[recvI]
@@ -891,7 +897,8 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
         const recvBeforeCount = (recv.placed_items || []).length
         const snapRecv = JSON.parse(JSON.stringify(recv.placed_items || []))
         const snapDonor = JSON.parse(JSON.stringify(donor.placed_items || []))
-        const recvFreeSet = new Set(recvFree)
+        // X1 : poses d'origine AVANT détachement, par identité.
+        const savedPoses = new Map(candidates.map((pi) => [pi, { ...pi.transformation }]))
         try {
             for (const pi of candidates) {
                 recv.placed_items = (recv.placed_items || []).filter((x) => x !== pi)
@@ -899,28 +906,28 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
             }
             const { moved, remaining } = relayCandidatesInBands(
                 layouts, recvI, candidates, partsById, sheetDimsOf, space, payload)
-            const backRecv = remaining.filter((pi) => recvFreeSet.has(pi))
-            const backDonor = remaining.filter((pi) => !recvFreeSet.has(pi))
-            const snapRecvById = new Map(snapRecv.map((x) => [JSON.stringify([x.item_id, x.transformation]), x]))
-            for (const pi of backRecv) {
-                recv.placed_items.push(pi)
-            }
-            for (const pi of backDonor) {
+            // pièces réellement posées = modifiées par la passe
+            const placedSet = new Set(candidates.filter(
+                (pi) => (recv.placed_items || []).some((x) => x === pi)))
+            // X1 : TOUTES les non-posées vont sur la DONNEUSE à leur pose
+            // d'origine — jamais rendues sur la receveuse (poses
+            // possiblement occupées par le lattice).
+            for (const pi of remaining) {
+                pi.transformation = savedPoses.get(pi)
                 donor.placed_items.push(pi)
             }
-            // validation des restaurations : les poses d'origine sont
-            // légales par construction SAUF si les nouvelles colonnes les
-            // recouvrent — batch validate par groupe.
-            // W3 : validation de RETOUR — on ne re-juge ni les bornes ni
-            // la légalité d'origine, seulement le chevauchement contre le
-            // nouvel état (miroir _validate_return Python).
-            if (backRecv.length && !validateReturn(backRecv, recv, partsById, space)) {
-                throw COMPACT_ROLLBACK
-            }
-            if (backDonor.length && !validateReturn(backDonor, donor, partsById, space)) {
-                throw COMPACT_ROLLBACK
-            }
+            // validation du lot rendu contre les pièces modifiées par la
+            // passe (aucune sur la donneuse) — les poses d'origine étaient
+            // légales entre elles à l'entrée.
+            const okRet = !remaining.length
+                || validateReturn(remaining, donor, partsById, space, new Set())
+            let ok = okRet
             if ((recv.placed_items || []).length < recvBeforeCount) {
+                ok = false
+                if (rollbackReason === null) rollbackReason = 'count'
+            }
+            if (!ok) {
+                if (rollbackReason === null) rollbackReason = 'restore-donor'
                 throw COMPACT_ROLLBACK
             }
             if (moved) {
@@ -931,15 +938,16 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
             if (e !== COMPACT_ROLLBACK && !(e && e.__compactFront)) throw e
             recv.placed_items = JSON.parse(JSON.stringify(snapRecv))
             donor.placed_items = JSON.parse(JSON.stringify(snapDonor))
+            if (rollbackReason === null) rollbackReason = 'restore-recv'
         }
     }
-    if (stats) stats.mergedReceivers = mergedSheets
+    if (stats) {
+        stats.mergedReceivers = mergedSheets
+        if (rollbackReason !== null) stats.mergedRollbackReason = rollbackReason
+    }
     return movedTotal
 }
 
-// V3 (étape 3.1) : compaction des tôles RECEVEUSES — le moteur first-fit
-// y remplit les bandes en désordre ; ancre = hôtes + nichées, libres =
-// tout le reste re-posé derrière. Acceptation : front ≤ avant + 0,5 mm.
 function compactReceivers(layouts, partsById, sheetDimsOf, space, payload, stats = null) {
     let movedTotal = 0
     let compacted = 0

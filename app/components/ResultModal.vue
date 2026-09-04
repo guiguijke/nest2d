@@ -736,6 +736,12 @@ const reportBadges = computed(() => {
     }
     const allPlaced = unref(resultModalData).requested === unref(resultModalData).placed
     badges.push({ ok: allPlaced, label: t('report.allPlaced', { n: unref(resultModalData).placed }) })
+    // X2 (vérif tour 4) : solution partielle — le compte non placé est un
+    // badge visible, jamais un job en erreur.
+    const unplaced = r.unplaced || 0
+    if (unplaced > 0) {
+        badges.push({ ok: false, label: t('report.unplaced', { n: unplaced }) })
+    }
     return badges
 })
 const formatDensity = (density) => {

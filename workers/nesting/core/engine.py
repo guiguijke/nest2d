@@ -198,6 +198,10 @@ def run_engine(instance, config, problem_type, on_event=None, should_cancel=None
 
     if not alternatives:
         raise EngineError("engine produced no feasible solution")
+    # X2 (vérif tour 4) : le moteur livre désormais la meilleure solution
+    # PARTIELLE sur stock serré (cost_detail.unplaced > 0) — elle descend
+    # jusqu'ici sans erreur, la finalisation l'exporte avec le compte
+    # non placé dans le report.
 
     logger.info(
         "engine finished",

@@ -302,7 +302,19 @@ pub fn merge_bp_runs(
         .copied()
         .filter(|r| r.cost.unplaced == 0)
         .collect();
-    if feasible.is_empty() {
+    // X2 (vérif tour 4) : sur stock serré, la faisabilité dépend du run
+    // (température au temps mur — C8) : le MÊME job passait ou échouait
+    // selon la charge machine, et l'utilisateur voyait une erreur au lieu
+    // d'un résultat. Désormais : si aucun walk n'est faisable, on livre la
+    // meilleure solution PARTIELLE (unplaced minimal) — le plan de
+    // secours « infaisable » ne survient que si même le meilleur walk n'a
+    // rien posé du tout.
+    let candidates: Vec<&BpRun> = if feasible.is_empty() {
+        sorted.clone()
+    } else {
+        feasible
+    };
+    if candidates.is_empty() || candidates[0].cost.unplaced >= usize::MAX / 2 {
         return Err(BpMergeError::Infeasible {
             best_unplaced: sorted.first().map(|r| r.cost.unplaced).unwrap_or(0),
         });
@@ -312,7 +324,7 @@ pub fn merge_bp_runs(
         .into_iter()
         .filter(|b| biases.contains(b))
         .filter_map(|b| {
-            feasible
+            candidates
                 .iter()
                 .copied()
                 .filter(|r| r.bias == b)
@@ -324,7 +336,7 @@ pub fn merge_bp_runs(
                 })
         })
         .collect();
-    ordered.extend(feasible.iter().copied());
+    ordered.extend(candidates.iter().copied());
 
     let mut seen = HashSet::new();
     let mut alternatives = Vec::new();
@@ -989,20 +1001,18 @@ mod tests {
 
     #[test]
     fn bpp_infeasible_reports_min_unplaced() {
+        // X2 (vérif tour 4) : des runs PARTIELS sont désormais LIVRÉS (le
+        // meilleur, unplaced minimal) — l'erreur ne survient que si le
+        // meilleur run n'a posé RIEN (layouts vides). Les deux runs ont
+        // des layouts non vides → livraison partielle, pas d'erreur.
         let runs = vec![
             bp_run(5, DirBias::LeftFirst, 3, 1, 0.0, 0.0, vec![sp_layout(LAYOUT_A)]),
             bp_run(2, DirBias::BottomFirst, 1, 9, 0.0, 0.0, vec![sp_layout(LAYOUT_B)]),
         ];
-        let err = merge_bp_runs(&bp_instance(10), &runs, &DirBias::ALL, 3)
-            .err()
-            .expect("infeasible expected");
-        match err {
-            BpMergeError::Infeasible { best_unplaced } => assert_eq!(best_unplaced, 1),
-        }
-        assert_eq!(
-            err.to_string(),
-            "no feasible solution: 1 items could not be placed"
-        );
+        let out = merge_bp_runs(&bp_instance(10), &runs, &DirBias::ALL, 3)
+            .expect("partial solution expected (X2)");
+        assert!(!out.output.alternatives.is_empty());
+        assert!(out.output.alternatives[0]["cost_detail"]["unplaced"].as_u64().unwrap() >= 1);
     }
 
     #[test]
@@ -1214,10 +1224,14 @@ mod tests {
                  "solution": {"cost": 0, "density": 0.0, "run_time_sec": 0, "layouts": []}}
             ]
         });
-        let err = merge_alternatives_json(&input).unwrap_err();
-        assert!(
-            format!("{err:#}").contains("no feasible solution: 1 items could not be placed"),
-            "unexpected error: {err:#}"
-        );
+        // X2 (vérif tour 4) : même une solution VIDE est livrée
+        // (unplaced explicite dans cost_detail) — l'utilisateur voit un
+        // résultat partiel, jamais une erreur produit. Le JSON porte le
+        // compte non placé.
+        let out = merge_alternatives_json(&input)
+            .expect("X2 : solution partielle livrée, même vide");
+        let alt = &out["alternatives"][0];
+        assert_eq!(alt["cost_detail"]["unplaced"].as_u64(), Some(1));
+        assert_eq!(alt["solution"]["layouts"].as_array().map(Vec::len), Some(0));
     }
 }

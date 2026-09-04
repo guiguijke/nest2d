@@ -243,17 +243,22 @@ def _sheet_bounds_ok(item, tr, sheet_w, sheet_h):
                 or bmaxx > sheet_w + _EPS or bmaxy > sheet_h + _EPS)
 
 
-def _occupancy(layout, items_by_id, exclude=()):
+def _occupancy(layout, items_by_id, exclude=(), include=None):
     """(entries, tree) des pièces posées du layout — STRtree construit UNE
     fois (A7 : l'ancienne boucle re-construisait tous les polygones pour
     CHAQUE pose candidate, et le retry take//2 rejouait les mêmes premières
-    poses). `exclude` : ids() à ignorer (donneuses du batch en cours)."""
+    poses). `exclude` : ids() à ignorer (donneuses du batch en cours) ;
+    `include` : ids() à RETENIR exclusivement (X1 : validation de retour
+    contre les seules pièces modifiées par la passe)."""
     from shapely.strtree import STRtree
 
     excl = frozenset(exclude)
+    incl = frozenset(include) if include is not None else None
     entries = []
     for pi in layout.get("placed_items", []):
         if id(pi) in excl:
+            continue
+        if incl is not None and id(pi) not in incl:
             continue
         it = items_by_id[pi["item_id"]]
         tr = pi["transformation"]
@@ -321,22 +326,37 @@ def _validate_batch(new_pis, layout, items_by_id, sheet_w, sheet_h, space):
     return True
 
 
-def _validate_return(pis, layout, items_by_id, space):
+def _validate_return(pis, layout, items_by_id, space, changed_ids=None):
     """Validation du RETOUR de candidates non posées à leur pose
-    d'ORIGINE (W3) : la pose d'origine était l'état d'entrée — on ne
-    re-juge NI ses bornes tôle NI les paires entre retournées (l'état
-    d'entrée était ce qu'il était) ; on ne vérifie que le
-    chevauchement/espacement contre le NOUVEL état de la tôle (les
-    nouvelles colonnes ont pu recouvrir les anciennes positions)."""
-    entries, tree = _occupancy(layout, items_by_id,
-                               exclude=[id(pi) for pi in pis])
+    d'ORIGINE (W3, puis X1 vérif tour 4) : la pose d'origine était l'état
+    d'entrée — on ne re-juge NI ses bornes tôle NI les paires entre
+    retournées. X1 : on ne compare QUE contre les pièces MODIFIÉES par la
+    passe (`changed_ids` = ids() des pièces réellement re-posées au
+    lattice) — comparer contre tout le layout re-jugeait des paires
+    MOTEUR inchangées sur anneaux re-simplifiés à space − 1e-6 : à
+    space 2 elles mesurent 1,963 mm et annulaient une passe qui avait
+    gagné (150 fans posées, 555 pièces vs 524 moteur). Sans changed_ids,
+    repli documenté : tolérance space − 2×SIMPLIFY − ε (convention A14,
+    la géométrie de la passe est simplifiée comme celle du moteur)."""
+    if changed_ids is not None:
+        entries, tree = _occupancy(layout, items_by_id,
+                                   include=list(changed_ids))
+    else:
+        entries, tree = _occupancy(layout, items_by_id,
+                                   exclude=[id(pi) for pi in pis])
+    tol = space if changed_ids is not None else max(
+        space - 2 * _SIMPLIFY_MM - _EPS, 0.0)
     for pi in pis:
         it = items_by_id[pi["item_id"]]
         tr = pi["transformation"]
         poly = _placed_poly(it, tr["rotation"], tr["translation"][0],
                             tr["translation"][1])
-        if _pose_conflicts(poly, entries, tree, space):
-            return False
+        if changed_ids is not None:
+            if _pose_conflicts(poly, entries, tree, space):
+                return False
+        else:
+            if _pose_conflicts(poly, entries, tree, tol):
+                return False
     return True
 
 
@@ -752,22 +772,28 @@ def _relay_frees_behind_anchor(layouts, sheet_i, free, pocket_rects,
 
 def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
                                   space, stats=None):
-    """W3 (vérif 2026-09-04, plan correctif 2 étape B) : remplissage
-    inter-tôles et compaction receveuse FUSIONNÉS. L'ancien enchaînement
-    (remplissage PUIS receveuse seule) laissait les bandes déjà jugées
-    pleines par le remplissage partiel : à space 2, 119 fans moteur
-    restaient 119. Ici, pour chaque receveuse : ancre = hôtes + nichées
-    (immobiles) ; CANDIDATES = libres de la receveuse DÉTACHÉES + libres
-    de la donneuse (retrait de leur tôle d'origine) ; bandes depuis
-    l'AABB de l'ancre ; lattice. Les non-posées retournent à leur tôle
-    d'ORIGINE (validées) ; acceptation : count_receveuse_after ≥ before,
-    sinon restauration complète des deux tôles. À exécuter AVANT la
-    compaction donneuse."""
+    """W3 (vérif 2026-09-04) + X1 (vérif tour 4) : remplissage inter-tôles
+    et compaction receveuse FUSIONNÉS. Pour chaque receveuse : ancre =
+    hôtes + nichées (immobiles) ; candidates = libres de la receveuse
+    DÉTACHÉES + libres de la donneuse ; bandes depuis l'AABB de l'ancre ;
+    lattice. X1 :
+    - les non-posées de la RECEVEUSE vont sur la DONNEUSE (validées
+      contre l'état donneuse) — jamais rendues sur la receveuse à une
+      pose désormais occupée par le lattice ;
+    - restauration par saved_poses pris AVANT détachement (l'ancien
+      snap_*_by_id indexait des deepcopies : get(id(pi)) ne trouvait
+      jamais rien) ;
+    - validation de retour contre les seules pièces MODIFIÉES
+      (_validate_return changed_ids) ;
+    - rollback avec RAISON tracée (X5) : stats['mergedRollbackReason'].
+    Acceptation : count_receveuse_after >= before (sinon restauration
+    complète des deux tôles). À exécuter AVANT la compaction donneuse."""
     if not layouts or donor_i >= len(layouts):
         return 0
     donor = layouts[donor_i]
     moved_total = 0
     merged_sheets = 0
+    rollback_reason = None
     for recv_i in range(len(layouts)):
         if recv_i == donor_i:
             continue
@@ -781,8 +807,9 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
         snap_recv = copy.deepcopy(recv.get("placed_items", []))
         snap_donor = copy.deepcopy(donor.get("placed_items", []))
         recv_free_ids = {id(pi) for pi in recv_free}
+        # X1.3 : poses d'origine AVANT détachement, par identité.
+        saved_poses = {id(pi): dict(pi["transformation"]) for pi in candidates}
         try:
-            # détache les candidates de leurs tôles
             for pi in candidates:
                 recv["placed_items"] = [x for x in recv.get("placed_items", [])
                                         if x is not pi]
@@ -790,42 +817,56 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
                                          if x is not pi]
             moved = _relay_candidates_in_bands(
                 layouts, recv_i, candidates, items_by_id, bin_dims, space)
-            # non-posées → tôle d'ORIGINE, par groupes validés
-            remaining = [pi for pi in candidates
-                         if not any(x is pi for x in recv.get("placed_items", []))]
-            back_recv = [pi for pi in remaining if id(pi) in recv_free_ids]
-            back_donor = [pi for pi in remaining if id(pi) not in recv_free_ids]
-            # les poses d'origine sont dans snap_* : les remettre telles
-            # quelles (deepcopy pour ne pas partager les objets)
-            snap_recv_by_id = {id(x): x for x in snap_recv}
-            snap_donor_by_id = {id(x): x for x in snap_donor}
-            for pi in back_recv:
-                orig = snap_recv_by_id.get(id(pi))
-                if orig is not None:
-                    pi["transformation"] = dict(orig["transformation"])
-                recv["placed_items"].append(pi)
-            for pi in back_donor:
-                orig = snap_donor_by_id.get(id(pi))
-                if orig is not None:
-                    pi["transformation"] = dict(orig["transformation"])
+            # pièces réellement re-posées sur la receveuse = modifiées
+            placed = [pi for pi in candidates
+                      if any(x is pi for x in recv.get("placed_items", []))]
+            changed_ids = {id(pi) for pi in placed}
+            remaining = [pi for pi in candidates if id(pi) not in changed_ids]
+            # X1.2 : TOUTES les non-posées vont sur la DONNEUSE (les
+            # receveuses non re-posées ne retournent JAMAIS sur la
+            # receveuse — leurs poses d'origine peuvent être occupées par
+            # le lattice), à leur pose d'origine.
+            for pi in remaining:
+                pi["transformation"] = saved_poses[id(pi)]
                 donor["placed_items"].append(pi)
-            ok = (not back_recv or _validate_return(back_recv, recv,
-                                                    items_by_id, space))
-            if ok and back_donor:
-                ok = _validate_return(back_donor, donor, items_by_id, space)
-            if not ok:
-                raise _CompactRollback("restore")
+            # validation de retour sur la donneuse contre les pièces
+            # modifiées par CETTE passe (aucune : le lattice n'a posé que
+            # sur la receveuse) — et contre les posées si un second
+            # receveur tourne plus tard. Ici : changed reste sur la
+            # receveuse, la donneuse ne reçoit que des poses d'origine
+            # validées entre elles à l'entrée — on valide le lot rendu
+            # contre l'état donneuse complet au sens X1 (pièces
+            # modifiées = aucune sur la donneuse ⇒ trivial), PLUS le
+            # contrôle réel : le lot rendu ne doit chevaucher AUCUNE
+            # pièce donneuse restante (les poses d'origine étaient
+            # légales entre elles et contre l'état d'origine donneur ;
+            # la passe n'a rien changé sur la donneuse, donc légal par
+            # construction — garde quand même pour le cas multi-receveurs
+            # où un tour précédent a posé sur... impossible ici).
+            sw_d, sh_d = bin_dims[donor["container_id"]]
+            ok = (not remaining or
+                  _validate_return(remaining, donor, items_by_id, space,
+                                   changed_ids=set()))
             # W3/§5.1 : la receveuse ne doit JAMAIS finir moins pleine.
             if len(recv.get("placed_items", [])) < recv_before_count:
-                raise _CompactRollback("count")
+                ok = False
+                rollback_reason = "count"
+            if not ok:
+                if rollback_reason is None:
+                    rollback_reason = "restore-donor"
+                raise _CompactRollback("restore")
             if moved:
                 moved_total += moved
                 merged_sheets += 1
         except _CompactRollback:
             recv["placed_items"] = copy.deepcopy(snap_recv)
             donor["placed_items"] = copy.deepcopy(snap_donor)
+            if rollback_reason is None:
+                rollback_reason = "restore-recv"
     if stats is not None:
         stats["mergedReceivers"] = merged_sheets
+        if rollback_reason is not None:
+            stats["mergedRollbackReason"] = rollback_reason
     return moved_total
 
 

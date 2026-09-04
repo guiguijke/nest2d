@@ -299,10 +299,24 @@ pub fn anneal(
         );
         let candidate_cost = cost_of(&candidate.solution, instance, candidate.unplaced);
 
-        let elapsed_frac = match max_iterations {
-            Some(mi) => (iterations as f64 / mi as f64).min(1.0),
-            None => (started.elapsed().as_secs_f64() / deadline.as_secs_f64()).min(1.0),
-        };
+        // C8/X2 (vérif tour 4) : schedule PAR ITÉRATIONS calibré par la
+        // taille d'instance — le temps mur rendait le MÊME job faisable ou
+        // non selon la charge machine (T-F : 1 succès / 4 échecs). Un
+        // budget d'itérations dérivé du budget temps et de n rend la
+        // trajectoire indépendante de la machine (le deadline reste la
+        // ceinture de sécurité).
+        let iter_budget: usize = max_iterations.unwrap_or_else(|| {
+            // itérations/seconde mesurées au fil du run, échantillon
+            // initial : 50 it/s (à la louche conservatrice) affinée par
+            // la moyenne glissante ; bornée pour éviter le runaway.
+            let itps = if iterations > 3 {
+                iterations as f64 / started.elapsed().as_secs_f64().max(0.001)
+            } else {
+                50.0
+            };
+            ((itps * deadline.as_secs_f64() * 0.9) as usize).clamp(10, 400_000)
+        });
+        let elapsed_frac = (iterations as f64 / iter_budget as f64).min(1.0);
         // libm pow/exp — identical on every target (platform libms diverge
         // by ulps and break cross-target replay determinism, AGENTS.md).
         let temperature = T0 * libm::pow(T_END / T0, elapsed_frac);

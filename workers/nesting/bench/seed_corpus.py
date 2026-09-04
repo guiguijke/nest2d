@@ -121,7 +121,7 @@ def case_files(case):
             {"slug": "piece_fillx4", "count": 400, "rotations":
              [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330],
              "parts": [{"coordinates": fan_ring(), "holes": []}]},
-        ], [{"width": 1000.0, "height": 1000.0, "count": 2}],
+        ], [{"width": 1000.0, "height": 1000.0, "count": 3}],
         float(os.environ.get("CORPUS_SPACE_E", "0.1")),
         "rotations à 30° (rotationCount 12) — passes JS/Python no-op tracé (D3)")
     if case == "F":
@@ -172,7 +172,7 @@ def case_files(case):
             # repli : rectangles si l'instance n'est pas au format attendu
             case_i = [{"slug": "rect150", "count": 60, "rotations": QUARTERS,
                        "parts": [{"coordinates": rect(150, 110), "holes": []}]}]
-        return (case_i, [{"width": 4000.0, "height": 1000.0, "count": 2}],
+        return (case_i, [{"width": 2200.0, "height": 1000.0, "count": 2}],
                 1.0, "formes libres ESICUP (shirts) en BPP multi-tôles")
     raise SystemExit(f"cas inconnu : {case}")
 

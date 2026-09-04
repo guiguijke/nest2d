@@ -884,6 +884,16 @@ export async function buildAlternativeArtifacts(result, payload) {
             if (!selfContained && holesGateOpen(payload, parts)) {
                 holeFillRecovered = applyHoleFill(parts, layouts, space)
             }
+            const partsById0 = new Map(parts.map((p2) => [String(p2.id), p2]))
+            const pre = []
+            for (let li = 0; li < layouts.length; li++) {
+                const aabb0 = layoutAabb(layouts[li], partsById0)
+                pre.push({
+                    sheet: li,
+                    count: (layouts[li].placed_items || []).length,
+                    frontX: aabb0 ? Math.round(aabb0[2] * 10) / 10 : null,
+                })
+            }
             const postPass = {
                 // V18 : expandMeta = pièces RATTACHÉES par l'expansion meta
                 // (comptées dans le bloc d'exptraction ci-dessus) —
@@ -892,6 +902,8 @@ export async function buildAlternativeArtifacts(result, payload) {
                 holeFillRecovered,
                 residualMoved: 0, residualRounds: 0,
                 compactRollback: false, errors: [],
+                // X4 : état brut AVANT post-pass (miroir main.py).
+                pre,
             }
             // D-MOT-19 : bandes résiduelles BPP (miroir core/residual.py) —
             // APRÈS hole-fill (les trous sont de meilleurs emplacements),
