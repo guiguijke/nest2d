@@ -183,12 +183,17 @@ def _pair_violates(poly, other, space):
     """Une paire pose-t-elle un problème physique ? A1 (audit 2026-09-03) :
     à space 0, `d < space − ε` est toujours faux → le batch n'excluait
     PLUS RIEN (3 136 chevauchements livrés au banc). Politique §8.1 :
-    contact PERMIS (sémantique jagua), chevauchement d'aire > OVERLAP_EPS
-    rejeté. Miroir JS : residualClient._pairViolates."""
+    à space 0 le contact est PERMIS, seul le chevauchement d'aire
+    > OVERLAP_EPS est rejeté.
+    V4 (vérif 2026-09-04) : à space > 0, TOUTE paire plus proche que
+    space − ε est une violation — y compris le contact bord à bord à
+    distance 0 sans aire (l'implémentation du 03/09 l'avait admis par
+    régression : `if d > 0 … else aire`). Miroir JS :
+    residualClient.pairViolates."""
     d = poly.distance(other)
-    if d > 0.0:
-        return d < max(space - _EPS, 0.0)
-    return poly.intersection(other).area > _OVERLAP_EPS_MM2
+    if space > _EPS:
+        return d < space - _EPS
+    return d == 0.0 and poly.intersection(other).area > _OVERLAP_EPS_MM2
 
 
 # Miroir de metrics.OVERLAP_EPS_MM2 : aire d'intersection sous ce seuil =

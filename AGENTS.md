@@ -631,6 +631,13 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     un test qui compte les paires à distance ≈ 0 SUR le chemin
     multi-itérations (pas seulement les comptes de pièces).
 
+56b. **NEST_ALLOW_INVALID_ALTS=1 (debug)** : la finalisation ÉCARTE
+    toute alternative mesurée en chevauchement/doublons (A4) ; si TOUTES
+    sont écartées, le job finit en erreur avec un message DISTINCT
+    (« post-pass validation rejected… », V8) et le navigateur passe en
+    local-fail (refund) — jamais un done à 0 pièce. L'échappatoire debug
+    livre quand même ces alternatives pour inspection.
+
 57. **Space 0 : le seuil de validation est planché des DEUX côtés
     (constat 2026-09-03, A1/D5).** À space ≤ marge de simplify,
     `dist < space − ε` ne rejette plus rien : la validation Python

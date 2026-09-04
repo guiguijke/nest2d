@@ -182,17 +182,20 @@ function pointStrictlyInside(pt, ring) {
     return dmin > STRICT_INSIDE_MM
 }
 
-/** Miroir de residual._pair_violates : d > 0 → rejet si d < space − ε
- * (planché ; les anneaux du payload JS sont DÉJÀ simplifiés à la
- * construction — même géométrie que le simplify Python, la double marge
- * 2×SIMPLIFY avalait space tout entier à space 0,1, D5) ; d == 0 → rejet
- * seulement si vrai chevauchement d'aire (contact permis, §8.1). */
+/** Miroir exact de residual._pair_violates (V4/V5, vérif 2026-09-04) :
+ * space > 0 → TOUTE paire à d < space − ε est une violation, y compris
+ * le contact bord à bord à d == 0 sans aire (régression du 03/09) ;
+ * space ≤ ε → contact PERMIS, seul le chevauchement d'aire
+ * (ringsOverlap : croisements + points strictement intérieurs) est
+ * rejeté — parité exacte avec le Python à space 0 (V5 : l'ancien
+ * plancher 1e-9 rejetait le contact que Python permet, chute navigateur
+ * 371 contre 562 serveur). */
 export function pairViolates(ringA, ringB, space) {
     const d = ringDist(ringA, ringB)
-    if (d > 0) {
-        return d < Math.max(space - EPS, 1e-9)
+    if (space > EPS) {
+        return d < space - EPS
     }
-    return ringsOverlap(ringA, ringB)
+    return d === 0 && ringsOverlap(ringA, ringB)
 }
 
 export function layoutAabb(layout, partsById) {

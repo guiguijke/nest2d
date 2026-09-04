@@ -825,10 +825,64 @@ class TestPipelineTwoSheetsPhysical:
         from shapely.strtree import STRtree
         tree = STRtree(polys)
         for i, a in enumerate(polys):
-            for j in tree.query(a.buffer(1.0)):
+            for j in tree.query(a.buffer(max(space, 0.0) + 1.0)):
                 j = int(j)
                 if j <= i:
                     continue
+                # V4 : à space > 0, AUCUNE paire plus proche que space
+                # (le contact à distance 0 est une violation) ; à space 0
+                # le contact est permis, seule l'aire est rejetée.
+                d = a.distance(polys[j])
+                if space > 1e-6:
+                    assert d >= space - 0.01, (
+                        f"space={space} paire {i}-{j} : distance {d:.4f}")
                 inter = a.intersection(polys[j])
-                assert inter.area <= 0.01, \
-                    f"space={space} paire {i}-{j} : {inter.area} mm²"
+                assert inter.area <= 0.01, (
+                    f"space={space} paire {i}-{j} : {inter.area} mm²")
+
+
+class TestV4ContactRejectedAtPositiveSpace:
+    """V4 (vérif 2026-09-04) : à space > 0, le contact bord à bord
+    (distance 0, aire nulle) est une VIOLATION — la régression du 03/09
+    ne rejetait que l'aire. Chemins exposés : restauration des libres
+    après re-grid, poses lattice contre du préexistant."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_contact_rejected_at_space_2(self):
+        from core.residual import _pair_violates
+        from shapely.affinity import translate
+        from shapely.geometry import box
+        a = box(0, 0, 100, 100)
+        b = translate(a, 100, 0)  # bord contre bord, distance 0
+        assert a.distance(b) == 0.0
+        assert a.intersection(b).area == 0.0
+        assert _pair_violates(a, b, 2.0) is True
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_contact_rejected_at_space_0_1(self):
+        from core.residual import _pair_violates
+        from shapely.affinity import translate
+        from shapely.geometry import box
+        a = box(0, 0, 100, 100)
+        b = translate(a, 100, 0)
+        assert _pair_violates(a, b, 0.1) is True
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_contact_still_allowed_at_space_0(self):
+        from core.residual import _pair_violates
+        from shapely.affinity import translate
+        from shapely.geometry import box
+        a = box(0, 0, 100, 100)
+        b = translate(a, 100, 0)
+        assert _pair_violates(a, b, 0.0) is False
+        dup = box(0, 0, 100, 100)
+        assert _pair_violates(a, dup, 0.0) is True
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_validate_batch_rejects_fan_glued_to_host(self):
+        # Sonde de la vérification : une fan collée (distance 0) à un hôte
+        # à space 2 doit être rejetée par la ceinture du batch.
+        l = layout([pi(0, 200.0, 200.0)])
+        glued = pi(1, 219.8, 219.7)  # fan ~40×28 collée au carré
+        # la fan à (219.8, 219.7) chevauche le carré [150..250] : distance 0
+        assert _validate_batch([glued], l, BY_ID, 1000.0, 1000.0, 2.0) is False

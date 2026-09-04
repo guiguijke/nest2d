@@ -810,6 +810,11 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
     // i) parts du payload : coords/holes SIMPLIFIÉS (jamais les anneaux à
     //    canal), couleur d'affichage, handles DXF (exports copient par
     //    handle) — mêmes données que la finalisation serveur.
+    //    V10 (vérif 2026-09-04) : ROTATIONS PAR PART — en J-090 (projet
+    //    100 % client, le mode de l'utilisateur), partRotations retombait
+    //    sur l'instance RÉDUITE (ids réindexés, piège #3b) : le lattice ne
+    //    recevait qu'une rotation et posait en grille bbox 2× moins dense
+    //    que le serveur (front 628 contre 437 au banc space 0).
     const parts = inputItems.map((it) => ({
         id: it.id,
         file_slug: it.file_slug,
@@ -818,6 +823,7 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         coords: it.coords,
         holes: it.holes || [],
         count: it.count || 0,
+        rotations: it.rotations && it.rotations.length ? it.rotations : [0, 90, 180, 270],
     }))
 
     const payload = {
@@ -826,17 +832,15 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         meta,
         engineConfig,
         parts,
+        // V10 (vérif 2026-09-04) : hasHoles ÉNUMÉRABLE dans le payload —
+        // même contrat que le localPayload serveur (D7). Le hasHoles du
+        // build (canaux/canal scellé) est déjà calculé plus haut ; sans
+        // lui, holesGateOpen retombait sur fillHoles seul en J-090.
+        hasHoles,
+        fillHoles: Boolean(fillHoles),
         outputUnit,
         addOutShape,
     }
-    // fillHoles : drapeau UI (post-pass applyHoleFill de localBridge doit
-    // respecter « Disable to keep cutouts empty », miroir de has_holes
-    // serveur). NON-ÉNUMÉRABLE : le contrat de parité J-090 (fixtures
-    // Python) et le JSON envoyé au moteur ne doivent pas le voir.
-    Object.defineProperty(payload, 'fillHoles', {
-        value: fillHoles,
-        enumerable: false,
-    })
     return {
         payload,
         seed,

@@ -503,6 +503,7 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     let alternatives = []
     let liveLayout = null
     let placed = 0
+    let allAlternativesInvalid = false
     try {
         let arts = await buildAlternativeArtifacts(result, payload)
         // P-4 (audit 2026-08-31 §P-4) + A4/D13 (audit 2026-09-03) — filet
@@ -542,6 +543,15 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         if (keptIdx.length !== rawAlts.length) {
             result.alternatives = keptIdx.map((i) => rawAlts[i])
             arts = keptIdx.map((i) => arts?.[i] ?? null)
+        }
+        // V8 (vérif 2026-09-04) : TOUTES les alternatives rejetées par la
+        // garde (chevauchement/doublons mesurés) ≠ job réussi à 0 pièce —
+        // l'ancien flux livrait placed = 0 avec quota consommé et une
+        // frame finale vide qui battait tout champion (bins: 0). Sortie
+        // local-fail : refund, carte en erreur, message dédié.
+        if (!keptIdx.length && rawAlts.length) {
+            allAlternativesInvalid = true
+            throw new Error('all_alternatives_invalid')
         }
         const bestRaw = result.alternatives[0]
         placed = normalizeLayouts(bestRaw?.solution)
@@ -584,9 +594,25 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             alternatives[rank].altId = rank
         }
         liveLayout = buildLiveLayout(result, payload, bestRaw)
-    } catch {
-        // Les artefacts sont best-effort : le solve a réussi, la comptabilité
-        // passe d'abord ; un artefact manqué dégrade l'affichage, jamais le job.
+    } catch (e) {
+        // V8 : la sentinelle avorte le reste des artefacts — le flag
+        // portera le local-fail (refund) APRÈS le catch ; une exception
+        // nue sortirait de run() sans refund.
+        if (e?.message !== 'all_alternatives_invalid') {
+            // Les artefacts sont best-effort : le solve a réussi, la
+            // comptabilité passe d'abord ; un artefact manqué dégrade
+            // l'affichage, jamais le job.
+        }
+    }
+
+    // V8 : toutes les alternatives rejetées par la garde physique →
+    // local-fail (refund), message dédié — JAMAIS un job done à 0 pièce.
+    if (allAlternativesInvalid) {
+        await $fetch(`/api/results/${jobSlug}/local-fail`, {
+            method: 'POST',
+            body: { error: 'all_alternatives_invalid' },
+        })
+        return { ok: false, error: 'all_alternatives_invalid' }
     }
 
     const [sheetWidth, sheetHeight] = sheetDims(payload, 0)

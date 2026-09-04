@@ -43,6 +43,9 @@ export function useLocalMode(projectSlug) {
         // J-090 : géométrie d'un projet local absente de CE navigateur.
         if (err === 'geometry_missing') return t('localImport.missingGeometry')
         if (err === 'crash') return t('localMode.crashError')
+        // V8 (vérif 2026-09-04) : toutes les alternatives rejetées par la
+        // garde physique (chevauchement/doublons mesurés) — job refundé.
+        if (err === 'all_alternatives_invalid') return t('localMode.allInvalid')
         return t('localCompute.error')
     }
 

@@ -201,6 +201,20 @@ pub fn run_bpp_mem(
                     throttled_layout(cost, solution);
                 },
             );
+            // V14 (vérif 2026-09-04) : frame finale INCONDITIONNELLE avec
+            // l'incumbent (miroir du report_final SPP) — le throttle 500 ms
+            // pouvait autrement avaler la dernière amélioration et laisser
+            // la vue sur un état antérieur.
+            if live {
+                sink(&layout_event(
+                    w,
+                    &report.best_cost,
+                    &report.best_solution,
+                    instance,
+                    &started,
+                    bias,
+                ));
+            }
             WorkerRun {
                 seed,
                 bias,
@@ -300,10 +314,6 @@ mod live_frame_tests {
         }
     }
 
-    /// La DERNIÈRE frame layout (incumbent final) doit coïncider avec les
-    /// placements exportés de la meilleure alternative — rotation degrés à
-    /// 0,01° et translation à 0,001 mm (arrondis d'impression de la frame).
-    #[test]
     /// T1 (plan §2.4) : identité des bins cohérente live ↔ coût ↔ export —
     /// les indexes de tôle dans les frames live sont exactement ceux des
     /// layouts exportés, et `bins` (C12) = NOMBRE de tôles.
@@ -357,6 +367,13 @@ mod live_frame_tests {
         );
     }
 
+    /// La DERNIÈRE frame layout (incumbent final) doit coïncider avec les
+    /// placements exportés de la meilleure alternative — rotation degrés à
+    /// 0,01° et translation à 0,001 mm (arrondis d'impression de la frame).
+    /// V1 (vérif 2026-09-04) : l'insertion de T1 avait absorbé son #[test]
+    /// (attribut dupliqué, fonction morte, « 70 passed » comptait T1 deux
+    /// fois).
+    #[test]
     fn bpp_live_frame_matches_final_export_off_center() {
         let layouts: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
         let sink_capture = layouts.clone();

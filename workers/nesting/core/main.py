@@ -1657,6 +1657,17 @@ def _nesting_process_impl(doc):
         )
 
     if not alternatives:
+        # V8 (vérif 2026-09-04) : distinguer « le moteur n'a pas tout
+        # placé » (message historique, VRAI) de « le post-pass a rendu
+        # toutes les alternatives physiquement invalides » (message faux
+        # qui masquait une régression du post-pass).
+        all_invalid = invalid_alt_count[0] > 0
+        information = (
+            "Post-pass validation rejected every alternative "
+            "(measured overlaps) — please retry"
+            if all_invalid
+            else "Not all items could be placed in the nesting job"
+        )
         _heartbeat_stop.set()
         db["nesting_jobs"].update_one(
             { "slug": slug },
@@ -1666,12 +1677,12 @@ def _nesting_process_impl(doc):
                     "status": "error",
                     "finishedAt": datetime.now(),
                     "update_ts": datetime.now(),
-                    "information": "Not all items could be placed in the nesting job"
+                    "information": information
                 },
                 "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
             },
         )
-        raise Exception("Not all items could be placed in the nesting job")
+        raise Exception(information)
 
     _heartbeat_stop.set()
     # Display order: la grille canonique d'abord (choix visuel par défaut),

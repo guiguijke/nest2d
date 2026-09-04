@@ -498,3 +498,23 @@ describe('compaction — rollback A2 : snapshot AVANT le re-grid (audit 2026-09-
             .toThrow()
     })
 })
+
+
+describe('V4 : contact à distance 0 rejeté à space > 0 (vérif 2026-09-04)', () => {
+    const ring = (coords, tx, ty) => coords.map(([x, y]) => [x + tx, y + ty])
+
+    it('contact bord à bord → rejeté à space 2 et 0,1', async () => {
+        const { pairViolates } = await import('../composables/residualClient')
+        const a = ring(SQUARE, 200, 200)
+        const b = ring(SQUARE, 300, 200) // bord contre bord exactement
+        expect(pairViolates(a, b, 2)).toBe(true)
+        expect(pairViolates(a, b, 0.1)).toBe(true)
+    })
+
+    it('space 0 : le contact reste permis (parité Python, V5)', async () => {
+        const { pairViolates } = await import('../composables/residualClient')
+        const a = ring(SQUARE, 200, 200)
+        const b = ring(SQUARE, 300, 200)
+        expect(pairViolates(a, b, 0)).toBe(false)
+    })
+})

@@ -88,17 +88,42 @@ fn prerefine_cd_config(item: &Item) -> CDConfig {
     }
 }
 
+/// C6 : limite finale = min(ratio × min_dim, borne ABSOLUE 0,01 mm).
+/// Fonction pure — le verrou unitaire du clamp vit ici.
+pub fn snd_refine_step_limit(item_min_dim: f32) -> f32 {
+    (item_min_dim * SND_REFINE_CD_TL_RATIOS.1).min(SND_REFINE_ABS_LIMIT_MM)
+}
+
 fn final_refine_cd_config(item: &Item) -> CDConfig {
     let item_min_dim = f32::min(item.shape_cd.bbox.width(), item.shape_cd.bbox.height());
     let wiggle = item.allowed_rotation == RotationRange::Continuous;
     CDConfig {
         t_step_init: item_min_dim * SND_REFINE_CD_TL_RATIOS.0,
-        // C6 : clampé par la borne absolue (voir consts.rs).
-        // C6 : clampé par la borne absolue (voir consts.rs).
-        t_step_limit: (item_min_dim * SND_REFINE_CD_TL_RATIOS.1)
-            .min(SND_REFINE_ABS_LIMIT_MM),
+        t_step_limit: snd_refine_step_limit(item_min_dim),
         r_step_init: SND_REFINE_CD_R_STEPS.0,
         r_step_limit: SND_REFINE_CD_R_STEPS.1,
         wiggle
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// C6 (audit 2026-09-03 + V12 vérif 2026-09-04) : la borne finale du
+    /// second raffinement est min(ratio, ABSOLU 0,01 mm) — sans le clamp,
+    /// un item de 100 mm dérive de 0,1 mm par descente (colonnes
+    /// 50,1 / 150,2 / 250,4…, une cellule de grille perdue par tôle).
+    /// Verrou DISCRIMINANT : l'intégration BPP n'isole pas la dérive du
+    /// bruit d'échantillonnage (fenêtre plus étroite que le bruit).
+    #[test]
+    fn final_refine_step_limit_is_clamped_absolute() {
+        assert!((snd_refine_step_limit(100.0) - 0.01).abs() < 1e-6,
+            "item 100 mm : limite attendue 0,01 (clamp), eu {}", snd_refine_step_limit(100.0));
+        assert!((snd_refine_step_limit(250.0) - 0.01).abs() < 1e-6,
+            "item 250 mm : idem, eu {}", snd_refine_step_limit(250.0));
+        assert!((snd_refine_step_limit(5.0) - 0.005).abs() < 1e-6,
+            "petit item : le ratio (0,005) reste sous le clamp, eu {}", snd_refine_step_limit(5.0));
     }
 }

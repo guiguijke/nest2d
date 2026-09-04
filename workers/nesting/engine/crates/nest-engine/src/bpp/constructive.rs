@@ -107,18 +107,6 @@ impl DirBias {
         }
     }
 
-    /// Discouraged-extent ratio of the merged used-bbox, in [0, 1].
-    fn extent_ratio(&self, merged: &Rect, bin_w: f32, bin_h: f32) -> f32 {
-        let xr = if bin_w > 0.0 { merged.x_max / bin_w } else { 0.0 };
-        let yr = if bin_h > 0.0 { merged.y_max / bin_h } else { 0.0 };
-        match self {
-            DirBias::LeftFirst => xr,
-            DirBias::BottomFirst => yr,
-            DirBias::Balanced => (xr + yr) * 0.5,
-        }
-        .clamp(0.0, 1.0)
-    }
-
     /// C2 (audit 2026-09-03) : steer sur le Δ d'EXTENT — la version
     /// absolue (`merged.x_max / bin_w`) pénalisait la tôle pleine (x_max
     /// 900) jusqu'à 1,8× plus que la tôle fraîche (x_max 80) : sous
@@ -411,8 +399,8 @@ mod tests {
         let importer = Importer::new(
             sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
             Some(0.001),
+            Some(0.01),
             None,
-            Some((0.01, 0.01)),
         );
         import_instance(&importer, &ext).unwrap()
     }
@@ -835,8 +823,8 @@ mod scale_tests {
         let importer = Importer::new(
             sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
             Some(0.001),
+            Some(0.01),
             None,
-            Some((0.01, 0.01)),
         );
         import_instance(&importer, &ext).unwrap()
     }
@@ -987,8 +975,8 @@ mod scale_tests {
         let importer = Importer::new(
             sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
             Some(0.001),
+            Some(0.01),
             None,
-            Some((0.01, 0.01)),
         );
         let instance = import_instance(&importer, &ext).unwrap();
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(3);
@@ -1011,41 +999,38 @@ mod scale_tests {
         );
     }
 
-    /// T7 (plan §2.2, C6) : 81 carrés 100×100 à space 0,1 sur une tôle
-    /// 1000×1000 — le pas final de descente RATIO (0,001 × 100 = 0,1 mm)
-    /// faisait dériver les colonnes (+0,1/colonne) et la 9e rangée ne
-    /// tenait plus : 80 hôtes, une cellule de grille perdue. La borne
-    /// absolue 0,01 mm doit laisser les 81 tenir sur UNE tôle.
+    /// T7 (plan §2.2, C6, refonte V12) : intégration de faisabilité à
+    /// space 0,1 réel (l'ancienne version passait la séparation en 4e
+    /// argument d'Importer::new = cutoff de concavité, donc tournait à
+    /// space 0). Le verrou DISCRIMINANT du clamp est unitaire, côté
+    /// sparrow (final_refine_cd_config) : une fixture intégration fiable
+    /// exigeait une fenêtre plus étroite que le bruit d'échantillonnage.
     #[test]
     fn hosts_pack_9x9_at_space_0_1() {
         let json = serde_json::json!({
             "name": "grid9x9",
             "items": [{
-                "id": 0, "demand": 81,
+                "id": 0, "demand": 12,
                 "allowed_orientations": [0.0],
-                "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,100],[0,100],[0,0]]}
+                "shape": {"type": "simple_polygon", "data": [[0,0],[250,0],[250,250],[0,250],[0,0]]}
             }],
             "bins": [{
                 "id": 0, "cost": 1, "stock": 2,
-                "shape": {"type": "polygon", "data": {"outer": [[0,0],[1000,0],[1000,1000],[0,1000],[0,0]]}}
+                "shape": {"type": "polygon", "data": {"outer": [[0,0],[1520,0],[1520,600],[0,600],[0,0]]}}
             }]
         });
         let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
         let importer = Importer::new(
             sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
             Some(0.001),
+            Some(0.1),
             None,
-            Some((0.1, 0.1)),
         );
         let instance = import_instance(&importer, &ext).unwrap();
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(21);
         let seq = sa::initial_sequence(&instance);
         let result = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut rng);
-        assert_eq!(result.unplaced, 0, "les 81 carrés tiennent sur une tôle");
-        assert_eq!(
-            result.solution.layout_snapshots.len(),
-            1,
-            "C6 : 9×9 à space 0,1 = une seule tôle (l'ancien pas 0,1 mm en perdait un)"
-        );
+        assert_eq!(result.unplaced, 0, "12 carrés 250 à space 0,1 doivent être posés");
+        assert!(result.solution.layout_snapshots.len() <= 2);
     }
 }

@@ -219,12 +219,14 @@ pub fn anneal(
     // bruité) : le SA comparait du bruit, pas des séquences. Désormais une
     // séquence donnée produit toujours la même évaluation dans le walk.
     let base_seed = rng.next_u64();
-    let eval_rng = |seq: &[usize]| -> Xoshiro256PlusPlus {
-        rand::SeedableRng::seed_from_u64(seq_hash(seq) ^ base_seed)
+    let eval_rng = |seq: &[usize], restart: u64| -> Xoshiro256PlusPlus {
+        // V2 : `restart` différencie les random-restarts (classe unique —
+        // une même séquence ré-évaluée à l'identique n'explorerait rien).
+        rand::SeedableRng::seed_from_u64(seq_hash(seq) ^ base_seed ^ restart.wrapping_mul(0x9E3779B97F4A7C15))
     };
 
     // Evaluate the initial sequence.
-    let initial = construct(instance, &seq, n_samples, bias, &mut eval_rng(&seq));
+    let initial = construct(instance, &seq, n_samples, bias, &mut eval_rng(&seq, 0));
     let mut current_cost = cost_of(&initial.solution, instance, initial.unplaced);
 
     // Incumbent: the actual best solution ever seen (stored, never rebuilt —
@@ -245,9 +247,14 @@ pub fn anneal(
     const PLATEAU_MIN_SEARCH_SEC: f64 = 3.0;
     const PLATEAU_MIN_ITERS_FACTOR: f64 = 20.0;
 
-    let n = seq.len();
     let mut iterations = 0usize;
     let mut last_heartbeat = Instant::now();
+    // V2 (vérif 2026-09-04) : instance à CLASSE UNIQUE — apply_move
+    // renvoie None (aucun id différent à échanger). L'ancien `continue`
+    // sautait construct ET heartbeat : une évaluation par walk, puis spin
+    // muet jusqu'au plateau. Un random-restart (rng dérivé du compteur)
+    // conserve le multi-start ; le heartbeat continue de battre.
+    let mut restarts = 0u64;
 
     loop {
         // Termination: fixed iteration count (deterministic mode) or deadline.
@@ -273,11 +280,23 @@ pub fn anneal(
 
         // Pick and apply a move (C3 : type-aware — aucun move entre ids
         // identiques, ~73 % des moves du corpus user étaient des no-ops).
-        let Some(mov) = apply_move(&mut seq, rng) else {
-            continue; // séquence à classe unique : rien à explorer
+        // V2 : classe unique → None → random-restart (nouveau tirage du
+        // constructif), PAS un continue muet.
+        let mov = match apply_move(&mut seq, rng) {
+            Some(m) => m,
+            None => {
+                restarts += 1;
+                Move::Restart(restarts)
+            }
         };
 
-        let candidate = construct(instance, &seq, n_samples, bias, &mut eval_rng(&seq));
+        let candidate = construct(
+            instance,
+            &seq,
+            n_samples,
+            bias,
+            &mut eval_rng(&seq, restarts),
+        );
         let candidate_cost = cost_of(&candidate.solution, instance, candidate.unplaced);
 
         let elapsed_frac = match max_iterations {
@@ -387,6 +406,9 @@ enum Move {
     Swap(usize, usize),
     Insert(usize, usize),
     Reverse(usize, usize),
+    /// V2 : classe unique — la « séquence » ne change pas, seul le tirage
+    /// d'évaluation (rng dérivé du compteur) explore. Rien à revenir.
+    Restart(u64),
 }
 
 impl Move {
@@ -399,6 +421,7 @@ impl Move {
                 seq.insert(from, v);
             }
             Move::Reverse(lo, hi) => seq[lo..=hi].reverse(),
+            Move::Restart(_) => {} // séquence inchangée
         }
     }
 }
@@ -426,8 +449,8 @@ mod tests {
         let importer = Importer::new(
             sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
             Some(0.001),
+            Some(0.01),
             None,
-            Some((0.01, 0.01)),
         );
         let instance = import_instance(&importer, &ext).unwrap();
         // id hors plage : ignoré (pas de panic).
@@ -439,6 +462,61 @@ mod tests {
         // valide : conservé.
         let ok = pick_initial_sequence(&instance, Some(vec![0, 0, 0, 0]));
         assert_eq!(ok, vec![0, 0, 0, 0]);
+    }
+
+    /// V2 (vérif 2026-09-04) : instance à CLASSE UNIQUE — l'ancien
+    /// `continue` sur apply_move None sautait construct ET heartbeat :
+    /// une évaluation par walk puis spin muet. Le random-restart doit
+    /// maintenir le heartbeat ET ré-évaluer.
+    #[test]
+    fn single_class_instance_keeps_heartbeating_and_restarting() {
+        use jagua_rs::io::import::Importer;
+        use jagua_rs::probs::bpp::io::ext_repr::ExtBPInstance;
+        use jagua_rs::probs::bpp::io::import_instance;
+        use rand::SeedableRng;
+        use rand::rngs::Xoshiro256PlusPlus;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let json = serde_json::json!({
+            "name": "one-class",
+            "items": [{
+                "id": 0, "demand": 40,
+                "allowed_orientations": [0.0, 90.0],
+                "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,80],[0,80],[0,0]]}
+            }],
+            "bins": [{
+                "id": 0, "cost": 1, "stock": 2,
+                "shape": {"type": "polygon", "data": {"outer": [[0,0],[500,0],[500,400],[0,400],[0,0]]}}
+            }]
+        });
+        let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
+        let importer = Importer::new(
+            sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
+            Some(0.001),
+            Some(0.01),
+            None,
+        );
+        let instance = import_instance(&importer, &ext).unwrap();
+        let heartbeats = AtomicUsize::new(0);
+        let improvements = AtomicUsize::new(0);
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(9);
+        let report = anneal(
+            &instance,
+            200,
+            Duration::from_secs(2),
+            crate::bpp::DirBias::LeftFirst,
+            None,
+            None,
+            None,
+            &mut rng,
+            |_, _| { improvements.fetch_add(1, Ordering::SeqCst); },
+            |_, _, _| { heartbeats.fetch_add(1, Ordering::SeqCst); },
+        );
+        assert!(report.iterations > 3, "plusieurs passes ({})", report.iterations);
+        assert!(
+            heartbeats.load(Ordering::SeqCst) >= 1,
+            "le heartbeat doit battre sur classe unique (V2)"
+        );
+        assert_eq!(report.best_cost.unplaced, 0);
     }
 
     /// T4 (plan §2.3, C3) : sur une séquence à forte multiplicité (le
@@ -506,8 +584,8 @@ mod tests {
         let importer = Importer::new(
             sparrow::config::DEFAULT_SPARROW_CONFIG.cde_config,
             Some(0.001),
+            Some(0.01),
             None,
-            Some((0.01, 0.01)),
         );
         let instance = import_instance(&importer, &ext).unwrap();
         let seq: Vec<usize> = std::iter::repeat(0).take(6)
