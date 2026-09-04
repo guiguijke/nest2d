@@ -1013,3 +1013,59 @@ class TestW4ContainmentAtPositiveSpace:
         # FRONTIÈRE ≥ space : c'est l'angle mort W4, corrigé côté JS).
         assert host_body.distance(fan) == 0.0
         assert _pair_violates(fan, host_body, 2.0) is True
+
+
+class TestY2ReturnToDonorValidated:
+    """Y2 (vérif tour 5, bloquant) : les non-posées rendues sur la donneuse
+    sont validées contre TOUTE la donneuse — l'ancien changed_ids=set()
+    vidait l'occupancy (no-op : un carré posé sur un carré passait), et
+    une libre de receveuse était téléportée sur la donneuse à ses
+    coordonnées de receveuse sans contrôle."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_square_on_square_rejected(self):
+        from core.residual import _validate_return
+        # l'hôte a un TROU : une fan au centre tombe DANS le trou (légal).
+        # On place donc la fan à cheval sur la MATIÈRE de l'hôte.
+        l = layout([pi(0, 200.0, 200.0)])
+        intruder = pi(1, 236.0, 200.0)  # à cheval sur le bord du carré
+        assert _validate_return([intruder], l, BY_ID, 2.0) is False
+        # et deux FANS superposées (aucun trou en jeu) :
+        l2 = layout([pi(1, 200.0, 200.0)])
+        assert _validate_return([pi(1, 202.0, 200.0)], l2, BY_ID, 2.0) is False
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_receiver_free_on_donor_part_rolls_back(self):
+        from core.residual import _merge_fill_compact_receivers
+        # donneuse : un hôte à (600, 500) ; receveuse : hôtes + une libre
+        # à (600, 500) — coordonnées RECEVEUSE tombant sur la pièce
+        # donneuse. La passe doit refuser (rollback restore-donor) et
+        # restaurer les deux tôles.
+        donor = layout([pi(0, 600.0, 500.0)])
+        recv_hosts = [pi(0, 52.0 + 102 * (k % 2), 52.0 + 102 * (k // 2))
+                      for k in range(8)]
+        teleported = pi(1, 600.0, 500.0)  # libre receveuse sur la donneuse
+        recv = layout(recv_hosts + [teleported])
+        before_recv = len(recv["placed_items"])
+        stats = {}
+        _merge_fill_compact_receivers([recv, donor], 0, BY_ID, BIN, 2.0,
+                                      stats=stats)
+        # soit rollback complet (poses d'origine), soit la libre a été
+        # re-posée/validée proprement — JAMAIS laissée en chevauchement.
+        from shapely.geometry import Polygon
+        for lay in (recv, donor):
+            polys = []
+            for p in lay["placed_items"]:
+                it = BY_ID[p["item_id"]]
+                t = p["transformation"]
+                r = math.radians(float(t["rotation"]))
+                c, si = math.cos(r), math.sin(r)
+                pts = [(t["translation"][0] + c * x - si * y,
+                        t["translation"][1] + si * x + c * y)
+                       for x, y in it["coords"]]
+                polys.append(Polygon(pts))
+            for i in range(len(polys)):
+                for j in range(i + 1, len(polys)):
+                    assert polys[i].intersection(polys[j]).area <= 0.01, \
+                        f"chevauchement téléport {i}-{j}"
+        assert len(recv["placed_items"]) >= before_recv

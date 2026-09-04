@@ -1353,24 +1353,6 @@ def _nesting_process_impl(doc):
 
     # X4 (vérif tour 4) : état BRUT par tôle AVANT tout post-pass — la
     # mesure « pire que le moteur ? » du corpus compare pre → final.
-    from core.residual import layout_aabb as _pre_layout_aabb
-    _items_by_id = {it["id"]: it for it in input_items}
-    for engine_alt in engine_alternatives:
-        engine_alt.setdefault("postPass", {})
-        layouts_pre = (engine_alt.get("solution") or {}).get("layouts") or []
-        engine_alt["postPass"].setdefault("pre", [
-            {"sheet": i,
-             "count": len(l.get("placed_items") or []),
-             "frontX": (round(_pre_layout_aabb(l, _items_by_id)[2], 1)
-                        if (l.get("placed_items")
-                            and _pre_layout_aabb(l, _items_by_id)) else None)}
-            for i, l in enumerate(layouts_pre)
-        ])
-    # le bloc meta ci-dessous fait engine_alt["postPass"] = {...} qui
-    # ÉCRASERAIT pre — le préserver.
-    for engine_alt in engine_alternatives:
-        engine_alt["_pre_snapshot"] = engine_alt["postPass"].get("pre")
-
     # J-085 / D-MOT-16 : expansion meta — rattache les fillers figés aux
     # hôtes posés par le solve réduit, avant reveal + finalisation.
     if meta:
@@ -1380,7 +1362,6 @@ def _nesting_process_impl(doc):
             engine_alt["postPass"] = {
                 "expandMeta": 0, "holeFillRecovered": 0, "residualMoved": 0,
                 "residualRounds": 0, "compactRollback": False, "errors": [],
-                "pre": engine_alt.get("_pre_snapshot"),
             }
             # Alternative structurelle : ids d'ORIGINE + trous déjà remplis
             # par le pass grille (self_contained). Le remap ci-dessous
@@ -1434,6 +1415,23 @@ def _nesting_process_impl(doc):
                 {"expandMeta": 0, "holeFillRecovered": 0, "residualMoved": 0,
                  "residualRounds": 0, "compactRollback": False, "errors": []},
             )["holeFillRecovered"] = n
+
+    # Y4 (vérif tour 5) : pre = état APRÈS expansion + hole-fill, AVANT
+    # fill_residual_bands — le gain mesuré est celui du post-pass
+    # RÉSIDUEL, pas celui de l'expansion des fans nichées (l'ancien
+    # snapshot avant-expand gonflait le gain T-A de 400 fans). Miroir JS.
+    from core.residual import layout_aabb as _pre_layout_aabb
+    _items_by_id = {it["id"]: it for it in input_items}
+    for engine_alt in engine_alternatives:
+        engine_alt.setdefault("postPass", {})
+        _lay = (engine_alt.get("solution") or {}).get("layouts") or []
+        _snap = []
+        for i, l in enumerate(_lay):
+            aabb = _pre_layout_aabb(l, _items_by_id) if l.get("placed_items") else None
+            _snap.append({"sheet": i,
+                          "count": len(l.get("placed_items") or []),
+                          "frontX": round(aabb[2], 1) if aabb else None})
+        engine_alt["postPass"]["pre"] = _snap
 
     # D-MOT-19 (docs/PLAN-bpp-impl.md) : remplissage des bandes résiduelles
     # — BPP multi-tôles uniquement. Le constructif empile les petites
@@ -1776,7 +1774,13 @@ def _nesting_process_impl(doc):
                 # Legacy fields = best alternative (retro-compat readers).
                 "dxf_files": best["dxf_files"],
                 "svg_files": best["svg_files"],
-                "placed": total_requested_count,
+                # Y3 (vérif tour 5) : pièces RÉELLEMENT posées par la
+                # meilleure alternative (une solution partielle affichait
+                # la demande : « placed 90 » pour 89 posées). Le report
+                # par tôle porte le compte exact post-finalisation.
+                "placed": sum(s2.get("partCount") or 0
+                              for s2 in (best.get("report", {})
+                                         .get("sheets") or [])) or total_requested_count,
                 "layoutCount": best["layoutCount"],
                 "density": best["density"],
                 "usedSheetShare": best["usedSheetShare"],

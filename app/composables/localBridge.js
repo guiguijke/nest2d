@@ -902,7 +902,9 @@ export async function buildAlternativeArtifacts(result, payload) {
                 holeFillRecovered,
                 residualMoved: 0, residualRounds: 0,
                 compactRollback: false, errors: [],
-                // X4 : état brut AVANT post-pass (miroir main.py).
+                // X4/Y4 : état après expansion + hole-fill, AVANT le
+                // post-pass résiduel (miroir main.py — le gain mesuré est
+                // celui du post-pass, pas de l'expansion).
                 pre,
             }
             // D-MOT-19 : bandes résiduelles BPP (miroir core/residual.py) —
@@ -1041,6 +1043,15 @@ export function toServerShapeAlternatives(result, payload, artifacts) {
             svgs: art.sheets || [],
             report: {
                 ...verify,
+                // Y3 (vérif tour 5) : unplaced explicite en solution
+                // partielle (miroir main.py) — demandé moins posé moteur.
+                unplaced: (() => {
+                    const requested = parts.reduce(
+                        (n, p2) => n + (Number(p2.count) || 0), 0)
+                    const placedEngine = layouts.reduce(
+                        (n, l) => n + (l.placed_items?.length || 0), 0)
+                    return Math.max(0, requested - placedEngine)
+                })(),
                 // A5 : observabilité des post-pass (additif — miroir du
                 // champ report.postPass serveur).
                 postPass: art.postPass ?? null,

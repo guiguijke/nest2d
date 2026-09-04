@@ -610,3 +610,17 @@ describe('W4 : containment rejeté aussi à space > 0 (vérif 2026-09-04)', () =
         expect(pairViolates(b, a, 0)).toBe(true)
     })
 })
+
+
+describe('Y2 : non-posées rendues sur la donneuse VALIDÉES (vérif tour 5)', () => {
+    it('fan superposée à une pièce de la donneuse → rejet (miroir Python)', async () => {
+        const { validateReturn } = await import('../composables/residualClient')
+        const partsById = new Map([['1', FAN_PART]])
+        const l = layout([pi(1, 200, 200)])
+        const intruder = { item_id: 1, transformation: { rotation: 0, translation: [202, 200] } }
+        expect(validateReturn([intruder], l, partsById, 2)).toBe(false)
+        // loin de toute pièce → acceptée
+        const far = { item_id: 1, transformation: { rotation: 0, translation: [600, 600] } }
+        expect(validateReturn([far], l, partsById, 2)).toBe(true)
+    })
+})

@@ -828,7 +828,7 @@ function relayFreesBehindAnchor(layouts, sheetI, free, pocketRects,
 // (`changedIds`) — comparer contre tout le layout re-jugeait des paires
 // moteur inchangées sous le seuil et annulait des passes gagnantes.
 // Sans changedIds : repli tolérance space − 2×SIMPLIFY − ε (A14).
-function validateReturn(pis, layout, partsById, space, changedIds = null) {
+export function validateReturn(pis, layout, partsById, space, changedIds = null) {
     const excl = new Set(pis)
     const changed = changedIds || null
     const occ = []
@@ -919,8 +919,10 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
             // validation du lot rendu contre les pièces modifiées par la
             // passe (aucune sur la donneuse) — les poses d'origine étaient
             // légales entre elles à l'entrée.
+            // Y2 (vérif tour 5) : validation contre TOUTE la donneuse
+            // (l'ancien new Set() vidait l'occupancy = no-op).
             const okRet = !remaining.length
-                || validateReturn(remaining, donor, partsById, space, new Set())
+                || validateReturn(remaining, donor, partsById, space)
             let ok = okRet
             if ((recv.placed_items || []).length < recvBeforeCount) {
                 ok = false

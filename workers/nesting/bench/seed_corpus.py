@@ -188,7 +188,7 @@ def main():
 
     cases = (os.environ.get("CORPUS_CASES") or "A,B,C,D,E,F,G,H,I").split(",")
     ts = int(time.time())
-    for case in cases:
+    for case_idx, case in enumerate(cases):
         case = case.strip().upper()
         files, sheets, space, note = case_files(case)
         for f in files:
@@ -209,7 +209,9 @@ def main():
                 }},
                 upsert=True,
             )
-        job_slug = f"bench-corpus-{case.lower()}-{ts}"
+        # Y5 (vérif tour 5) : suffixe d'index — deux cas dans la même
+        # seconde partageaient le slug (trois docs, un seul traité).
+        job_slug = f"bench-corpus-{case.lower()}-{ts}-{case_idx}"
         db["nesting_jobs"].insert_one({
             "slug": job_slug,
             "projectSlug": "bench-project",

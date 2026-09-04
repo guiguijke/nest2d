@@ -67,6 +67,7 @@ def fiche(slug_prefix="bench-corpus-", since=None):
                               "compactRollback", "compactRollbackReason",
                               "errors")},
                 "perSheet": [s.get("partCount") for s in (r.get("sheets") or [])],
+                "pre": pp.get("pre"),
             })
             errors = pp.get("errors") or []
             verdict_ok = (
@@ -85,7 +86,12 @@ def fiche(slug_prefix="bench-corpus-", since=None):
 
 
 if __name__ == "__main__":
-    rows = fiche()
+    # Y7 (vérif tour 5) : par défaut, ne lister que les jobs portant
+    # report.postPass.pre (génération courante) — l'ancien défaut
+    # mélangeait tous les jobs historiques.
+    import os as _os
+    rows = fiche(since=_os.environ.get("CORPUS_SINCE"))
+    rows = [r for r in rows if r.get("pre") is not None or r["verdict"].startswith("ÉCHEC")]
     fails = 0
     for r in rows:
         print(f"T-{r['case']}: {r['verdict']} | {r.get('placed')}/{r.get('requested')}"

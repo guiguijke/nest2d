@@ -564,6 +564,9 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         const bestRaw = result.alternatives[0]
         placed = normalizeLayouts(bestRaw?.solution)
             .reduce((n, l) => n + (l.placed_items?.length || 0), 0)
+        // Y3 : le comptage ci-dessus est déjà le POSÉ réel (post-
+        // artefacts) — inchangé ; la demande ne doit jamais être
+        // affichée comme placée en solution partielle.
         alternatives = toServerShapeAlternatives(result, payload, arts) || []
         // m-1 (audit 2026-08-31 §R-m.1) : même ordre d'affichage que la
         // finalisation SERVEUR (main.py — grille d'abord par choix produit,

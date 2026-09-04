@@ -844,9 +844,14 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
             # construction — garde quand même pour le cas multi-receveurs
             # où un tour précédent a posé sur... impossible ici).
             sw_d, sh_d = bin_dims[donor["container_id"]]
+            # Y2 (vérif tour 5, bloquant) : les non-posées rendues sur la
+            # donneuse sont validées contre TOUTE la donneuse — l'ancien
+            # changed_ids=set() vidait l'occupancy (no-op : un carré posé
+            # sur un carré passait). Tolérance A14 (space − 2×SIMPLIFY − ε)
+            # car la géométrie de référence est celle des anneaux
+            # simplifiés du moteur.
             ok = (not remaining or
-                  _validate_return(remaining, donor, items_by_id, space,
-                                   changed_ids=set()))
+                  _validate_return(remaining, donor, items_by_id, space))
             # W3/§5.1 : la receveuse ne doit JAMAIS finir moins pleine.
             if len(recv.get("placed_items", [])) < recv_before_count:
                 ok = False
