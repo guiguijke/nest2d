@@ -369,13 +369,22 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
                 continue
             if any(_pair_violates(poly, _p, space) for _pi, _p in new_entries):
                 continue
+            old_tr = pi["transformation"]
             pi["transformation"] = {"rotation": tr["rotation"],
                                     "translation": tuple(tr["translation"])}
             if src is not dst:
                 _remove_by_identity(src["placed_items"], pi)
             dst["placed_items"].append(pi)
             new_entries.append((pi, poly))
-            committed += 1
+            # V18 : seules les transformations RÉELLEMENT modifiées
+            # comptent (une fan re-posée à sa propre pose lattice n'a pas
+            # bougé — le 2ᵉ appel comptait 422 « déplacées » sans mouvement).
+            if (abs(float(tr["rotation"]) - float(old_tr.get("rotation", 0.0))) > 1e-9
+                    or abs(float(tr["translation"][0])
+                           - float(old_tr.get("translation", (0.0, 0.0))[0])) > 1e-9
+                    or abs(float(tr["translation"][1])
+                           - float(old_tr.get("translation", (0.0, 0.0))[1])) > 1e-9):
+                committed += 1
         if committed:
             return committed
     return 0
@@ -604,36 +613,54 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
     units, free = _helix_units_and_free(last, items_by_id)
     if not units and not free:
         return 0
-    # Phase 3.1 (plan 2026-09-03) : compaction CONDITIONNELLE — no-op
-    # quand il n'y a rien à compacter (hôtes déjà en colonnes depuis le
-    # bord −X et front des libres déjà en colonne unique) : le re-grid
-    # ne ferait que rejouer les mêmes poses. Banc : chute identique à
-    # ±5 mm (le corpus de référence DOIT rester compacté).
+    # Phase 3.1 (plan 2026-09-03) + V7 (vérif 2026-09-04) : compaction
+    # CONDITIONNELLE — no-op quand il n'y a VRAIMENT rien à compacter.
+    # Le critère du 03/09 comparait l'étalement des hôtes au X MAX de la
+    # bbox (Python) vs la LARGEUR (JS) — décisions divergentes — et était
+    # aveugle à la POSITION : une colonne d'hôtes collée au bord +X avec
+    # des libres au milieu passait pour « rien à compacter ». Unifié :
+    # (a) hôtes en colonnes (étalement ≤ 1 largeur + tol) ET ancrés au
+    # bord −X ; (b) libres déjà en colonne(s) démarrées derrière
+    # l'ancre. Miroir EXACT JS (mêmes tolérances).
+    tol = 4 * space + 1.0
     if units:
         hosts_x = [float(u["host"]["transformation"]["translation"][0])
                    for u in units]
-        hosts_col = (max(hosts_x) - min(hosts_x)) <= max(
-            _bbox(items_by_id[u["host"]["item_id"]]["coords"])[2]
-            for u in units) + 4 * space + 1.0
+        host_w = max(
+            _rotated_bbox(_bbox(items_by_id[u["host"]["item_id"]]["coords"]),
+                          float(u["host"]["transformation"]["rotation"]))[2]
+            - _rotated_bbox(_bbox(items_by_id[u["host"]["item_id"]]["coords"]),
+                            float(u["host"]["transformation"]["rotation"]))[0]
+            for u in units)
+        hosts_col = (max(hosts_x) - min(hosts_x)) <= host_w + tol
+        hosts_left = min(hosts_x) <= space + tol
     else:
         hosts_col = True
+        hosts_left = True
+    anchor_maxx = 0.0
+    for u in units:
+        it = items_by_id[u["host"]["item_id"]]
+        bb = _rotated_bbox(_bbox(it["coords"]),
+                           float(u["host"]["transformation"]["rotation"]))
+        anchor_maxx = max(anchor_maxx,
+                          u["host"]["transformation"]["translation"][0] + bb[2])
     if free:
-        frees_x1 = []
+        free_geo = []
         for pi in free:
             it = items_by_id[pi["item_id"]]
             bb = _rotated_bbox(_bbox(it["coords"]),
                                float(pi["transformation"]["rotation"]))
-            frees_x1.append(pi["transformation"]["translation"][0] + bb[2])
-        min_free_w = min(
-            _rotated_bbox(_bbox(items_by_id[pi["item_id"]]["coords"]),
-                          float(pi["transformation"]["rotation"]))[2]
-            - _rotated_bbox(_bbox(items_by_id[pi["item_id"]]["coords"]),
-                            float(pi["transformation"]["rotation"]))[0]
-            for pi in free)
-        frees_col = (max(frees_x1) - min(frees_x1)) <= 2 * min_free_w + 4 * space + 1.0
+            free_geo.append((pi["transformation"]["translation"][0],
+                             pi["transformation"]["translation"][0] + bb[2],
+                             bb[2] - bb[0]))
+        min_free_w = min(g[2] for g in free_geo)
+        frees_col = (max(g[1] for g in free_geo)
+                     - min(g[0] for g in free_geo)) <= 2 * min_free_w + tol
+        frees_left = min(g[0] for g in free_geo) <= anchor_maxx + space + tol
     else:
         frees_col = True
-    if hosts_col and frees_col:
+        frees_left = True
+    if hosts_col and hosts_left and frees_col and frees_left:
         return 0
     full_snapshot = copy.deepcopy(last.get("placed_items", []))
     try:

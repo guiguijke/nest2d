@@ -853,6 +853,7 @@ export async function buildAlternativeArtifacts(result, payload) {
             // les ids d'origine (idMap) puis rattache les fillers figés aux
             // hôtes ; puis post-pass de sécurité (no-op si trous déjà
             // pleins) — parité serveur.
+            let expandedCount = 0
             if (payload?.meta && !selfContained) {
                 const idMap = payload.meta.idMap
                 if (Array.isArray(idMap)) {
@@ -863,29 +864,35 @@ export async function buildAlternativeArtifacts(result, payload) {
                         }
                     }
                 }
+                const nBefore = layouts.reduce(
+                    (n, l) => n + (l.placed_items?.length || 0), 0)
                 if (payload.meta.packs) {
                     expandPacks(parts, payload.meta.packs, layouts)
                 } else {
                     expandMeta(parts, payload.meta.host, payload.meta.fill, payload.meta.slots, layouts, payload.meta.ringRotations)
                 }
+                // V18 : pièces rattacchées par l'expansion (miroir du
+                // compteur main.py).
+                expandedCount = layouts.reduce(
+                    (n, l) => n + (l.placed_items?.length || 0), 0) - nBefore
             }
             // A5 (audit 2026-09-03) : traçabilité des post-pass (additif,
             // miroir de engine_alt.postPass côté main.py) — plus de pass
             // muet : expandMeta compté, holeFillRecovered = relocations,
             // residual stats (moved/rounds/rollback/errors).
-            const before = layouts.reduce(
-                (n, l) => n + (l.placed_items?.length || 0), 0)
             let holeFillRecovered = 0
             if (!selfContained && holesGateOpen(payload, parts)) {
                 holeFillRecovered = applyHoleFill(parts, layouts, space)
             }
             const postPass = {
-                expandMeta: 0, holeFillRecovered,
+                // V18 : expandMeta = pièces RATTACHÉES par l'expansion meta
+                // (comptées dans le bloc d'exptraction ci-dessus) —
+                // holeFillRecovered est des RELOCATIONS, pas des ajouts.
+                expandMeta: expandedCount,
+                holeFillRecovered,
                 residualMoved: 0, residualRounds: 0,
                 compactRollback: false, errors: [],
             }
-            postPass.expandMeta = layouts.reduce(
-                (n, l) => n + (l.placed_items?.length || 0), 0) - before - holeFillRecovered
             // D-MOT-19 : bandes résiduelles BPP (miroir core/residual.py) —
             // APRÈS hole-fill (les trous sont de meilleurs emplacements),
             // AVANT SVG/rapport/DXF sinon le livrable ignore le pass.

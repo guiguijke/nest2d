@@ -359,6 +359,9 @@ function buildLiveLayout(result, payload, bestAlt) {
     return {
         stage: 'final',
         feasible: true,
+        // V6 : bias de l'alternative — la frame finale doit vivre dans SA
+        // classe (et remplace de toute façon toutes les classes).
+        bias: bestAlt?.bias ?? null,
         density: bestAlt?.solution?.density ?? bestAlt?.density ?? null,
         // Portés explicitement : sans strip_width, fitsSheet retourne
         // true par défaut et une frame finale hors-tôle passerait pour

@@ -269,6 +269,28 @@ function offerChampion(live) {
     // become champion — mid-search separation states (over-width, pieces
     // spilling out) are working states, not presentable layouts.
     if (!fitsSheet(live)) return;
+    // V6 (vérif 2026-09-04) : une frame FINALE/reveal (résultat
+    // post-passé) remplace TOUTES les classes, sans passer par isBetter —
+    // sans bias elle atterrissait dans 'best', jamais affichée en −X
+    // (selected = 'left') : le panneau vivait « Optimizing sheets » sur
+    // une frame moteur dentelée pendant que le modal montrait le final.
+    const isFinal = live.stage === 'final' || live.stage === 'reveal';
+    if (isFinal) {
+        for (const cls of [...DIRECTION_CLASSES, 'best']) {
+            pendingChamps[cls] = live;
+        }
+        if (champTimer) return;
+        champTimer = setTimeout(() => {
+            champTimer = null;
+            const next = { ...champions.value };
+            for (const [k, v] of Object.entries(pendingChamps)) {
+                if (isBetter(v, next[k]) || v.stage === 'final' || v.stage === 'reveal') next[k] = v;
+            }
+            champions.value = next;
+            pendingChamps = {};
+        }, 150);
+        return;
+    }
     const cls = DIRECTION_CLASSES.includes(live.bias) ? live.bias : 'best';
     if (!isBetter(live, pendingChamps[cls] || champions.value[cls])) return;
     pendingChamps[cls] = live;

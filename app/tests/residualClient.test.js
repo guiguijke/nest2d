@@ -518,3 +518,36 @@ describe('V4 : contact à distance 0 rejeté à space > 0 (vérif 2026-09-04)', 
         expect(pairViolates(a, b, 0)).toBe(false)
     })
 })
+
+
+describe('V7 : critère de compaction unifié (position + largeur, vérif 2026-09-04)', () => {
+    it('colonne unique au bord +X → COMPACTÉE (l\'ancien critère sautait)', async () => {
+        const mod = await import('../composables/residualClient')
+        const partsById = new Map([['0', HOST], ['1', FAN_PART]])
+        const hosts = []
+        for (let k = 0; k < 9; k++) hosts.push(pi(0, 900, 52 + 102 * k))
+        const fans = []
+        for (let k = 0; k < 60; k++) fans.push(pi(1, 60 + 45 * (k % 8), 60 + 42 * Math.floor(k / 8)))
+        const last = layout(hosts.concat(fans))
+        const n = mod.compactLastSheet([last], 0, partsById, () => [1000, 1000], 2, payload)
+        expect(n).toBeGreaterThan(0)
+        const xs = last.placed_items.map((p) => p.transformation.translation[0])
+        expect(Math.min(...xs)).toBeLessThanOrEqual(5.0)
+    })
+
+    it('déjà compacté (colonne −X + libres derrière) → no-op', async () => {
+        const mod = await import('../composables/residualClient')
+        const partsById = new Map([['0', HOST], ['1', FAN_PART]])
+        const hosts = []
+        for (let k = 0; k < 9; k++) hosts.push(pi(0, 52, 52 + 102 * k))
+        const fans = []
+        for (let k = 0; k < 40; k++) fans.push(pi(1, 160 + 42 * Math.floor(k / 22), 2 + 30 * (k % 22)))
+        const last = layout(hosts.concat(fans))
+        const before = JSON.parse(JSON.stringify(last.placed_items.map((p) => [p.item_id, p.transformation.translation])))
+        const n = mod.compactLastSheet([last], 0, partsById, () => [1000, 1000], 2, payload)
+        if (n === 0) {
+            const after = last.placed_items.map((p) => [p.item_id, p.transformation.translation])
+            expect(JSON.parse(JSON.stringify(after))).toEqual(before)
+        }
+    })
+})

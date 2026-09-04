@@ -1482,6 +1482,9 @@ def _nesting_process_impl(doc):
             "stage": "reveal",
             "worker": rank,
             "feasible": True,
+            # V6 : bias de l'alternative — la frame reveal vit dans sa
+            # classe (et remplace toutes les classes côté vue).
+            "bias": engine_alt.get("bias"),
             "strip_width": engine_alt.get("metrics", {}).get("strip_width"),
             "density": engine_alt.get("metrics", {}).get("density"),
             # C12 : bins = NOMBRE de tôles (l'ancien champ portait le

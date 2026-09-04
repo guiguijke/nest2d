@@ -444,6 +444,7 @@ export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space,
             if (newRings.some((otherRing) => pairViolates(ring, otherRing, space))) {
                 continue
             }
+            const oldTr = pi.transformation || {}
             pi.transformation = {
                 rotation: lp.rotation,
                 translation: [...(lp.translation || [0, 0])],
@@ -454,7 +455,16 @@ export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space,
             }
             dst.placed_items.push(pi)
             newRings.push(ring)
-            committed++
+            // V18 : seules les transformations RÉELLEMENT modifiées
+            // comptent (miroir Python).
+            const ox = oldTr.translation?.[0] ?? 0
+            const oy = oldTr.translation?.[1] ?? 0
+            const orot = Number(oldTr.rotation) || 0
+            if (Math.abs((Number(lp.rotation) || 0) - orot) > 1e-9
+                || Math.abs((lp.translation?.[0] ?? 0) - ox) > 1e-9
+                || Math.abs((lp.translation?.[1] ?? 0) - oy) > 1e-9) {
+                committed++
+            }
         }
         if (committed) return committed
     }
@@ -685,36 +695,46 @@ export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space,
     const [sw, sh] = sheetDimsOf(last)
     const { units, free } = helixUnitsAndFree(last, partsById)
     if (!units.length && !free.length) return 0
-    // Phase 3.1 (plan 2026-09-03, miroir Python) : compaction
-    // CONDITIONNELLE — no-op quand il n'y a rien à compacter (hôtes déjà
-    // en colonnes, front des libres déjà en colonne unique).
-    if (units.length) {
-        const xs = units.map((u) => Number(u.host.transformation?.translation?.[0] || 0))
-        const maxHostW = Math.max(...units.map((u) => {
-            const bb = bbox(itemCoords(partsById.get(String(u.host.item_id))))
-            return bb[2] - bb[0]
-        }))
-        var hostsCol = (Math.max(...xs) - Math.min(...xs)) <= maxHostW + 4 * space + 1.0
-    } else {
-        var hostsCol = true
+    // Phase 3.1 + V7 (vérif 2026-09-04) : critère UNIFIÉ avec Python —
+    // largeur tournée (pas x max) ET position (ancrage −X des hôtes,
+    // libres démarrées derrière l'ancre). Une colonne au bord +X avec
+    // des libres au milieu n'est PAS « déjà compactée ».
+    {
+        const tol = 4 * space + 1.0
+        let hostsCol2 = true
+        let hostsLeft = true
+        let anchorMaxx = 0
+        if (units.length) {
+            const xs = units.map((u) => Number(u.host.transformation?.translation?.[0] || 0))
+            const hostW = Math.max(...units.map((u) => {
+                const part2 = partsById.get(String(u.host.item_id))
+                const bb = rotatedBbox(bbox(itemCoords(part2)), Number(u.host.transformation?.rotation) || 0)
+                return bb[2] - bb[0]
+            }))
+            hostsCol2 = (Math.max(...xs) - Math.min(...xs)) <= hostW + tol
+            hostsLeft = Math.min(...xs) <= space + tol
+            for (const u of units) {
+                const part2 = partsById.get(String(u.host.item_id))
+                const bb = rotatedBbox(bbox(itemCoords(part2)), Number(u.host.transformation?.rotation) || 0)
+                anchorMaxx = Math.max(anchorMaxx, (u.host.transformation?.translation?.[0] || 0) + bb[2])
+            }
+        }
+        let freesCol2 = true
+        let freesLeft = true
+        if (free.length) {
+            const geo = free.map((pi) => {
+                const part2 = partsById.get(String(pi.item_id))
+                const bb = rotatedBbox(bbox(itemCoords(part2)), Number(pi.transformation?.rotation) || 0)
+                const x0 = pi.transformation?.translation?.[0] || 0
+                return [x0, x0 + bb[2], bb[2] - bb[0]]
+            })
+            const minW = Math.min(...geo.map((g) => g[2]))
+            freesCol2 = (Math.max(...geo.map((g) => g[1])) - Math.min(...geo.map((g) => g[0])))
+                <= 2 * minW + tol
+            freesLeft = Math.min(...geo.map((g) => g[0])) <= anchorMaxx + space + tol
+        }
+        if (hostsCol2 && hostsLeft && freesCol2 && freesLeft) return 0
     }
-    if (free.length) {
-        const x1s = free.map((pi) => {
-            const part = partsById.get(String(pi.item_id))
-            const bb = rotatedBbox(bbox(itemCoords(part)), Number(pi.transformation?.rotation) || 0)
-            return (pi.transformation?.translation?.[0] || 0) + bb[2]
-        })
-        const widths = free.map((pi) => {
-            const part = partsById.get(String(pi.item_id))
-            const bb = rotatedBbox(bbox(itemCoords(part)), Number(pi.transformation?.rotation) || 0)
-            return bb[2] - bb[0]
-        })
-        const minW = Math.min(...widths)
-        var freesCol = (Math.max(...x1s) - Math.min(...x1s)) <= 2 * minW + 4 * space + 1.0
-    } else {
-        var freesCol = true
-    }
-    if (hostsCol && freesCol) return 0
     const fullSnapshot = JSON.parse(JSON.stringify(last.placed_items || []))
     try {
         // Phase 1 : hélices re-grillées en colonnes depuis le bord gauche

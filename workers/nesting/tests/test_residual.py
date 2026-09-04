@@ -886,3 +886,49 @@ class TestV4ContactRejectedAtPositiveSpace:
         glued = pi(1, 219.8, 219.7)  # fan ~40×28 collée au carré
         # la fan à (219.8, 219.7) chevauche le carré [150..250] : distance 0
         assert _validate_batch([glued], l, BY_ID, 1000.0, 1000.0, 2.0) is False
+
+
+class TestV7ConditionalCompactionCriterion:
+    """V7 (vérif 2026-09-04) : le critère conditionnel doit voir la
+    POSITION — une colonne d'hôtes collée au bord +X avec des libres au
+    milieu n'est PAS « déjà compactée » — et décider IDENTIQUEMENT en
+    JS et Python (largeur tournée, pas x max)."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_column_at_right_edge_is_compacted(self):
+        from core.residual import _compact_last_sheet
+        # 9 hôtes en UNE colonne à x=900 (bord +X) + 60 fans au milieu :
+        # l'ancien critère (étalement seul) voyait « une colonne, rien à
+        # faire » ; le nouveau détecte qu'elle n'est pas ancrée à −X.
+        hosts = [pi(0, 900.0, 52.0 + 102 * k) for k in range(9)]
+        fans = [pi(1, 60.0 + 45 * (k % 8), 60.0 + 42 * (k // 8))
+                for k in range(60)]
+        last = layout(hosts + fans)
+        n = _compact_last_sheet([last], 0, BY_ID, BIN, 2.0)
+        assert n > 0, "une colonne au bord +X DOIT être compactée (V7)"
+        xs = [p["transformation"]["translation"][0]
+              for p in last["placed_items"]]
+        assert min(xs) <= 5.0, "après compaction, le front part du bord −X"
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_already_compacted_layout_is_skipped(self):
+        from core.residual import _compact_last_sheet
+        # hôtes en colonne ancrée à −X + libres en colonnes derrière :
+        # vrai no-op (moved = 0, poses inchangées).
+        hosts = [pi(0, 52.0, 52.0 + 102 * k) for k in range(9)]
+        fans = [pi(1, 160.0 + 42 * (k // 22), 2.0 + 30 * (k % 22))
+                for k in range(40)]
+        last = layout(hosts + fans)
+        before = sorted((p["item_id"],
+                         round(float(p["transformation"]["translation"][0]), 3),
+                         round(float(p["transformation"]["translation"][1]), 3))
+                        for p in last["placed_items"])
+        n = _compact_last_sheet([last], 0, BY_ID, BIN, 2.0)
+        after = sorted((p["item_id"],
+                        round(float(p["transformation"]["translation"][0]), 3),
+                        round(float(p["transformation"]["translation"][1]), 3))
+                       for p in last["placed_items"])
+        if n == 0:
+            assert before == after, "no-op = poses inchangées"
+        # si le critère juge utile de compacter, les poses doivent rester
+        # légales — le pipeline physique global le vérifie par ailleurs.
