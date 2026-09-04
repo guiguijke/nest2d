@@ -638,16 +638,19 @@ DÉPLOIEMENT (voir docs/ARCHITECTURE.md §1 pour le schéma) :
     local-fail (refund) — jamais un done à 0 pièce. L'échappatoire debug
     livre quand même ces alternatives pour inspection.
 
-57. **Space 0 : le seuil de validation est planché des DEUX côtés
-    (constat 2026-09-03, A1/D5).** À space ≤ marge de simplify,
-    `dist < space − ε` ne rejette plus rien : la validation Python
-    laissait passer 3 136 chevauchements au banc. Règle : la paire à
-    distance 0 est rejetée si VRAI chevauchement d'aire (Python :
-    intersection shapely > 0,01 mm² ; JS : croisement propre d'arêtes OU
-    centroïde/sommet/milieu d'arête strictement intérieur — PAS la
-    collinéarité seule, un contact bord à bord en a aussi). Le contact
-    légal (jumeaux pinwheel) reste permis (§8.1). Verrous :
-    TestSpace0Validation + residualClient « pairViolates ».
+57. **Seuil de validation post-pass : space > 0 vs space 0 (A1/D5 puis
+    V4, vérif 2026-09-04).** À space > 0 : TOUTE paire à d < space − ε
+    est une violation, Y COMPRIS le contact bord à bord à distance 0
+    sans aire (une première implémentation ne rejetait que l'aire). À
+    space 0 (≤ ε) : le contact est PERMIS, seul le chevauchement d'aire
+    est rejeté (Python : intersection shapely > 0,01 mm² ; JS :
+    ringsOverlap = croisements propres + centroïde/sommets/milieux
+    d'arêtes strictement intérieurs + containment V9 — PAS la
+    collinéarité seule). Les DEUX côtés doivent appliquer la MÊME
+    politique (V5 : un plancher 1e-9 résiduel côté JS rejetait le
+    contact à space 0 — chute navigateur 371 contre 562 serveur).
+    Verrous : TestSpace0Validation, TestV4ContactRejectedAtPositiveSpace,
+    residualClient « pairViolates ».
 58. **Snapshot AVANT toute mutation d'un post-pass multi-phases (constat
     2026-09-03, A2).** Le rollback de compaction restaurait un état
     PRIS APRÈS le re-grid : les hôtes re-grillés recouvraient les libres

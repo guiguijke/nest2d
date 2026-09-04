@@ -193,7 +193,23 @@ def _pair_violates(poly, other, space):
     d = poly.distance(other)
     if space > _EPS:
         return d < space - _EPS
-    return d == 0.0 and poly.intersection(other).area > _OVERLAP_EPS_MM2
+    if d > 0.0:
+        # V9 (vérif 2026-09-04) : containment à d > 0 — un petit polygone
+        # INCLUS dans un grand (sans croiser sa frontière) mesure une
+        # distance de frontière positive mais chevauche le matériau.
+        ab, bb_ = poly.bounds, other.bounds
+        a_in_b = (ab[0] >= bb_[0] and ab[1] >= bb_[1]
+                  and ab[2] <= bb_[2] and ab[3] <= bb_[3])
+        b_in_a = (bb_[0] >= ab[0] and bb_[1] >= ab[1]
+                  and bb_[2] <= ab[2] and bb_[3] <= ab[3])
+        if a_in_b or b_in_a:
+            inner = poly if a_in_b and not b_in_a else other
+            outer_poly = other if inner is poly else poly
+            c = inner.centroid
+            if outer_poly.contains(c):
+                return True
+        return False
+    return poly.intersection(other).area > _OVERLAP_EPS_MM2
 
 
 # Miroir de metrics.OVERLAP_EPS_MM2 : aire d'intersection sous ce seuil =
@@ -261,10 +277,24 @@ def _validate_batch(new_pis, layout, items_by_id, sheet_w, sheet_h, space):
     jugées entre elles."""
     entries, tree = _occupancy(layout, items_by_id,
                                exclude=[id(pi) for pi in new_pis])
+    # V9 : doublon = même (item_id, rotation, translation) à 1e-6 — deux
+    # L concaves superposés échappent à la détection géométrique.
+    seen_keys = set()
+    for pi, _e in entries:
+        t = pi["transformation"]
+        seen_keys.add((pi["item_id"],
+                       round(float(t["rotation"]), 4),
+                       round(float(t["translation"][0]), 3),
+                       round(float(t["translation"][1]), 3)))
     new_polys = []
     for pi in new_pis:
         it = items_by_id[pi["item_id"]]
         tr = pi["transformation"]
+        key = (pi["item_id"], round(float(tr["rotation"]), 4),
+               round(float(tr["translation"][0]), 3),
+               round(float(tr["translation"][1]), 3))
+        if key in seen_keys:
+            return False
         if not _sheet_bounds_ok(it, tr, sheet_w, sheet_h):
             return False
         poly = _placed_poly(it, tr["rotation"], tr["translation"][0],
@@ -571,6 +601,151 @@ def _regrid_helices(last, units, items_by_id, sw, sh, space):
     return moved, free_rects
 
 
+def _sheet_needs_compaction(layout, units, free, items_by_id, space):
+    """Phase 3.1 + V7 (vérif 2026-09-04) : critère UNIFIÉ Python ↔ JS —
+    largeur tournée (pas x max) ET position (hôtes ancrés au bord −X,
+    libres démarrées derrière l'ancre). Une colonne d'hôtes collée au
+    bord +X avec des libres au milieu n'est PAS « déjà compactée »."""
+    tol = 4 * space + 1.0
+    if units:
+        hosts_x = [float(u["host"]["transformation"]["translation"][0])
+                   for u in units]
+        host_w = max(
+            _rotated_bbox(_bbox(items_by_id[u["host"]["item_id"]]["coords"]),
+                          float(u["host"]["transformation"]["rotation"]))[2]
+            - _rotated_bbox(_bbox(items_by_id[u["host"]["item_id"]]["coords"]),
+                            float(u["host"]["transformation"]["rotation"]))[0]
+            for u in units)
+        hosts_col = (max(hosts_x) - min(hosts_x)) <= host_w + tol
+        hosts_left = min(hosts_x) <= space + tol
+    else:
+        hosts_col = True
+        hosts_left = True
+    anchor_maxx = 0.0
+    for u in units:
+        it = items_by_id[u["host"]["item_id"]]
+        bb = _rotated_bbox(_bbox(it["coords"]),
+                           float(u["host"]["transformation"]["rotation"]))
+        anchor_maxx = max(anchor_maxx,
+                          u["host"]["transformation"]["translation"][0] + bb[2])
+    if free:
+        free_geo = []
+        for pi in free:
+            it = items_by_id[pi["item_id"]]
+            bb = _rotated_bbox(_bbox(it["coords"]),
+                               float(pi["transformation"]["rotation"]))
+            free_geo.append((pi["transformation"]["translation"][0],
+                             pi["transformation"]["translation"][0] + bb[2],
+                             bb[2] - bb[0]))
+        min_free_w = min(g[2] for g in free_geo)
+        frees_col = (max(g[1] for g in free_geo)
+                     - min(g[0] for g in free_geo)) <= 2 * min_free_w + tol
+        frees_left = min(g[0] for g in free_geo) <= anchor_maxx + space + tol
+    else:
+        frees_col = True
+        frees_left = True
+    return not (hosts_col and hosts_left and frees_col and frees_left)
+
+
+def _relay_frees_behind_anchor(layouts, sheet_i, free, pocket_rects,
+                               items_by_id, bin_dims, space):
+    """Phase 2 partagée (donneuse ET receveuses, V3 vérif 2026-09-04) :
+    détache les libres, les re-pose au lattice dans les poches puis les
+    bandes classiques (gravité −X), restaure les non-placées à leur pose
+    d'origine VALIDÉE. Lève _CompactRollback si la restauration échoue.
+    Retourne les pièces réellement déplacées (V18)."""
+    last = layouts[sheet_i]
+    sw, sh = bin_dims[last["container_id"]]
+    pocket_bands = [
+        {"name": f"pocket{i}", "rect": r, "axis": "x"}
+        for i, r in enumerate(sorted(pocket_rects, key=lambda r: (r[0], r)))
+    ]
+    pockets_left = bool(pocket_bands)
+    bands = pocket_bands or None
+    saved_poses = {id(pi): dict(pi["transformation"]) for pi in free}
+    for pi in free:
+        last["placed_items"] = [x for x in last["placed_items"]
+                                if x is not pi]
+    moved = 0
+    while True:
+        remaining = [pi for pi in free
+                     if not any(x is pi for x in last["placed_items"])]
+        if not remaining:
+            break
+        if bands is None:
+            # Bandes classiques recalculées à chaque tour (l'AABB a
+            # bougé au batch précédent), ordonnées en gravité −X.
+            used = layout_aabb(last, items_by_id)
+            bl = residual_bands(used, sw, sh, space)
+            bl.sort(key=lambda b: (b["rect"][0], -b["area"]))
+            bands = bl
+        n = _fill_one_batch(layouts, sheet_i, sheet_i, items_by_id,
+                            bin_dims, space, free=remaining, bands=bands)
+        if not n:
+            # Poches épuisées (ou absentes) : une seule bascule vers
+            # les bandes classiques, puis arrêt au premier échec.
+            if pockets_left:
+                pockets_left = False
+                bands = None
+                continue
+            break
+        moved += n
+        if not pockets_left:
+            bands = None  # force le recalcul −X au tour suivant
+    # Libres non replacées (capacité < donneuses) : retour à la pose
+    # d'origine — validé contre le layout final, les nouvelles colonnes
+    # ont pu recouvrir leur ancienne position.
+    restore = [pi for pi in free
+               if not any(x is pi for x in last["placed_items"])]
+    for pi in restore:
+        pi["transformation"] = saved_poses[id(pi)]
+        last["placed_items"].append(pi)
+    if restore and not _validate_batch(restore, last, items_by_id,
+                                       sw, sh, space):
+        raise _CompactRollback()
+    return moved
+
+
+def _compact_receivers(layouts, items_by_id, bin_dims, space, stats=None):
+    """V3 (vérif 2026-09-04, étape 3.1) : compaction généralisée aux tôles
+    RECEVEUSES. En first-fit par tôle, le moteur remplit lui-même les
+    bandes de la tôle 1 avec des fans en désordre — l'AABB atteint les
+    bords, residual_bands n'a plus de rectangle propre et le lattice
+    remplace moins qu'avant (449 fans contre 474 à space 2). Ici : ancre
+    = hôtes + nichées (immobiles), libres = TOUT le reste détaché puis
+    re-posé derrière l'ancre. Acceptation : front (AABB.maxx) ≤ avant à
+    0,5 mm près, sinon restauration complète."""
+    moved_total = 0
+    compacted = 0
+    for sheet_i in range(len(layouts)):
+        last = layouts[sheet_i]
+        units, free = _helix_units_and_free(last, items_by_id)
+        if not free:
+            continue
+        if not _sheet_needs_compaction(last, units, free, items_by_id, space):
+            continue
+        before = layout_aabb(last, items_by_id)
+        if before is None:
+            continue
+        snapshot = copy.deepcopy(last.get("placed_items", []))
+        try:
+            moved = _relay_frees_behind_anchor(
+                layouts, sheet_i, free, [], items_by_id, bin_dims, space)
+            after = layout_aabb(last, items_by_id)
+            if after is not None and after[2] > before[2] + 0.5:
+                # front reculé refusé : la disposition moteur était meilleure
+                last["placed_items"] = copy.deepcopy(snapshot)
+                continue
+            if moved:
+                moved_total += moved
+                compacted += 1
+        except _CompactRollback:
+            last["placed_items"] = copy.deepcopy(snapshot)
+    if stats is not None:
+        stats["compactReceivers"] = compacted
+    return moved_total
+
+
 def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
                         stats=None):
     """Compaction −X de la tôle donneuse (constats 2026-09-02). Le moteur
@@ -613,54 +788,8 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
     units, free = _helix_units_and_free(last, items_by_id)
     if not units and not free:
         return 0
-    # Phase 3.1 (plan 2026-09-03) + V7 (vérif 2026-09-04) : compaction
-    # CONDITIONNELLE — no-op quand il n'y a VRAIMENT rien à compacter.
-    # Le critère du 03/09 comparait l'étalement des hôtes au X MAX de la
-    # bbox (Python) vs la LARGEUR (JS) — décisions divergentes — et était
-    # aveugle à la POSITION : une colonne d'hôtes collée au bord +X avec
-    # des libres au milieu passait pour « rien à compacter ». Unifié :
-    # (a) hôtes en colonnes (étalement ≤ 1 largeur + tol) ET ancrés au
-    # bord −X ; (b) libres déjà en colonne(s) démarrées derrière
-    # l'ancre. Miroir EXACT JS (mêmes tolérances).
-    tol = 4 * space + 1.0
-    if units:
-        hosts_x = [float(u["host"]["transformation"]["translation"][0])
-                   for u in units]
-        host_w = max(
-            _rotated_bbox(_bbox(items_by_id[u["host"]["item_id"]]["coords"]),
-                          float(u["host"]["transformation"]["rotation"]))[2]
-            - _rotated_bbox(_bbox(items_by_id[u["host"]["item_id"]]["coords"]),
-                            float(u["host"]["transformation"]["rotation"]))[0]
-            for u in units)
-        hosts_col = (max(hosts_x) - min(hosts_x)) <= host_w + tol
-        hosts_left = min(hosts_x) <= space + tol
-    else:
-        hosts_col = True
-        hosts_left = True
-    anchor_maxx = 0.0
-    for u in units:
-        it = items_by_id[u["host"]["item_id"]]
-        bb = _rotated_bbox(_bbox(it["coords"]),
-                           float(u["host"]["transformation"]["rotation"]))
-        anchor_maxx = max(anchor_maxx,
-                          u["host"]["transformation"]["translation"][0] + bb[2])
-    if free:
-        free_geo = []
-        for pi in free:
-            it = items_by_id[pi["item_id"]]
-            bb = _rotated_bbox(_bbox(it["coords"]),
-                               float(pi["transformation"]["rotation"]))
-            free_geo.append((pi["transformation"]["translation"][0],
-                             pi["transformation"]["translation"][0] + bb[2],
-                             bb[2] - bb[0]))
-        min_free_w = min(g[2] for g in free_geo)
-        frees_col = (max(g[1] for g in free_geo)
-                     - min(g[0] for g in free_geo)) <= 2 * min_free_w + tol
-        frees_left = min(g[0] for g in free_geo) <= anchor_maxx + space + tol
-    else:
-        frees_col = True
-        frees_left = True
-    if hosts_col and hosts_left and frees_col and frees_left:
+    # V7 : critère partagé avec la compaction receveuse.
+    if not _sheet_needs_compaction(last, units, free, items_by_id, space):
         return 0
     full_snapshot = copy.deepcopy(last.get("placed_items", []))
     try:
@@ -673,52 +802,9 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
                   if id(pi) not in free_ids]
         if not anchor:
             return moved
-        pocket_bands = [
-            {"name": f"pocket{i}", "rect": r, "axis": "x"}
-            for i, r in enumerate(sorted(pocket_rects, key=lambda r: (r[0], r)))
-        ]
-        pockets_left = bool(pocket_bands)
-        bands = pocket_bands or None
-        saved_poses = {id(pi): dict(pi["transformation"]) for pi in free}
-        for pi in free:
-            last["placed_items"] = [x for x in last["placed_items"]
-                                    if x is not pi]
-        while True:
-            remaining = [pi for pi in free
-                         if not any(x is pi for x in last["placed_items"])]
-            if not remaining:
-                break
-            if bands is None:
-                # Bandes classiques recalculées à chaque tour (l'AABB a
-                # bougé au batch précédent), ordonnées en gravité −X.
-                used = layout_aabb(last, items_by_id)
-                bl = residual_bands(used, sw, sh, space)
-                bl.sort(key=lambda b: (b["rect"][0], -b["area"]))
-                bands = bl
-            n = _fill_one_batch(layouts, sheet_i, sheet_i, items_by_id,
-                                bin_dims, space, free=remaining, bands=bands)
-            if not n:
-                # Poches épuisées (ou absentes) : une seule bascule vers
-                # les bandes classiques, puis arrêt au premier échec.
-                if pockets_left:
-                    pockets_left = False
-                    bands = None
-                    continue
-                break
-            moved += n
-            if not pockets_left:
-                bands = None  # force le recalcul −X au tour suivant
-        # Libres non replacées (capacité < donneuses) : retour à la pose
-        # d'origine — validé contre le layout final, les nouvelles colonnes
-        # ont pu recouvrir leur ancienne position.
-        restore = [pi for pi in free
-                   if not any(x is pi for x in last["placed_items"])]
-        for pi in restore:
-            pi["transformation"] = saved_poses[id(pi)]
-            last["placed_items"].append(pi)
-        if restore and not _validate_batch(restore, last, items_by_id,
-                                           sw, sh, space):
-            raise _CompactRollback()
+        moved += _relay_frees_behind_anchor(layouts, sheet_i, free,
+                                             pocket_rects, items_by_id,
+                                             bin_dims, space)
         return moved
     except _CompactRollback:
         # A2 : restauration COMPLÈTE de la tôle (hôtes et libres à leur
@@ -817,6 +903,11 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None):
             last = min(range(len(layouts)), key=lambda i: (ratios[i], -i))
             moved += _compact_last_sheet(layouts, last, items_by_id,
                                          bin_dims, space, stats=stats)
+            # V3 (étape 3.1) : les RECEVEUSES aussi — le moteur first-fit
+            # y remplit les bandes en désordre, le lattice n'a plus de
+            # rectangle propre (449 fans contre 474 à space 2).
+            moved += _compact_receivers(layouts, items_by_id, bin_dims,
+                                        space, stats=stats)
         stats["residualMoved"] = moved
         return moved
     except Exception as e:

@@ -383,7 +383,10 @@ def verify_layout(containers, input_items, space=0.0):
     smallest_gap = float("inf")
     overlap_free = True
     pair_checks_done = True
-    search_r = max(float(space or 0) + 1.0, 1.0)
+    # V19 (vérif 2026-09-04) : rayon ≥ 5 mm — à 1 mm la paire la plus
+    # proche hors rayon n'est pas candidate et smallestGap affichait la
+    # distance au BORD de la tôle (340 mm pour deux hôtes à 10 mm).
+    search_r = max(float(space or 0) + 1.0, 5.0)
 
     for container in containers:
         sheet_w = container.bin_width or 0

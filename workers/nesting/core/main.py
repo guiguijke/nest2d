@@ -465,6 +465,19 @@ def _nesting_process_impl(doc):
             continue
         container_map_back[len(bins)] = bin_id
         bins.append(build_bin(len(bins), sheet_stock, sheet_width, sheet_height))
+    # V11 (vérif 2026-09-04, décision propriétaire) : coût d'une tôle ∝ sa
+    # SURFACE (entier : surface / plus petite surface × 100) — l'objectif
+    # « moins de plaques » devient « moins de matière », ce qu'un atelier
+    # attend ; à l'ouverture du bin, min(cost, loss) choisit ainsi la plus
+    # PETITE tôle qui admet l'item (et non le plus grand format).
+    areas = []
+    for sheet in sheets:
+        areas.append(float(sheet.get("width")) * float(sheet.get("height")))
+    active_areas = [areas[fmt] for eng, fmt in sorted(container_map_back.items())]
+    if active_areas:
+        min_area = min(active_areas)
+        for b, area in zip(bins, active_areas):
+            b["cost"] = max(1, round(area / min_area * 100))
     # bin_dims_engine : clés = ids MOTEUR (0..len(bins)-1), valeurs = dims
     # du format d'origine — le map-back des container_id (identité quand
     # aucun format n'est filtré).
@@ -1524,6 +1537,15 @@ def _nesting_process_impl(doc):
         result_containers, placed_count, density, cost = parse_result_containers(
             {"solution": engine_alt["solution"]}, input_items, bin_dims_engine
         )
+        # V15 (vérif 2026-09-04) : les container_id PERSISTÉS (noms DXF/SVG,
+        # métrologie) doivent être rétablis en ids de FORMATS — le map-back
+        # existait mais n'était jamais appliqué. Ici, APRÈS le parse (qui
+        # résout les dimensions avec les ids moteur).
+        if container_map_back:
+            for c in result_containers:
+                c.container_id = container_map_back.get(
+                    getattr(c, "container_id", None),
+                    getattr(c, "container_id", None))
 
         # Part-loss guard: the engine only exports complete placements, but
         # never trust a solver blindly — discard anything short.

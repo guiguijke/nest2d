@@ -195,7 +195,25 @@ export function pairViolates(ringA, ringB, space) {
     if (space > EPS) {
         return d < space - EPS
     }
-    return d === 0 && ringsOverlap(ringA, ringB)
+    if (d > 0) {
+        // V9 (vérif 2026-09-04) : containment — un petit anneau INCLUS
+        // dans un grand mesure une distance de frontière positive mais
+        // chevauche le matériau. bbox incluse + centroïde strictement
+        // intérieur.
+        const bbA = bbox(ringA)
+        const bbB = bbox(ringB)
+        const aInB = bbA[0] >= bbB[0] && bbA[1] >= bbB[1] && bbA[2] <= bbB[2] && bbA[3] <= bbB[3]
+        const bInA = bbB[0] >= bbA[0] && bbB[1] >= bbA[1] && bbB[2] <= bbA[2] && bbB[3] <= bbA[3]
+        if (aInB !== bInA) {
+            const inner = aInB ? ringA : ringB
+            const outer = aInB ? ringB : ringA
+            if (pointStrictlyInside(ringCentroidLocal(inner), outer)) {
+                return true
+            }
+        }
+        return false
+    }
+    return ringsOverlap(ringA, ringB)
 }
 
 export function layoutAabb(layout, partsById) {
@@ -319,6 +337,20 @@ function pickClass(free, partsById, bandW, bandH, payload) {
     return best
 }
 
+/** V9 (vérif 2026-09-04) : anneaux d'OCCUPATION d'une pièce = anneau
+ * externe + PAROIS DES TROUS (une fan à 0,5 mm de la paroi d'un trou
+ * mesurait sa distance à l'anneau EXTERNE de l'hôte — à travers le
+ * matériau — et passait). Miroir du _placed_poly Python (polygone avec
+ * trous : shapely mesure à la frontière complète). */
+export function occupancyRings(part, rot, tx, ty) {
+    const rings = [placedRing(part, rot, tx, ty)]
+    for (const h of part?.holes || []) {
+        rings.push(rotateRing(h, Number(rot) || 0)
+            .map(([x, y]) => [x + tx, y + ty]))
+    }
+    return rings
+}
+
 function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
     // Ceinture du BATCH (miroir _validate_batch Python) : seules les
     // pièces AJOUTÉES sont jugées — bbox ⊆ tôle + ringDist ≥ space contre
@@ -331,8 +363,17 @@ function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
         if (!part) continue
         const t = pi.transformation || {}
         const [tx, ty] = t.translation || [0, 0]
-        all.push({ pi, ring: placedRing(part, t.rotation, tx, ty) })
+        for (const ring of occupancyRings(part, t.rotation, tx, ty)) {
+            all.push({ pi, ring })
+        }
     }
+    // V9 : doublon = même (item_id, rotation, translation) à 1e-6 — deux
+    // L concaves superposés échappent à la détection géométrique.
+    const seenKeys = new Set(all.map(({ pi }) => {
+        const t = pi.transformation || {}
+        return `${pi.item_id}|${(Number(t.rotation) || 0).toFixed(4)}`
+            + `|${(t.translation?.[0] ?? 0).toFixed(3)}|${(t.translation?.[1] ?? 0).toFixed(3)}`
+    }))
     // D5/A1 (audit 2026-09-03) : le seuil vit dans pairViolates — à
     // space ≤ marge de simplify l'ancien `dist < lim` planché ne rejetait
     // plus rien ; désormais d == 0 rejette les VRAIS chevauchements
@@ -344,6 +385,9 @@ function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
         const part = partsById.get(String(pi.item_id))
         const t = pi.transformation || {}
         const [tx, ty] = t.translation || [0, 0]
+        const key = `${pi.item_id}|${(Number(t.rotation) || 0).toFixed(4)}`
+            + `|${(tx).toFixed(3)}|${(ty).toFixed(3)}`
+        if (seenKeys.has(key)) return false
         const ring = placedRing(part, t.rotation, tx, ty)
         let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
         for (const [x, y] of ring) {
@@ -419,7 +463,7 @@ export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space,
             if (!part2) continue
             const t2 = pi.transformation || {}
             const [tx2, ty2] = t2.translation || [0, 0]
-            occupancy.push(placedRing(part2, t2.rotation, tx2, ty2))
+            occupancy.push(...occupancyRings(part2, t2.rotation, tx2, ty2))
         }
         const newRings = []
         let committed = 0
@@ -680,6 +724,130 @@ export function regridHelices(layout, units, partsById, sw, sh, space, payload) 
  * Tout-ou-rien : des libres non replacées qui ne rentrent plus à leur
  * pose d'origine restaurent l'état d'avant (no-op).
  */
+// V7 (vérif 2026-09-04) : critère UNIFIÉ avec Python — largeur tournée
+// ET position (ancrage −X des hôtes, libres derrière l'ancre).
+function sheetNeedsCompaction(layout, units, free, partsById, space) {
+    const tol = 4 * space + 1.0
+    let hostsCol = true
+    let hostsLeft = true
+    let anchorMaxx = 0
+    if (units.length) {
+        const xs = units.map((u) => Number(u.host.transformation?.translation?.[0] || 0))
+        const hostW = Math.max(...units.map((u) => {
+            const part2 = partsById.get(String(u.host.item_id))
+            const bb = rotatedBbox(bbox(itemCoords(part2)), Number(u.host.transformation?.rotation) || 0)
+            return bb[2] - bb[0]
+        }))
+        hostsCol = (Math.max(...xs) - Math.min(...xs)) <= hostW + tol
+        hostsLeft = Math.min(...xs) <= space + tol
+        for (const u of units) {
+            const part2 = partsById.get(String(u.host.item_id))
+            const bb = rotatedBbox(bbox(itemCoords(part2)), Number(u.host.transformation?.rotation) || 0)
+            anchorMaxx = Math.max(anchorMaxx, (u.host.transformation?.translation?.[0] || 0) + bb[2])
+        }
+    }
+    let freesCol = true
+    let freesLeft = true
+    if (free.length) {
+        const geo = free.map((pi) => {
+            const part2 = partsById.get(String(pi.item_id))
+            const bb = rotatedBbox(bbox(itemCoords(part2)), Number(pi.transformation?.rotation) || 0)
+            const x0 = pi.transformation?.translation?.[0] || 0
+            return [x0, x0 + bb[2], bb[2] - bb[0]]
+        })
+        const minW = Math.min(...geo.map((g) => g[2]))
+        freesCol = (Math.max(...geo.map((g) => g[1])) - Math.min(...geo.map((g) => g[0])))
+            <= 2 * minW + tol
+        freesLeft = Math.min(...geo.map((g) => g[0])) <= anchorMaxx + space + tol
+    }
+    return !(hostsCol && hostsLeft && freesCol && freesLeft)
+}
+
+// V3 (étape 3.1) : relais des libres derrière l'ancre — partagé donneuse/
+// receveuses. Lève COMPACT_ROLLBACK si la restauration échoue.
+function relayFreesBehindAnchor(layouts, sheetI, free, pocketRects,
+    partsById, sheetDimsOf, space, payload) {
+    const last = layouts[sheetI]
+    const [sw, sh] = sheetDimsOf(last)
+    const pocketBands = pocketRects
+        .map((r, i) => ({ name: `pocket${i}`, rect: r, axis: 'x' }))
+        .sort((a, b) => (a.rect[0] - b.rect[0]) || a.name.localeCompare(b.name))
+    let pocketsLeft = pocketBands.length > 0
+    let bands = pocketsLeft ? pocketBands : null
+    const savedPoses = new Map(free.map((pi) => [pi, { ...pi.transformation }]))
+    const placedHas = (pi) => (last.placed_items || []).some((x) => x === pi)
+    last.placed_items = (last.placed_items || []).filter(
+        (pi) => !free.includes(pi))
+    let moved = 0
+    while (true) {
+        const remaining = free.filter((pi) => !placedHas(pi))
+        if (!remaining.length) break
+        if (!bands) {
+            // Bandes classiques recalculées à chaque tour, gravité −X.
+            const used2 = layoutAabb(last, partsById)
+            const bl = used2 ? residualBands(used2, sw, sh, space) : []
+            bl.sort((a, b) => (a.rect[0] - b.rect[0]) || (b.area - a.area))
+            bands = bl
+        }
+        const n = fillOneBatch(layouts, sheetI, sheetI, partsById,
+            sheetDimsOf, space, payload, remaining, bands)
+        if (!n) {
+            if (pocketsLeft) {
+                pocketsLeft = false
+                bands = null
+                continue
+            }
+            break
+        }
+        moved += n
+        if (!pocketsLeft) bands = null
+    }
+    const restore = free.filter((pi) => !placedHas(pi))
+    for (const pi of restore) {
+        pi.transformation = savedPoses.get(pi)
+        ;(last.placed_items || (last.placed_items = [])).push(pi)
+    }
+    if (restore.length && !validateBatch(restore, last, partsById, sw, sh, space)) {
+        throw COMPACT_ROLLBACK
+    }
+    return moved
+}
+
+// V3 (étape 3.1) : compaction des tôles RECEVEUSES — le moteur first-fit
+// y remplit les bandes en désordre ; ancre = hôtes + nichées, libres =
+// tout le reste re-posé derrière. Acceptation : front ≤ avant + 0,5 mm.
+function compactReceivers(layouts, partsById, sheetDimsOf, space, payload, stats = null) {
+    let movedTotal = 0
+    let compacted = 0
+    for (let sheetI = 0; sheetI < layouts.length; sheetI++) {
+        const last = layouts[sheetI]
+        const { units, free } = helixUnitsAndFree(last, partsById)
+        if (!free.length) continue
+        if (!sheetNeedsCompaction(last, units, free, partsById, space)) continue
+        const before = layoutAabb(last, partsById)
+        if (!before) continue
+        const snapshot = JSON.parse(JSON.stringify(last.placed_items || []))
+        try {
+            const moved = relayFreesBehindAnchor(layouts, sheetI, free, [],
+                partsById, sheetDimsOf, space, payload)
+            const after = layoutAabb(last, partsById)
+            if (after && after[2] > before[2] + 0.5) {
+                last.placed_items = JSON.parse(JSON.stringify(snapshot))
+                continue
+            }
+            if (moved) {
+                movedTotal += moved
+                compacted++
+            }
+        } catch (e) {
+            if (e !== COMPACT_ROLLBACK) throw e
+            last.placed_items = JSON.parse(JSON.stringify(snapshot))
+        }
+    }
+    if (stats) stats.compactReceivers = compacted
+    return movedTotal
+}
+
 // D6 (audit 2026-09-03) : sentinelle — le catch de compaction ne doit
 // avaler QUE le rollback délibéré, JAMAIS une TypeError (c'est ainsi que
 // le bug `const moved` est resté invisible).
@@ -695,46 +863,7 @@ export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space,
     const [sw, sh] = sheetDimsOf(last)
     const { units, free } = helixUnitsAndFree(last, partsById)
     if (!units.length && !free.length) return 0
-    // Phase 3.1 + V7 (vérif 2026-09-04) : critère UNIFIÉ avec Python —
-    // largeur tournée (pas x max) ET position (ancrage −X des hôtes,
-    // libres démarrées derrière l'ancre). Une colonne au bord +X avec
-    // des libres au milieu n'est PAS « déjà compactée ».
-    {
-        const tol = 4 * space + 1.0
-        let hostsCol2 = true
-        let hostsLeft = true
-        let anchorMaxx = 0
-        if (units.length) {
-            const xs = units.map((u) => Number(u.host.transformation?.translation?.[0] || 0))
-            const hostW = Math.max(...units.map((u) => {
-                const part2 = partsById.get(String(u.host.item_id))
-                const bb = rotatedBbox(bbox(itemCoords(part2)), Number(u.host.transformation?.rotation) || 0)
-                return bb[2] - bb[0]
-            }))
-            hostsCol2 = (Math.max(...xs) - Math.min(...xs)) <= hostW + tol
-            hostsLeft = Math.min(...xs) <= space + tol
-            for (const u of units) {
-                const part2 = partsById.get(String(u.host.item_id))
-                const bb = rotatedBbox(bbox(itemCoords(part2)), Number(u.host.transformation?.rotation) || 0)
-                anchorMaxx = Math.max(anchorMaxx, (u.host.transformation?.translation?.[0] || 0) + bb[2])
-            }
-        }
-        let freesCol2 = true
-        let freesLeft = true
-        if (free.length) {
-            const geo = free.map((pi) => {
-                const part2 = partsById.get(String(pi.item_id))
-                const bb = rotatedBbox(bbox(itemCoords(part2)), Number(pi.transformation?.rotation) || 0)
-                const x0 = pi.transformation?.translation?.[0] || 0
-                return [x0, x0 + bb[2], bb[2] - bb[0]]
-            })
-            const minW = Math.min(...geo.map((g) => g[2]))
-            freesCol2 = (Math.max(...geo.map((g) => g[1])) - Math.min(...geo.map((g) => g[0])))
-                <= 2 * minW + tol
-            freesLeft = Math.min(...geo.map((g) => g[0])) <= anchorMaxx + space + tol
-        }
-        if (hostsCol2 && hostsLeft && freesCol2 && freesLeft) return 0
-    }
+    if (!sheetNeedsCompaction(last, units, free, partsById, space)) return 0
     const fullSnapshot = JSON.parse(JSON.stringify(last.placed_items || []))
     try {
         // Phase 1 : hélices re-grillées en colonnes depuis le bord gauche
@@ -745,58 +874,8 @@ export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space,
         const freeSet = new Set(free)
         const hasAnchor = (last.placed_items || []).some((pi) => !freeSet.has(pi))
         if (!hasAnchor) return moved
-        // Audit 2026-09-02 F1/F2 : les libres remplissent d'abord les POCHES
-        // des colonnes partielles PUIS les bandes classiques. (Soir, « trou
-        // haut-gauche ») GRAVITÉ −X : poches et bandes consommées par x0
-        // croissant, recalculées après chaque batch — l'ancien tri par aire
-        // envoyait tout dans la bande droite et laissait la bande haute
-        // au-dessus de la grille d'hélices vide (miroir exact du Python).
-        const pocketBands = freeRects
-            .map((r, i) => ({ name: `pocket${i}`, rect: r, axis: 'x' }))
-            .sort((a, b) => (a.rect[0] - b.rect[0]) || a.name.localeCompare(b.name))
-        let pocketsLeft = pocketBands.length > 0
-        let bands = pocketsLeft ? pocketBands : null
-        // Phase 2 : libres détachées puis re-posées en lattice derrière la
-        // grille des hélices (bandes autour de l'ancre = AABB des non-libres).
-        const savedPoses = new Map(free.map((pi) => [pi, { ...pi.transformation }]))
-        const placedHas = (pi) => (last.placed_items || []).some((x) => x === pi)
-        last.placed_items = (last.placed_items || []).filter((pi) => !freeSet.has(pi))
-        while (true) {
-            const remaining = free.filter((pi) => !placedHas(pi))
-            if (!remaining.length) break
-            if (!bands) {
-                // Bandes classiques recalculées à chaque tour, gravité −X.
-                const used2 = layoutAabb(last, partsById)
-                const bl = used2 ? residualBands(used2, sw, sh, space) : []
-                bl.sort((a, b) => (a.rect[0] - b.rect[0]) || (b.area - a.area))
-                bands = bl
-            }
-            const n = fillOneBatch(layouts, sheetI, sheetI, partsById,
-                sheetDimsOf, space, payload, remaining, bands)
-            if (!n) {
-                // Poches épuisées (ou absentes) : bascule unique vers les
-                // bandes classiques, puis arrêt au premier échec.
-                if (pocketsLeft) {
-                    pocketsLeft = false
-                    bands = null
-                    continue
-                }
-                break
-            }
-            moved += n
-            if (!pocketsLeft) bands = null // recalcul −X au tour suivant
-        }
-        // Libres non replacées (capacité < donneuses) : retour à la pose
-        // d'origine — validé contre le layout final, les nouvelles colonnes
-        // ont pu recouvrir leur ancienne position.
-        const restore = free.filter((pi) => !placedHas(pi))
-        for (const pi of restore) {
-            pi.transformation = savedPoses.get(pi)
-            ;(last.placed_items || (last.placed_items = [])).push(pi)
-        }
-        if (restore.length && !validateBatch(restore, last, partsById, sw, sh, space)) {
-            throw COMPACT_ROLLBACK
-        }
+        moved += relayFreesBehindAnchor(layouts, sheetI, free, freeRects,
+            partsById, sheetDimsOf, space, payload)
         return moved
     } catch (e) {
         if (e !== COMPACT_ROLLBACK) throw e
@@ -901,6 +980,8 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null) 
                 if (ratios2[i] <= ratios2[last2]) last2 = i
             }
             moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload, stats)
+            // V3 (étape 3.1) : les RECEVEUSES aussi (miroir Python).
+            moved += compactReceivers(layouts, partsById, sheetDimsOf, space, payload, stats)
         }
         stats.residualMoved = moved
         return moved

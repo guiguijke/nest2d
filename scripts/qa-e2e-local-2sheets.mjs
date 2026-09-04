@@ -291,6 +291,12 @@ try {
         a.svgs = a.svgs.length
     }
     fs.writeFileSync(path.join(OUT, 'full.json'), JSON.stringify(full, null, 1))
+    // QA (vérif 2026-09-04) : pré-état moteur AVANT post-pass — diagnostic
+    // de parité navigateur/serveur (front, distribution, compaction).
+    try {
+        const pre = await page.evaluate(() => window.__lastSolveResult || null)
+        if (pre) fs.writeFileSync(path.join(OUT, 'pre-solve.json'), JSON.stringify(pre))
+    } catch { /* page fermée */ }
     log('FULL', JSON.stringify(full, null, 1).slice(0, 3000))
 
     // ---------- 9. Téléchargement via le bouton du modal (chemin UI) ----------

@@ -460,6 +460,11 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     }
 
     const result = outcome.result
+    // QA (vérif 2026-09-04) : pré-état moteur AVANT post-pass, pour les
+    // diagnostics de parité navigateur/serveur (e2e le dump).
+    if (typeof window !== 'undefined') {
+        window.__lastSolveResult = JSON.parse(JSON.stringify(result))
+    }
     // Total réel demandé = somme des quantités d'origine (payload.parts porte
     // les counts complets, indépendamment de l'instance réduite meta).
     const requested = (payload?.parts || []).reduce((n, p) => n + (p.count || 0), 0)

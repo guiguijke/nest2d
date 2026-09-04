@@ -721,6 +721,19 @@ const reportBadges = computed(() => {
     // A4 : pose dupliquée = même pièce posée deux fois (la garde anti-perte
     // par total y était aveugle).
     if (r.duplicatePoses > 0) badges.push({ ok: false, label: t('report.duplicates', { n: r.duplicatePoses }) })
+    // V17 (vérif 2026-09-04) : le post-pass n'est plus invisible — une
+    // ligne compacte « n déplacées · rollback » sous les badges.
+    {
+        const pp = r.postPass
+        if (pp && ((pp.residualMoved || 0) > 0 || pp.compactRollback || (pp.errors || []).length)) {
+            const label = t('report.postPass', {
+                n: pp.residualMoved || 0,
+                rb: pp.compactRollback ? ' · rollback' : '',
+                e: (pp.errors || []).length ? ` · ${(pp.errors || []).length} err` : '',
+            })
+            badges.push({ ok: !(pp.compactRollback || (pp.errors || []).length), label })
+        }
+    }
     const allPlaced = unref(resultModalData).requested === unref(resultModalData).placed
     badges.push({ ok: allPlaced, label: t('report.allPlaced', { n: unref(resultModalData).placed }) })
     return badges

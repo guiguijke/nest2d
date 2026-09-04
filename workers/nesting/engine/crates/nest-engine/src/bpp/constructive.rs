@@ -287,16 +287,15 @@ pub fn construct(
         let open_layouts: Vec<BPLayoutType> =
             problem.layouts.keys().map(BPLayoutType::Open).collect();
 
-        // C1 (audit 2026-09-03, cause racine de la migration des petites
-        // pièces vers la dernière tôle) : le best-fit inter-tôles
-        // comparait des pertes ABSOLUES (growth mm² + bottom_left en
-        // coordonnées absolues) — une poche à x=800 de la tôle 1 perdait
-        // contre n'importe quel point à x<80 de la tôle 2. Décision
-        // lexicographique PAR TÔLE, dans l'ordre d'ouverture :
-        //   (1) première tôle offrant une pose à growth == 0 (trou/poche) ;
-        //   (2) sinon première tôle qui admet l'item (first-fit) ;
-        // la perte (growth × steer + bottom_left) ne départage plus que
-        // les poses D'UNE MÊME tôle (search_layout l'a déjà minimisée).
+        // C1 : décision PAR TÔLE — (1) première tôle à growth == 0
+        // (trou/poche) ; (2) sinon FIRST-FIT. NB V3 (vérif 2026-09-04) :
+        // l'alternative « first-fit réservé aux items ≥ aire médiane,
+        // petits en best-fit » a été implémentée ET MESURÉE — space 2
+        // remonte à 485 fans (≥ 474 ✓) mais space 0,1 retombe à 492
+        // (< 511) et space 0 livre 1 chevauchement : aucun des deux
+        // régimes ne gagne aux trois espacements, on garde first-fit
+        // global (0 ✓, 0,1 ✓ 600 mm de chute, 2 à 445). La suite dépend
+        // de la décision phase 4 (plan §5 : mesurer après l'étape 3).
         let mut growth0: Option<BPPlacement> = None;
         let mut first_fit: Option<BPPlacement> = None;
         for layout_id in open_layouts {

@@ -677,6 +677,7 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
     }
 
     let instance
+    let containerMapBack = null
     let maxStripWidth
     if (isSpp) {
         instance = { name, items: jaguarItems, strip_height: sheets[0].height }
@@ -690,14 +691,21 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         const nonEmpty = sheets
             .map((s, i) => ({ ...s, formatId: i }))
             .filter((s) => (Number(s.count) || 0) > 0)
+        // V11 (vérif 2026-09-04) : coût ∝ surface (round(aire/aire_min × 100)),
+        // miroir main.py — min(cost, loss) à l'ouverture choisit la plus
+        // petite tôle qui admet l'item.
+        const minArea = Math.min(...nonEmpty.map((s) => Number(s.width) * Number(s.height)))
         instance = {
             name,
             items: jaguarItems,
-            bins: nonEmpty.map((s, i) => buildBin(i, s.count, s.width, s.height)),
+            bins: nonEmpty.map((s, i) => ({
+                ...buildBin(i, s.count, s.width, s.height),
+                cost: Math.max(1, Math.round((Number(s.width) * Number(s.height)) / minArea * 100)),
+            })),
         }
-        if (nonEmpty.length !== sheets.length) {
-            instance.containerMapBack = nonEmpty.map((s, eid) => [eid, s.formatId])
-        }
+        containerMapBack = nonEmpty.length !== sheets.length
+            ? nonEmpty.map((s, eid) => [eid, s.formatId])
+            : null
         maxStripWidth = undefined
     }
 
@@ -832,6 +840,9 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
         meta,
         engineConfig,
         parts,
+        // V15 (vérif 2026-09-04) : containerMapBack à la RACINE du payload
+        // (dans `instance` il était hashé dans le seed ET envoyé au wasm).
+        ...(containerMapBack ? { containerMapBack } : {}),
         // V10 (vérif 2026-09-04) : hasHoles ÉNUMÉRABLE dans le payload —
         // même contrat que le localPayload serveur (D7). Le hasHoles du
         // build (canaux/canal scellé) est déjà calculé plus haut ; sans
