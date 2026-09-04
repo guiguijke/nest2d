@@ -272,6 +272,28 @@ try {
         await shot('05-modal-dxf.png')
     }
 
+    // ---------- 7b. Partie 2 : les DEUX alternatives homogènes ----------
+    // Sélecteur à deux options (Grille + moteur), captures des deux tôles
+    // pour chacune, diagnostic du pass grille multi-tôles.
+    const altTabs = page.locator('.alts__tab')
+    const nAlts = await altTabs.count()
+    log('ALT TABS:', nAlts, JSON.stringify((await altTabs.allInnerTexts()).map((s) => s.trim())))
+    for (let a = 0; a < nAlts; a++) {
+        await altTabs.nth(a).click()
+        await page.waitForTimeout(1200)
+        await shot(`06-alt${a}-sheet1.png`)
+        // Multi-tôles : flèche « suivante » = dernier bouton de .list-sheets.
+        const navButtons = page.locator('.list-sheets .button')
+        const nNav = await navButtons.count()
+        for (let s = 1; s < nNav; s++) {
+            await navButtons.last().click().catch(() => {})
+            await page.waitForTimeout(600)
+            await shot(`06-alt${a}-sheet${s + 1}.png`)
+        }
+    }
+    const structMulti = await page.evaluate(() => window.__structMultiDiag || null)
+    log('STRUCT MULTI DIAG:', JSON.stringify(structMulti))
+
     // ---------- 8. Dump IndexedDB (record riche : report + dxfs + liveLayout) ----------
     const idb = await page.evaluate(async () => {
         const db = await new Promise((res, rej) => {

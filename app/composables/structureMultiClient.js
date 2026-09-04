@@ -68,7 +68,13 @@ async function holeFillPoses(hostPose, hostItem, small, space, want, pinwheelCap
         .map((r) => ((Number(r) % 360) + 360) % 360))]
     for (const ring of (hostItem.holes || [])) {
         if (!ring || ring.length < 3) continue
-        const rots = await pinwheelCapacity(ring, small.coords, space, allowed)
+        const res = await pinwheelCapacity(ring, small.coords, space, allowed)
+        // geoPinwheelCapacity renvoie { rotations: [...] } (JSON du Rust),
+        // {ok:false,error} en échec — JAMAIS un tableau nu (l'ancien
+        // rots.length sur l'objet = undefined → 0 niche silencieuse,
+        // constat e2e space 2).
+        const rots = Array.isArray(res) ? res : (res?.rotations || [])
+        if (!rots.length) continue
         const n = Math.min(rots.length, want - poses.length)
         if (n <= 0) continue
         const cx = ring.reduce((s2, p) => s2 + p[0], 0) / ring.length
@@ -96,7 +102,7 @@ function bandFillPoses(small, bands, space, want) {
     return poses
 }
 
-function scatterPoses(small, count, x0, sheetW, sheetH, space) {
+function scatterPoses(small, count, x0, sheetW, sheetH, space, minX = null) {
     const coords = small.coords
     let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity
     for (const [x, y] of coords) {
@@ -125,6 +131,7 @@ function scatterPoses(small, count, x0, sheetW, sheetH, space) {
         col += 1
         x = x0 - col * (w + s)
         if (x < s - 1e-6) return null
+        if (minX != null && x < minX - 1e-6) return null
     }
     return poses
 }
@@ -291,14 +298,21 @@ async function buildLastSheet(rect, rectItem, small, w, h, space, hostsLeft, sma
     const freeLeft = smallsLeft - nested.length
     let freePoses = []
     if (freeLeft > 0) {
-        let bx0 = Infinity, bx1 = -Infinity
-        for (const [x] of small.coords) {
+        let bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity
+        for (const [x, y] of small.coords) {
             if (x < bx0) bx0 = x
             if (x > bx1) bx1 = x
+            if (y < by0) by0 = y
+            if (y > by1) by1 = y
         }
         const sw_ = bx1 - bx0
-        const x0 = Math.max(w - s - sw_, s + cols * pitchX + s)
-        freePoses = scatterPoses(small, freeLeft, x0, w, h, space)
+        // Le scatter vit à DROITE du bloc hôtes (+ space) : les colonnes
+        // descendent vers la gauche mais ne peuvent JAMAIS traverser le
+        // bloc (constat e2e : sans borne, 632 libres débordaient sur les
+        // colonnes d'hôtes).
+        const minX = s + cols * pitchX + s
+        const x0 = Math.max(w - s - sw_, minX)
+        freePoses = scatterPoses(small, freeLeft, x0, w, h, space, minX)
         if (freePoses === null) {
             stats.errors.push({
                 stage: 'grid-multi',
@@ -311,6 +325,9 @@ async function buildLastSheet(rect, rectItem, small, w, h, space, hostsLeft, sma
     if (!validateBatch(
         [...nested, ...freePoses],
         { container_id: 0, placed_items: hostPoses }, itemsById, w, h, space)) {
+        console.error('[grid-multi] état initial dernière tôle invalide :',
+            'hosts', hostPoses.length, 'nested', nested.length,
+            'free', freePoses.length, 'space', space)
         stats.errors.push({ stage: 'grid-multi', message: 'état initial dernière tôle invalide' })
         return null
     }

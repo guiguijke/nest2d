@@ -134,7 +134,7 @@ def _band_fill_poses(small, bands, space, want):
     return poses, len(poses)
 
 
-def _scatter_poses(small, count, x0, sheet_w, sheet_h, space):
+def _scatter_poses(small, count, x0, sheet_w, sheet_h, space, min_x=None):
     """Poses LÉGALES par construction pour les libres initiales de la
     dernière tôle (colonne(s) verticale(s) ancrées à droite, pas =
     bbox + space, wrap vers la gauche). Le compaction donneur les
@@ -167,6 +167,8 @@ def _scatter_poses(small, count, x0, sheet_w, sheet_h, space):
         col += 1
         x = x0 - col * (w + s)
         if x < s - 1e-6:
+            return None
+        if min_x is not None and x < min_x - 1e-6:
             return None
     return poses
 
@@ -354,8 +356,10 @@ def _build_last_sheet(rect, rect_item, small, w, h, space,
         xs = [p[0] for p in small["coords"]]
         ys = [p[1] for p in small["coords"]]
         sw_, sh_ = max(xs) - min(xs), max(ys) - min(ys)
-        x0 = max(w - s - sw_, s + cols * pitch_x + s)
-        free_poses = _scatter_poses(small, free_left, x0, w, h, space)
+        min_x = s + cols * pitch_x + s
+        x0 = max(w - s - sw_, min_x)
+        free_poses = _scatter_poses(small, free_left, x0, w, h, space,
+                                    min_x=min_x)
         if free_poses is None:
             stats["errors"].append({
                 "stage": "grid-multi",
