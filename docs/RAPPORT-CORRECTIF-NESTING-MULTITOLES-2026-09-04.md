@@ -330,7 +330,18 @@ preuve navigateur.
 
 ## 8. Déploiement partie 1
 
-(after deployment)
+**Déployé en production le 2026-09-04 ~21 h 30 UTC** (commits `c878cd7`,
+`3327e55`, docs `ac97397`, pushed). Procédure Hetzner : workflow
+« Build and publish Docker images » `completed success` sur `ac97397` ;
+`df -h` AVANT pull (21 Go libres) ; `docker compose pull` ; **7/7
+empreintes md5 des images publiées = HEAD** (residual/main/metrics/
+holefill côté worker, nest_wasm_bg.wasm/nest_geometry_bg.wasm/
+nest_wasm.js côté app) ; `up -d` ; app `200`, worker en polling.
+
+Note CI : `app-ci` échoue en amont sur deux tests `latticeScallop` qui
+timeout à 5 s sur le runner (7,5-8,3 s mesurés, pré-existant sur
+`40a0d45`, verts localement) — sans lien avec ce lot ; timeouts explicites
+à poser.
 
 ## 4. Décisions demandées (§5 du plan correctif)
 

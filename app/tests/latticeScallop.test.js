@@ -112,7 +112,7 @@ const placedRing = (p) => {
 }
 
 describe('smallLattice — anneau scallopé réel (régression 2026-09-02)', () => {
-    it('bande verticale 547×999 : toutes les poses mutuellement ≥ space (anneau complet)', () => {
+    it('bande verticale 547×999 : toutes les poses mutuellement ≥ space (anneau complet)', { timeout: 60_000 }, () => {
         const lat = smallLattice(
             { id: 1, coords: SCALLOP, rotations: [0, 90, 180, 270] },
             0.1, [451.1, 0.1, 998.4, 999.9], { want: 120, axis: 'x' })

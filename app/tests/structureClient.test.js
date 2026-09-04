@@ -344,7 +344,7 @@ describe('smallLattice — pavage analytique (compression finale)', () => {
         expect(minY).toBeLessThan(500.6 + 1.0)
     })
 
-    it('space 1 mm et 2 mm (zone B 1000×2000) : lattice non nul', async () => {
+    it('space 1 mm et 2 mm (zone B 1000×2000) : lattice non nul', { timeout: 60_000 }, async () => {
         const { smallLattice } = await import('../composables/structureClient')
         const ring = quarterPie()
         // P-1 (audit 2026-08-31) : rotations explicites — sans elles,
