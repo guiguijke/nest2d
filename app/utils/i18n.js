@@ -390,6 +390,10 @@ const dict = {
         'result.option': 'Option {n}',
         'result.used': 'used',
         'result.cleanOffcut': 'Clean offcut: {w} × {h}',
+        // §2.2d : tôles + chute réutilisable par tôle dans le sélecteur.
+        'result.sheetsCount': '{n} sheets',
+        'result.sheetsCountOne': '1 sheet',
+        'result.sheetOffcut': 'Sheet {n} offcut: {w} × {h} {unit}',
         'result.layoutOption': 'Layout option',
         'result.sheet': 'Sheet {n} / {total}',
         'result.downloadSheet': 'Download sheet {n}',
@@ -970,6 +974,10 @@ const dict = {
         'result.option': 'Option {n}',
         'result.used': 'utilisé',
         'result.cleanOffcut': 'Chute réutilisable : {w} × {h}',
+        // §2.2d : tôles + chute réutilisable par tôle dans le sélecteur.
+        'result.sheetsCount': '{n} tôles',
+        'result.sheetsCountOne': '1 tôle',
+        'result.sheetOffcut': 'Chute tôle {n} : {w} × {h} {unit}',
         'result.layoutOption': 'Option de placement',
         'result.sheet': 'Plaque {n} / {total}',
         'result.downloadSheet': 'Télécharger la plaque {n}',

@@ -14,7 +14,7 @@
                     @click="selectAlt(alt.altId)"
                 >
                     <span v-if="alt.strategy" class="alts__strategy">{{ strategyLabel(alt.strategy) }}</span>
-                    {{ t('result.option', { n: alt.altId + 1 }) }} · {{ formatScore(alt) }}
+                    {{ t('result.option', { n: alt.altId + 1 }) }} · {{ altSheetsCount(alt) }} · {{ formatScore(alt) }}
                 </button>
             </div>
             <div
@@ -909,8 +909,26 @@ const altTitle = (alt) => {
             h: fmtLength(alt.offcut.height),
         }))
     }
+    // §2.2d : la chute réutilisable PAR TÔLE — c'est ce que l'utilisateur
+    // compare entre deux alternatives multi-tôles (la matière réellement
+    // économisée), pas seulement la meilleure chute de l'alternative.
+    const sheets = alt?.report?.sheets || []
+    sheets.forEach((s, i) => {
+        const off = s?.offcut
+        if (!off || !(off.areaMm2 > 1)) return
+        parts.push(t('result.sheetOffcut', {
+            n: i + 1,
+            w: fmtLengthValue(off.widthMm, unitLabel.value === '"' ? 4 : 2),
+            h: fmtLengthValue(off.heightMm, unitLabel.value === '"' ? 4 : 2),
+            unit: unitLabel,
+        }) + (off.reusable ? '' : ` · ${t('report.offcut.scrap')}`))
+    })
     return parts.join('\n') || t('result.layoutOption')
 }
+// §2.2d : le nombre de tôles de l'alternative dans la ligne du sélecteur.
+const altSheetsCount = (alt) => (alt.layoutCount > 1
+    ? t('result.sheetsCount', { n: alt.layoutCount })
+    : t('result.sheetsCountOne'))
 const displayClasses = computed(() => ({
     'modal__display--is-fullscreen': unref(isFullScreen) && !unref(isHaveError)
 }))
