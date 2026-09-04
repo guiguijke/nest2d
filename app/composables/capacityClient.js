@@ -59,10 +59,18 @@ function bboxGridCapacity(part, width, height, space) {
     const w = maxx - minx
     const h = maxy - miny
     const s = Math.max(0, Number(space) || 0)
-    if (w + s <= 0 || h + s <= 0) return 0
-    const cols = Math.floor((Number(width) + s) / (w + s))
-    const rows = Math.floor((Number(height) + s) / (h + s))
-    return Math.max(0, cols) * Math.max(0, rows)
+    const W = Number(width) || 0
+    const H = Number(height) || 0
+    // Z4 (vérif 2026-09-05) : conteneur déflaté de s/2 par côté (piège #49)
+    // → floor(W/(w+s)) exact ; orientations 0° et 90° essayées.
+    let best = 0
+    for (const [bw, bh] of [[w, h], [h, w]]) {
+        if (bw + s <= 0 || bh + s <= 0) continue
+        const cols = Math.floor(W / (bw + s))
+        const rows = Math.floor(H / (bh + s))
+        best = Math.max(best, Math.max(0, cols) * Math.max(0, rows))
+    }
+    return best
 }
 
 // Miroit _constructive_fit : une instance qui tient par construction en

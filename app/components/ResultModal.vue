@@ -332,6 +332,49 @@
                         />
                     </div>
                 </div>
+                <!-- Z3 (vérif 2026-09-05) : solution partielle UTILE — le
+                     résultat posé est découpage (pas de rouge), mais
+                     l'utilisateur sait quoi faire du reste : leviers sous le
+                     badge « n pièces non placées ». -->
+                <div
+                    v-if="isPartial && partialHasLevers"
+                    class="report__partial"
+                    data-testid="report-partial"
+                >
+                    <div class="report__partial-title">
+                        {{ t('report.partial.title', {
+                            n: partialUnplacedCount,
+                        }) }}
+                    </div>
+                    <div class="report__partial-detail">{{ t('report.partial.detail') }}</div>
+                    <ul class="report__unfit-levers">
+                        <li v-if="unfitData.sheetsNeeded">
+                            {{ t('report.unfit.sheetsNeeded', { n: unfitData.sheetsNeeded }) }}
+                        </li>
+                        <li v-if="unfitData.maxParts != null">
+                            {{ t('report.unfit.maxParts', { n: unfitData.maxParts }) }}
+                        </li>
+                        <li v-if="unfitData.maxSpacingMm != null">
+                            {{ t('report.unfit.maxSpacing', { v: unfitData.maxSpacingMm }) }}
+                        </li>
+                    </ul>
+                    <div class="report__unfit-actions">
+                        <MainButton
+                            v-if="unfitData.sheetsNeeded"
+                            :label="t('report.unfit.addSheet')"
+                            :size="sizeType.s"
+                            :theme="themeType.primary"
+                            @click="$emit('unfit-add-sheet')"
+                        />
+                        <MainButton
+                            v-if="unfitData.maxSpacingMm != null"
+                            :label="t('report.unfit.reduceSpacing', { v: unfitData.maxSpacingMm })"
+                            :size="sizeType.s"
+                            :theme="themeType.secondary"
+                            @click="$emit('unfit-reduce-spacing', unfitData.maxSpacingMm)"
+                        />
+                    </div>
+                </div>
                 <div class="report__badges">
                     <span
                         v-for="badge in reportBadges"
@@ -429,6 +472,10 @@ import { displayDirectionArrow } from '~/utils/sheetView'
 import { onMounted, nextTick } from 'vue'
 import { reportExportState } from '~/utils/reportExport'
 
+// Z1/Z3 (vérif 2026-09-05) : actions correctives des bandeaux unfit /
+// partiel — écoutées par UserResults (ajout tôle / réduction espacement).
+const emit = defineEmits(['unfit-add-sheet', 'unfit-reduce-spacing'])
+
 const { getters } = globalStore
 const resultModalData = computed(() => getters.resultModalData)
 const { t } = useLocale()
@@ -512,6 +559,15 @@ const activeVerdict = computed(() => {
     return 'valid'
 })
 const isUnfit = computed(() => unref(activeVerdict) === 'unfit')
+// Z3 (vérif 2026-09-05) : solution partielle — bandeau ambre avec leviers
+// (le posé est découpage : jamais le bandeau rouge unfit).
+const isPartial = computed(() => unref(activeVerdict) === 'partial')
+const partialUnplacedCount = computed(() =>
+    (unref(activeReport)?.unplaced || 0) || unref(unfitData)?.unplaced || 0)
+const partialHasLevers = computed(() => {
+    const u = unref(unfitData) || {}
+    return Boolean(u.sheetsNeeded || u.maxParts != null || u.maxSpacingMm != null)
+})
 const unfitData = computed(() => {
     // Leviers : du job (pré-contrôle / moteur infaisable) ou dérivés du
     // rapport (gap négatif = dépassement mesuré).
@@ -523,6 +579,7 @@ const unfitData = computed(() => {
         sheetsNeeded: jobUnfit?.sheetsNeeded ?? null,
         maxParts: jobUnfit?.maxPartsAtSpacing ?? null,
         maxSpacingMm: jobUnfit?.maxSpacingForFitMm ?? null,
+        unplaced: jobUnfit?.unplaced ?? null,
         overflowMm,
         reason: jobUnfit?.reason ?? (overflowMm != null ? 'strip' : 'layout'),
     }
@@ -902,6 +959,25 @@ const updatePartPage = (partIndex) => {
     gap: 8px;
     margin-top: 8px;
     flex-wrap: wrap;
+}
+
+/* Z3 (vérif 2026-09-05) : solution partielle — ambre, pas rouge : le
+   résultat posé est utilisable et découpage. */
+.report__partial {
+    grid-column: 1 / -1;
+    border: 1px solid #d97706;
+    background: rgba(217, 119, 6, 0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 6px 0;
+}
+.report__partial-title {
+    color: #b45309;
+    font-weight: 600;
+}
+.report__partial-detail {
+    margin-top: 2px;
+    font-size: 12px;
 }
 
 .modal {

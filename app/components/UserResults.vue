@@ -16,12 +16,18 @@
         <p v-else class="results__text">
             {{ t('results.empty') }}
         </p>
-        <ResultModal v-model:isModalOpen="resultDialog" />
+        <ResultModal
+            v-model:isModalOpen="resultDialog"
+            @unfit-add-sheet="onUnfitAddSheet"
+            @unfit-reduce-spacing="onUnfitReduceSpacing"
+        />
     </MainAside>
 </template>
 
 <script setup>
 import { projectPrivacyMode } from '~/utils/privacyMode'
+import { mmToDisplay } from '~/utils/units'
+import { capacityPanelModel } from '~/utils/capacityPanel'
 
 const route = useRoute();
 const resultDialog = useResultDialog();
@@ -84,6 +90,26 @@ const updateResults = () => {
 const openModal = (result) => {
     setModalResultData(result)
     resultDialog.value = true
+}
+
+// Z1/Z3 (vérif 2026-09-05) : les boutons « Ajouter une tôle » / « Réduire
+// l'espacement » du modal (bandeaux unfit/partiel) modifient les réglages
+// du projet courant — mêmes règles que le bandeau capacité de la page.
+const onUnfitAddSheet = () => {
+    const sheets = filesStore.getters.params?.sheets || []
+    const next = capacityPanelModel({ reason: 'capacity' }, { sheets })?.nextSheets
+    if (!next) return
+    filesStore.actions.updateParams({ sheets: next })
+    resultDialog.value = false
+}
+const onUnfitReduceSpacing = (mm) => {
+    if (mm == null || !Number.isFinite(Number(mm))) return
+    const { unit } = useUnit()
+    const disp = mmToDisplay(Number(mm), unit.value)
+    filesStore.actions.updateParams({
+        space: unit.value === 'inch' ? String(Math.round(disp * 1000) / 1000) : String(disp),
+    })
+    resultDialog.value = false
 }
 
 const isHomePage = computed(() => {

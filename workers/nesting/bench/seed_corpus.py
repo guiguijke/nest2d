@@ -151,26 +151,33 @@ def case_files(case):
         outer, holes = host_ring()
         # Le cas des captures : 900+100 sur UNE tôle 1000×2000 à 4 mm —
         # infaisable par espacement (aire gonflée ratio ≈ 0,92). Attendu :
-        # 422 AVANT création du job (aucun worker ne doit le voir).
+        # 422 AVANT création du job via l'API ; semé directement (ce
+        # script), le worker refuse en < 1 s (Z2, statut error + unfit
+        # capacité + refund) — le moteur ne tourne jamais.
         return ([
             {"slug": "piece_trou", "count": 100, "rotations": QUARTERS,
              "parts": [{"coordinates": outer, "holes": holes}]},
             {"slug": "piece_fillx4", "count": 900, "rotations": QUARTERS,
              "parts": [{"coordinates": fan_ring(), "holes": []}]},
         ], [{"width": 1000.0, "height": 2000.0, "count": 1}], 4.0,
-        "infaisable par espacement — 422 attendu, job jamais créé")
+        "infaisable par espacement — 422 via l'API, refus worker <1s si semé (Z2)")
     if case == "K":
         outer, holes = host_ring()
-        # À la limite : ratio gonflé ≈ 0,90 sur 2 tôles → accepté (≤ 0,88
-        # par tôle cumulée), livré en BPP avec partiel propre si le packing
-        # réel échoue (badge unplaced, jamais une bande hors tôle).
+        # Z5 (vérif 2026-09-05) : VRAI cas limite — même job que T-J à
+        # 2,4 mm (R gonflé ≈ 0,86-0,88, sous le seuil de refus mais au-delà
+        # du meilleur empilement mesuré) : le BPP part et livre complet OU
+        # partiel propre (badge + leviers unfit.partial), jamais une bande
+        # hors tôle. À 4 mm sur 2 tôles l'aire utile est IDENTIQUE à 1 tôle
+        # 1000×2000 (R ≈ 0,92) : ce n'était pas un cas limite mais un
+        # second T-J.
         return ([
             {"slug": "piece_trou", "count": 100, "rotations": QUARTERS,
              "parts": [{"coordinates": outer, "holes": holes}]},
             {"slug": "piece_fillx4", "count": 900, "rotations": QUARTERS,
              "parts": [{"coordinates": fan_ring(), "holes": []}]},
-        ], [{"width": 1000.0, "height": 1000.0, "count": 2}], 4.0,
-        "à la limite (R≈0,46/tôle cumulé) — BPP, partiel propre si échec")
+        ], [{"width": 1000.0, "height": 1000.0, "count": 2}],
+        float(os.environ.get("CORPUS_SPACE_K", "2.4")),
+        "à la limite (R≈0,87 à 2,4 mm) — BPP, complet ou partiel propre avec leviers")
     if case == "I":
         # ESICUP en BPP : les pièces du benchmark comme items, tôle-bande
         # ×3 (approximation multi-tôles du strip d'origine).

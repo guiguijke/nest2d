@@ -258,3 +258,85 @@ Livrer la partie 1 d'abord (elle protège l'utilisateur et le quota) ; la
 partie 2 ensuite, en une PR par étape. Décisions propriétaire à confirmer
 avant 1a : seuils 0,88 / 0,85 (à calibrer sur le corpus, à documenter dans
 `specs/20-moteur-nesting.md`) et politique de refund du cas « partiel ».
+
+---
+
+## Vérification de la partie 1 (commits `a787657..ee21242`) + plan de la suite — 2026-09-04, 22 h
+
+Méthode : `git status` propre, `assert_images_head.sh` OK contre HEAD ;
+suites ; e2e navigateur (cas 4 mm et non-régression 0,1) ; banc serveur
+(cas 4 mm **semé directement**, 0,1, 2) ; corpus T-J/T-K ; relecture de
+`capacity.py`, du filtre du merge wasm et du câblage aux trois couches.
+
+### Vérifié conforme
+
+- **Le cas des captures est refusé avant tout calcul côté navigateur**,
+  avec remboursement (capture `docs/qa/audit-multitoles-2026-09-03/
+  verif7-0905-navigateur-refus-4mm.png`) ; côté API : 422 sans quota
+  (`nest.post.js:240-250`), couvert par les tests serveur (153 verts).
+- Ratio gonflé (Minkowski, tôle utile `(W−s)(H−s)`) et trois leviers
+  calculés (`capacity.py`, miroir `capacityClient.js`, 128 lignes de
+  tests) ; seuils 0,88 / 0,85 documentés dans `specs/20-moteur-nesting.md` ;
+  choix SPP/BPP sur l'aire gonflée (`main.py`).
+- **Chemin navigateur hors tôle identifié et fermé** : le merge wasm
+  n'appliquait pas `strip_width ≤ max_strip_width` ; désormais tout walk
+  hors largeur est écarté, tous hors largeur ⇒ erreur (`merge.rs`).
+- Non-régression multi-tôles : serveur 0,1 = 589/311 (chute 600,3) ;
+  2 = 577/323 (chute 544) ; navigateur 0,1 = 590/310 (603,7). Physique OK.
+- Suites : pytest 198 + 1, vitest 422 (dont serveur 153), cargo 71 + 1,
+  `retry_overshoot` isolé (`#[ignore]`).
+
+### Réserves (Z)
+
+| Id | Sév. | Constat | Preuve |
+|---|---|---|---|
+| **Z1** | M (UX) | Le refus navigateur est une **ligne d'erreur générique** (« These parts do not fit … refunded ») : ni les trois leviers chiffrés (≈ 2 tôles, ≤ 924 pièces, ≤ 2,1 mm) ni les boutons « Ajouter une tôle » / « Réduire l'espacement » prévus en §1.2c. Les nombres existent dans `capacityReport` mais ne sont pas affichés. | Capture 99-error ; `localJobPrivate.js:403-415` (`capacity_exceeded` → texte seul). |
+| **Z2** | M (défense) | **Pas de refus côté worker** : un job qui n'est pas passé par l'API (semé, autre route) part au moteur — le cas 4 mm semé a tourné **115 s** et livré un partiel 982/1000 (`unplaced 18`, `unfit null`). Le plan §1.2a demandait la défense en profondeur dans `main.py`. | `bench-unfit-40-1788553278` : `done`, 114,8 s, `unfit null`. |
+| **Z3** | M (produit) | Solution **partielle** livrée sans les leviers : `unfit` reste `null` (§1.2b prévoyait `unfit.partial` avec `sheetsNeeded`, `maxPartsAtSpacing`, `maxSpacingForFit`) ; l'utilisateur voit « 18 pièces non placées » sans savoir quoi faire. | même job ; T-J 983/1000, T-K 984/1000. |
+| Z4 | m (exactitude) | `_bbox_grid_capacity` : `floor((W + s)/(w + s))` sur-compte d'une colonne quand `W mod (w+s) ∈ [w, w+s)` ; la géométrie jagua (piège #49) donne `floor(W/(w + s))` (n pièces : `n·w + (n−1)·s + s ≤ W`). Exemple : W = 19, w = 8, s = 2 → 2 au lieu de 1. Comme c'est une **dérogation** (ne jamais refuser si la construction tient), l'erreur va dans le sens « laisser passer un infaisable ». Une seule orientation (0°) considérée. | Lecture `capacity.py:75-92`. |
+| Z5 | m (corpus) | **T-K n'est pas « à la limite »** : 2×1000×1000 à 4 mm a la même aire utile que 1×1000×2000 → R ≈ 0,92 (le commentaire « R≈0,46/tôle » est une lecture par tôle). Il devrait être refusé par l'API ; semé directement il livre un partiel (984/1000). Un vrai cas limite : même job à **2,4-2,5 mm** (R ≈ 0,86-0,88). `eval_corpus.py` note « OK » un partiel attendu : distinguer `PARTIEL (attendu)`. | Sortie corpus J/K ; calcul Minkowski. |
+| Z6 | m (e2e) | Le script met 75 s à détecter le refus (attente fixe 15 s + `waitForSelector('.stage__status')` 60 s) : lire `.content__error` dès le clic. | `run.log` : clic 20:21:03, détection 20:22:18. |
+
+### Plan de la suite (ordre)
+
+**Étape 1 — Boucler la partie 1 (Z1-Z6), ½ jour**
+
+1. Z1 : le 422 et le refus local portent déjà `capacityReport` → afficher
+   dans le bandeau : « Il faudrait ≈ {sheetsNeeded} tôles, ou ≤
+   {maxParts} pièces, ou un espacement ≤ {maxSpacing} mm » + boutons
+   « Ajouter une tôle » (count+1 sur le 1er format), « Réduire
+   l'espacement » (préremplit `maxSpacingForFitMm`), « Relancer ».
+   i18n FR/EN (piège #20). Test vitest du composant + e2e (Z6 corrigé).
+2. Z2 : `main.py` : si `_cap["refused"]` → `status: error`, `information`
+   humaine, champ `unfit {reason:'capacity', …leviers}`, **aucun appel
+   moteur** ; test pytest « job refusé en < 1 s ».
+3. Z3 : quand la solution est partielle (`unplaced > 0`) → `unfit
+   {reason:'partial', unplaced, …leviers}` des deux côtés ; le modal
+   affiche les leviers sous le badge « n pièces non placées ».
+4. Z4 : `floor(W/(w+s))`, orientations 0/90 ; test « W=19, w=8, s=2 → 1 ».
+5. Z5 : T-K à 2,4 mm ; verdict `PARTIEL (attendu)` dans `eval_corpus.py`
+   pour T-J (semé) ; T-J via l'API = 422 (test serveur déjà présent).
+6. Z6 : détection immédiate de `.content__error` dans le runner.
+
+GO 1 : e2e du cas 4 mm affiche les trois leviers et les boutons ; job semé
+à 4 mm refusé par le worker en < 1 s ; T-K à 2,4 mm livré complet ou
+partiel avec leviers ; corpus complet vert.
+
+**Étape 2 — Partie 2 du plan (alternatives « Grille » et « Compaction »
+homogènes), 2,5 jours** — inchangée, voir §2.2-§2.3 ci-dessus. Rappels de
+cadrage issus des vérifications précédentes :
+
+- profil `compact` = moteur + trous + passe fusionnée, **sans**
+  `_regrid_helices` ; profil `grid` = constructeur multi-tôles autonome,
+  présent seulement si `detect_structural_case` reconnaît le motif ;
+- chaque alternative homogène sur toutes ses tôles (verrou automatique :
+  hôtes au pas sur toutes les tôles pour `grid` ; aucun hôte déplacé vs
+  `postPass.pre` pour `compact`) ;
+- invariant « jamais pire que le moteur » et physique bloquante pour les
+  deux ; corpus T-B..T-I sans alternative grille et sans régression ;
+- e2e : sélecteur à deux alternatives, captures des deux tôles pour
+  chacune, parité serveur/navigateur ± 3 pièces.
+
+**Étape 3 — Déploiement** : après GO 1 (la partie 1 protège l'utilisateur
+et le quota), avec `assert_images_head.sh` sur les images publiées ; la
+partie 2 suit en release séparée.

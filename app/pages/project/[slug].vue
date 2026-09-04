@@ -87,6 +87,48 @@
         <div v-if="localComputeError" class="content__error">
             {{ localErrorText }}
         </div>
+        <!-- Z1 (vérif 2026-09-05) : refus capacité (422 API ou refus
+             navigateur) — les trois leviers chiffrés + actions, pas une
+             ligne générique. -->
+        <div v-if="capacityPanel" class="capacity-panel" data-testid="capacity-panel">
+            <div class="capacity-panel__title">{{ t('nest.capacity.title') }}</div>
+            <ul class="capacity-panel__levers">
+                <li v-if="capacityPanel.levers.sheetsNeeded">
+                    {{ t('report.unfit.sheetsNeeded', { n: capacityPanel.levers.sheetsNeeded }) }}
+                </li>
+                <li v-if="capacityPanel.levers.maxParts != null">
+                    {{ t('report.unfit.maxParts', { n: capacityPanel.levers.maxParts }) }}
+                </li>
+                <li v-if="capacityPanel.levers.maxSpacingMm != null">
+                    {{ t('report.unfit.maxSpacing', { v: capacityPanel.levers.maxSpacingMm }) }}
+                </li>
+            </ul>
+            <div class="capacity-panel__actions">
+                <MainButton
+                    v-if="capacityPanel.nextSheets"
+                    :label="t('report.unfit.addSheet')"
+                    :size="sizeType.s"
+                    :theme="themeType.primary"
+                    data-testid="capacity-add-sheet"
+                    @click="onCapacityAddSheet"
+                />
+                <MainButton
+                    v-if="capacityPanel.reduceSpacingToMm != null"
+                    :label="t('report.unfit.reduceSpacing', { v: capacityPanel.reduceSpacingToMm })"
+                    :size="sizeType.s"
+                    :theme="themeType.secondary"
+                    data-testid="capacity-reduce-spacing"
+                    @click="onCapacityReduceSpacing"
+                />
+                <MainButton
+                    :label="t('nest.capacity.retry')"
+                    :size="sizeType.s"
+                    :theme="themeType.secondary"
+                    data-testid="capacity-retry"
+                    @click="startsNest"
+                />
+            </div>
+        </div>
         <div v-if="isDemo && demoQuotaReached && !demoUnlimited" class="content__error">
             {{ t('demo.quotaEmpty') }}
         </div>
@@ -124,6 +166,7 @@
 <script setup>
 import { themeType } from "~~/constants/theme.constants";
 import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
+import { capacityPanelModel } from "~/utils/capacityPanel";
 import { isLocalComputeEnabled } from "~/composables/localCompute";
 import { hasActiveJob, progressFor } from "~/composables/localSolverRegistry";
 import { invalidateLocalRecords } from "~/composables/localHydrate";
@@ -223,6 +266,9 @@ const localLive = computed(() => {
     };
 });
 const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value));
+// Z1 (vérif 2026-09-05) : payload unfit du dernier job local refusé (les
+// leviers du pré-contrôle) — le registre le porte sur la phase error.
+const localUnfit = ref(null);
 const attemptedLocalJobs = new Set();
 const localZonePhase = ref(null);
 // Job local en file (cap tier atteint) : affiché dans la ligne d'état.
@@ -277,6 +323,7 @@ watch(
               : p.error === 'cancelled' ? null
               : 'crash')
             : null;
+        localUnfit.value = p.phase === 'error' ? (p.unfit || null) : null;
         if (p.phase === 'queued' || p.phase === 'running') {
             if (!localComputeRunning.value) {
                 localComputeRunning.value = true;
@@ -465,6 +512,7 @@ watch(pageSlug, async (s, prev) => {
         localModeCtl.stopTimer()
         localComputeRunning.value = false
         localComputeError.value = null
+        localUnfit.value = null
         localWalks.value = 1
         localEvals.value = null
         localZonePhase.value = null
@@ -485,6 +533,41 @@ watch(pageSlug, async (s, prev) => {
 const btnLabel = computed(() => {
     return t('settings.nestFiles', { n: unref(filesCount) })
 })
+// ---------------------------------------------------------------------------
+// Z1 (vérif 2026-09-05) : bandeau « refus capacité » — leviers chiffrés du
+// pré-contrôle + actions correctives. Sources : 422 de l'API (nestUnfit,
+// aucun quota consommé) ou refus navigateur (localUnfit, job refundé).
+// ---------------------------------------------------------------------------
+const nestUnfit = computed(() => filesGetters.nestUnfit);
+const capacityPanel = computed(() => {
+    const unfit = (localComputeError.value === 'capacity_exceeded' && localUnfit.value)
+        || unref(nestUnfit)
+        || null;
+    if (!unfit) return null;
+    const p = unref(params);
+    const spaceNum = Number(String(p.space ?? '0').replace(',', '.')) || 0;
+    return capacityPanelModel(unfit, {
+        sheets: unref(currentSheets),
+        spaceMm: displayToMm(spaceNum),
+    });
+});
+const onCapacityAddSheet = () => {
+    const next = unref(capacityPanel)?.nextSheets;
+    if (!next) return;
+    actions.updateParams({ sheets: next });
+    localComputeError.value = null;
+    actions.dismissNestUnfit();
+};
+const onCapacityReduceSpacing = () => {
+    const mm = unref(capacityPanel)?.reduceSpacingToMm;
+    if (mm == null) return;
+    const disp = mmToDisplay(mm, unit.value);
+    actions.updateParams({
+        space: unit.value === 'inch' ? String(Math.round(disp * 1000) / 1000) : String(disp),
+    });
+    localComputeError.value = null;
+    actions.dismissNestUnfit();
+};
 // Sheet cap mirror (D-PAY-9): the Free plan is capped at 2 sheets TOTAL per
 // job (sum of counts over every format). The SERVER enforces the cap at
 // enqueue (403 sheet_cap_exceeded, before any quota is consumed) — this is
@@ -573,6 +656,39 @@ const startsNest = () => {
         border-radius: 8px;
     }
 
+}
+
+// Z1 (vérif 2026-09-05) : bandeau refus capacité — leviers chiffrés +
+// actions correctives (même famille visuelle que le bandeau unfit du
+// modal ResultModal).
+.capacity-panel {
+    margin-top: 12px;
+    padding: 14px 16px;
+    background-color: var(--error-background);
+    border: solid 1px var(--error-border);
+    border-radius: 8px;
+    max-width: 42rem;
+
+    &__title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--label-primary);
+    }
+
+    &__levers {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--label-secondary);
+    }
+
+    &__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+    }
 }
 
 .atelier {

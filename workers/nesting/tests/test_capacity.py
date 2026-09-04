@@ -126,3 +126,35 @@ class TestConstructiveOverride:
              {"coords": _fan(), "count": 900}],
             [{"width": 1000.0, "height": 2000.0, "count": 1}], 4.0)
         assert r["refused"] is True
+
+
+class TestBboxGridCapacity:
+    """Z4 (vérif 2026-09-05) : la borne « rangées » doit être EXACTE sur la
+    géométrie jagua (conteneur déflaté de s/2 par côté, piège #49) —
+    n·w + (n−1)·s + s ≤ W ⇒ floor(W/(w+s)) — et essayer les deux
+    orientations."""
+
+    def test_w19_w8_s2_fits_exactly_one(self):
+        # W=19, w=8, s=2 : 8+2+8 = 18 ≤ 19 mais 2 colonnes = 8+2+8+2+8 = 28 > 19.
+        rect8 = [[0, 0], [8, 0], [8, 8], [0, 8], [0, 0]]
+        from core.capacity import _bbox_grid_capacity
+        assert _bbox_grid_capacity({"coords": rect8}, 19.0, 19.0, 2.0) == 1
+
+    def test_orientations_0_and_90_both_tried(self):
+        # Tôle 100×30, pièce 25×8, s=2 : à 0° → 3×3 = 9 ; tournée (8×25) →
+        # 10×1 = 10. La meilleure orientation doit gagner.
+        rect = [[0, 0], [25, 0], [25, 8], [0, 8], [0, 0]]
+        from core.capacity import _bbox_grid_capacity
+        cap = _bbox_grid_capacity({"coords": rect}, 100.0, 30.0, 2.0)
+        assert cap == 10
+
+    def test_snug_square_still_constructive(self):
+        # Le cas du garde #49 reste exact : 8×8 / tôle 12 / s 2 → 1 case.
+        rect8 = [[0, 0], [8, 0], [8, 8], [0, 8], [0, 0]]
+        from core.capacity import _bbox_grid_capacity
+        assert _bbox_grid_capacity({"coords": rect8}, 12.0, 12.0, 2.0) == 1
+
+    def test_no_overcount_on_zero_spacing(self):
+        rect = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+        from core.capacity import _bbox_grid_capacity
+        assert _bbox_grid_capacity({"coords": rect}, 25.0, 25.0, 0.0) == 4

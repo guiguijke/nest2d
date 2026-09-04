@@ -128,6 +128,10 @@ const state = reactive({
     // soumission non gérée ailleurs (409 concurrent_limit, 5xx…) — avant,
     // l'erreur était avalée ET lastParams marqué → bouton grisé muet.
     nestError: '',
+    // Z1 (vérif 2026-09-05) : payload structuré du refus 422 capacité
+    // (aire gonflée > seuil) — {reason, ratio, sheetsNeeded,
+    // maxPartsAtSpacing, maxSpacingForFitMm} pour le bandeau à leviers.
+    nestUnfit: null,
     // Soumission en vol : bloque le double-clic pendant la latence du POST
     // (2 requêtes = 2 charges possibles chez un Free, cf. R-1 serveur).
     nestBusy: false,
@@ -503,6 +507,7 @@ async function nest(slug) {
     try {
         try {
             state.nestError = ''
+            state.nestUnfit = null
             state.demoQuotaReached = false
             state.sheetCapError = false
             const data = await $fetch(API_ROUTES.NEST(slug), {
@@ -517,6 +522,13 @@ async function nest(slug) {
             // operation that was just consumed.
             await authStore.actions.setUser()
         } catch (error) {
+            if (error?.data?.statusMessage === 'capacity_exceeded') {
+                // Z1 (vérif 2026-09-05) : refus 422 du pré-contrôle de
+                // capacité (SANS quota consommé) — le bandeau à leviers de
+                // la page prend le relais du message générique.
+                state.nestUnfit = error?.data?.data?.unfit || null
+                return
+            }
             if (error?.data?.statusMessage === 'sheet_cap_exceeded') {
                 // Server-side free sheet cap fired (client mirror bypassed).
                 state.sheetCapError = true
@@ -571,6 +583,11 @@ async function nest(slug) {
     }
 }
 
+/** Z1 (vérif 2026-09-05) : ferme le bandeau capacité (après action). */
+function dismissNestUnfit() {
+    state.nestUnfit = null
+}
+
 export const filesStore = readonly({
     getters: {
         projectFiles: computed(() => state.projectFiles),
@@ -586,6 +603,7 @@ export const filesStore = readonly({
         demoQuotaReached: computed(() => state.demoQuotaReached),
         sheetCapError: computed(() => state.sheetCapError),
         nestError: computed(() => state.nestError),
+        nestUnfit: computed(() => state.nestUnfit),
         nestBusy: computed(() => state.nestBusy),
         params: computed(() => state.params),
         nestRequestError: computed(() => {
@@ -617,6 +635,7 @@ export const filesStore = readonly({
         increment,
         decrement,
         addFiles,
-        nest
+        nest,
+        dismissNestUnfit
     }
 })

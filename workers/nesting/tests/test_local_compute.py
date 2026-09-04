@@ -10,6 +10,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "common"))
 
@@ -190,6 +192,58 @@ def test_local_holes_meta_prepass_keeps_instance_importable(monkeypatch):
     assert meta["slots"] == [1]
     # Petit carré dans un trou Ø70 à space 2 : pinwheel plein validé.
     assert len(meta["ringRotations"][0]) == 4
+
+
+def test_refused_capacity_job_never_reaches_engine(monkeypatch):
+    """Z2 (vérif 2026-09-05) : un job que le pré-contrôle de capacité
+    refuse (aire gonflée / aire utile > 0,88) est finalisé error + unfit
+    structuré AVANT tout appel moteur, en < 1 s — même semé directement
+    (sans passer par le 422 de l'API). L'exception déclenche le refund."""
+    import time as _time
+
+    doc = _job_doc()
+    del doc["params"]["computeLocation"]
+    # 100 carrés 80×80, s=40 sur UNE tôle 1500×1000 : aire gonflée
+    # 100×(6400+6400+π·400) ≈ 1,41 m² > aire utile 1460×960 ≈ 1,40 m² →
+    # ratio ≈ 1,00 > 0,88, et la grille constructive (12×8=96 < 100)
+    # ne sauve pas → refus.
+    doc["params"]["sheets"] = [{"width": 1500.0, "height": 1000.0, "count": 1}]
+    doc["params"]["space"] = 40.0
+    doc["files"] = [{"slug": "f1", "count": 100,
+                     "rotations": [0.0, 90.0, 180.0, 270.0]}]
+    jobs = FakeCollection([doc])
+    monkeypatch.setattr(m, "db", FakeDb(nesting_jobs=jobs))
+    monkeypatch.setattr(m, "get_dek", lambda db, owner: None)
+    monkeypatch.setattr(
+        m,
+        "convert_files_to_input_items",
+        lambda files, dek: [
+            {"id": 0, "file_slug": "f1", "coords": _square(0, 0, 40), "holes": [],
+             "handles": [], "color": None, "count": 100,
+             "rotations": [0.0, 90.0, 180.0, 270.0]}
+        ],
+    )
+
+    def forbidden_run_engine(*a, **kw):
+        raise AssertionError("run_engine must never run for a refused job")
+
+    monkeypatch.setattr(m, "run_engine", forbidden_run_engine)
+
+    t0 = _time.monotonic()
+    with pytest.raises(Exception):
+        m.nesting_process(jobs.docs[0])
+    elapsed = _time.monotonic() - t0
+
+    assert elapsed < 1.0, f"refusal must be immediate, took {elapsed:.2f}s"
+    final = jobs.docs[0]
+    assert final["status"] == "error"
+    assert final["placed"] == 0
+    unfit = final["unfit"]
+    assert unfit["reason"] == "capacity"
+    assert unfit["ratio"] > 0.88
+    assert unfit["sheetsNeeded"] >= 2
+    assert unfit["maxPartsAtSpacing"] >= 1
+    assert "information" in final
 
 
 def test_adaptive_plateau_patience():

@@ -648,6 +648,39 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     }
 
     const [sheetWidth, sheetHeight] = sheetDims(payload, 0)
+    // Z3 (vérif 2026-09-05) : solution partielle UTILE → leviers structurés
+    // (miroir du serveur) : « n pièces non posées » + tôles nécessaires,
+    // pièces max, espacement max. Aucun refund (décision propriétaire).
+    let partialUnfit = null
+    if (placed < requested) {
+        try {
+            const { capacityReport } = await import('./capacityClient')
+            const inst = payload?.instance || {}
+            const sheets = Array.isArray(inst.bins)
+                ? inst.bins.map((b) => {
+                    const outer = b.shape?.data?.outer || []
+                    let w = 0, h = 0
+                    for (const [x, y] of outer) { w = Math.max(w, x); h = Math.max(h, y) }
+                    return { width: w, height: h, count: Number(b.stock) || 1 }
+                })
+                : [{ width: sheetWidth, height: sheetHeight, count: 1 }]
+            const spaceMm = Number(payload?.engineConfig?.min_item_separation) || 0
+            const cap = capacityReport(
+                (payload?.parts || []).map((p) => ({ coords: p.coords, count: p.count })),
+                sheets, spaceMm)
+            partialUnfit = {
+                reason: 'partial',
+                unplaced: requested - placed,
+                ...(cap ? {
+                    ratio: cap.ratio,
+                    sheetsNeeded: cap.sheetsNeeded,
+                    maxPartsAtSpacing: Object.values(cap.maxPartsAtSpacing || {})
+                        .reduce((n, v) => n + Number(v || 0), 0),
+                    maxSpacingForFitMm: cap.maxSpacingForFitMm,
+                } : {}),
+            }
+        } catch { /* leviers best-effort : le badge unplaced reste */ }
+    }
     try {
         await saveLocalResult({
             slug: jobSlug,
@@ -660,6 +693,7 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             placed,
             alternatives,
             liveLayout,
+            ...(partialUnfit ? { unfit: partialUnfit } : {}),
             meta: { memory: outcome.memory },
         })
     } catch {
@@ -675,6 +709,7 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             placed,
             layoutCount: best.layoutCount ?? 0,
             density: best.density ?? null,
+            ...(partialUnfit ? { unfit: partialUnfit } : {}),
         },
     })
     return { ok: true, alternatives, liveLayout, itemMap }

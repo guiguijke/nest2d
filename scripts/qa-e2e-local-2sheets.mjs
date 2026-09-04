@@ -159,13 +159,23 @@ try {
     await nestBtn.click()
     log('nest clicked')
 
-    // Attendre le début du calcul local (stage status OU spinner du bouton)
-    await page.waitForSelector('.stage__status', { timeout: 60000 }).catch(() => log('WARN: no .stage__status within 60s'))
-    log('local compute running')
-    await page.waitForTimeout(15000)
-    {
-        const bb = await page.locator('.stage').first().boundingBox().catch(() => null)
-        if (bb) await shot('02-live-early.png', bb)
+    // Z6 (vérif 2026-09-05) : détection immédiate du refus — l'ancienne
+    // séquence (waitForSelector .stage__status 60 s + attente fixe 15 s)
+    // mettait 75 s à voir une erreur qui s'affiche en < 1 s. On attend
+    // l'un des deux états, et si l'erreur est déjà là on ne perd pas les
+    // 15 s de « live early ».
+    const early = await Promise.race([
+        page.waitForSelector('.content__error', { timeout: 30000 }).then(() => 'error'),
+        page.waitForSelector('.stage__status', { timeout: 30000 }).then(() => 'running'),
+    ]).catch(() => log('WARN: neither error nor stage status within 30s') || 'none')
+    log('early state:', early)
+    if (early !== 'error') {
+        log('local compute running')
+        await page.waitForTimeout(15000)
+        {
+            const bb = await page.locator('.stage').first().boundingBox().catch(() => null)
+            if (bb) await shot('02-live-early.png', bb)
+        }
     }
 
     // ---------- 6. Attendre la fin (item résultat done/failed dans l'aside) ----------
@@ -189,6 +199,43 @@ try {
     log('compute outcome:', outcome, `(${((Date.now() - t0) / 1000).toFixed(0)}s)`)
     await page.waitForTimeout(1500)
     await shot('03-stage-final.png')
+
+    // ---------- 6b. Profil REFUS (QA_EXPECT=refusal) — Z1 + Z6 ----------
+    // Le refus capacité doit afficher le bandeau à LEVIERS (3 chiffres) et
+    // les boutons d'action, pas une ligne générique (capture 99-error).
+    if (process.env.QA_EXPECT === 'refusal') {
+        if (!outcome.startsWith('page-error')) {
+            throw new Error('expected capacity refusal (page-error), got: ' + outcome)
+        }
+        await page.waitForSelector('[data-testid="capacity-panel"]', { timeout: 10000 })
+        const levers = await page.locator('.capacity-panel__levers li').allInnerTexts()
+        const addSheetBtn = await page.locator('[data-testid="capacity-add-sheet"]').count()
+        const reduceBtn = await page.locator('[data-testid="capacity-reduce-spacing"]').count()
+        const retryBtn = await page.locator('[data-testid="capacity-retry"]').count()
+        log('CAPACITY LEVERS:', JSON.stringify(levers))
+        log(`ACTION BUTTONS: add-sheet=${addSheetBtn} reduce-spacing=${reduceBtn} retry=${retryBtn}`)
+        // Les trois leviers chiffrés (≈ 2 tôles / ≤ 924 pièces / ≤ 2,1 mm).
+        if (levers.length < 3) throw new Error(`expected 3 levers, got ${levers.length}: ${JSON.stringify(levers)}`)
+        if (!/\d/.test(levers.join(' '))) throw new Error('levers carry no numbers: ' + levers.join(' / '))
+        if (!addSheetBtn || !retryBtn) throw new Error('missing action buttons')
+        await shot('04-capacity-panel.png')
+        // Le clic « Ajouter une tôle » incrémente le compte du 1er format
+        // et fait disparaître le bandeau (le refus devient re-essayable).
+        const cntBefore = await page.locator('.size__sheet > .input__value, .size__sheet > label.input .input__value').first().inputValue()
+        await page.locator('[data-testid="capacity-add-sheet"]').first().click()
+        await page.waitForTimeout(500)
+        const cntAfter = await page.locator('.size__sheet > .input__value, .size__sheet > label.input .input__value').first().inputValue()
+        const panelGone = !(await page.locator('[data-testid="capacity-panel"]').count())
+        log(`ADD-SHEET ACTION: count ${cntBefore} -> ${cntAfter}, panel dismissed=${panelGone}`)
+        if (Number(cntAfter) !== Number(cntBefore) + 1) throw new Error(`add-sheet did not increment (${cntBefore} -> ${cntAfter})`)
+        if (!panelGone) throw new Error('capacity panel not dismissed after action')
+        flushLogs()
+        await browser.close()
+        console.log('\nGO — refusal with levers + actions, detected in '
+            + ((Date.now() - t0) / 1000).toFixed(1) + 's')
+        process.exit(0)
+    }
+
     if (outcome !== 'done') throw new Error('compute did not complete: ' + outcome)
 
     // ---------- 7. Modal résultat : rapport ----------

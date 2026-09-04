@@ -113,6 +113,10 @@ async function launch(jobSlug, projectSlug, itemMap) {
         job.result = res || null
         job.ok = !!res?.ok
         job.error = res?.ok ? null : (res?.error || 'crash')
+        // Z1 (vérif 2026-09-05) : le payload unfit (leviers du refus
+        // capacité / partiel) remonte à la page — scalaires légers, gardés
+        // après l'éviction des champs lourds.
+        job.unfit = res?.ok ? null : (res?.unfit || null)
         job.phase = res?.ok ? 'done' : (res?.error === 'cancelled' ? 'cancelled' : 'error')
     } catch (e) {
         job.ok = false
@@ -171,6 +175,7 @@ export function ensureJob(job, { projectSlug = null, maxConcurrent = 1 } = {}) {
         existing.evals = null
         existing.zone = null
         existing.error = null
+        existing.unfit = null
         existing.ok = null
         existing.finishedAt = null
         existing.startedAt = Date.now()

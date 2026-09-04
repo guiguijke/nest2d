@@ -790,6 +790,43 @@ def _nesting_process_impl(doc):
     cap_sheets = [{"width": s.get("width"), "height": s.get("height"),
                    "count": int(s.get("count") or 1)} for s in sheets]
     _cap = _capacity_report(cap_parts, cap_sheets, space)
+    # Z2 (vérif 2026-09-05) : défense en profondeur — le 422 de l'API a pu
+    # être contourné (job semé directement, une autre route que nest.post).
+    # Un job refusé par le pré-contrôle ne part JAMAIS au moteur : statut
+    # error + `unfit` structuré (les trois leviers) en < 1 s ; l'exception
+    # déclenche le refund côté worker_loop (politique propriétaire :
+    # refus pré-contrôle = refund).
+    if _cap and _cap.get("refused"):
+        _heartbeat_stop.set()
+        _unfit = {
+            "reason": "capacity",
+            "ratio": _cap.get("ratio"),
+            "sheetsNeeded": _cap.get("sheetsNeeded"),
+            "maxPartsAtSpacing": sum(
+                (v or 0) for v in (_cap.get("maxPartsAtSpacing") or {}).values()),
+            "maxSpacingForFitMm": _cap.get("maxSpacingForFitMm"),
+        }
+        information = ("This job does not fit the declared sheets at this "
+                       "spacing — try adding a sheet, reducing the spacing "
+                       "or removing parts.")
+        db["nesting_jobs"].update_one(
+            {"slug": slug},
+            {
+                "$set": {
+                    "placed": 0,
+                    "status": "error",
+                    "information": information,
+                    "unfit": _unfit,
+                    "finishedAt": datetime.now(),
+                    "update_ts": datetime.now(),
+                },
+                "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""},
+            },
+        )
+        logger.info("Job refused by capacity pre-check (deep defense)", extra={
+            "slug": slug, "ratio": _unfit["ratio"],
+            "sheets_needed": _unfit["sheetsNeeded"]})
+        raise Exception(information)
     total_inflated = sum(_inflated_area(it, space) * (it.get("count") or 0)
                           for it in input_items)
     is_spp = (
@@ -1812,26 +1849,42 @@ def _nesting_process_impl(doc):
         alt["alt_id"] = alt_id
 
     best = alternatives[0]
+    final_set = {
+        "alternatives": alternatives,
+        # Legacy fields = best alternative (retro-compat readers).
+        "dxf_files": best["dxf_files"],
+        "svg_files": best["svg_files"],
+        # Y3 (vérif tour 5) : pièces RÉELLEMENT posées par la
+        # meilleure alternative (une solution partielle affichait
+        # la demande : « placed 90 » pour 89 posées). Le report
+        # par tôle porte le compte exact post-finalisation.
+        "placed": sum(s2.get("partCount") or 0
+                      for s2 in (best.get("report", {})
+                                 .get("sheets") or [])) or total_requested_count,
+        "layoutCount": best["layoutCount"],
+        "density": best["density"],
+        "usedSheetShare": best["usedSheetShare"],
+        "update_ts": datetime.now()
+    }
+    # Z3 (vérif 2026-09-05) : une solution partielle UTILE est livrée
+    # (done, pas de refund — décision propriétaire) mais avec les leviers
+    # structurés : l'utilisateur sait quoi faire des pièces non posées.
+    best_unplaced = int((best.get("report") or {}).get("unplaced") or 0)
+    if best_unplaced > 0:
+        _partial = {"reason": "partial", "unplaced": best_unplaced}
+        if _cap:
+            _partial.update({
+                "ratio": _cap.get("ratio"),
+                "sheetsNeeded": _cap.get("sheetsNeeded"),
+                "maxPartsAtSpacing": sum(
+                    (v or 0) for v in (_cap.get("maxPartsAtSpacing") or {}).values()),
+                "maxSpacingForFitMm": _cap.get("maxSpacingForFitMm"),
+            })
+        final_set["unfit"] = _partial
     db["nesting_jobs"].update_one(
         { "slug": slug },
         {
-            "$set": {
-                "alternatives": alternatives,
-                # Legacy fields = best alternative (retro-compat readers).
-                "dxf_files": best["dxf_files"],
-                "svg_files": best["svg_files"],
-                # Y3 (vérif tour 5) : pièces RÉELLEMENT posées par la
-                # meilleure alternative (une solution partielle affichait
-                # la demande : « placed 90 » pour 89 posées). Le report
-                # par tôle porte le compte exact post-finalisation.
-                "placed": sum(s2.get("partCount") or 0
-                              for s2 in (best.get("report", {})
-                                         .get("sheets") or [])) or total_requested_count,
-                "layoutCount": best["layoutCount"],
-                "density": best["density"],
-                "usedSheetShare": best["usedSheetShare"],
-                "update_ts": datetime.now()
-            },
+            "$set": final_set,
             "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
         }
     )

@@ -49,6 +49,11 @@ export async function getResults(userId, projectSlug) {
             // Specific failure reason written by the worker (e.g. which part
             // does not fit the sheet); null for legacy jobs.
             information: queueItem.information ?? null,
+            // Plan 2026-09-05 §1.2b/§1.2c + Z3 (vérif 2026-09-05) : verdict
+            // structuré {reason: 'capacity'|'strip'|'partial', leviers} —
+            // alimente le bandeau du modal (unfit) et les leviers d'une
+            // solution partielle. Null sur les jobs antérieurs.
+            unfit: queueItem.unfit ?? null,
             downloadUrl: downloadUrl,
             zipDownloadUrl: zipDownloadUrl,
             isInProgress: queueItem.status === 'processing' || queueItem.status === 'pending' || queueItem.status === 'awaiting_local',

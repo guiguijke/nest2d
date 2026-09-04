@@ -203,6 +203,9 @@ const dict = {
         'nest.error.sheetCap': 'Sheet limit exceeded: the Free plan allows up to 2 sheets per job.',
         'nest.error.concurrent': 'A nesting job is already running — wait for it to finish before starting another.',
         'nest.error.generic': 'The nesting request failed — please try again.',
+        // Z1 (vérif 2026-09-05) : bandeau refus capacité (leviers + actions).
+        'nest.capacity.title': 'These parts do not fit the declared sheets at this spacing.',
+        'nest.capacity.retry': 'Retry',
         // Purge 24 h (D-PRV-10) : états « expiré » (la phrase live est privacy.status.*).
         'results.expired': 'Expired (24 h purge)',
         'files.expired': 'Expired (24 h purge) — re-upload this file to nest it again',
@@ -313,6 +316,10 @@ const dict = {
         'report.unfit.maxSpacing': 'About {v} mm max spacing that fits',
         'report.unfit.addSheet': 'Add a sheet',
         'report.unfit.reduceSpacing': 'Reduce spacing to {v} mm',
+        // Z3 (vérif 2026-09-05) : solution partielle utile — leviers sous
+        // le badge « n pièces non placées ».
+        'report.partial.title': 'Partial layout — {n} parts not placed',
+        'report.partial.detail': 'Everything placed fits and is cuttable; to nest the rest:',
         'localMode.allInvalid': 'Every layout option was rejected by physical validation (measured overlaps). The nesting was refunded — please retry in server mode.',
         'localMode.capacityExceeded': 'These parts do not fit the declared sheets at this spacing — add a sheet, reduce the spacing or remove parts. The nesting was refunded.',
         'report.unplaced': '{n} parts not placed (tight stock)',
@@ -780,6 +787,9 @@ const dict = {
         'nest.error.sheetCap': "Limite de tôles dépassée : l'offre Free permet jusqu'à 2 tôles par tâche.",
         'nest.error.concurrent': "Un calcul d'imbrication est déjà en cours — attendez sa fin avant d'en lancer un autre.",
         'nest.error.generic': "La requête d'imbrication a échoué — veuillez réessayer.",
+        // Z1 (vérif 2026-09-05) : bandeau refus capacité (leviers + actions).
+        'nest.capacity.title': "Ces pièces ne tiennent pas sur les tôles déclarées à cet espacement.",
+        'nest.capacity.retry': 'Relancer',
         // Purge 24 h (D-PRV-10) : états « expiré » (la phrase live est privacy.status.*).
         'results.expired': "Expiré (purge 24 h)",
         'files.expired': "Expiré (purge 24 h) — réimportez ce fichier pour le nester à nouveau",
@@ -890,6 +900,8 @@ const dict = {
         'report.unfit.maxSpacing': 'Environ {v} mm d’espacement maximum qui tient',
         'report.unfit.addSheet': 'Ajouter une tôle',
         'report.unfit.reduceSpacing': 'Réduire l’espacement à {v} mm',
+        'report.partial.title': 'Imbrication partielle — {n} pièces non placées',
+        'report.partial.detail': 'Tout ce qui est placé tient et est découpage ; pour imbriquer le reste :',
         'localMode.allInvalid': "Toutes les options ont été rejetées par la validation physique (chevauchements mesurés). L'imbrication a été remboursée — réessayez en mode serveur.",
         'localMode.capacityExceeded': "Ces pièces ne tiennent pas sur les tôles déclarées à cet espacement — ajoutez une tôle, réduisez l'espacement ou retirez des pièces. L'imbrication a été remboursée.",
         'report.unplaced': '{n} pièces non placées (stock serré)',

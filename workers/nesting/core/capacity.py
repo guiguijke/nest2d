@@ -76,7 +76,15 @@ def _bbox_grid_capacity(item, width, height, space):
     """Capacité constructive d'une tôle pour une classe : grille au pas
     bbox + space (le plan §1.2a « borne rangées »). Minorante EXACTE pour
     des rectangles — une instance qui tient par cette construction est
-    faisable, indépendamment du ratio statistique."""
+    faisable, indépendamment du ratio statistique.
+
+    Z4 (vérif 2026-09-05) : géométrie jagua (piège #49) — le conteneur est
+    déflaté de s/2 de chaque côté, donc n pièces sur un axe exigent
+    ``n·w + (n−1)·s + s ≤ W``, c.-à-d. ``floor(W / (w + s))``. L'ancienne
+    formule ``floor((W + s)/(w + s))`` sur-comptait d'une colonne quand
+    ``W mod (w + s) ∈ [w, w + s)`` (W=19, w=8, s=2 → 2 au lieu de 1) —
+    comme c'est une DÉROGATION au refus, l'erreur laissait passer un
+    infaisable. Les deux orientations (0° et 90°) sont essayées."""
     coords = item.get("coords") or []
     if len(coords) < 3:
         return 0
@@ -85,11 +93,16 @@ def _bbox_grid_capacity(item, width, height, space):
     w = max(xs) - min(xs)
     h = max(ys) - min(ys)
     s = max(0.0, float(space or 0))
-    if w + s <= 0 or h + s <= 0:
-        return 0
-    cols = int(math.floor((float(width) + s) / (w + s)))
-    rows = int(math.floor((float(height) + s) / (h + s)))
-    return max(0, cols) * max(0, rows)
+    W = float(width or 0)
+    H = float(height or 0)
+    best = 0
+    for bw, bh in ((w, h), (h, w)):
+        if bw + s <= 0 or bh + s <= 0:
+            continue
+        cols = int(math.floor(W / (bw + s)))
+        rows = int(math.floor(H / (bh + s)))
+        best = max(best, max(0, cols) * max(0, rows))
+    return best
 
 
 def _constructive_fit(parts, sheets, space):
