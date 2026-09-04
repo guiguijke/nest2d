@@ -74,12 +74,14 @@ try {
     )
     log('2 files imported (done state)')
 
-    // Quantités : Trou=100, Fillx4=800
+    // Quantités : Trou=100, Fillx4=800 (paramétrables — banc mono-tôle)
+    const TRO_QTY = process.env.QA_TRO_QTY || '100'
+    const FILL_QTY = process.env.QA_FILL_QTY || '800'
     const cards = page.locator('.files__item')
     const nCards = await cards.count()
     for (let i = 0; i < nCards; i++) {
         const name = await cards.nth(i).locator('.file__name').innerText().catch(() => '')
-        const target = /Piece_Trou/i.test(name) ? '100' : /Piece_Fillx4/i.test(name) ? '800' : null
+        const target = /Piece_Trou/i.test(name) ? TRO_QTY : /Piece_Fillx4/i.test(name) ? FILL_QTY : null
         log(`file card ${i}: "${name.trim()}" -> count ${target}`)
         if (target) {
             const input = cards.nth(i).locator('input.counter__value')
@@ -112,7 +114,8 @@ try {
     const countInput = sheet.locator('> .input__value, > label.input .input__value').first()
     const cnt = await countInput.inputValue()
     log('sheet count:', cnt)
-    if (String(cnt) !== '2') { await countInput.fill('2'); await countInput.blur() }
+    const SHEET_COUNT = process.env.QA_SHEET_COUNT || '2'
+    if (String(cnt) !== SHEET_COUNT) { await countInput.fill(SHEET_COUNT); await countInput.blur() }
 
     const spacing = page.locator('label.input', { hasText: 'Spacing' }).locator('.input__value')
     await spacing.fill(process.env.QA_SPACE || '0.1')
@@ -147,7 +150,10 @@ try {
     const nestBtn = page.locator('.atelier__nest')
     const nestLabel = (await nestBtn.innerText()).trim().replace(/\s+/g, ' ')
     log('nest button label:', nestLabel)
-    if (!/900/.test(nestLabel)) throw new Error(`expected 900 files on nest button, got "${nestLabel}"`)
+    const expectedTotal = Number(TRO_QTY) + Number(FILL_QTY)
+    if (!new RegExp(String(expectedTotal)).test(nestLabel)) {
+        throw new Error(`expected ${expectedTotal} files on nest button, got "${nestLabel}"`)
+    }
     await nestBtn.click()
     log('nest clicked')
 

@@ -126,6 +126,39 @@ régime dédié à l'espace large).
 - Captures + SVG + **`pre-solve.json`** (pre-state moteur avant
   post-pass, nouvel outil de diagnostic) dans `.qa-pw/e2e-final-s0{,1}/`.
 
+## 3bis. Mono-tôle (demande propriétaire 2026-09-04) — non régressé
+
+Le chemin mono-tôle (SPP = bande + alternative grille canonique, et BPP
+stock 1) n'était plus testé depuis le début du chantier multi-tôles.
+Nouveau banc `bench/seed_mono.py` (1 tôle 1000×1000, 50 Piece_Trou +
+250 Piece_Fillx4, fillHoles ON) + e2e navigateur paramétré
+(`QA_TRO_QTY/QA_FILL_QTY/QA_SHEET_COUNT`).
+
+### Serveur (3 jobs, image = HEAD)
+
+| Mode | Space | Placé | Layouts | Chevauch. | Hors tôle | min-dist | Stratégie | holes | postPass |
+|---|---|---|---|---|---|---|---|---|---|
+| SPP | 0,1 | 300/300 | 1 | 0 | 0 | 0,0996 | grid | 150 | zeros, aucune erreur |
+| SPP | 2 | 300/300 | 1 | 0 | 0 | 1,9996 | grid | 164 | zeros, aucune erreur |
+| BPP stock 1 | 0,1 | 300/300 | 1 | 0 | 0 | 0,0996 | grid | 150 | zeros, aucune erreur |
+
+VERDICT OK ×3. Points vérifiés : la pré-passe meta/hole-fill et
+l'alternative grille (SPP-only, touchée par P2/D3) fonctionnent ;
+`fill_residual_bands` respecte son contrat no-op `< 2 layouts` (T8) ;
+la compaction receveuse/donneuse ne s'exécute pas en mono ; les badges
+sont mesurés (overlapFree/spacingOk/gap/duplicatePoses/verifyStatus).
+
+### Navigateur (e2e THIS DEVICE, wasm actuel)
+
+`QA_TRO_QTY=50 QA_FILL_QTY=250 QA_SHEET_COUNT=1 QA_SPACE=0.1` :
+job done, **300/300 placées**, 2 alternatives toutes deux physiquement
+mesurées propres — grille : used 0,597, holes 150, **= serveur à
+l'identique** ; moteur (left) : holes **200** (pinwheel plein),
+`expandMeta: 200` (compteur V18 câblé — l'ancien delta valait 0), gap
+0,0997. Vérification SVG brute (check_svg_dir) : 0 chevauchement,
+0 doublon, min-dist 0,1000, 0 hors tôle, **VERDICT OK**. Captures dans
+`.qa-pw/e2e-mono-s01/`.
+
 ## 4. Décisions demandées (§5 du plan correctif)
 
 1. **Phase 4 (SPP à séparateurs)** : recommandée par la vérification « à
