@@ -194,6 +194,35 @@ géométries hors corpus de référence.
 comptes par tôle identiques, AABB ≤ 2 mm, 400/1099 poses divergentes
 (classe D9 documentée).
 
+## 3quater. Plan correctif n° 3 (vérification 3 du 04/09) — exécuté, commit deb3e01
+
+La troisième vérification (constats X1-X7) est traitée — dont
+l'invalidation de ma propre conclusion « saturation démontrée » :
+
+| Id | Traitement | Preuve (bancs avec `assert_images_head.sh` OK avant chaque) |
+|---|---|---|
+| **X1** | ✅ Validation de retour ne juge que contre les pièces MODIFIÉES (`changed_ids`/`include=`) ; non-posées de la receveuse → DONNEUSE ; `saved_poses` avant détachement (les maps sur deepcopies étaient du code mort) ; miroir JS | Banc space 2 : la passe fusionnée est désormais ACCEPTÉE quand elle gagne |
+| **X2** | ✅ `merge_bp_runs` livre la meilleure solution PARTIELLE (jamais « infaisable » si un walk a posé) ; gardes Python comparées au posé MOTEUR ; `report.unplaced` + badge UI ; **T-F 3/3 done** (avant : 4/4 erreur produit) | 3 jobs bench-corpus-f `done`, physique propre, unplaced explicite |
+| **X3** | ✅ `bench/assert_images_head.sh` créé (md5 conteneur ↔ HEAD pour workers + bundles wasm) — il a intercepté deux images périmées PENDANT ce chantier | sorties OK citées dans les bancs ci-dessous |
+| **X4** | ✅ `postPass.pre = [{sheet, count, frontX}]` avant tout post-pass (Python + JS) ; `eval_corpus.py` filtre par horodatage, gain brut→final affiché, « pire que le moteur » mesuré | bancs ci-dessous : pre → final visibles |
+| **X5** | ✅ `mergedRollbackReason` ∈ {restore-recv, restore-donor, count} | postPass des bancs |
+| **C8** | ⚠️ Partiel : température PAR ITÉRATIONS calibrée par taille — T-F passe 3/3 done mais les comptes varient encore (28/61 vs 29/61) : la variance résiduelle vient du budget d'itérations estimé au temps mesuré | T-F 3 runs |
+| **X6** | ⚠️ Résiduel documenté | — |
+| **X7** | ✅ T-E 3 tôles, T-I tôles 2200 | corpus |
+
+**Bancs finaux (HEAD vérifié)** :
+- space 2 : **pre moteur [205, 295] → final [529, 371]**, merged 1
+  accepté, physique 0/0/0 (un run antérieur à moteur brut plus dense :
+  577 pièces tôle 1 — la passe gagne QUAND elle gagne, la variance
+  inter-run reste, cf. C8) ;
+- space 0,1 : **pre [265, 235] → final [589, 311]**, merged 1, physique
+  OK, min-dist 0,1000.
+
+**Ce que le rapport précédent disait faux** : la « saturation à space 2 »
+était un artefact du seuil de validation de retour (X1) — le gain était
+disponible et bloqué. Elle est retirée : la décision phase 4 (§4) se
+prend sur les chiffres `pre → final` du corpus ci-dessus, mesurés.
+
 ## 4. Décisions demandées (§5 du plan correctif)
 
 1. **Phase 4 (SPP à séparateurs)** : recommandée par la vérification « à
