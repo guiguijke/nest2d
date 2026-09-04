@@ -103,3 +103,26 @@ class TestCapacityReport:
             else:
                 assert r["ratio"] > prev
                 prev = r["ratio"]
+
+
+class TestConstructiveOverride:
+    """Dérogation du garde #49 : une instance qui tient par construction
+    en grilles (bbox + space) n'est jamais refusée par le ratio
+    statistique — un carré 8×8 dans une tôle 12×12 à space 2 tient
+    EXACTEMENT (ratio 0,99)."""
+
+    def test_single_snug_square_not_refused(self):
+        rect8 = [[0, 0], [8, 0], [8, 8], [0, 8], [0, 0]]
+        r = capacity_report([{"coords": rect8, "count": 1}],
+                           [{"width": 12.0, "height": 12.0, "count": 1}], 2.0)
+        assert r["ratio"] > REFUSE_RATIO  # statistiquement « à la limite »
+        assert r["refused"] is False      # constructivement exact
+
+    def test_owner_case_still_refused(self):
+        # le cas propriétaire (fan pentagone + hôte, classes mélangées)
+        # nécessite 2 tôles par la construction → toujours refusé.
+        r = capacity_report(
+            [{"coords": _host(), "count": 100},
+             {"coords": _fan(), "count": 900}],
+            [{"width": 1000.0, "height": 2000.0, "count": 1}], 4.0)
+        assert r["refused"] is True

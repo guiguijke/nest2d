@@ -72,6 +72,52 @@ def inflated_area(item, space):
     return a + p * s / 2.0 + math.pi * s * s / 4.0
 
 
+def _bbox_grid_capacity(item, width, height, space):
+    """Capacité constructive d'une tôle pour une classe : grille au pas
+    bbox + space (le plan §1.2a « borne rangées »). Minorante EXACTE pour
+    des rectangles — une instance qui tient par cette construction est
+    faisable, indépendamment du ratio statistique."""
+    coords = item.get("coords") or []
+    if len(coords) < 3:
+        return 0
+    xs = [c[0] for c in coords]
+    ys = [c[1] for c in coords]
+    w = max(xs) - min(xs)
+    h = max(ys) - min(ys)
+    s = max(0.0, float(space or 0))
+    if w + s <= 0 or h + s <= 0:
+        return 0
+    cols = int(math.floor((float(width) + s) / (w + s)))
+    rows = int(math.floor((float(height) + s) / (h + s)))
+    return max(0, cols) * max(0, rows)
+
+
+def _constructive_fit(parts, sheets, space):
+    """True si une construction en grilles par classe tient dans le stock
+    (somme des tôles nécessaires par classe ≤ stock total). Optimiste pour
+    les classes mixtes (elles partagent mal), mais EXACTE en classe unique
+    rectangulaire — c'est la dérogation du garde #49 : un ratio statistique
+    de 0,99 sur un carré 8×8 dans une tôle 12×12 à space 2 tient
+    exactement et ne doit JAMAIS être refusé."""
+    if not parts or not sheets:
+        return False
+    sheets_needed = 0
+    for p in parts:
+        count = int(p.get("count") or 0)
+        if count <= 0:
+            continue
+        best_cap = 0
+        for sh in sheets:
+            cap = _bbox_grid_capacity(
+                p, sh.get("width"), sh.get("height"), space)
+            best_cap = max(best_cap, cap)
+        if best_cap <= 0:
+            return False
+        sheets_needed += math.ceil(count / best_cap)
+    stock = sum(int(sh.get("count") or 1) for sh in sheets)
+    return sheets_needed <= stock
+
+
 def sheet_usable_area(width, height, space):
     """Aire utile d'une tôle : jagua offset space/2 sur le conteneur
     (piège #49) → (W − s)·(H − s)."""
@@ -143,6 +189,12 @@ def capacity_report(parts, sheets, space):
                 hi = mid
         max_spacing = round(lo, 2)
 
+    # Dérogation constructive (garde #49) : une instance qui tient par
+    # la construction en grilles est faisable — le ratio statistique ne
+    # la refuse pas (carré 8×8 / tôle 12×12 / space 2 : ratio 0,99 mais
+    # exactement une case).
+    constructive = _constructive_fit(parts, sheets, s)
+
     return {
         "ratio": round(ratio, 4),
         "totalInflatedMm2": round(total_inflated, 1),
@@ -150,5 +202,5 @@ def capacity_report(parts, sheets, space):
         "sheetsNeeded": sheets_needed,
         "maxPartsAtSpacing": max_parts,
         "maxSpacingForFitMm": max_spacing,
-        "refused": ratio > REFUSE_RATIO,
+        "refused": ratio > REFUSE_RATIO and not constructive,
     }

@@ -398,11 +398,23 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         } catch (e) {
             // Géométrie locale absente ou instance invalide : refund propre,
             // jamais de quota consommé sur un job qui n'a pas pu démarrer.
+            // Plan 2026-09-05 §1.2a : refus de CAPACITÉ (espacement) —
+            // l'unfit du builder part au local-fail (bandeau + leviers).
+            const isCapacity = e?.message === 'capacity_exceeded'
             await $fetch(`/api/results/${jobSlug}/local-fail`, {
                 method: 'POST',
-                body: { error: 'client_payload_build' },
+                body: {
+                    error: e?.message === 'local_geometry_missing' ? 'geometry_missing'
+                        : isCapacity ? 'capacity_exceeded' : 'payload_build',
+                    ...(isCapacity && e.__unfit ? { unfit: e.__unfit } : {}),
+                },
             }).catch(() => {})
-            return { ok: false, error: e?.message === 'local_geometry_missing' ? 'geometry_missing' : 'payload_build' }
+            return {
+                ok: false,
+                error: e?.message === 'local_geometry_missing' ? 'geometry_missing'
+                    : isCapacity ? 'capacity_exceeded' : 'payload_build',
+                unfit: isCapacity ? e.__unfit : undefined,
+            }
         }
     } else {
         payload = fetched

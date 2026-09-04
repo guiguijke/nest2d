@@ -46,6 +46,46 @@ export function sheetUsableArea(width, height, space) {
     return Math.max(0, (Number(width) - s) * (Number(height) - s))
 }
 
+function bboxGridCapacity(part, width, height, space) {
+    const coords = (part && part.coords) || []
+    if (coords.length < 3) return 0
+    let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity
+    for (const [x, y] of coords) {
+        if (x < minx) minx = x
+        if (x > maxx) maxx = x
+        if (y < miny) miny = y
+        if (y > maxy) maxy = y
+    }
+    const w = maxx - minx
+    const h = maxy - miny
+    const s = Math.max(0, Number(space) || 0)
+    if (w + s <= 0 || h + s <= 0) return 0
+    const cols = Math.floor((Number(width) + s) / (w + s))
+    const rows = Math.floor((Number(height) + s) / (h + s))
+    return Math.max(0, cols) * Math.max(0, rows)
+}
+
+// Miroit _constructive_fit : une instance qui tient par construction en
+// grilles (bbox + space) est faisable — dérogation du garde #49 (le
+// ratio statistique ne refuse jamais un carré 8×8 exact dans sa tôle).
+function constructiveFit(parts, sheets, space) {
+    if (!parts?.length || !sheets?.length) return false
+    let sheetsNeeded = 0
+    for (const p of parts) {
+        const count = Math.trunc(Number(p?.count) || 0)
+        if (count <= 0) continue
+        let bestCap = 0
+        for (const sh of sheets) {
+            bestCap = Math.max(bestCap, bboxGridCapacity(p, sh?.width, sh?.height, space))
+        }
+        if (bestCap <= 0) return false
+        sheetsNeeded += Math.ceil(count / bestCap)
+    }
+    const stock = sheets.reduce(
+        (n, sh) => n + (Math.trunc(Number(sh?.count) || 1)), 0)
+    return sheetsNeeded <= stock
+}
+
 export function capacityReport(parts, sheets, space) {
     const s = Math.max(0, Number(space) || 0)
     let totalInflated = 0
@@ -105,6 +145,7 @@ export function capacityReport(parts, sheets, space) {
         maxSpacing = Math.round(lo * 100) / 100
     }
 
+    const constructive = constructiveFit(parts, sheets, s)
     return {
         ratio: Math.round(ratio * 10000) / 10000,
         totalInflatedMm2: Math.round(totalInflated * 10) / 10,
@@ -112,6 +153,6 @@ export function capacityReport(parts, sheets, space) {
         sheetsNeeded,
         maxPartsAtSpacing: maxParts,
         maxSpacingForFitMm: maxSpacing,
-        refused: ratio > REFUSE_RATIO,
+        refused: ratio > REFUSE_RATIO && !constructive,
     }
 }

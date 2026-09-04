@@ -664,6 +664,23 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
     const cap = capacityReport(
         inputItems.map((it) => ({ coords: it.coords, count: it.count || 0 })),
         sheets, space)
+    // Plan 2026-09-05 §1.2a (défense navigateur) : refus AVANT le calcul
+    // — quelques millisecondes au lieu de 4 min de wasm, aucune pose
+    // invalide, les trois leviers partent avec l'erreur (local-fail →
+    // bandeau UI). Miroir du 422 serveur.
+    if (cap && cap.refused) {
+        const totalMax = Object.values(cap.maxPartsAtSpacing || {})
+            .reduce((n, v) => n + Number(v || 0), 0)
+        const err = new Error('capacity_exceeded')
+        err.__unfit = {
+            reason: 'capacity',
+            ratio: cap.ratio,
+            sheetsNeeded: cap.sheetsNeeded,
+            maxPartsAtSpacing: totalMax,
+            maxSpacingForFitMm: cap.maxSpacingForFitMm,
+        }
+        throw err
+    }
     const totalInflated = inputItems.reduce(
         (n, it) => n + inflatedArea(it, space) * (it.count || 0), 0)
     const isSpp = sheets.length === 1

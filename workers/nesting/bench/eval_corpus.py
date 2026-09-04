@@ -39,22 +39,20 @@ def fiche(slug_prefix="bench-corpus-", since=None):
             a = alts[0]
             r = a.get("report") or {}
             pp = r.get("postPass") or {}
-            # X4 : gain mesuré brut → final par tôle.
+            # X4 : gain mesuré brut → final. « Pire que le moteur » =
+            # TOTAL final < total brut (les transferts inter-tôles sont le
+            # BUT de la passe fusionnée : une tôle perd, l'autre gagne —
+            # l'ancien test par tôle signalait à tort T-K) OU physique KO.
             pre = pp.get("pre") or []
             final = r.get("sheets") or []
             gains = []
-            worse = False
             for k in range(min(len(pre), len(final))):
-                delta = (final[k].get("partCount") or 0) - (pre[k].get("count") or 0)
-                gains.append(delta)
-                pre_front = pre[k].get("frontX")
-                # front : sans post-pass.finalX persisté on se fie à
-                # l'invariant W1/W2 (acceptation count+front) ; le GAIN de
-                # compte est la mesure dure.
-                if delta < 0:
-                    worse = True
+                gains.append((final[k].get("partCount") or 0)
+                            - (pre[k].get("count") or 0))
+            pre_total = sum((p2.get("count") or 0) for p2 in pre)
+            final_total = sum((s2.get("partCount") or 0) for s2 in final)
             row["gainParTôle"] = gains
-            row["pireQueMoteur"] = worse
+            row["pireQueMoteur"] = final_total < pre_total
             row.update({
                 "layouts": a.get("layoutCount"),
                 "overlapFree": r.get("overlapFree"),
@@ -70,9 +68,13 @@ def fiche(slug_prefix="bench-corpus-", since=None):
                 "pre": pp.get("pre"),
             })
             errors = pp.get("errors") or []
+            # Plan 2026-09-05 : une solution PARTIELLE propre (physique
+            # valide, unplaced explicite) est un verdict OK — c'est le
+            # comportement attendu sur stock serré (T-F, T-K).
+            unplaced = r.get("unplaced") or 0
             verdict_ok = (
                 j.get("status") == "done"
-                and placed == requested
+                and placed == requested - unplaced
                 and r.get("overlapFree") is True
                 and r.get("insideSheet") is True
                 and (r.get("duplicatePoses") or 0) == 0
