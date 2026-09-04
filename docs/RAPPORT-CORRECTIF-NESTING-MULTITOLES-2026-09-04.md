@@ -248,6 +248,31 @@ phase 4 maintenant. La passe fusionnée et la compaction donneuse restent
 en filet conditionnel (sûres par l'invariant W1/W2/Y2) ; livrer après ce
 plan n° 4 et réévaluer sur retours utilisateurs réels.
 
+## 6. Partie 1 du plan 2026-09-05 (job infaisable dit non) — exécutée, commits a787657..3933451 + 5c…
+
+Le constat des captures (900 Fillx4 + 100 Trou, 1×1000×2000, 4 mm :
+« done » après 4 min, bande hors tôle, badges contradictoires) est
+traité :
+
+| Élément | Traitement | Preuve |
+|---|---|---|
+| Aire gonflée (Minkowski) | `core/capacity.py` + `capacityClient.js` (miroir) ; ratio du cas = **0,92** gonflé vs 0,58 nu | test_capacity 12 + capacityClient 7 |
+| Refus 422 sans quota | `nest.post.js` avant la charge (polygonParts lus) + défense main.py/localPayloadBuilder | nest.capacity 3 |
+| Choix SPP/BPP | sur aire GONFLÉE partout ; BPP livrera partiel propre au lieu d'une bande sans borne | suites |
+| Dérogation constructive (garde #49) | instance qui tient par grilles bbox+space jamais refusée (8×8/tôle 12/space 2, ratio 0,99) | TestConstructiveOverride |
+| Chemin navigateur hors tôle | **identifié** : le merge wasm n'appliquait pas le filtre strip_width ≤ max de run_spp_mem (pièges #6/#7) — verrouillé | cargo, determinism |
+| `unfit` structuré | main.py (best_strip_width → sheetsNeeded) + local-fail persiste | code |
+| Verdict unique UI | `activeVerdict` {valid, unfit, partial, unverified} ; bandeau rouge + 3 leviers + boutons ; gap négatif = « hors tôle de X mm » ; téléchargements bloqués ; carte « Ne tient pas » | i18n FR/EN |
+| Refus navigateur rapide | throw capacity_exceeded AVANT le solve → **0 s + refund + phrase actionnable** (e2e : « These parts do not fit… refunded ») | .qa-pw/e2e-unfit-v3 |
+| Corpus T-J/T-K | T-J = le cas captures (422 attendu via API ; semé direct Mongo → partiel propre 981/1000, unplaced 19, physique 0/0/0) ; T-K limite → 986/1000 partiel propre | eval_corpus |
+| Décisions propriétaire | REFUSE_RATIO=0,88 / REFERENCE_PACKING=0,85 (documentés specs/20-moteur-nesting.md, local) ; partiel utile = quota consommé, échec explicite = refund | specs/20 |
+| Non-régression | e2e 0,1 multi-tôle : 590/310, chute 603,7, physique OK (VERDICT OK) | .qa-pw/e2e-p1-regression |
+
+pytest 198+1, vitest 422, cargo 71+1, determinism bit-identique.
+
+**Partie 2 (alternatives Grille/Compaction homogènes) : NON lancée** —
+livrée séparément après validation de la partie 1 par le vérificateur.
+
 ## 4. Décisions demandées (§5 du plan correctif)
 
 1. **Phase 4 (SPP à séparateurs)** : recommandée par la vérification « à
