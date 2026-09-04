@@ -104,3 +104,33 @@ déjà aussi bien que le lattice). Le corpus hors référence n'a aucun gain
 Garder la passe fusionnée + compaction donneuse comme filet conditionnel
 (elles sont sûres par l'invariant), livrer après le plan n° 4, et réévaluer
 la phase 4 sur retours utilisateurs réels plutôt que sur ce corpus.
+
+## 5. Vérification du lot n° 6 (commits `50db247..4fbb6d0`) — 2026-09-04, 19 h
+
+Contrôles : `git status` propre ; `assert_images_head.sh` OK contre HEAD ;
+wasm HEAD = conteneur app ; appels de validation vers la donneuse sans
+`changed_ids` (Python `residual.py:854`, JS `residualClient.js:925`) ;
+`placed` = somme des comptes par tôle ; `report.unplaced` calculé en JS ;
+`TestY2ReturnToDonorValidated` présent. Suites : pytest 186 + 1, vitest
+412, cargo 71 + 1 (le test SPP `retry_overshoot` échoue sous charge CPU et
+passe 2/2 à vide : sensible à la charge, pas une régression).
+
+| Run | pre → final | Chute t2 | postPass | Physique (brut) |
+|---|---|---|---|---|
+| Serveur 0,1 ×2 | [589, 311] → [589, 311] | 600,3 | merged 1, net 0 | OK 0,1000 |
+| Serveur 2 (a) | [525, 375] → **[577, 323]** | 544,1 | merged 1 | OK 2,0000 |
+| Serveur 2 (b) | [528, 372] → **[555, 345]** | 522,5 | merged 1 | OK |
+| Navigateur 0,1 | [590, 310] → [590, 310] | 603,7 | rb front/count | OK 0,0990 |
+| Navigateur 2 | [524, 376] → **[555, 345]** | 522,2 | merged 1 | OK 2,0000 |
+
+Corpus (slugs distincts) : T-A..T-I OK ; T-F ×3 = 90/90, 90/90, **89/90
+(partiel, `unplaced 1`, badge)** — la faisabilité sur stock serré reste
+dépendante du run (C8 résiduel), mais n'est plus un job en échec.
+
+**Verdict : livrable.** Résidus documentés, non bloquants : variance
+inter-run (space 2 : 555-577 ; T-F : 89-90) ; paires à 0,099 mm côté
+navigateur (W6/D9) ; `_validate_return` accepte encore l'argument
+`changed_ids=set()` (à interdire par une assertion) ; test SPP à budget
+temps à isoler de la CI sous charge. Phase 4 reportée (recommandation
+adoptée). Déploiement : procédure Hetzner habituelle, avec
+`assert_images_head.sh` rejoué sur les images publiées avant `up -d`.
