@@ -273,6 +273,7 @@ watch(
               : p.error === 'entity_limit' ? 'entity_limit'
               : p.error === 'geometry_missing' ? 'geometry_missing'
               : p.error === 'all_alternatives_invalid' ? 'all_alternatives_invalid'
+              : p.error === 'capacity_exceeded' ? 'capacity_exceeded'
               : p.error === 'cancelled' ? null
               : 'crash')
             : null;
