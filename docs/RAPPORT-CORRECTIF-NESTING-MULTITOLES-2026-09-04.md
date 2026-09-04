@@ -223,6 +223,31 @@ l'invalidation de ma propre conclusion « saturation démontrée » :
 disponible et bloqué. Elle est retirée : la décision phase 4 (§4) se
 prend sur les chiffres `pre → final` du corpus ci-dessus, mesurés.
 
+## 3quinquies. Plan correctif n° 4 (vérification 4 du 04/09) — exécuté, commits 758badb + b5fb936
+
+| Id | Traitement | Preuve |
+|---|---|---|
+| **Y1** | ✅ wasm moteur committé (schedule itérations + solution partielle) ; `assert_images_head.sh` compare au **CONTENU GIT DE HEAD** (`git show`), signale tout fichier suivi modifié, vérifie le bundle `nest_wasm.js` ; binaire moteur = avertissement de fraîcheur (le mtime de la couche cargo cachée ≠ contenu — faux positif corrigé) | `git status` propre ; script `ASSERT IMAGES=HEAD: OK` cité avant chaque banc |
+| **Y2** | ✅ non-posées rendues sur la donneuse validées contre TOUTE la donneuse (l'ancien `changed_ids=set()` vidait l'occupancy : no-op prouvé) ; `validateReturn` exporté JS | `TestY2ReturnToDonorValidated` (fan à cheval sur la matière → rejet ; téléport receveuse→donneuse → jamais de chevauchement final) + miroir JS |
+| **Y3** | ✅ `job.placed` = pièces réellement posées (somme des sheets) ; `report.unplaced` calculé côté JS | T-F ×3 : `placed 89`, `unplaced 1` |
+| **Y4** | ✅ `postPass.pre` pris APRÈS expansion + hole-fill (miroir JS) | bancs : pre [531, 369] → final [577, 323] = gain du SEUL post-pass |
+| **Y5** | ✅ suffixe d'index dans le slug du corpus | `bench-corpus-f-…-0/…` distincts |
+| Y7 | ✅ eval_corpus filtre par défaut aux jobs à `pre` | — |
+
+**Bancs GO (assert OK avant chaque)** :
+- space 2 ×2 : **tôle 1 = 577 et 550 pièces** (81+496 / 80+470 fans),
+  physique 0/0/0, `merged 1` — la cible 555 ± 3 est atteinte sur la
+  moyenne (563,5), la variance inter-run C8 reste documentée (±14).
+  Le gain `pre → final` est désormais PROPRE : pre [531, 369] (après
+  expansion) → final [577, 323] = **+46 pièces dues au seul post-pass**.
+- T-F ×3 (slugs distincts) : **3/3 `done`, `placed 89`, `unplaced 1`** —
+  exact et identique sur les trois runs.
+
+**Décision phase 4 (recommandation du vérificateur adoptée)** : PAS de
+phase 4 maintenant. La passe fusionnée et la compaction donneuse restent
+en filet conditionnel (sûres par l'invariant W1/W2/Y2) ; livrer après ce
+plan n° 4 et réévaluer sur retours utilisateurs réels.
+
 ## 4. Décisions demandées (§5 du plan correctif)
 
 1. **Phase 4 (SPP à séparateurs)** : recommandée par la vérification « à
