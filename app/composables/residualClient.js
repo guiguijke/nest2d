@@ -358,21 +358,59 @@ export function occupancyRings(part, rot, tx, ty) {
     return rings
 }
 
-function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
+/** §2.2b : l'anneau est-il entièrement dans un des TROUS de l'autre
+ * pièce (bbox inclue + centroïde strictement intérieur) — miroir du
+ * calcul de distance shapely sur Polygon(outer, holes). */
+function ringInsideAHole(ring, holeRings) {
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
+    let cx = 0, cy = 0
+    for (const [x, y] of ring) {
+        if (x < minx) minx = x
+        if (y < miny) miny = y
+        if (x > maxx) maxx = x
+        if (y > maxy) maxy = y
+        cx += x
+        cy += y
+    }
+    cx /= ring.length
+    cy /= ring.length
+    for (const hole of holeRings) {
+        let hx0 = Infinity, hy0 = Infinity, hx1 = -Infinity, hy1 = -Infinity
+        for (const [x, y] of hole) {
+            if (x < hx0) hx0 = x
+            if (y < hy0) hy0 = y
+            if (x > hx1) hx1 = x
+            if (y > hy1) hy1 = y
+        }
+        if (minx >= hx0 - 1e-6 && miny >= hy0 - 1e-6
+            && maxx <= hx1 + 1e-6 && maxy <= hy1 + 1e-6
+            && pointStrictlyInside([cx, cy], hole)) {
+            return true
+        }
+    }
+    return false
+}
+
+export function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
     // Ceinture du BATCH (miroir _validate_batch Python) : seules les
     // pièces AJOUTÉES sont jugées — bbox ⊆ tôle + ringDist ≥ space contre
     // TOUT le layout. Les paires préexistantes ne sont pas re-jugées (un
     // défaut amont ne doit pas paralyser le pass) ; retirer des pièces de
     // la source ne peut jamais créer de violation.
     const all = []
+    // §2.2b : anneaux de TROUS par pièce du layout — le containment W4
+    // s'apprécie contre le MATÉRIAU (Python : Polygon(coords, holes)) ;
+    // une pièce posée DANS un trou de l'hôte n'est PAS un chevauchement
+    // (sa distance au trou est déjà jugée ≥ space par l'anneau du trou).
+    const holeRingsByPi = new Map()
     for (const pi of layout.placed_items || []) {
         const part = partsById.get(String(pi.item_id))
         if (!part) continue
         const t = pi.transformation || {}
         const [tx, ty] = t.translation || [0, 0]
-        for (const ring of occupancyRings(part, t.rotation, tx, ty)) {
-            all.push({ pi, ring })
-        }
+        const rings = occupancyRings(part, t.rotation, tx, ty)
+        rings.forEach((ring) => all.push({ pi, ring }))
+        if (rings.length > 1) holeRingsByPi.set(pi, rings.slice(1))
     }
     // V9 : doublon = même (item_id, rotation, translation) à 1e-6 — deux
     // L concaves superposés échappent à la détection géométrique.
@@ -408,7 +446,14 @@ function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
         }
         for (const { pi: other, ring: otherRing } of all) {
             if (other === pi) continue
-            if (pairViolates(ring, otherRing, space)) return false
+            if (pairViolates(ring, otherRing, space)) {
+                // Miroir du polygone À TROUS : le « chevauchement » n'est
+                // réel que si la pièce n'est pas entièrement dans un trou
+                // de CETTE pièce-là.
+                const holes = holeRingsByPi.get(other)
+                if (holes && ringInsideAHole(ring, holes)) continue
+                return false
+            }
         }
         for (const otherRing of newRings) {
             if (pairViolates(ring, otherRing, space)) return false
