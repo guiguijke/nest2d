@@ -273,6 +273,65 @@ pytest 198+1, vitest 422, cargo 71+1, determinism bit-identique.
 **Partie 2 (alternatives Grille/Compaction homogènes) : NON lancée** —
 livrée séparément après validation de la partie 1 par le vérificateur.
 
+## 7. Étape 1 du plan de suite (réserves Z1-Z6 de la vérification partie 1) — exécutée, commits c878cd7 + 3327e55
+
+Méthode : `assert_images_head.sh` OK contre HEAD (après chaque commit) ;
+suites ; corpus T-A..T-K complet (semé direct) ; e2e navigateur refus 4 mm
+(`QA_EXPECT=refusal`) et non-régression 0,1 ; relecture des diffs.
+
+| Id | Traitement | Preuve |
+|---|---|---|
+| **Z1** leviers affichés + boutons | Bandeau `capacity-panel` sur la page projet (les 3 leviers chiffrés + « Ajouter une tôle » / « Réduire l'espacement » / « Relancer »), alimenté par le 422 API (`files.js nestUnfit`) ET le refus navigateur (`localSolverRegistry unfit`) ; modèle pur `utils/capacityPanel.js`. **Découverte corrélée** : les boutons du bandeau unfit du MODAL étaient morts depuis la partie 1 (emits `unfit-add-sheet`/`unfit-reduce-spacing` sans aucun écouteur) → branchés dans `UserResults.vue` (+ `defineEmits`). | e2e refus : levers `["About 2 sheets…", "About 925 parts max…", "About 2.12 mm…"]`, 3 boutons présents, clic add-sheet → count 1→2 + bandeau fermé ; vitest capacityPanel 5 |
+| **Z2** refus worker | `main.py` : si `_cap["refused"]` → statut error + `information` + `unfit {reason:'capacity', ratio, sheetsNeeded, maxPartsAtSpacing, maxSpacingForFitMm}` AVANT tout appel moteur, exception → refund `worker_loop`. | pytest `test_refused_capacity_job_never_reaches_engine` (run_engine interdit, < 1 s, unfit complet) ; banc T-J semé : **processing 0,009 s**, `unfit {ratio 0,9184, 2 tôles, 924, 2,12}` |
+| **Z3** partiel avec leviers | Serveur : `$set unfit {reason:'partial', unplaced, leviers}` sur le job done (main.py). Navigateur : `localJobPrivate` calcule les leviers (capacityClient sur le payload), les porte au record IndexedDB ET au `local-quota` (persisté assaini). Modal : bandeau ambre `report__partial` (« Imbrication partielle — n pièces non placées » + leviers + mêmes boutons). **Découverte corrélée** : `resultcontroller.js` ne mappait PAS `unfit` — le modal ne recevait jamais les leviers, même côté serveur ; mappé. | T-F : `unfit {partial, unplaced 1, ratio 0,912, 3 tôles, 83 pièces, 0,0 mm}` ; pytest/vitest verts |
+| **Z4** borne rangées exacte | `floor(W/(w+s))` (conteneur déflaté de s/2, piège #49) + orientations 0° ET 90° essayées ; miroir JS identique. | tests py `W=19,w=8,s=2→1`, `100×30/pièce 25×8→10` (par l'orientation 90°), garde #49 (8×8/tôle 12) intact ; miroir vitest via refus/dérogation |
+| **Z5** T-K vrai cas limite | T-K recalibré à **2,4 mm** (R ≈ 0,87) ; `eval_corpus` verdicts distincts `REFUS (attendu)` (T-J semé : status error + unfit capacity + placed 0) et `PARTIEL (attendu)` (T-F, T-K : physique propre + `unfit.reason=partial`) ; un partiel sur un cas complet reste ÉCHEC. | corpus ci-dessous : T-J REFUS, T-F PARTIEL, T-K OK |
+| **Z6** e2e immédiat | Le runner attend en course `.content__error` OU `.stage__status` (plus de waitForSelector 60 s + attente fixe 15 s) ; profil `QA_EXPECT=refusal` avec assertions leviers/boutons/action. | détection du refus en **2,3 s** (75 s avant) |
+
+**Bancs** (images = HEAD, `assert_images_head.sh` OK) :
+
+- Corpus complet T-A..T-K : **11/11 OK** — T-A 900/900 physique 0/0/0
+  gap 0,1 ; T-F **PARTIEL (attendu)** 89/90 + leviers serveur ; T-J
+  **REFUS (attendu)** 0/1000 en 9 ms de traitement ; T-K (2,4 mm)
+  **1000/1000 complet**, gap 2,4000, passe fusionnée acceptée
+  (`mergedReceivers 1`, gain [13, −13]) ; les autres sans changement.
+- e2e navigateur 0,1 (non-régression) : **590/310, chute tôle 2 603,7**,
+  badges ✓/✓/✓, 900 placées ; contrôle shapely sur les SVG :
+  **0 chevauchement, 0 hors tôle, VERDICT OK** (25 paires à 0,0990 =
+  W6 connu).
+- Suites : pytest **202 passés + 2 skipped** (3 erreurs de collection
+  pré-existantes : `test_integration_holes` importe `core.geometry`,
+  module supprimé au commit 220cf2f — tests périmés, non liés à ce lot) ;
+  vitest **430** (dont +8 nouveaux capacité/panneau) ; cargo non touché.
+- e2e refus 4 mm : capture `docs/qa/audit-multitoles-2026-09-03/
+  verif8-0905-refus-leviers-boutons.png` (à copier) + `.qa-pw/e2e-verify8-refusal2`.
+
+**Chasse du tour** (commit 3327e55) : le panneau capacité utilisait
+`sizeType.s` sans que la page projet importe `sizeType` — au premier
+rendu du bandeau, TypeError minifié « reading 's' » cassait le sous-arbre
+de la page (carte failed SANS ligne d'erreur ni bandeau). Attrapé par le
+NOUVEAU profil e2e refus (preuve qu'il protège), corrigé, image
+reconstruite, e2e rejoué vert.
+
+**Observation (pas une régression)** : T-A ce tour = brut moteur
+[650, 250] (front tôle 2 = 403 mm) contre [262, 238] brut → 589/311
+final chez le vérificateur — même total (900), même front tôle 2
+(~400 mm → chute ~597-600), physique propre, post-pass no-op sur les
+comptes. Le brut moteur diverge sous charge hôte (corpus + e2e + builds
+en parallèle) : c'est la variance résiduelle Y6 (coupe au budget mur),
+amplifiée, pas un effet du lot (aucun changement moteur/instance).
+
+**NON-GO partiel assumé (Z3)** : pas d'e2e navigateur DÉDIÉ à une
+solution partielle locale (pas de fixture partiel sous la main en
+navigateur — T-F est serveur). Le chemin est implémenté des deux côtés,
+unit-testé par morceaux (capacityPanelModel, local-quota persist), et le
+jumeau serveur est prouvé sur T-F ; à rejouer si le vérificateur veut la
+preuve navigateur.
+
+## 8. Déploiement partie 1
+
+(after deployment)
+
 ## 4. Décisions demandées (§5 du plan correctif)
 
 1. **Phase 4 (SPP à séparateurs)** : recommandée par la vérification « à
