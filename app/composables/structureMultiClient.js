@@ -142,9 +142,14 @@ export async function buildGridLayoutsMulti(inputItems, geomOf, sheets, space, s
     const pinwheelCapacity = deps.pinwheelCapacity
         || (async (...a) => (await import('./geometryClient')).geoPinwheelCapacity(...a))
     if (!Array.isArray(stats.errors)) stats.errors = []
-    const totalArea = inputItems.reduce(
-        (s2, it) => s2 + shoelaceArea(geomOf(it.id).coords) * (Math.trunc(it.demand) || 0), 0)
-    const caseInfo = detectStructuralCase(inputItems, geomOf, totalArea)
+    // `count` (payload worker) ou `demand` (vue de test) — normaliser
+    // une fois (detect exige « demand », miroir Python).
+    const solveItems = inputItems.map((it) => ({
+        id: it.id, demand: Math.trunc(it.demand ?? it.count ?? 0) || 0,
+    }))
+    const totalArea = solveItems.reduce(
+        (s2, it) => s2 + shoelaceArea(geomOf(it.id).coords) * it.demand, 0)
+    const caseInfo = detectStructuralCase(solveItems, geomOf, totalArea)
     if (!caseInfo) return null
     const rect = caseInfo.rect
     const small = caseInfo.small
@@ -225,7 +230,7 @@ export async function buildGridLayoutsMulti(inputItems, geomOf, sheets, space, s
         })
         return null
     }
-    const total = inputItems.reduce((s2, it) => s2 + (Math.trunc(it.demand) || 0), 0)
+    const total = solveItems.reduce((s2, it) => s2 + it.demand, 0)
     const placedTotal = layouts.reduce((s2, l) => s2 + l.placed_items.length, 0)
     if (placedTotal !== total) {
         stats.errors.push({ stage: 'grid-multi', message: `compte ${placedTotal} != demande ${total}` })

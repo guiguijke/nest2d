@@ -524,6 +524,91 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         console.warn('structural grid pass failed', e)
     }
 
+    // Plan 2026-09-05 §2.2b/§2.2c — BPP multi-tôles : alternative
+    // « Grille » homogène construite sans moteur (miroir main.py). Mêmes
+    // gardes (§5) : motif détecté uniquement, silencieux sinon ;
+    // tout-ou-rien (null + erreurs tracées). Échec ⇒ moteur inchangé.
+    if ((result?.problem || payload?.problem) !== 'spp') {
+        try {
+            const inst = payload?.instance || {}
+            if (Array.isArray(inst.bins) && inst.bins.length) {
+                const { buildGridLayoutsMulti } = await import('./structureMultiClient')
+                const { geoPinwheelCapacity } = await import('./geometryClient')
+                const parts = payload?.parts || []
+                const partsByIdLocal = new Map(parts.map((p) => [Number(p.id), p]))
+                const geomOf = (id) => {
+                    const p = partsByIdLocal.get(Number(id))
+                    return {
+                        coords: p?.coords,
+                        rotations: (p?.rotations?.length ? p.rotations : [0, 90, 180, 270]),
+                    }
+                }
+                const sheets = inst.bins.map((b) => {
+                    const outer = b.shape?.data?.outer || []
+                    let w = 0, h = 0
+                    for (const [x, y] of outer) { w = Math.max(w, x); h = Math.max(h, y) }
+                    return { width: w, height: h, count: Number(b.stock) || 1 }
+                })
+                const spaceMm = Number(payload?.engineConfig?.min_item_separation) || 0
+                const gridStats = { errors: [] }
+                const gridLayouts = await buildGridLayoutsMulti(
+                    parts, geomOf, sheets, spaceMm, gridStats,
+                    { pinwheelCapacity: geoPinwheelCapacity })
+                if (gridLayouts) {
+                    const ringArea = (coords) => {
+                        let s = 0
+                        for (let i = 0; i < coords.length; i++) {
+                            const [x1, y1] = coords[i]
+                            const [x2, y2] = coords[(i + 1) % coords.length]
+                            s += x1 * y2 - x2 * y1
+                        }
+                        return Math.abs(s) / 2
+                    }
+                    let material = 0
+                    for (const p of parts) {
+                        const holesArea = (p.holes || []).reduce((s, h) => s + ringArea(h), 0)
+                        material += Math.max(0, ringArea(p.coords) - holesArea)
+                            * (Number(p.count) || 0)
+                    }
+                    const usedArea = gridLayouts.reduce((s, l) => {
+                        const b = inst.bins[l.container_id ?? 0]
+                        const outer = b?.shape?.data?.outer || []
+                        let w = 0, h = 0
+                        for (const [x, y] of outer) { w = Math.max(w, x); h = Math.max(h, y) }
+                        return s + w * h
+                    }, 0)
+                    const gridDensity = usedArea > 0 ? material / usedArea : null
+                    result.alternatives = [...(result.alternatives || []), {
+                        rank: (result.alternatives?.length) || 0,
+                        seed: null,
+                        bias: null,
+                        structural: true,
+                        selfContained: true,
+                        solution: {
+                            layouts: gridLayouts,
+                            density: gridDensity,
+                            cost: gridLayouts.length,
+                        },
+                    }]
+                    if (typeof window !== 'undefined') {
+                        window.__structMultiDiag = {
+                            built: true,
+                            layouts: gridLayouts.length,
+                            perSheet: gridLayouts.map((l) => (l.placed_items || []).length),
+                        }
+                    }
+                } else if (typeof window !== 'undefined') {
+                    window.__structMultiDiag = { built: false, errors: gridStats.errors }
+                }
+            }
+        } catch (e) {
+            if (typeof window !== 'undefined') {
+                window.__structMultiDiag = { built: false, error: String(e) }
+            }
+            console.warn('grid multi pass failed', e)
+        }
+    }
+
     const rawAlts = result?.alternatives || []
 
     // Artefacts calculés navigateur (SVG/rapport/DXF), forme serveur.
@@ -625,7 +710,12 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             alternatives[rank].dxfs = dxfs
             alternatives[rank].altId = rank
         }
-        liveLayout = buildLiveLayout(result, payload, bestRaw)
+        // §2.2c : la frame finale = alternative RANG 0 après le tri
+        // d'affichage (mono : la grille est prependée ; BPP multi : la
+        // grille est appendée puis remontée par DIRECTION_ORDER —
+        // idx[0] désigne la même alternative brute des deux côtés).
+        liveLayout = buildLiveLayout(result, payload,
+            result.alternatives[idx[0]] ?? bestRaw)
     } catch (e) {
         // V8 : la sentinelle avorte le reste des artefacts — le flag
         // portera le local-fail (refund) APRÈS le catch ; une exception

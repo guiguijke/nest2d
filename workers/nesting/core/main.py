@@ -1434,6 +1434,81 @@ def _nesting_process_impl(doc):
             logger.warning("structural pass failed, keeping engine result",
                            extra={"error": str(e)})
 
+    # Plan 2026-09-05 §2.2b/§2.2c — BPP multi-tôles : alternative
+    # « Grille » HOMOGÈNE construite SANS moteur (tôles pleines au pas
+    # `w + s`, dernière tôle en colonnes depuis −X, petites en lattice).
+    # Mêmes gardes que le mono (§5 généricité) : uniquement si le motif
+    # « rectangle dominant + petite classe » est détecté, silencieux
+    # sinon ; tout-ou-rien — le constructeur rend None (erreurs tracées)
+    # s'il ne couvre pas la demande. container_id = ids MOTEUR (l'aval
+    # map-back s'applique comme aux alternatives moteur).
+    if not is_spp and engine_alternatives:
+        try:
+            from core.structure_multi import build_grid_layouts_multi
+            _orig_by_id = {it["id"]: it for it in input_items}
+
+            def _geom_of_orig(item_id):
+                it = _orig_by_id.get(item_id) or {}
+                rots = it.get("rotations")
+                if rots is None:
+                    rots = [0.0, 90.0, 180.0, 270.0]
+                elif not rots:
+                    rots = [0.0]
+                return {"coords": it.get("coords"), "rotations": rots}
+
+            engine_sheets = [
+                {"width": bin_dims_engine[eid][0],
+                 "height": bin_dims_engine[eid][1],
+                 "count": sheets[fid].get("count")}
+                for eid, fid in sorted(container_map_back.items())
+            ]
+            grid_stats = {}
+            grid_layouts = build_grid_layouts_multi(
+                input_items, _geom_of_orig, engine_sheets, space,
+                stats=grid_stats)
+            if grid_layouts:
+                def _material_area(it):
+                    outer = _Polygon(it.get("coords") or []).area
+                    holes = sum(_Polygon(r).area
+                                for r in (it.get("holes") or []))
+                    return max(0.0, outer - holes) * int(
+                        it.get("count", it.get("demand")) or 0)
+                material = sum(_material_area(it) for it in input_items)
+                used_area = sum(
+                    bin_dims_engine[l["container_id"]][0]
+                    * bin_dims_engine[l["container_id"]][1]
+                    for l in grid_layouts)
+                grid_density = material / used_area if used_area > 0 else None
+                engine_alternatives.append({
+                    "rank": len(engine_alternatives),
+                    "seed": None,
+                    "bias": None,
+                    "structural": True,
+                    "self_contained": True,
+                    "solution": {
+                        "layouts": grid_layouts,
+                        "density": grid_density,
+                        "cost": len(grid_layouts),
+                    },
+                    "metrics": {
+                        "density": grid_density,
+                        "cost": len(grid_layouts),
+                        "layout_count": len(grid_layouts),
+                    },
+                    "postPass": {"profile": "grid"},
+                })
+                logger.info("grid-multi alternative added", extra={
+                    "layouts": len(grid_layouts),
+                    "per_sheet": [len(l["placed_items"])
+                                  for l in grid_layouts]})
+            else:
+                logger.info("grid-multi: no alternative", extra={
+                    "errors": [e.get("message")
+                               for e in grid_stats.get("errors", [])]})
+        except Exception as e:
+            logger.warning("grid-multi pass failed, keeping engine result",
+                           extra={"error": str(e)})
+
     # X4 (vérif tour 4) : état BRUT par tôle AVANT tout post-pass — la
     # mesure « pire que le moteur ? » du corpus compare pre → final.
     # J-085 / D-MOT-16 : expansion meta — rattache les fillers figés aux
@@ -1538,9 +1613,15 @@ def _nesting_process_impl(doc):
                 {"expandMeta": 0, "holeFillRecovered": 0, "residualMoved": 0,
                  "residualRounds": 0, "compactRollback": False, "errors": []},
             )
+            # §2.2c : l'alternative MOTEUR porte le profil « compact » —
+            # compaction donneuse SANS re-grille des hélices (pose moteur
+            # conservée) : l'alternative « Compaction » est homogène sur
+            # toutes ses tôles (le style « grille » appartient à
+            # l'alternative grille).
             n = fill_residual_bands(sol.get("layouts") or [], input_items,
                                     bin_dims_engine, space,
-                                    stats=engine_alt["postPass"])
+                                    stats=engine_alt["postPass"],
+                                    profile="compact")
             if n:
                 logger.info("residual-band pass moved parts", extra={"n": n})
             if engine_alt["postPass"].get("compactRollback"):

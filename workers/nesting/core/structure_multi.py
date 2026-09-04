@@ -184,9 +184,14 @@ def build_grid_layouts_multi(input_items, geom_of, sheets, space, stats=None):
     if stats is None:
         stats = {}
     stats.setdefault("errors", [])
-    total_area = sum(_shoelace(geom_of(it["id"])["coords"])
-                     * (int(it.get("demand") or 0)) for it in input_items)
-    case = detect_structural_case(input_items, geom_of, total_area)
+    # `input_items` du worker : quantités sous « count » ; la vue de test
+    # porte « demand » — normaliser UNE fois ici (detect exige « demand »).
+    solve_items = [{"id": it["id"],
+                    "demand": int(it.get("demand", it.get("count")) or 0)}
+                   for it in input_items]
+    total_area = sum(_shoelace(geom_of(it["id"])["coords"]) * it["demand"]
+                     for it in solve_items)
+    case = detect_structural_case(solve_items, geom_of, total_area)
     if not case:
         return None
     rect, small = case["rect"], case["small"]
@@ -274,7 +279,7 @@ def build_grid_layouts_multi(input_items, geom_of, sheets, space, stats=None):
         return None
 
     # Filet final : compte ET appartenance à la tôle, toutes tôles.
-    total = sum(int(it.get("demand") or 0) for it in input_items)
+    total = sum(it["demand"] for it in solve_items)
     placed_total = sum(len(l["placed_items"]) for l in layouts)
     if placed_total != total:
         stats["errors"].append({"stage": "grid-multi",
