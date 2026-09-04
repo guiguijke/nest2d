@@ -540,7 +540,7 @@ fn merge_sp_json(
         }
     }
 
-    let sp_runs: Vec<SpRun> = parsed
+    let mut sp_runs: Vec<SpRun> = parsed
         .into_iter()
         .map(|r| SpRun {
             seed: r.seed,
@@ -558,6 +558,27 @@ fn merge_sp_json(
     } else {
         SpMergeMode::Flat
     };
+    // Plan 2026-09-05 §1.2b : le filtre feasible1 de run_spp_mem
+    // n'existe pas dans le merge — le navigateur mono-walk livrait des
+    // bandes PLUS LARGES QUE LA TÔLE comme alternatives valides (job
+    // propriétaire 4 mm : bande > 1000 mm « done », pièges #6/#7).
+    // Verrou : tout walk dont la bande dépasse max_strip_width est
+    // écarté ; si TOUS les dépassent → erreur infeasible avec la
+    // meilleure largeur, JAMAIS une alternative.
+    if let Some(mw) = config.max_strip_width {
+        let best = sp_runs
+            .iter()
+            .map(|r| r.solution.strip_width)
+            .fold(f32::INFINITY, f32::min);
+        sp_runs.retain(|r| r.solution.strip_width <= mw + 1e-4);
+        if sp_runs.is_empty() {
+            bail!(
+                "no feasible solution: narrowest strip {:.3} exceeds limit {}",
+                best,
+                mw
+            );
+        }
+    }
     let merged = merge_sp_runs(
         &ext_instance,
         &sp_runs,

@@ -452,11 +452,20 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             return { ok: false, error: 'cancelled' }
         }
         // Échec (engine, memory_cap, crash) = refund, pas de quota consommé.
+        // Plan 2026-09-05 §1.2b : un `unfit` structuré (infaisabilité
+        // bande/capacité) part avec le local-fail pour l'UI (bandeau).
+        const unfit = outcome.result?.unfit
+            || (String(outcome.error || '').includes('no feasible solution')
+                ? { reason: 'strip' }
+                : null)
         await $fetch(`/api/results/${jobSlug}/local-fail`, {
             method: 'POST',
-            body: { error: outcome.error === 'memory_cap' ? 'memory_cap' : String(outcome.error) },
+            body: {
+                error: outcome.error === 'memory_cap' ? 'memory_cap' : String(outcome.error),
+                ...(unfit ? { unfit } : {}),
+            },
         })
-        return { ok: false, error: outcome.error, memory: outcome.memory }
+        return { ok: false, error: outcome.error, memory: outcome.memory, unfit }
     }
 
     const result = outcome.result

@@ -103,6 +103,9 @@ export default defineEventHandler(async (event) => {
             slug: 1,
             name: 1,
             purgedAt: 1,
+            // Plan 2026-09-05 §1.2a : pré-contrôle de capacité (aire
+            // gonflée par l'espacement) AVANT la charge de quota.
+            polygonParts: 1,
         })
         .toArray()
 
@@ -205,6 +208,55 @@ export default defineEventHandler(async (event) => {
             statusCode: 400,
             statusMessage: 'Please provide a valid spacing.',
         })
+    }
+
+    // ------------------------------------------------------------------
+    // Plan 2026-09-05 §1.2a — pré-contrôle de capacité AVEC espacement.
+    // Le test « tout tient sur une tôle » ignorait le gonflement
+    // Minkowski : à 4 mm chaque fan occupe ~45 % de plus, le job partait
+    // en bande et le moteur livrait hors tôle après 4 min (piège #6).
+    // Ici : refus 422 immédiat, SANS consommer de quota, avec les trois
+    // leviers de l'utilisateur. Les projets 100 % client (J-090) n'ont
+    // pas de géométrie serveur — le navigateur applique le même contrôle
+    // (capacityClient) avant de démarrer le calcul.
+    // ------------------------------------------------------------------
+    const normalizedSheets = sheets || [{
+        width: Number(params.width),
+        height: Number(params.height),
+        count: Math.floor(Number(params.sheetCount) || 1),
+    }]
+    if (!project.local) {
+        const partsBySlug = new Map(
+            userDxfFilesDatabase.map((f) => [f.slug, f.polygonParts || []]),
+        )
+        const parts = []
+        for (const file of filteredFiles) {
+            const polys = partsBySlug.get(file.slug) || []
+            for (const poly of polys) {
+                parts.push({ coords: poly.coordinates, count: normalizeCount(file.count) })
+            }
+        }
+        if (parts.length > 0) {
+            const { capacityReport } = await import('~~/app/composables/capacityClient')
+            const cap = capacityReport(parts, normalizedSheets, space)
+            if (cap && cap.refused) {
+                const totalMax = Object.values(cap.maxPartsAtSpacing || {})
+                    .reduce((n, v) => n + Number(v || 0), 0)
+                throw createError({
+                    statusCode: 422,
+                    statusMessage: 'capacity_exceeded',
+                    data: {
+                        unfit: {
+                            reason: 'capacity',
+                            ratio: cap.ratio,
+                            sheetsNeeded: cap.sheetsNeeded,
+                            maxPartsAtSpacing: totalMax,
+                            maxSpacingForFitMm: cap.maxSpacingForFitMm,
+                        },
+                    },
+                })
+            }
+        }
     }
 
     let dbParams

@@ -285,6 +285,13 @@ const resultTitle = computed(() => {
         : t('results.title')
     const sheetN = alt?.layoutCount
         || (props.result?.isMultiSheet ? (props.result?.svgs?.length || 0) : 1)
+    // Plan 2026-09-05 §1.2c : un résultat unfit (hors tôle mesuré) est
+    // étiqueté « ne tient pas » — jamais « Results · 1 sheet ».
+    const r0 = props.result?.alternatives?.[0]?.report
+    if (r0 && (r0.insideSheet === false || r0.overlapFree === false
+        || (r0.duplicatePoses || 0) > 0)) {
+        return t('results.unfit')
+    }
     const sheetsLabel = sheetN === 1
         ? t('result.sheetCountOne')
         : t('result.sheetCount', { n: sheetN })

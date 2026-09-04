@@ -147,6 +147,30 @@ def case_files(case):
              "parts": [{"coordinates": rect(120, 80), "holes": []}]},
         ], [{"width": 1000.0, "height": 1000.0, "count": 3}], 1.0,
         "classe unique 600 × — recuit vivant (V2), apply_move Restart")
+    if case == "J":
+        outer, holes = host_ring()
+        # Le cas des captures : 900+100 sur UNE tôle 1000×2000 à 4 mm —
+        # infaisable par espacement (aire gonflée ratio ≈ 0,92). Attendu :
+        # 422 AVANT création du job (aucun worker ne doit le voir).
+        return ([
+            {"slug": "piece_trou", "count": 100, "rotations": QUARTERS,
+             "parts": [{"coordinates": outer, "holes": holes}]},
+            {"slug": "piece_fillx4", "count": 900, "rotations": QUARTERS,
+             "parts": [{"coordinates": fan_ring(), "holes": []}]},
+        ], [{"width": 1000.0, "height": 2000.0, "count": 1}], 4.0,
+        "infaisable par espacement — 422 attendu, job jamais créé")
+    if case == "K":
+        outer, holes = host_ring()
+        # À la limite : ratio gonflé ≈ 0,90 sur 2 tôles → accepté (≤ 0,88
+        # par tôle cumulée), livré en BPP avec partiel propre si le packing
+        # réel échoue (badge unplaced, jamais une bande hors tôle).
+        return ([
+            {"slug": "piece_trou", "count": 100, "rotations": QUARTERS,
+             "parts": [{"coordinates": outer, "holes": holes}]},
+            {"slug": "piece_fillx4", "count": 900, "rotations": QUARTERS,
+             "parts": [{"coordinates": fan_ring(), "holes": []}]},
+        ], [{"width": 1000.0, "height": 1000.0, "count": 2}], 4.0,
+        "à la limite (R≈0,46/tôle cumulé) — BPP, partiel propre si échec")
     if case == "I":
         # ESICUP en BPP : les pièces du benchmark comme items, tôle-bande
         # ×3 (approximation multi-tôles du strip d'origine).
@@ -186,7 +210,8 @@ def main():
     bucket = get_bucket("validDxf")
     db["users"].update_one({"id": OWNER}, {"$setOnInsert": {"id": OWNER}}, upsert=True)
 
-    cases = (os.environ.get("CORPUS_CASES") or "A,B,C,D,E,F,G,H,I").split(",")
+    cases = (os.environ.get("CORPUS_CASES")
+             or "A,B,C,D,E,F,G,H,I,J,K").split(",")
     ts = int(time.time())
     for case_idx, case in enumerate(cases):
         case = case.strip().upper()

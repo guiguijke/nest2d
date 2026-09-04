@@ -773,10 +773,29 @@ def _nesting_process_impl(doc):
     # (l'utilisateur demande une bande, pas un remplissage de stock).
     dirs = params.get("directions") or []
     left_only = isinstance(dirs, (list, tuple)) and list(dirs) == ["left"]
+    # Plan 2026-09-05 §1.2a : le choix bande/multi-tôles se fait sur
+    # l'aire GONFLÉE par l'espacement (Minkowski) — l'aire nue faisait
+    # partir en bande des jobs infaisables à 4 mm (ratio réel 0,92 vu
+    # 0,58). Défense en profondeur : le pré-contrôle 422 a déjà refusé
+    # en amont ; ici un job « à la limite » part en BPP et livrera une
+    # solution partielle propre (unplaced explicite) plutôt qu'une bande
+    # hors tôle sans borne (piège #6).
+    from core.capacity import (
+        capacity_report as _capacity_report,
+        inflated_area as _inflated_area,
+        sheet_usable_area as _sheet_usable_area,
+    )
+    cap_parts = [{"coords": it["coords"], "count": it.get("count") or 0}
+                 for it in input_items]
+    cap_sheets = [{"width": s.get("width"), "height": s.get("height"),
+                   "count": int(s.get("count") or 1)} for s in sheets]
+    _cap = _capacity_report(cap_parts, cap_sheets, space)
+    total_inflated = sum(_inflated_area(it, space) * (it.get("count") or 0)
+                          for it in input_items)
     is_spp = (
         len(bins) == 1
         and single_sheet_area > 0
-        and total_outer_area <= single_sheet_area * SPP_MAX_AREA_RATIO
+        and total_inflated <= single_sheet_area * SPP_MAX_AREA_RATIO
         and (total_stock == 1 or left_only)
     )
     problem_type = "spp" if is_spp else "bpp"
@@ -786,6 +805,8 @@ def _nesting_process_impl(doc):
             "problem_type": problem_type,
             "total_part_area": round(total_part_area),
             "total_outer_area": round(total_outer_area),
+            "total_inflated_area": round(total_inflated),
+            "capacity_ratio": (_cap or {}).get("ratio"),
             "single_sheet_area": single_sheet_area,
             "area_ratio": round(total_part_area / single_sheet_area, 3) if single_sheet_area else None,
         },
@@ -1119,22 +1140,47 @@ def _nesting_process_impl(doc):
         # at import, engine crash, timeout…) — the generic message tells the
         # user nothing actionable.
         detail = str(e)
+        unfit = None
         if "no feasible solution" in detail:
-            information = ("Not all items could be placed in the nesting job — "
-                           "the engine could not fit every part. Try a larger sheet, "
-                           "more sheets, or a bigger compute budget.")
+            # Plan 2026-09-05 §1.2b : infaisabilité moteur → information
+            # ACTIONNABLE + champ structuré `unfit` (les trois leviers).
+            # best_strip_width quand le moteur bande le fournit.
+            import re as _re
+            m = _re.search(r"narrowest strip ([\d.]+) exceeds limit ([\d.]+)", detail)
+            unfit = {"reason": "strip"}
+            if m:
+                best_w = float(m.group(1))
+                unfit["bestStripWidthMm"] = round(best_w, 1)
+                unfit["sheetsNeeded"] = max(
+                    2, math.ceil(best_w / max(1.0, bin_dims[0][0])))
+            if _cap:
+                unfit.update({
+                    "ratio": _cap.get("ratio"),
+                    "sheetsNeeded": unfit.get("sheetsNeeded")
+                        or _cap.get("sheetsNeeded"),
+                    "maxPartsAtSpacing": sum(
+                        (v or 0) for v in (_cap.get("maxPartsAtSpacing")
+                                           or {}).values()),
+                    "maxSpacingForFitMm": _cap.get("maxSpacingForFitMm"),
+                })
+            information = ("This job does not fit the declared sheets at this "
+                           "spacing — try adding a sheet, reducing the spacing "
+                           "or removing parts.")
         else:
             information = f"Nesting failed: {detail[:400]}"
+        update = {
+            "placed": 0,
+            "status": "error",
+            "finishedAt": datetime.now(),
+            "update_ts": datetime.now(),
+            "information": information
+        }
+        if unfit:
+            update["unfit"] = unfit
         db["nesting_jobs"].update_one(
             { "slug": slug },
             {
-                "$set": {
-                    "placed": 0,
-                    "status": "error",
-                    "finishedAt": datetime.now(),
-                    "update_ts": datetime.now(),
-                    "information": information
-                },
+                "$set": update,
                 "$unset": {"progress": "", "liveLayout": "", "itemMap": "", "compute": ""}
             },
         )

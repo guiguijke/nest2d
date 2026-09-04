@@ -657,9 +657,18 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
     const leftOnly = Array.isArray(directions)
         && directions.length === 1
         && directions[0] === 'left'
+    // Plan 2026-09-05 §1.2a : choix bande/multi-tôles sur l'aire GONFLÉE
+    // par l'espacement (Minkowski — miroit main.py) ; l'aire nue
+    // faisait partir des jobs infaisables en bande mono-tôle.
+    const { capacityReport, inflatedArea } = await import('./capacityClient')
+    const cap = capacityReport(
+        inputItems.map((it) => ({ coords: it.coords, count: it.count || 0 })),
+        sheets, space)
+    const totalInflated = inputItems.reduce(
+        (n, it) => n + inflatedArea(it, space) * (it.count || 0), 0)
     const isSpp = sheets.length === 1
         && totalPartArea > 0
-        && totalOuterArea <= sheetArea * SPP_MAX_AREA_RATIO
+        && totalInflated <= sheetArea * SPP_MAX_AREA_RATIO
         && (totalStock === 1 || leftOnly)
 
     // Garde #2b : jagua initialise la bande à aire_totale/hauteur puis la

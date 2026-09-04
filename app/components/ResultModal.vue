@@ -126,7 +126,7 @@
                         :href="currentDxfs[activePart]"
                         :label="t('result.downloadSheet', { n: activePart + 1 })"
                         tag="a"
-                        :isDisable="isHaveError"
+                        :isDisable="isHaveError || isUnfit"
                         :size="sizeType.s"
                         :theme="themeType.primary"
                         trackingTag="result_part_download"
@@ -135,7 +135,7 @@
                         class="modal__part-download"
                         v-if="resultModalData.isMultiSheet && isLocal"
                         :label="t('result.downloadSheet', { n: activePart + 1 })"
-                        :isDisable="isHaveError"
+                        :isDisable="isHaveError || isUnfit"
                         :size="sizeType.s"
                         :theme="themeType.primary"
                         trackingTag="result_part_download"
@@ -293,6 +293,45 @@
                 >
                     <span>{{ t('report.holesFilled', { n: activeReport.holesFilled }) }}</span>
                 </div>
+                <!-- Plan 2026-09-05 §1.2c : verdict unique — un résultat non
+                     découpage n'affiche JAMAIS de badge vert. -->
+                <div v-if="isUnfit" class="report__unfit">
+                    <div class="report__unfit-title">{{ t('report.unfit.title') }}</div>
+                    <div class="report__unfit-detail">
+                        {{ t('report.unfit.detail', {
+                            n: unfitData.overflowMm != null
+                                ? fmtLengthValue(unfitData.overflowMm, unitLabel.value === '"' ? 4 : 2)
+                                : null,
+                            unit: unitLabel,
+                        }) }}
+                    </div>
+                    <ul class="report__unfit-levers">
+                        <li v-if="unfitData.sheetsNeeded">
+                            {{ t('report.unfit.sheetsNeeded', { n: unfitData.sheetsNeeded }) }}
+                        </li>
+                        <li v-if="unfitData.maxParts != null">
+                            {{ t('report.unfit.maxParts', { n: unfitData.maxParts }) }}
+                        </li>
+                        <li v-if="unfitData.maxSpacingMm != null">
+                            {{ t('report.unfit.maxSpacing', { v: unfitData.maxSpacingMm }) }}
+                        </li>
+                    </ul>
+                    <div class="report__unfit-actions">
+                        <MainButton
+                            :label="t('report.unfit.addSheet')"
+                            :size="sizeType.s"
+                            :theme="themeType.primary"
+                            @click="$emit('unfit-add-sheet')"
+                        />
+                        <MainButton
+                            v-if="unfitData.maxSpacingMm != null"
+                            :label="t('report.unfit.reduceSpacing', { v: unfitData.maxSpacingMm })"
+                            :size="sizeType.s"
+                            :theme="themeType.secondary"
+                            @click="$emit('unfit-reduce-spacing', unfitData.maxSpacingMm)"
+                        />
+                    </div>
+                </div>
                 <div class="report__badges">
                     <span
                         v-for="badge in reportBadges"
@@ -335,7 +374,7 @@
                     :href="resultModalData.zipDownloadUrl"
                     :label="t('results.downloadAll')"
                     tag="a"
-                    :isDisable="isHaveError"
+                    :isDisable="isHaveError || isUnfit"
                     :size="sizeType.s"
                     :theme="themeType.primary"
                     trackingTag="result_download_all"
@@ -343,7 +382,7 @@
                 <MainButton
                     v-if="resultModalData.isMultiSheet && isLocal"
                     :label="t('results.downloadAll')"
-                    :isDisable="isHaveError"
+                    :isDisable="isHaveError || isUnfit"
                     :size="sizeType.s"
                     :theme="themeType.primary"
                     trackingTag="result_download_all"
@@ -459,6 +498,34 @@ const reportEl = ref(null)
 
 const isHaveError = computed(() => {
     return unref(resultModalData).status === statusType.failed
+})
+// Plan 2026-09-05 §1.2c — verdict UNIQUE calculé depuis le rapport (plus
+// jamais de badges contradictoires « Overlap-free ✓ / Inside sheet ✗ /
+// All parts placed ✓ » sur un résultat hors tôle).
+const activeVerdict = computed(() => {
+    const r = unref(activeReport)
+    if (!r) return 'valid'
+    if (r.insideSheet === false || r.overlapFree === false
+        || (r.duplicatePoses || 0) > 0) return 'unfit'
+    if ((r.unplaced || 0) > 0) return 'partial'
+    if (r.verifyStatus === 'skipped') return 'unverified'
+    return 'valid'
+})
+const isUnfit = computed(() => unref(activeVerdict) === 'unfit')
+const unfitData = computed(() => {
+    // Leviers : du job (pré-contrôle / moteur infaisable) ou dérivés du
+    // rapport (gap négatif = dépassement mesuré).
+    const jobUnfit = unref(resultModalData).unfit || null
+    const r = unref(activeReport) || {}
+    const overflowMm = (typeof r.smallestGapMm === 'number' && r.smallestGapMm < 0)
+        ? Math.abs(r.smallestGapMm) : null
+    return {
+        sheetsNeeded: jobUnfit?.sheetsNeeded ?? null,
+        maxParts: jobUnfit?.maxPartsAtSpacing ?? null,
+        maxSpacingMm: jobUnfit?.maxSpacingForFitMm ?? null,
+        overflowMm,
+        reason: jobUnfit?.reason ?? (overflowMm != null ? 'strip' : 'layout'),
+    }
 })
 const isInProgress = computed(() => {
     const status = unref(resultModalData).status
@@ -708,7 +775,12 @@ const reportBadges = computed(() => {
     const badges = []
     if (r.overlapFree != null) badges.push({ ok: r.overlapFree, label: t('report.overlapFree') })
     if (r.insideSheet != null) badges.push({ ok: r.insideSheet, label: t('report.insideSheet') })
-    if (r.spacingOk != null && r.smallestGapMm != null) {
+    if (r.smallestGapMm != null && r.smallestGapMm < 0) {
+        // §1.2c : un gap NÉGATIF est un dépassement hors tôle, pas un
+        // espacement — libellé dédié, jamais « Gap ≥ −4 mm ».
+        const over = fmtLengthValue(Math.abs(r.smallestGapMm), unitLabel.value === '"' ? 4 : 2)
+        badges.push({ ok: false, label: t('report.outsideBy', { v: over, unit: unitLabel.value }) })
+    } else if (r.spacingOk != null && r.smallestGapMm != null) {
         // Sub-mm resolution: 2 decimals in mm, 4 in inches.
         const gap = fmtLengthValue(r.smallestGapMm, unitLabel.value === '"' ? 4 : 2)
         badges.push({ ok: r.spacingOk, label: t('report.spacing', { v: gap, unit: unitLabel.value }) })
@@ -734,8 +806,13 @@ const reportBadges = computed(() => {
             badges.push({ ok: !(pp.compactRollback || (pp.errors || []).length), label })
         }
     }
+    // §1.2c : « All parts placed » n'est JAMAIS vert quand le verdict est
+    // unfit (pièces posées mais hors tôle = pas découpables).
     const allPlaced = unref(resultModalData).requested === unref(resultModalData).placed
-    badges.push({ ok: allPlaced, label: t('report.allPlaced', { n: unref(resultModalData).placed }) })
+    badges.push({
+        ok: allPlaced && !unref(isUnfit),
+        label: t('report.allPlaced', { n: unref(resultModalData).placed }),
+    })
     // X2 (vérif tour 4) : solution partielle — le compte non placé est un
     // badge visible, jamais un job en erreur.
     const unplaced = r.unplaced || 0
@@ -803,6 +880,30 @@ const updatePartPage = (partIndex) => {
 </script>
 
 <style lang="scss" scoped>
+
+.report__unfit {
+    grid-column: 1 / -1;
+    border: 1px solid #dc2626;
+    background: rgba(220, 38, 38, 0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 6px 0;
+}
+.report__unfit-title {
+    color: #dc2626;
+    font-weight: 600;
+}
+.report__unfit-levers {
+    margin: 6px 0 0 18px;
+    padding: 0;
+}
+.report__unfit-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
 .modal {
     padding: 48px 24px 24px;
 

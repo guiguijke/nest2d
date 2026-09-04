@@ -34,6 +34,18 @@ export default defineEventHandler(async (event) => {
 
     const body = await readBody(event)
     const message = String(body?.error || 'Local compute failed').slice(0, 400)
+    // Plan 2026-09-05 §1.2b : `unfit` structuré (infaisabilité bande /
+    // capacité) persisté avec l'échec pour le bandeau UI.
+    const unfit = body?.unfit && typeof body.unfit === 'object'
+        ? {
+            reason: String(body.unfit.reason || 'layout').slice(0, 32),
+            ratio: Number.isFinite(Number(body.unfit.ratio)) ? Number(body.unfit.ratio) : undefined,
+            sheetsNeeded: Number.isFinite(Number(body.unfit.sheetsNeeded)) ? Number(body.unfit.sheetsNeeded) : undefined,
+            maxPartsAtSpacing: Number.isFinite(Number(body.unfit.maxPartsAtSpacing)) ? Number(body.unfit.maxPartsAtSpacing) : undefined,
+            maxSpacingForFitMm: Number.isFinite(Number(body.unfit.maxSpacingForFitMm)) ? Number(body.unfit.maxSpacingForFitMm) : undefined,
+            bestStripWidthMm: Number.isFinite(Number(body.unfit.bestStripWidthMm)) ? Number(body.unfit.bestStripWidthMm) : undefined,
+        }
+        : undefined
 
     // Inline refund — mirror of worker_common/refund.py (kept as reference).
     const chargeType = job.charge?.type
@@ -59,6 +71,7 @@ export default defineEventHandler(async (event) => {
                 information: message,
                 finishedAt: new Date(),
                 update_ts: new Date(),
+                ...(unfit ? { unfit } : {}),
                 ...(alreadyRefunded ? {} : { 'charge.refunded': true }),
             },
             $unset: { progress: '', compute: '', localPayload: '', liveLayout: '' },
