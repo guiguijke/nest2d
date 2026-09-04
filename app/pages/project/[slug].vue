@@ -165,6 +165,7 @@
 
 <script setup>
 import { themeType } from "~~/constants/theme.constants";
+import { sizeType } from "~~/constants/size.constants";
 import { mmToDisplay, equivalentSheetPreset } from "~/utils/units";
 import { capacityPanelModel } from "~/utils/capacityPanel";
 import { isLocalComputeEnabled } from "~/composables/localCompute";
