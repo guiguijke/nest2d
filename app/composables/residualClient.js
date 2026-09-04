@@ -193,27 +193,34 @@ function pointStrictlyInside(pt, ring) {
 export function pairViolates(ringA, ringB, space) {
     const d = ringDist(ringA, ringB)
     if (space > EPS) {
-        return d < space - EPS
-    }
-    if (d > 0) {
-        // V9 (vérif 2026-09-04) : containment — un petit anneau INCLUS
-        // dans un grand mesure une distance de frontière positive mais
-        // chevauche le matériau. bbox incluse + centroïde strictement
-        // intérieur.
-        const bbA = bbox(ringA)
-        const bbB = bbox(ringB)
-        const aInB = bbA[0] >= bbB[0] && bbA[1] >= bbB[1] && bbA[2] <= bbB[2] && bbA[3] <= bbB[3]
-        const bInA = bbB[0] >= bbA[0] && bbB[1] >= bbA[1] && bbB[2] <= bbA[2] && bbB[3] <= bbA[3]
-        if (aInB !== bInA) {
-            const inner = aInB ? ringA : ringB
-            const outer = aInB ? ringB : ringA
-            if (pointStrictlyInside(ringCentroidLocal(inner), outer)) {
-                return true
-            }
-        }
+        if (d < space - EPS) return true
+        // W4 (vérif 2026-09-04) : containment à d > 0 aussi à space > 0 —
+        // un anneau INCLUS dans un autre (fan sur le corps d'un hôte, à
+        // ≥ space du bord externe et des trous) mesure une distance de
+        // frontière ≥ space mais chevauche le matériau. Python (shapely,
+        // d = 0 par construction de la distance au polygone À TROUS)
+        // le rejette. Miroir exact du test Python.
+        if (d > 0) return containedOverlap(ringA, ringB)
         return false
     }
+    if (d > 0) {
+        return containedOverlap(ringA, ringB)
+    }
     return ringsOverlap(ringA, ringB)
+}
+
+/** V9/W4 : un anneau INCLUS dans l'autre (bbox inclue, centroïde
+ * strictement intérieur) chevauche le matériau — distance de frontière
+ * positive pourtant. */
+function containedOverlap(ringA, ringB) {
+    const bbA = bbox(ringA)
+    const bbB = bbox(ringB)
+    const aInB = bbA[0] >= bbB[0] && bbA[1] >= bbB[1] && bbA[2] <= bbB[2] && bbA[3] <= bbB[3]
+    const bInA = bbB[0] >= bbA[0] && bbB[1] >= bbA[1] && bbB[2] <= bbA[2] && bbB[3] <= bbA[3]
+    if (aInB === bInA) return false
+    const inner = aInB ? ringA : ringB
+    const outer = aInB ? ringB : ringA
+    return pointStrictlyInside(ringCentroidLocal(inner), outer)
 }
 
 export function layoutAabb(layout, partsById) {
@@ -278,7 +285,7 @@ function fillRatio(layout, partsById, sheetDimsOf) {
     return area / (w * h)
 }
 
-function freePis(layout, partsById) {
+export function freePis(layout, partsById) {
     // Pièces LIBRES : sans trous ET dont le centroïde n'est dans aucun
     // trou d'un hôte du MÊME layout (miroir nested_hole).
     const entries = (layout.placed_items || []).map((pi, idx) => {
@@ -411,7 +418,7 @@ function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) {
     return true
 }
 
-export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space, payload, freeArg = null, bands = null) {
+export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space, payload, freeArg = null, bands = null, minPosesArg = null) {
     const dst = layouts[dstI]
     const src = layouts[srcI]
     const [sw, sh] = sheetDimsOf(dst)
@@ -439,7 +446,10 @@ export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space,
         // Batches d'une pose : UNIQUEMENT en zones explicites (poches de
         // la compaction — audit F2a). Les bandes classiques gardent le
         // seuil 2 (miroir Python, contrat T4).
-        const minPoses = bands ? 1 : 2
+        // A8 : seuil 1 UNIQUEMENT en zones explicites ; minPosesArg
+        // explicite (W3 : bandes classiques en gravité −X) garde le
+        // seuil passé.
+        const minPoses = minPosesArg != null ? minPosesArg : (bands ? 1 : 2)
         if (!lat || lat.length < minPoses) continue
         const usedSrc = layoutAabb(src, partsById)
         const cx = usedSrc ? (usedSrc[0] + usedSrc[2]) / 2 : sw / 2
@@ -813,6 +823,120 @@ function relayFreesBehindAnchor(layouts, sheetI, free, pocketRects,
     return moved
 }
 
+// W3 : validation de RETOUR des candidates non posées — pose d'origine
+// = état d'entrée, on ne re-juge que le chevauchement contre le NOUVEL
+// état (miroir residual._validate_return Python).
+function validateReturn(pis, layout, partsById, space) {
+    const excl = new Set(pis)
+    const occ = []
+    for (const pi of layout.placed_items || []) {
+        if (excl.has(pi)) continue
+        const part = partsById.get(String(pi.item_id))
+        if (!part) continue
+        const t = pi.transformation || {}
+        const [tx, ty] = t.translation || [0, 0]
+        occ.push(placedRing(part, t.rotation, tx, ty))
+    }
+    for (const pi of pis) {
+        const part = partsById.get(String(pi.item_id))
+        if (!part) continue
+        const t = pi.transformation || {}
+        const [tx, ty] = t.translation || [0, 0]
+        const ring = placedRing(part, t.rotation, tx, ty)
+        if (occ.some((other) => pairViolates(ring, other, space))) return false
+    }
+    return true
+}
+
+// W3 (vérif 2026-09-04, plan correctif 2 étape B) : relay de candidates
+// (receveuse + donneuse) dans les bandes de l'ancre de la receveuse —
+// ne restaure RIEN (l'appelant répartit les non-posées à leur tôle
+// d'origine). min_poses=2 (bandes classiques, contrat A8).
+function relayCandidatesInBands(layouts, recvI, candidates, partsById, sheetDimsOf, space, payload) {
+    const recv = layouts[recvI]
+    const [sw, sh] = sheetDimsOf(recv)
+    let moved = 0
+    let remaining = candidates.slice()
+    const placedHas = (pi) => (recv.placed_items || []).some((x) => x === pi)
+    while (remaining.length) {
+        const used = layoutAabb(recv, partsById)
+        if (!used) break
+        const bl = residualBands(used, sw, sh, space)
+        bl.sort((a, b) => (a.rect[0] - b.rect[0]) || (b.area - a.area))
+        const n = fillOneBatch(layouts, recvI, recvI, partsById, sheetDimsOf,
+            space, payload, remaining, bl, 2)
+        if (!n) break
+        moved += n
+        remaining = remaining.filter((pi) => !placedHas(pi))
+    }
+    return { moved, remaining }
+}
+
+// W3 : remplissage inter-tôles + compaction receveuse FUSIONNÉS —
+// candidates = libres de la receveuse + libres de la DONNEUSE, AVANT la
+// compaction donneuse. Acceptation : count_receveuse_after ≥ before ;
+// non-posées → tôle d'origine validées ; sinon restauration des 2 tôles.
+function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, space, payload, stats = null) {
+    if (!layouts || !layouts.length || donorI >= layouts.length) return 0
+    const donor = layouts[donorI]
+    let movedTotal = 0
+    let mergedSheets = 0
+    for (let recvI = 0; recvI < layouts.length; recvI++) {
+        if (recvI === donorI) continue
+        const recv = layouts[recvI]
+        const { units, free: recvFree } = helixUnitsAndFree(recv, partsById)
+        const donorFree = freePis(donor, partsById)
+        const candidates = recvFree.concat(donorFree)
+        if (!candidates.length) continue
+        const recvBeforeCount = (recv.placed_items || []).length
+        const snapRecv = JSON.parse(JSON.stringify(recv.placed_items || []))
+        const snapDonor = JSON.parse(JSON.stringify(donor.placed_items || []))
+        const recvFreeSet = new Set(recvFree)
+        try {
+            for (const pi of candidates) {
+                recv.placed_items = (recv.placed_items || []).filter((x) => x !== pi)
+                donor.placed_items = (donor.placed_items || []).filter((x) => x !== pi)
+            }
+            const { moved, remaining } = relayCandidatesInBands(
+                layouts, recvI, candidates, partsById, sheetDimsOf, space, payload)
+            const backRecv = remaining.filter((pi) => recvFreeSet.has(pi))
+            const backDonor = remaining.filter((pi) => !recvFreeSet.has(pi))
+            const snapRecvById = new Map(snapRecv.map((x) => [JSON.stringify([x.item_id, x.transformation]), x]))
+            for (const pi of backRecv) {
+                recv.placed_items.push(pi)
+            }
+            for (const pi of backDonor) {
+                donor.placed_items.push(pi)
+            }
+            // validation des restaurations : les poses d'origine sont
+            // légales par construction SAUF si les nouvelles colonnes les
+            // recouvrent — batch validate par groupe.
+            // W3 : validation de RETOUR — on ne re-juge ni les bornes ni
+            // la légalité d'origine, seulement le chevauchement contre le
+            // nouvel état (miroir _validate_return Python).
+            if (backRecv.length && !validateReturn(backRecv, recv, partsById, space)) {
+                throw COMPACT_ROLLBACK
+            }
+            if (backDonor.length && !validateReturn(backDonor, donor, partsById, space)) {
+                throw COMPACT_ROLLBACK
+            }
+            if ((recv.placed_items || []).length < recvBeforeCount) {
+                throw COMPACT_ROLLBACK
+            }
+            if (moved) {
+                movedTotal += moved
+                mergedSheets++
+            }
+        } catch (e) {
+            if (e !== COMPACT_ROLLBACK && !(e && e.__compactFront)) throw e
+            recv.placed_items = JSON.parse(JSON.stringify(snapRecv))
+            donor.placed_items = JSON.parse(JSON.stringify(snapDonor))
+        }
+    }
+    if (stats) stats.mergedReceivers = mergedSheets
+    return movedTotal
+}
+
 // V3 (étape 3.1) : compaction des tôles RECEVEUSES — le moteur first-fit
 // y remplit les bandes en désordre ; ancre = hôtes + nichées, libres =
 // tout le reste re-posé derrière. Acceptation : front ≤ avant + 0,5 mm.
@@ -826,12 +950,16 @@ function compactReceivers(layouts, partsById, sheetDimsOf, space, payload, stats
         if (!sheetNeedsCompaction(last, units, free, partsById, space)) continue
         const before = layoutAabb(last, partsById)
         if (!before) continue
+        const beforeCount = (last.placed_items || []).length
         const snapshot = JSON.parse(JSON.stringify(last.placed_items || []))
         try {
             const moved = relayFreesBehindAnchor(layouts, sheetI, free, [],
                 partsById, sheetDimsOf, space, payload)
             const after = layoutAabb(last, partsById)
-            if (after && after[2] > before[2] + 0.5) {
+            const afterCount = (last.placed_items || []).length
+            // W1 (vérif 2026-09-04) + §5.1 : invariant « jamais pire que
+            // l'état d'entrée » — compte ET front (miroir Python).
+            if ((after && after[2] > before[2] + 0.5) || afterCount < beforeCount) {
                 last.placed_items = JSON.parse(JSON.stringify(snapshot))
                 continue
             }
@@ -853,6 +981,14 @@ function compactReceivers(layouts, partsById, sheetDimsOf, space, payload, stats
 // le bug `const moved` est resté invisible).
 export const COMPACT_ROLLBACK = Symbol('compact-rollback')
 
+// W2 : rollback pour refus de FRONT (distinct de la restauration
+// invalidée) — même contrat de sentinelle, raison différenciée.
+function compactRollbackFront() {
+    const e = new Error('compact rollback: front')
+    e.__compactFront = true
+    return e
+}
+
 // A2/A6 (audit 2026-09-03, bloquant) : snapshot complet AVANT le re-grid
 // — l'ancien était pris APRÈS, un rollback restaurait les hôtes
 // re-grillés SUR les libres d'origine. Sur échec : restauration COMPLÈTE,
@@ -864,6 +1000,8 @@ export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space,
     const { units, free } = helixUnitsAndFree(last, partsById)
     if (!units.length && !free.length) return 0
     if (!sheetNeedsCompaction(last, units, free, partsById, space)) return 0
+    // W2 (vérif 2026-09-04) + §5.1 : front de RÉFÉRENCE = état d'entrée.
+    const frontBefore = layoutAabb(last, partsById)
     const fullSnapshot = JSON.parse(JSON.stringify(last.placed_items || []))
     try {
         // Phase 1 : hélices re-grillées en colonnes depuis le bord gauche
@@ -876,15 +1014,24 @@ export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space,
         if (!hasAnchor) return moved
         moved += relayFreesBehindAnchor(layouts, sheetI, free, freeRects,
             partsById, sheetDimsOf, space, payload)
+        // W2 : acceptation sur le front — l'état d'entrée était meilleur
+        // → restauration complète avec raison 'front'.
+        const frontAfter = layoutAabb(last, partsById)
+        if (frontBefore && frontAfter && frontAfter[2] > frontBefore[2] + 0.5) {
+            throw compactRollbackFront()
+        }
         return moved
     } catch (e) {
-        if (e !== COMPACT_ROLLBACK) throw e
+        if (e !== COMPACT_ROLLBACK && !(e && e.__compactFront)) throw e
         // A2 : restauration COMPLÈTE de la tôle (hôtes + libres à leur
         // pose d'origine) — l'ancien rollback ne remettait que la liste
         // post-re-grid : les hôtes re-grillés recouvraient les libres
         // d'origine. moved = 0 : ce pass n'a rien produit.
         last.placed_items = JSON.parse(JSON.stringify(fullSnapshot))
-        if (stats) stats.compactRollback = true
+        if (stats) {
+            stats.compactRollback = true
+            stats.compactRollbackReason = (e && e.__compactFront) ? 'front' : 'restore'
+        }
         return 0
     }
 }
@@ -939,40 +1086,26 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null) 
     const snapshot = JSON.parse(JSON.stringify(layouts))
     try {
         let moved = 0
-        for (let round = 0; round < N_ITER; round++) {
-            stats.residualRounds = round + 1
-            const ratios = layouts.map((l) => fillRatio(l, partsById, sheetDimsOf))
-            let last = 0
-            for (let i = 1; i < layouts.length; i++) {
-                if (ratios[i] <= ratios[last]) last = i // tie → plus grand index
-            }
-            const order = layouts.map((_, i) => i)
-                .filter((i) => i !== last)
-                .sort((a, b) => (ratios[b] - ratios[a]) || (a - b))
-            let progress = false
-            for (const i of order) {
-                while (true) {
-                    const n = fillOneBatch(layouts, i, last, partsById,
-                        sheetDimsOf, space, payload)
-                    if (!n) break
-                    moved += n
-                    progress = true
-                }
-            }
-            const kept = layouts.filter((l) => (l.placed_items || []).length)
-            if (kept.length !== layouts.length) {
-                layouts.length = 0
-                layouts.push(...kept)
-            }
-            if (layouts.length < 2 || !progress) break
+        stats.residualRounds = 1
+        const ratios = layouts.map((l) => fillRatio(l, partsById, sheetDimsOf))
+        let donorI = 0
+        for (let i = 1; i < layouts.length; i++) {
+            if (ratios[i] <= ratios[donorI]) donorI = i // tie → plus grand index
         }
-        // Compaction de la tôle la moins remplie (la donneuse) : le moteur
-        // BPP ne la compacte pas dans la direction d'optimisation — sans
-        // ça la « chute » est un amas dispersé à front dentelé (constat
-        // user 2026-09-02 « pas optimisé −X »). Miroir de
-        // residual._compact_last_sheet.
-        // Uniquement s'il reste PLUSIEURS tôles : une tôle unique = la
-        // donneuse a été vidée et retirée, rien à compacter (contrat T8).
+        // W3 (plan correctif 2, étape B) : remplissage + receveuse
+        // FUSIONNÉS, candidates = receveuse + donneuse, AVANT la
+        // compaction donneuse.
+        moved += mergeFillCompactReceivers(layouts, donorI, partsById,
+            sheetDimsOf, space, payload, stats)
+        const kept = layouts.filter((l) => (l.placed_items || []).length)
+        if (kept.length !== layouts.length) {
+            layouts.length = 0
+            layouts.push(...kept)
+        }
+        // Compaction de la tôle la moins remplie (la donneuse) — le moteur
+        // BPP ne la compacte pas dans la direction d'optimisation (constat
+        // user 2026-09-02 « pas optimisé −X »). Uniquement s'il reste
+        // PLUSIEURS tôles (contrat T8). Miroir Python.
         if (layouts.length >= 2) {
             const ratios2 = layouts.map((l) => fillRatio(l, partsById, sheetDimsOf))
             let last2 = 0
@@ -980,8 +1113,6 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null) 
                 if (ratios2[i] <= ratios2[last2]) last2 = i
             }
             moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload, stats)
-            // V3 (étape 3.1) : les RECEVEUSES aussi (miroir Python).
-            moved += compactReceivers(layouts, partsById, sheetDimsOf, space, payload, stats)
         }
         stats.residualMoved = moved
         return moved

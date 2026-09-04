@@ -998,24 +998,25 @@ mod scale_tests {
         );
     }
 
-    /// T7 (plan §2.2, C6, refonte V12) : intégration de faisabilité à
-    /// space 0,1 réel (l'ancienne version passait la séparation en 4e
-    /// argument d'Importer::new = cutoff de concavité, donc tournait à
-    /// space 0). Le verrou DISCRIMINANT du clamp est unitaire, côté
-    /// sparrow (final_refine_cd_config) : une fixture intégration fiable
-    /// exigeait une fenêtre plus étroite que le bruit d'échantillonnage.
+    /// T7 (plan §2.2 C6 + V12 puis W5 vérif 2026-09-04) : 81 carrés
+    /// 100×100 à space 0,1 sur une tôle 1000×1000 — grille 9×9 sur UNE
+    /// tôle. L'ancienne version passait la séparation en 4e argument
+    /// d'Importer::new (cutoff) donc tournait à space 0 ; la version
+    /// intermédiaire (12 carrés 250) n'était plus discriminante. Verrou
+    /// de COMPORTEMENT (le clamp C6 lui-même est verrouillé unitairement
+    /// côté sparrow : snd_refine_step_limit).
     #[test]
     fn hosts_pack_9x9_at_space_0_1() {
         let json = serde_json::json!({
             "name": "grid9x9",
             "items": [{
-                "id": 0, "demand": 12,
+                "id": 0, "demand": 81,
                 "allowed_orientations": [0.0],
-                "shape": {"type": "simple_polygon", "data": [[0,0],[250,0],[250,250],[0,250],[0,0]]}
+                "shape": {"type": "simple_polygon", "data": [[0,0],[100,0],[100,100],[0,100],[0,0]]}
             }],
             "bins": [{
                 "id": 0, "cost": 1, "stock": 2,
-                "shape": {"type": "polygon", "data": {"outer": [[0,0],[1520,0],[1520,600],[0,600],[0,0]]}}
+                "shape": {"type": "polygon", "data": {"outer": [[0,0],[1000,0],[1000,1000],[0,1000],[0,0]]}}
             }]
         });
         let ext: ExtBPInstance = serde_json::from_value(json).unwrap();
@@ -1029,7 +1030,11 @@ mod scale_tests {
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(21);
         let seq = sa::initial_sequence(&instance);
         let result = construct(&instance, &seq, 200, DirBias::LeftFirst, &mut rng);
-        assert_eq!(result.unplaced, 0, "12 carrés 250 à space 0,1 doivent être posés");
-        assert!(result.solution.layout_snapshots.len() <= 2);
+        assert_eq!(result.unplaced, 0, "les 81 carrés doivent être posés");
+        assert_eq!(
+            result.solution.layout_snapshots.len(),
+            1,
+            "81 carrés 100 à space 0,1 = une seule tôle (grille 9×9)"
+        );
     }
 }

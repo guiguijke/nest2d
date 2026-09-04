@@ -286,7 +286,7 @@ pub fn anneal(
             Some(m) => m,
             None => {
                 restarts += 1;
-                Move::Restart(restarts)
+                Move::Restart
             }
         };
 
@@ -408,7 +408,8 @@ enum Move {
     Reverse(usize, usize),
     /// V2 : classe unique — la « séquence » ne change pas, seul le tirage
     /// d'évaluation (rng dérivé du compteur) explore. Rien à revenir.
-    Restart(u64),
+    /// (W9 : plus de champ — le compteur vit dans la boucle.)
+    Restart,
 }
 
 impl Move {
@@ -421,7 +422,7 @@ impl Move {
                 seq.insert(from, v);
             }
             Move::Reverse(lo, hi) => seq[lo..=hi].reverse(),
-            Move::Restart(_) => {} // séquence inchangée
+            Move::Restart => {} // séquence inchangée
         }
     }
 }

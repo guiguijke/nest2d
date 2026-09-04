@@ -551,3 +551,62 @@ describe('V7 : critère de compaction unifié (position + largeur, vérif 2026-0
         }
     })
 })
+
+
+describe('W1/W2 : invariant générique « jamais pire que l\'entrée » (vérif 2026-09-04)', () => {
+    it('W1 — receveuse pleine : jamais moins de pièces, jamais front reculé', async () => {
+        const mod = await import('../composables/residualClient')
+        const partsById = new Map([['0', HOST], ['1', FAN_PART]])
+        const hosts = []
+        for (let k = 0; k < 81; k++) {
+            hosts.push(pi(0, 52 + 102 * (k % 9), 52 + 102 * Math.floor(k / 9)))
+        }
+        const fans = []
+        for (let k = 0; k < 30; k++) fans.push(pi(1, 940, 2 + 32 * k))
+        const l0 = layout(hosts.concat(fans))
+        const beforeCount = l0.placed_items.length
+        const beforeFront = mod.layoutAabb(l0, partsById)[2]
+        mod.fillResidualBands([HOST, FAN_PART], [l0], 2, payload)
+        const afterCount = l0.placed_items.length
+        const afterFront = mod.layoutAabb(l0, partsById)[2]
+        expect(afterCount).toBeGreaterThanOrEqual(beforeCount)
+        expect(afterFront).toBeLessThanOrEqual(beforeFront + 0.5)
+    })
+
+    it('W2 — donneuse déjà compacte : le front ne recule jamais', async () => {
+        const mod = await import('../composables/residualClient')
+        const partsById = new Map([['0', HOST], ['1', FAN_PART]])
+        const hosts = []
+        for (let k = 0; k < 18; k++) {
+            hosts.push(pi(0, 52 + 102 * (k % 2), 52 + 102 * Math.floor(k / 2)))
+        }
+        const fans = []
+        for (let k = 0; k < 44; k++) {
+            fans.push(pi(1, 206 + 42 * Math.floor(k / 22), 2 + 30 * (k % 22)))
+        }
+        const l1 = layout(hosts.concat(fans))
+        const beforeFront = mod.layoutAabb(l1, partsById)[2]
+        const stats = {}
+        mod.compactLastSheet([l1], 0, partsById, () => [1000, 1000], 2, payload, stats)
+        const afterFront = mod.layoutAabb(l1, partsById)[2]
+        expect(afterFront).toBeLessThanOrEqual(beforeFront + 0.5)
+        if (stats.compactRollback && stats.compactRollbackReason === 'front') {
+            expect(stats.compactRollback).toBe(true)
+        }
+    })
+})
+
+
+describe('W4 : containment rejeté aussi à space > 0 (vérif 2026-09-04)', () => {
+    it('petit anneau inclus dans un grand, à ≥ space du bord → rejeté', async () => {
+        const { pairViolates } = await import('../composables/residualClient')
+        const big = SQUARE // ±50
+        const small = [[-9, -9], [9, -9], [9, 9], [-9, 9], [-9, -9]]
+        // petit entièrement dans le grand (distance de frontière 41 ≥ 2)
+        const a = big.map(([x, y]) => [x + 200, y + 200])
+        const b = small.map(([x, y]) => [x + 200, y + 200])
+        expect(pairViolates(b, a, 2)).toBe(true)
+        expect(pairViolates(b, a, 0.1)).toBe(true)
+        expect(pairViolates(b, a, 0)).toBe(true)
+    })
+})

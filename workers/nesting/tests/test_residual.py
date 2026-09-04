@@ -153,14 +153,17 @@ class TestT3MoveFreeParts:
 class TestT4NoFitNoop:
     @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
     def test_band_too_small_for_fan(self):
-        # AABB gigantesque → bande résiduelle 10×10 : le fan (40×28)
-        # ne tient dans AUCUNE rotation → no-op.
+        # AABB gigantesque → bande résiduelle 10×10 : le fan (40×28) ne
+        # tient dans AUCUNE rotation → AUCUN TRANSFERT de la donneuse.
+        # W3 (vérif 2026-09-04) : la receveuse peut en revanche compacter
+        # SES propres libres dans ses bandes (fan déplacée vers −X) —
+        # l'invariant est le compte par tôle, pas le no-op strict.
         l0 = layout([pi(0, 500.0, 500.0)])
         l1 = layout([pi(1, 100.0, 100.0)])
         layouts = [l0, l1]
-        assert fill_residual_bands(layouts, ITEMS, BIN, 2.0) == 0
-        assert len(layouts[0]["placed_items"]) == 1
-        assert len(layouts[1]["placed_items"]) == 1
+        fill_residual_bands(layouts, ITEMS, BIN, 2.0)
+        assert len(layouts[0]["placed_items"]) == 1, "la donneuse ne perd rien"
+        assert len(layouts[1]["placed_items"]) == 1, "la receveuse ne gagne rien (bande 10×10)" 
 
 
 class TestT5SingleLayout:
@@ -932,3 +935,81 @@ class TestV7ConditionalCompactionCriterion:
             assert before == after, "no-op = poses inchangées"
         # si le critère juge utile de compacter, les poses doivent rester
         # légales — le pipeline physique global le vérifie par ailleurs.
+
+
+class TestW1W2GenericAcceptance:
+    """W1/W2 (vérif 2026-09-04) + §5.1 : invariant GÉNÉRIQUE « jamais pire
+    que l'état d'entrée » — une passe qui déplace des pièces n'est
+    acceptée que si, pour chaque tôle touchée : pièces_after ≥
+    pièces_before ET front_after ≤ front_before + 0,5 mm."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_w1_receiver_never_loses_parts(self):
+        # Receveuse PLEINE (front au bord) : la re-pose au lattice qui ne
+        # re-pose pas tout doit être REFUSÉE — l'ancienne acceptation sur
+        # le front seul la laissait passer (583-586 pièces au banc).
+        from core.residual import _compact_receivers, _sheet_needs_compaction
+        hosts = [pi(0, 52.0 + 102 * (k % 9), 52.0 + 102 * (k // 9))
+                 for k in range(81)]
+        # fans éparses jusqu'au bord droit (front ≈ bord)
+        fans = [pi(1, 940.0, 2.0 + 32 * k) for k in range(30)]
+        l0 = layout(hosts + fans)
+        before_count = len(l0["placed_items"])
+        before_front = layout_aabb(l0, BY_ID)[2]
+        stats = {}
+        _compact_receivers([l0], BY_ID, BIN, 2.0, stats=stats)
+        after_count = len(l0["placed_items"])
+        after_front = layout_aabb(l0, BY_ID)[2]
+        assert after_count >= before_count, (
+            f"W1 : {after_count} < {before_count} pièces après receveuse")
+        assert after_front <= before_front + 0.5, (
+            f"W1 : front {after_front:.1f} > {before_front:.1f} + 0,5")
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_w2_donor_compact_layout_is_noop(self):
+        # Donneuse déjà compacte (front 388) : le re-grid/re-lais ne doit
+        # JAMAIS reculer le front — l'ancien code livrait 437 au banc.
+        from core.residual import _compact_last_sheet
+        hosts = [pi(0, 52.0 + 102 * (k % 2), 52.0 + 102 * (k // 2))
+                 for k in range(18)]
+        fans = [pi(1, 206.0 + 42 * (k // 22), 2.0 + 30 * (k % 22))
+                for k in range(44)]
+        last = layout(hosts + fans)
+        before_front = layout_aabb(last, BY_ID)[2]
+        before_poses = sorted((p["item_id"],
+                               round(float(p["transformation"]["translation"][0]), 3),
+                               round(float(p["transformation"]["translation"][1]), 3))
+                              for p in last["placed_items"])
+        stats = {}
+        n = _compact_last_sheet([last], 0, BY_ID, BIN, 2.0, stats=stats)
+        after_front = layout_aabb(last, BY_ID)[2]
+        after_poses = sorted((p["item_id"],
+                              round(float(p["transformation"]["translation"][0]), 3),
+                              round(float(p["transformation"]["translation"][1]), 3))
+                             for p in last["placed_items"])
+        assert after_front <= before_front + 0.5, (
+            f"W2 : front {after_front:.1f} > entrée {before_front:.1f} + 0,5"
+            f" (n={n}, stats={stats})")
+        if stats.get("compactRollback") and stats.get("compactRollbackReason") == "front":
+            assert after_poses == before_poses, \
+                "W2 rollback front : poses d'origine attendues"
+
+
+class TestW4ContainmentAtPositiveSpace:
+    """W4 (vérif 2026-09-04) : le containment doit être rejeté AUSSI à
+    space > 0 — une fan posée sur le CORPS d'un hôte (à ≥ space du bord
+    externe et des trous) mesurait une distance de frontière ≥ space et
+    passait, alors que le polygone shapely (avec trous) la rejette."""
+
+    @pytest.mark.skipif(not HAS_SHAPELY, reason="shapely")
+    def test_fan_on_host_body_rejected_at_space_2(self):
+        from core.residual import _pair_violates
+        from shapely.affinity import translate
+        from shapely.geometry import box
+        host_body = box(0, 0, 100, 100)  # matériau plein (trou absent ici)
+        fan = box(45, 45, 55, 55)  # au centre du corps, à 45 du bord
+        # shapely : l'inclusion EST une intersection → distance 0 →
+        # rejetée par d < space − ε (le JS, lui, mesure une distance de
+        # FRONTIÈRE ≥ space : c'est l'angle mort W4, corrigé côté JS).
+        assert host_body.distance(fan) == 0.0
+        assert _pair_violates(fan, host_body, 2.0) is True

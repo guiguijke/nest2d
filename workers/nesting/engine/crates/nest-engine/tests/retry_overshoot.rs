@@ -52,7 +52,11 @@ fn balanced_phase2_overshoot_retries_with_widened_corridor() {
     });
     let ext_instance = serde_json::from_value(instance).expect("valid SPP instance");
     let config: EngineConfig = serde_json::from_value(serde_json::json!({
-        "time_budget_sec": 16,
+        // W8 (vérif 2026-09-04) : budget élargi — à 16 s le test échouait
+        // sous charge CPU (phases temps-mur volées par l'OS) puis passait
+        // à vide : flaky. 24 s garde la recette (phase 2 ~0,3 s grâce au
+        // ratio, retry convergent) avec de la marge.
+        "time_budget_sec": if std::env::var("NEST_TEST_FAST").is_ok() { 16 } else { 24 },
         "prng_seed": 6520169418772123398u64,
         "n_alternatives": 1,
         "poly_simpl_tolerance": 0.001,

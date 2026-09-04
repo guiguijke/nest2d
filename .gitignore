@@ -73,3 +73,7 @@ workers/geometry/parity/SVGELEMENTS-REFERENCE.txt
 # Scratch de replay du banc moteur (J-092)
 workers/nesting/bench/out*/
 docs/DEPLOY-HETZNER.md
+workers/nesting/bench/out_*.svg
+workers/nesting/bench/out_*.png
+# Fixtures user : servent aux tests vitest (replayUserBpp, skipIf absent).
+!workers/nesting/bench/out_user_*.json

@@ -192,7 +192,20 @@ def _pair_violates(poly, other, space):
     residualClient.pairViolates."""
     d = poly.distance(other)
     if space > _EPS:
-        return d < space - _EPS
+        if d < space - _EPS:
+            return True
+        # W4 : containment à d > 0 aussi à space > 0 (miroir JS).
+        if d > 0.0:
+            ab, bb_ = poly.bounds, other.bounds
+            a_in_b = (ab[0] >= bb_[0] and ab[1] >= bb_[1]
+                      and ab[2] <= bb_[2] and ab[3] <= bb_[3])
+            b_in_a = (bb_[0] >= ab[0] and bb_[1] >= ab[1]
+                      and bb_[2] <= ab[2] and bb_[3] <= ab[3])
+            if a_in_b != b_in_a:
+                inner = poly if a_in_b else other
+                outer_poly = other if inner is poly else poly
+                return outer_poly.contains(inner.centroid)
+        return False
     if d > 0.0:
         # V9 (vérif 2026-09-04) : containment à d > 0 — un petit polygone
         # INCLUS dans un grand (sans croiser sa frontière) mesure une
@@ -308,6 +321,25 @@ def _validate_batch(new_pis, layout, items_by_id, sheet_w, sheet_h, space):
     return True
 
 
+def _validate_return(pis, layout, items_by_id, space):
+    """Validation du RETOUR de candidates non posées à leur pose
+    d'ORIGINE (W3) : la pose d'origine était l'état d'entrée — on ne
+    re-juge NI ses bornes tôle NI les paires entre retournées (l'état
+    d'entrée était ce qu'il était) ; on ne vérifie que le
+    chevauchement/espacement contre le NOUVEL état de la tôle (les
+    nouvelles colonnes ont pu recouvrir les anciennes positions)."""
+    entries, tree = _occupancy(layout, items_by_id,
+                               exclude=[id(pi) for pi in pis])
+    for pi in pis:
+        it = items_by_id[pi["item_id"]]
+        tr = pi["transformation"]
+        poly = _placed_poly(it, tr["rotation"], tr["translation"][0],
+                            tr["translation"][1])
+        if _pose_conflicts(poly, entries, tree, space):
+            return False
+    return True
+
+
 def _remove_by_identity(lst, pi):
     """list.remove comparant les dicts PAR VALEUR : la transformation du
     donneur vient d'être écrasée par la pose lattice — un remove par valeur
@@ -322,7 +354,7 @@ def _remove_by_identity(lst, pi):
 
 
 def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
-                    free=None, bands=None):
+                    free=None, bands=None, min_poses=None):
     """Un batch : une bande de layouts[dst_i] remplie depuis les libres de
     layouts[src_i]. Retourne le nombre de pièces déplacées (0 = plus rien
     à faire sur cette tôle). `free` surcharge la liste des donneuses
@@ -366,7 +398,13 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
         # compaction — audit F2a). Les bandes classiques gardent le seuil 2 :
         # un balayage complet par pièce isolée coûte un small_lattice par
         # bande et ralentit la queue du remplissage (constaté : T10 ×10).
-        min_poses = 1 if bands is not None else 2
+        # A8 : min_poses=1 UNIQUEMENT en zones explicites (poches) ;
+        # `min_poses` explicite (W3 : bandes classiques en gravité −X
+        # fournies par l'appelant) garde le seuil passé.
+        if min_poses is not None:
+            pass
+        else:
+            min_poses = 1 if bands is not None else 2
         if not lat or len(lat) < min_poses:
             continue
         # Donors anti-compacts d'abord (plus excentrés du centre de la
@@ -421,7 +459,13 @@ def _fill_one_batch(layouts, dst_i, src_i, items_by_id, bin_dims, space,
 
 
 class _CompactRollback(Exception):
-    """Compaction avortée : restauration complète de la tôle (no-op)."""
+    """Compaction avortée : restauration complète de la tôle (no-op).
+    `reason` distingue la restauration-invalidée (A2, défaut) du refus
+    de front (W2)."""
+
+    def __init__(self, reason="restore"):
+        super().__init__(reason)
+        self.reason = reason
 
 
 def _helix_units_and_free(layout, items_by_id):
@@ -706,6 +750,112 @@ def _relay_frees_behind_anchor(layouts, sheet_i, free, pocket_rects,
     return moved
 
 
+def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
+                                  space, stats=None):
+    """W3 (vérif 2026-09-04, plan correctif 2 étape B) : remplissage
+    inter-tôles et compaction receveuse FUSIONNÉS. L'ancien enchaînement
+    (remplissage PUIS receveuse seule) laissait les bandes déjà jugées
+    pleines par le remplissage partiel : à space 2, 119 fans moteur
+    restaient 119. Ici, pour chaque receveuse : ancre = hôtes + nichées
+    (immobiles) ; CANDIDATES = libres de la receveuse DÉTACHÉES + libres
+    de la donneuse (retrait de leur tôle d'origine) ; bandes depuis
+    l'AABB de l'ancre ; lattice. Les non-posées retournent à leur tôle
+    d'ORIGINE (validées) ; acceptation : count_receveuse_after ≥ before,
+    sinon restauration complète des deux tôles. À exécuter AVANT la
+    compaction donneuse."""
+    if not layouts or donor_i >= len(layouts):
+        return 0
+    donor = layouts[donor_i]
+    moved_total = 0
+    merged_sheets = 0
+    for recv_i in range(len(layouts)):
+        if recv_i == donor_i:
+            continue
+        recv = layouts[recv_i]
+        _units, recv_free = _helix_units_and_free(recv, items_by_id)
+        donor_free = _free_pis(donor, items_by_id)
+        candidates = recv_free + donor_free
+        if not candidates:
+            continue
+        recv_before_count = len(recv.get("placed_items", []))
+        snap_recv = copy.deepcopy(recv.get("placed_items", []))
+        snap_donor = copy.deepcopy(donor.get("placed_items", []))
+        recv_free_ids = {id(pi) for pi in recv_free}
+        try:
+            # détache les candidates de leurs tôles
+            for pi in candidates:
+                recv["placed_items"] = [x for x in recv.get("placed_items", [])
+                                        if x is not pi]
+                donor["placed_items"] = [x for x in donor.get("placed_items", [])
+                                         if x is not pi]
+            moved = _relay_candidates_in_bands(
+                layouts, recv_i, candidates, items_by_id, bin_dims, space)
+            # non-posées → tôle d'ORIGINE, par groupes validés
+            remaining = [pi for pi in candidates
+                         if not any(x is pi for x in recv.get("placed_items", []))]
+            back_recv = [pi for pi in remaining if id(pi) in recv_free_ids]
+            back_donor = [pi for pi in remaining if id(pi) not in recv_free_ids]
+            # les poses d'origine sont dans snap_* : les remettre telles
+            # quelles (deepcopy pour ne pas partager les objets)
+            snap_recv_by_id = {id(x): x for x in snap_recv}
+            snap_donor_by_id = {id(x): x for x in snap_donor}
+            for pi in back_recv:
+                orig = snap_recv_by_id.get(id(pi))
+                if orig is not None:
+                    pi["transformation"] = dict(orig["transformation"])
+                recv["placed_items"].append(pi)
+            for pi in back_donor:
+                orig = snap_donor_by_id.get(id(pi))
+                if orig is not None:
+                    pi["transformation"] = dict(orig["transformation"])
+                donor["placed_items"].append(pi)
+            ok = (not back_recv or _validate_return(back_recv, recv,
+                                                    items_by_id, space))
+            if ok and back_donor:
+                ok = _validate_return(back_donor, donor, items_by_id, space)
+            if not ok:
+                raise _CompactRollback("restore")
+            # W3/§5.1 : la receveuse ne doit JAMAIS finir moins pleine.
+            if len(recv.get("placed_items", [])) < recv_before_count:
+                raise _CompactRollback("count")
+            if moved:
+                moved_total += moved
+                merged_sheets += 1
+        except _CompactRollback:
+            recv["placed_items"] = copy.deepcopy(snap_recv)
+            donor["placed_items"] = copy.deepcopy(snap_donor)
+    if stats is not None:
+        stats["mergedReceivers"] = merged_sheets
+    return moved_total
+
+
+def _relay_candidates_in_bands(layouts, recv_i, candidates, items_by_id,
+                              bin_dims, space):
+    """Relais W3 : pose les candidates au lattice dans les bandes autour de
+    l'ancre de la receveuse (gravité −X, recalculées à chaque batch).
+    Ne restaure RIEN (l'appelant répartit les non-posées). Retourne les
+    transformations réellement modifiées (V18)."""
+    recv = layouts[recv_i]
+    sw, sh = bin_dims[recv["container_id"]]
+    moved = 0
+    remaining = list(candidates)
+    while remaining:
+        used = layout_aabb(recv, items_by_id)
+        if used is None:
+            break
+        bl = residual_bands(used, sw, sh, space)
+        bl.sort(key=lambda b: (b["rect"][0], -b["area"]))
+        n = _fill_one_batch(layouts, recv_i, recv_i, items_by_id,
+                            bin_dims, space, free=remaining, bands=bl,
+                            min_poses=2)
+        if not n:
+            break
+        moved += n
+        remaining = [pi for pi in remaining
+                     if not any(x is pi for x in recv.get("placed_items", []))]
+    return moved
+
+
 def _compact_receivers(layouts, items_by_id, bin_dims, space, stats=None):
     """V3 (vérif 2026-09-04, étape 3.1) : compaction généralisée aux tôles
     RECEVEUSES. En first-fit par tôle, le moteur remplit lui-même les
@@ -727,19 +877,27 @@ def _compact_receivers(layouts, items_by_id, bin_dims, space, stats=None):
         before = layout_aabb(last, items_by_id)
         if before is None:
             continue
+        before_count = len(last.get("placed_items", []))
         snapshot = copy.deepcopy(last.get("placed_items", []))
         try:
             moved = _relay_frees_behind_anchor(
                 layouts, sheet_i, free, [], items_by_id, bin_dims, space)
             after = layout_aabb(last, items_by_id)
-            if after is not None and after[2] > before[2] + 0.5:
-                # front reculé refusé : la disposition moteur était meilleure
+            after_count = len(last.get("placed_items", []))
+            # W1 (vérif 2026-09-04) + §5.1 : invariant GÉNÉRIQUE « jamais
+            # pire que l'état d'entrée » — compte de pièces ET front.
+            # L'ancienne acceptation sur le front seul laissait passer une
+            # re-pose au lattice qui PERD des pièces (receveuse pleine :
+            # le front est au bord de toute façon) : 583-586 pièces et
+            # chute 580 au lieu de 590 / 600.
+            if (after is not None and after[2] > before[2] + 0.5
+                    or after_count < before_count):
                 last["placed_items"] = copy.deepcopy(snapshot)
                 continue
             if moved:
                 moved_total += moved
                 compacted += 1
-        except _CompactRollback:
+        except _CompactRollback as rb:
             last["placed_items"] = copy.deepcopy(snapshot)
     if stats is not None:
         stats["compactReceivers"] = compacted
@@ -791,6 +949,11 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
     # V7 : critère partagé avec la compaction receveuse.
     if not _sheet_needs_compaction(last, units, free, items_by_id, space):
         return 0
+    # W2 (vérif 2026-09-04) + §5.1 : front de RÉFÉRENCE = état d'entrée.
+    # La compaction ne peut pas reculer le front de la donneuse (l'ancien
+    # code conservait la re-pose même moins bonne : serveur space 0
+    # moteur ≈ 388 mm → final 437). Refus → restauration + raison 'front'.
+    front_before = layout_aabb(last, items_by_id)
     full_snapshot = copy.deepcopy(last.get("placed_items", []))
     try:
         moved, pocket_rects = _regrid_helices(last, units, items_by_id, sw,
@@ -805,15 +968,23 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
         moved += _relay_frees_behind_anchor(layouts, sheet_i, free,
                                              pocket_rects, items_by_id,
                                              bin_dims, space)
+        # W2 : acceptation sur le front — si la disposition d'entrée était
+        # meilleure, on restaure tout (compte préservé par construction :
+        # les libres non re-posées retournent à leur pose d'origine).
+        front_after = layout_aabb(last, items_by_id)
+        if (front_before is not None and front_after is not None
+                and front_after[2] > front_before[2] + 0.5):
+            raise _CompactRollback("front")
         return moved
-    except _CompactRollback:
-        # A2 : restauration COMPLÈTE de la tôle (hôtes et libres à leur
-        # pose d'origine) — l'ancien rollback ne restauration que la liste
-        # post-re-grid : les hôtes re-grillés recouvraient les libres
-        # d'origine. moved = 0 : ce pass n'a rien produit.
+    except _CompactRollback as rb:
+        # A2/W2 : restauration COMPLÈTE de la tôle (hôtes et libres à leur
+        # pose d'origine). moved = 0 : ce pass n'a rien produit. La RAISON
+        # ('restore' = restauration invalidée, 'front' = W2) part au
+        # postPass.
         last["placed_items"] = copy.deepcopy(full_snapshot)
         if stats is not None:
             stats["compactRollback"] = True
+            stats["compactRollbackReason"] = getattr(rb, "reason", "restore")
         return 0
 
 
@@ -868,46 +1039,27 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None):
     snapshot = copy.deepcopy(layouts)
     try:
         moved = 0
-        for _round in range(N_ITER):
-            stats["residualRounds"] = _round + 1
-            ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
-            last = min(range(len(layouts)), key=lambda i: (ratios[i], -i))
-            order = sorted((i for i in range(len(layouts)) if i != last),
-                           key=lambda i: (-ratios[i], i))
-            progress = False
-            for i in order:
-                while True:
-                    n = _fill_one_batch(layouts, i, last, items_by_id,
-                                        bin_dims, space)
-                    if not n:
-                        break
-                    moved += n
-                    progress = True
-            # Tôle source entièrement vidée de ses libres : on la retire
-            # (layoutCount-- = une tôle de moins à couper). Seule `last`
-            # peut se vider — par sécurité, retire tout layout vide.
-            before = len(layouts)
-            layouts[:] = [l for l in layouts if l.get("placed_items")]
-            if len(layouts) < 2 or not progress:
-                break
-        # Compaction de la tôle la moins remplie (la donneuse — ses libres
-        # non consommées par les bandes des tôles précédentes) : le moteur
-        # BPP ne la compacte pas dans la direction d'optimisation, la
-        # « chute » y serait un amas dispersé à front dentelé (constat
-        # user 2026-09-02 : « pas optimisé −X »). Uniquement s'il reste
-        # PLUSIEURS tôles : une tôle unique = la donneuse a été vidée et
-        # retirée, rien à compacter (contrat T8). Miroir JS :
+        stats["residualRounds"] = 1
+        ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
+        donor_i = min(range(len(layouts)), key=lambda i: (ratios[i], -i))
+        # W3 (plan correctif 2, étape B) : remplissage inter-tôles et
+        # compaction receveuse FUSIONNÉS — candidates = libres de la
+        # receveuse + libres de la DONNEUSE, AVANT la compaction donneuse
+        # (l'ancienne séquence laissait les bandes jugées pleines par le
+        # remplissage partiel : à space 2, 0 fan transférée).
+        moved += _merge_fill_compact_receivers(
+            layouts, donor_i, items_by_id, bin_dims, space, stats=stats)
+        # Tôle source entièrement vidée de ses libres : on la retire.
+        layouts[:] = [l for l in layouts if l.get("placed_items")]
+        # Compaction de la tôle la moins remplie (la donneuse) — le moteur
+        # BPP ne la compacte pas dans la direction d'optimisation.
+        # Uniquement s'il reste PLUSIEURS tôles (contrat T8). Miroir JS :
         # residualClient._compactLastSheet.
         if len(layouts) >= 2:
             ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
             last = min(range(len(layouts)), key=lambda i: (ratios[i], -i))
             moved += _compact_last_sheet(layouts, last, items_by_id,
                                          bin_dims, space, stats=stats)
-            # V3 (étape 3.1) : les RECEVEUSES aussi — le moteur first-fit
-            # y remplit les bandes en désordre, le lattice n'a plus de
-            # rectangle propre (449 fans contre 474 à space 2).
-            moved += _compact_receivers(layouts, items_by_id, bin_dims,
-                                        space, stats=stats)
         stats["residualMoved"] = moved
         return moved
     except Exception as e:

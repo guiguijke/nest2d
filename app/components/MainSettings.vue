@@ -75,6 +75,14 @@
                     v-model="localSpace"
                     class="size__input"
                 />
+                <!-- W10 (vérif 2026-09-04) : espacement sous le kerf laser —
+                     avertissement visible (micro-chevauchements possibles). -->
+                <div
+                    v-if="spacingBelowKerf"
+                    class="size__warning"
+                >
+                    {{ t('settings.spacingKerf') }}
+                </div>
                 <div class="size__rotations rotations">
                     <InputField
                         :prefix="t('settings.rotations')"
@@ -282,9 +290,22 @@
         const angles = Array.from({ length: n }, (_, i) => Math.round(i * step))
         return `→ ${angles.map((a) => a + '°').join(', ')}`
     })
+
+// W10 : espacement < 0,05 mm (kerf laser) — la découpe peut micro-chevaucher.
+const spacingBelowKerf = computed(() => {
+    const v = Number(localSpace.value)
+    return Number.isFinite(v) && v > 0 && v < 0.05
+})
 </script>
 
 <style lang="scss" scoped>
+.size__warning {
+    grid-column: 1 / -1;
+    color: var(--warning, #d97706);
+    font-size: 12px;
+    margin-top: 2px;
+}
+
     .settings {
         text-align: left;
 
