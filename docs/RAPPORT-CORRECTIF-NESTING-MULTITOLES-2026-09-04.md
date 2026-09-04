@@ -341,7 +341,87 @@ nest_wasm.js côté app) ; `up -d` ; app `200`, worker en polling.
 Note CI : `app-ci` échoue en amont sur deux tests `latticeScallop` qui
 timeout à 5 s sur le runner (7,5-8,3 s mesurés, pré-existant sur
 `40a0d45`, verts localement) — sans lien avec ce lot ; timeouts explicites
-à poser.
+à poser. *(Posés depuis : commit 1525601, 60 s.)*
+
+## 9. Partie 2 du plan 2026-09-05 (alternatives « Grille » et « Compaction » homogènes) — exécutée, commits 23bb4aa, 170fffc, 24268c9, 4221ccc, 63145f3
+
+Quatre étapes, une PR chacune, miroir Python ↔ JS partout :
+
+| Étape | Traitement | Tests |
+|---|---|---|
+| **2a** profils du post-pass | `fill_residual_bands(..., profile='grid'\|'compact')` + miroir : `compact` = passe fusionnée + compaction donneuse SANS re-grille des hélices (pose moteur bit-conservée) ; `grid` = comportement historique ; `stats['profile']` exposé. Dé défaut `grid` → ce commit seul ne change RIEN | TestProfilesCompactGrid 3 (poses hôtes bit-identiques en compact) + miroir vitest ; residual 53 verts docker |
+| **2b** constructeur grille multi-tôles | `core/structure_multi.py` (nouveau) + `structureMultiClient.js` : tôles 1..N−1 = grille pleine (hôtes au pas ancrés (s,s), orientation 0 — P-1 ; petites : trous pinwheel PUIS bandes `small_lattice`) ; tôle N = colonnes d'hôtes depuis −X + nichées + libres compactées derrière l'ancre (`_compact_last_sheet` re-grid, rollback ⇒ pas d'alternative) ; tout-ou-rien (stock insuffisant / motif non reconnu §5 / physique KO ⇒ None + erreur tracée) | test_structure_multi 9 (81 au pas, 81+19, dernière tôle au pas ± 0,5, physique par tôle, stock ⇒ None tracé, T-B ⇒ None silencieux, demande exacte) ; **parité chiffrée** vitest 5 contre fixture générée par le Python (2 → 81+458/19+342 ; 0,1 → 81+506/19+294) |
+| **2c** branchement | Serveur : alternative grille BPP ajoutée après le solve (structural + self_contained → expansion/hole-fill/residual sautés, map-back standard), `postPass.profile='grid'` ; alternatives moteur → profil **compact**. Navigateur : miroir complet (`localJobPrivate` grille via wasm pinwheel, `localBridge` profil compact, frame finale = rang 0 après tri) | suites |
+| **2d** UI | Sélecteur : « Option 1 · 2 tôles · 72,0 % used » ; chute réutilisable PAR TÔLE dans l'infobulle (scrap marqué) ; boutons du modal branchés (cf. §7 Z1) | e2e |
+
+**Correctif mirore au passage (bloquant pour la parité)** :
+`residualClient.validateBatch` flagait toute pièce posée DANS un trou
+(containment W4 jugé contre l'anneau externe seul, alors que le Python
+mesure sur `Polygon(outer, holes)`) — `ringInsideAHole` restaure le
+miroir exact. Aucun flux existant ne validait de niche : latence nulle.
+
+**Bancs (images = HEAD, `assert_images_head.sh` OK)** :
+
+- Référence 100+800, 2×1000×1000, **deux espacements, DEUX alternatives
+  chacune** :
+  - space 2 : grille **[573, 327]** (front tôle 2 = 456 mm), moteur
+    **[555, 345]** (= référence du 3 septembre, profil compact) ;
+  - space 0,1 : grille **[587, 313]**, moteur **[589, 311]** (= référence).
+- **Verrou grille** (`bench/check_p2_locks.py`, poses lues des SVG) :
+  hôtes **[81, 19] ≡ pas w+s (± 0,5 mm) sur TOUTES les tôles**, aux trois
+  espacements (0,1 / 2 / 2,4) — la grille est homogène, dernière tôle
+  comprise (colonnes au même pas).
+- **Verrou compaction** (`bench/check_p2_compact_lock.py`, brut moteur
+  `pre-solve.json` vs SVG finaux navigateur) : **100/100 hôtes à la pose
+  moteur bit-identique** dans l'alternative moteur finale (profil
+  compact) — déplacées 0, nouvelles 0.
+- **Jamais pire que le moteur** : les deux alternatives couvrent la
+  demande complète (900/900, 1000/1000 T-K) ; physique mesurée propre
+  (0 chevauchement / 0 hors tôle / min-dist = space exact sur les 4 SVG
+  navigateur, shapely VERDICT OK ; badges rapport ✓/✓/✓ partout).
+- **Corpus T-A..T-K complet : 12/12 OK** — T-J REFUS (attendu, 9 ms),
+  T-F PARTIEL (attendu, leviers), **aucun cas hors T-A/T-K ne gagne
+  d'alternative grille** (T-B..T-I moteur seul — généricité §5), aucun
+  ne régresse.
+- **e2e navigateur (space 2)** : sélecteur à deux onglets
+  (« GRID · Option 1 · 2 sheets · 72,0 % » / « ← –X · Option 2 · 2 sheets
+  · 74,9 % »), captures des deux tôles pour chacune
+  (`.qa-pw/e2e-p2-space2c/06-alt{0,1}-sheet{1,2}.png`), **parité
+  navigateur/serveur EXACTE sur les deux alternatives** (grille 573/327 =
+  573/327, moteur 555/345 = 555/345, mesuré serveur à vide sur image
+  HEAD). Le moteur navigue dans la variance Y6 sous charge (525↔577
+  observés ce tour pendant des runs parallèles) ; la **grille est
+  bit-déterministe** (573/327 identique sous charge, à vide, navigateur
+  et serveur) — c'est précisément sa valeur produit.
+- Suites : pytest **214 + 2s**, vitest **436** (37 fichiers), cargo non
+  touché.
+
+**Chasses du tour** (attrapées par les bancs, corrigées) :
+
+1. **`geoPinwheelCapacity` renvoie `{rotations:[...]}`** (JSON Rust),
+   jamais un tableau nu — `rots.length` sur l'objet = `undefined` → 0
+   fan nichée silencieuse (e2e : `nested 0`, 632 libres). Déballage
+   explicite + garde non-tableau.
+2. **Scatter sans niche déborde sur les colonnes d'hôtes** — borne
+   `min_x = bord droit du bloc hôtes + space` (miroir py/js) : mieux
+   vaut pas d'alternative qu'une grille invalide.
+3. `residual.py` passé en CRLF dans le répertoire de travail (écriture
+   d'outil) : le build Docker copie le worktree → `assert_images_head`
+   a intercepté l'écart md5 vs HEAD (autocrlf le réécrit à chaque
+   checkout) — normalisé en binaire LF.
+4. Outillage : `GridFS(db, collection=...)` prend le PRÉFIXE (pas
+   `.files`), et les parenthèses littérales des transforms SVG doivent
+   être échappées dans les regex des parseurs.
+
+**NON-GO partiel assumé** : la parité moteur navigateur/serveur est
+mesurée à vide (±0) mais PAS sous charge (variance Y6 : 525↔577 à space 2
+— budget mur, pré-état différent) ; c'est le moteur, pas la partie 2 (la
+grille, elle, est déterministe). Rien à corriger dans ce lot ; C8
+(documenté) reste la piste si le vérificateur veut verrouiller.
+
+**Non déployé** : release séparée conformément au plan — poussé sur
+`main` (workflow images déclenché), le déploiement attend la validation
+du vérificateur.
 
 ## 4. Décisions demandées (§5 du plan correctif)
 
