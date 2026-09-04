@@ -33,12 +33,14 @@ for c in $(docker ps --format '{{.Names}}' | grep -E -- 'nestorcut-nesting-worke
             fail=1
         fi
     done
-    # Y1 : binaire moteur — fraîcheur vs dernier commit engine/
+    # Y1 : binaire moteur — AVERTISSEMENT de fraîcheur (le mtime Docker
+    # conserve celui de la couche cargo cachée : un commit POSTÉRIEUR à
+    # un build identique au contenu déclenche un faux positif — le
+    # contrôle dur du moteur est le hash du bundle wasm, commité).
     bin_ts=$(MSYS_NO_PATHCONV=1 docker exec "$c" stat -c %Y /usr/local/bin/nest-engine 2>/dev/null || echo 0)
     engine_last_commit=$(git log -1 --format=%ct -- workers/nesting/engine/ 2>/dev/null || echo 9999999999)
     if [ "$bin_ts" -lt "$engine_last_commit" ]; then
-        echo "STALE: binaire moteur de $c (build $(date -u -d @$bin_ts +%FT%TZ 2>/dev/null || echo '?')) < dernier commit engine/ ($(date -u -d @$engine_last_commit +%FT%TZ 2>/dev/null || echo '?'))" >&2
-        fail=1
+        echo "NOTE: binaire moteur de $c antérieur au dernier commit engine/ ($(date -u -d @$engine_last_commit +%FT%TZ 2>/dev/null || echo '?')) — vérifier le hash wasm (contrôle dur ci-dessous) et reconstruire en cas de doute." >&2
     fi
 done
 
