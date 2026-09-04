@@ -46,6 +46,9 @@ export function useLocalMode(projectSlug) {
         // V8 (vérif 2026-09-04) : toutes les alternatives rejetées par la
         // garde physique (chevauchement/doublons mesurés) — job refundé.
         if (err === 'all_alternatives_invalid') return t('localMode.allInvalid')
+        // Plan 2026-09-05 §1.2a : refus de capacité (aire gonflée par
+        // l'espacement) — phrase actionnable avec les leviers.
+        if (err === 'capacity_exceeded') return t('localMode.capacityExceeded')
         return t('localCompute.error')
     }
 
