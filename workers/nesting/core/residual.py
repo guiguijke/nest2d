@@ -951,7 +951,7 @@ def _compact_receivers(layouts, items_by_id, bin_dims, space, stats=None):
 
 
 def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
-                        stats=None):
+                        stats=None, regrid=True):
     """Compaction −X de la tôle donneuse (constats 2026-09-02). Le moteur
     BPP ne compacte PAS la dernière tôle (coût = tôles + remnant, pas la
     direction par tôle) : v1 re-posait seulement les libres derrière
@@ -965,6 +965,14 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
        — colonnes depuis l'ancre, chute rectangulaire unique ; les
        non-placées retournent à leur pose d'origine VALIDÉE, sinon
        restauration complète (no-op sur les libres).
+
+    Plan 2026-09-05 §2.2a : `regrid=False` (profil « compact ») saute
+    l'étape 1 — les hôtes gardent leur POSE MOTEUR sur toutes les tôles,
+    seules les libres sont re-posées derrière l'ancre moteur (acceptation
+    front inchangée). C'est le profil de l'alternative « Compaction »
+    multi-tôles : même style partout, sans le style « grille » de la
+    dernière tôle. Le profil « grid » (regrid=True, défaut) reste celui
+    du constructeur grille (§2.2b).
 
     Audit 2026-09-02 F1/F2 : les libres remplissent d'abord les POCHES
     des colonnes partielles du re-grid (rects internes, retournés par
@@ -1002,8 +1010,13 @@ def _compact_last_sheet(layouts, sheet_i, items_by_id, bin_dims, space,
     front_before = layout_aabb(last, items_by_id)
     full_snapshot = copy.deepcopy(last.get("placed_items", []))
     try:
-        moved, pocket_rects = _regrid_helices(last, units, items_by_id, sw,
-                                              sh, space)
+        if regrid:
+            moved, pocket_rects = _regrid_helices(last, units, items_by_id, sw,
+                                                  sh, space)
+        else:
+            # Profil compact (§2.2a) : hélices INTACTES (pose moteur), pas
+            # de poches de re-grid — les libres partent derrière l'ancre.
+            moved, pocket_rects = 0, []
         if not free:
             return moved
         free_ids = {id(pi) for pi in free}
@@ -1053,7 +1066,8 @@ def _has_non_quarter_rotation(layouts, input_items):
     return False
 
 
-def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None):
+def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
+                        profile="grid"):
     """Mutate layouts in place. Retourne le nombre de pièces déplacées
     (0 = no-op). Voir le module docstring pour le contrat complet.
 
@@ -1061,13 +1075,22 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None):
     residualMoved / residualRounds / compactRollback / errors — le
     post-pass ne peut plus échouer SILENCIEUSEMENT (rollback muet,
     `except Exception` sans trace). Miroir JS : fillResidualBands(payload,
-    stats)."""
+    stats, profile).
+
+    Plan 2026-09-05 §2.2a : `profile` ∈ {'compact', 'grid'} —
+    'compact' = passe fusionnée + compaction donneuse SANS re-grille des
+    hélices (les hôtes gardent leur pose moteur, l'alternative
+    « Compaction » est homogène sur toutes ses tôles) ; 'grid' (défaut,
+    comportement historique) = re-grille de la dernière tôle en colonnes
+    depuis −X. Le profil est exposé dans stats['profile'] (→
+    report.postPass.profile)."""
     if stats is None:
         stats = {}
     stats.setdefault("residualMoved", 0)
     stats.setdefault("residualRounds", 0)
     stats.setdefault("compactRollback", False)
     stats.setdefault("errors", [])
+    stats["profile"] = profile if profile in ("compact", "grid") else "grid"
     if not layouts or len(layouts) < 2:
         return 0
     items_by_id = {i["id"]: i for i in input_items}
@@ -1100,12 +1123,14 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None):
         # Compaction de la tôle la moins remplie (la donneuse) — le moteur
         # BPP ne la compacte pas dans la direction d'optimisation.
         # Uniquement s'il reste PLUSIEURS tôles (contrat T8). Miroir JS :
-        # residualClient._compactLastSheet.
+        # residualClient._compactLastSheet. §2.2a : profil 'compact' →
+        # PAS de re-grille des hélices (pose moteur conservée).
         if len(layouts) >= 2:
             ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
             last = min(range(len(layouts)), key=lambda i: (ratios[i], -i))
             moved += _compact_last_sheet(layouts, last, items_by_id,
-                                         bin_dims, space, stats=stats)
+                                         bin_dims, space, stats=stats,
+                                         regrid=(stats.get("profile") == "grid"))
         stats["residualMoved"] = moved
         return moved
     except Exception as e:

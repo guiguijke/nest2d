@@ -1004,7 +1004,7 @@ function compactRollbackFront() {
 // re-grillés SUR les libres d'origine. Sur échec : restauration COMPLÈTE,
 // moved = 0, stats.compactRollback = true. Jamais moved > 0 après
 // rollback.
-export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space, payload, stats = null) {
+export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space, payload, stats = null, regrid = true) {
     const last = layouts[sheetI]
     const [sw, sh] = sheetDimsOf(last)
     const { units, free } = helixUnitsAndFree(last, partsById)
@@ -1017,7 +1017,14 @@ export function compactLastSheet(layouts, sheetI, partsById, sheetDimsOf, space,
         // Phase 1 : hélices re-grillées en colonnes depuis le bord gauche
         // (transformation rigide des fans nichées) — les poches des colonnes
         // partielles sont retournées pour la phase 2.
-        let { moved, freeRects } = regridHelices(last, units, partsById, sw, sh, space, payload)
+        // §2.2a : regrid=false (profil 'compact') → hélices INTACTES
+        // (pose moteur), pas de poches — les libres partent derrière
+        // l'ancre moteur.
+        let moved = 0
+        let freeRects = []
+        if (regrid) {
+            ;({ moved, freeRects } = regridHelices(last, units, partsById, sw, sh, space, payload))
+        }
         if (!free.length) return moved
         const freeSet = new Set(free)
         const hasAnchor = (last.placed_items || []).some((pi) => !freeSet.has(pi))
@@ -1070,11 +1077,15 @@ export function hasNonQuarterRotation(parts, layouts, payload) {
     return false
 }
 
-export function fillResidualBands(parts, layouts, space, payload, stats = null) {
+export function fillResidualBands(parts, layouts, space, payload, stats = null, profile = 'grid') {
     // A5 (audit 2026-09-03) : `stats` (additif) reçoit residualMoved /
     // residualRounds / compactRollback / errors — le post-pass ne peut
     // plus échouer SILENCIEUSEMENT (miroir fill_residual_bands Python).
+    // §2.2a : profile 'compact' = compaction donneuse SANS re-grille des
+    // hélices (pose moteur conservée — alternative « Compaction »
+    // homogène) ; 'grid' (défaut) = comportement historique.
     if (!stats) stats = {}
+    stats.profile = (profile === 'compact') ? 'compact' : 'grid'
     if (!layouts || layouts.length < 2) return 0
     const partsById = new Map(parts.map((p) => [String(p.id), p]))
     for (const l of layouts) {
@@ -1115,14 +1126,15 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null) 
         // Compaction de la tôle la moins remplie (la donneuse) — le moteur
         // BPP ne la compacte pas dans la direction d'optimisation (constat
         // user 2026-09-02 « pas optimisé −X »). Uniquement s'il reste
-        // PLUSIEURS tôles (contrat T8). Miroir Python.
+        // PLUSIEURS tôles (contrat T8). Miroir Python. §2.2a : profil
+        // 'compact' → PAS de re-grille des hélices.
         if (layouts.length >= 2) {
             const ratios2 = layouts.map((l) => fillRatio(l, partsById, sheetDimsOf))
             let last2 = 0
             for (let i = 1; i < layouts.length; i++) {
                 if (ratios2[i] <= ratios2[last2]) last2 = i
             }
-            moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload, stats)
+            moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload, stats, stats.profile === 'grid')
         }
         stats.residualMoved = moved
         return moved

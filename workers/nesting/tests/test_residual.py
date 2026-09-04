@@ -308,6 +308,57 @@ class TestT10CompactLastSheet:
                     assert polys[i].distance(polys[j]) >= 2.0 - 0.05,                         f"chevauchement {i}-{j}"
 
 
+class TestProfilesCompactGrid:
+    """Plan 2026-09-05 §2.2a : le profil 'compact' ne re-grille JAMAIS les
+    hélices — les hôtes de TOUTES les tôles gardent leur pose moteur (seules
+    les libres bougent, derrière l'ancre) ; le profil 'grid' (défaut,
+    comportement historique) re-grille la donneuse en colonnes depuis −X.
+    Verrou du tour : profil compact → poses d'hôtes BIT-IDENTIQUES."""
+
+    def _layouts(self):
+        hosts = [pi(0, 150.0, 50.0 + 100 * k) for k in range(10)]
+        free = [pi(1, 500.0 + 60 * (k % 7), 100.0 + 70 * (k // 7))
+                for k in range(25)]
+        full = [pi(0, 52.0 + 100 * gx, 52.0 + 100 * gy)
+                for gx in range(10) for gy in range(10)]
+        return [layout(full), layout(hosts + free)]
+
+    def _host_poses(self, l):
+        return sorted((p["transformation"]["translation"][0],
+                       p["transformation"]["translation"][1],
+                       p["transformation"]["rotation"])
+                      for p in l["placed_items"] if p["item_id"] == 0)
+
+    def test_profil_compact_hotes_bit_identiques(self):
+        layouts = self._layouts()
+        before = [self._host_poses(l) for l in layouts]
+        stats = {}
+        fill_residual_bands(layouts, ITEMS, BIN, 2.0, stats=stats,
+                            profile="compact")
+        assert stats["profile"] == "compact"
+        for k, l in enumerate(layouts):
+            assert self._host_poses(l) == before[k],             f"hôte déplacé sur la tôle {k} en profil compact"
+
+    def test_profil_grid_regrille_comme_avant(self):
+        layouts = self._layouts()
+        stats = {}
+        n = fill_residual_bands(layouts, ITEMS, BIN, 2.0, stats=stats,
+                                profile="grid")
+        assert stats["profile"] == "grid"
+        assert n >= 25 + 10  # hélices re-grillées + fans recompactées
+        for p in layouts[1]["placed_items"]:
+            if p["item_id"] == 0:
+                assert p["transformation"]["translation"][0] <= 160
+
+    def test_defaut_grid_retrocompatible(self):
+        # Les appelants existants (sans profil) gardent le comportement
+        # historique — le flip vers 'compact' se fera au branchement §2.2c.
+        layouts = self._layouts()
+        stats = {}
+        fill_residual_bands(layouts, ITEMS, BIN, 2.0, stats=stats)
+        assert stats["profile"] == "grid"
+
+
 class TestT9CornerCovered:
     """Constat 2026-09-01 : donneurs suffisants → la 2e bande, recalculée
     sur l'AABB étendue par la 1re, couvre le coin TR — aucun vide « en

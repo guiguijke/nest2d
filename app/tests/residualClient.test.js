@@ -139,6 +139,39 @@ describe('fillResidualBands — compaction de la dernière tôle (T10, miroir te
         const aabb = layoutAabb(layouts[1], new Map(PARTS.map((p) => [String(p.id), p])))
         expect(aabb[2]).toBeLessThanOrEqual(500)
     })
+
+    it("profil 'compact' (§2.2a) : les hôtes gardent leur pose moteur BIT-identique", () => {
+        // Même fixture que le test précédent, profile='compact' : seules
+        // les libres bougent — JAMAIS de re-grille des hélices (l'alternative
+        // « Compaction » est homogène sur toutes ses tôles).
+        const hosts0 = []
+        for (let gx = 0; gx < 10; gx++) {
+            for (let gy = 0; gy < 10; gy++) hosts0.push(pi(0, 50 + 100 * gx, 50 + 100 * gy))
+        }
+        const hosts1 = []
+        for (let k = 0; k < 10; k++) hosts1.push(pi(0, 150, 50 + 100 * k))
+        const free = []
+        for (let k = 0; k < 25; k++) {
+            free.push(pi(1, 500 + 60 * (k % 7), 100 + 70 * Math.floor(k / 7)))
+        }
+        const layouts = [layout(hosts0), layout([...hosts1, ...free])]
+        const hostPoses = (l) => l.placed_items
+            .filter((p) => p.item_id === 0)
+            .map((p) => [p.transformation.translation[0], p.transformation.translation[1], p.transformation.rotation])
+            .sort()
+        const before = layouts.map(hostPoses)
+
+        const stats = {}
+        fillResidualBands(PARTS, layouts, 2, payload, stats, 'compact')
+        expect(stats.profile).toBe('compact')
+        layouts.forEach((l, k) => {
+            expect(hostPoses(l)).toEqual(before[k])
+        })
+        // Profil par défaut (rétrocompat) : grid.
+        const stats2 = {}
+        fillResidualBands(PARTS, layouts, 2, payload, stats2)
+        expect(stats2.profile).toBe('grid')
+    })
 })
 
 describe('fillResidualBands — miroir Python (T3/T4/T5)', () => {
