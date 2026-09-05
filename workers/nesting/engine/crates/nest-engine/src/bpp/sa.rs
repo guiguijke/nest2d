@@ -237,6 +237,9 @@ pub fn anneal(
     let mut best_cost = current_cost;
     on_improvement(0, &best_cost, &best_solution);
     let mut last_improvement = Instant::now();
+    // P3 (décision 2026-09-05) : itération de la dernière amélioration —
+    // la patience est désormais comptée en ITÉRATIONS.
+    let mut last_improvement_iter = 0usize;
 
     // Temperature schedule: geometric from T0 to T_END over the time budget.
     // Δcost is in "bin-equivalents" (10 per bin), so T0 ~ a few bins.
@@ -266,6 +269,21 @@ pub fn anneal(
             _ => {}
         }
         iterations += 1;
+
+        // P3 (décision propriétaire 2026-09-05, mesure MESURE-P3) : arrêt
+        // par ITÉRATIONS — max(30, 3 × it_dernière_amélioration) sans
+        // amélioration. DÉTERMINISTE : aucune horloge ici, le wasm
+        // (~1,5× plus lent que le natif) s'arrête à la MÊME itération
+        // (le plancher de temps du plan initial est retiré pour cette
+        // raison — verrou natif ≡ wasm). La patience temps ci-dessous
+        // reste un plafond, le deadline la ceinture. Mesure : 224 walks,
+        // aucun job ne perd tôle ni pièce même à k=1 ; k=3 = marge ×3 sur
+        // les gaps les plus longs observés (440 it).
+        const STOP_K: usize = 3;
+        const STOP_FLOOR: usize = 30;
+        if iterations - last_improvement_iter >= STOP_FLOOR.max(STOP_K * last_improvement_iter) {
+            break;
+        }
 
         // Plateau stop: no incumbent improvement for `patience`.
         if let Some(patience) = plateau_patience {
@@ -331,6 +349,7 @@ pub fn anneal(
                 best_cost = candidate_cost;
                 best_solution = candidate.solution.clone();
                 last_improvement = Instant::now();
+                last_improvement_iter = iterations;
                 on_improvement(iterations, &best_cost, &best_solution);
             }
         } else {
@@ -529,9 +548,17 @@ mod tests {
             |_, _, _| { heartbeats.fetch_add(1, Ordering::SeqCst); },
         );
         assert!(report.iterations > 3, "plusieurs passes ({})", report.iterations);
+        // P3 (décision 2026-09-05) : le walk s'arrête par ITERATIONS
+        // (max(30, 3×it_dernière_amélioration)) — sur cette instance
+        // convergée il se termine AVANT la première seconde, donc avant
+        // le premier heartbeat : l'ancienne exigence V2 (le heartbeat
+        // doit battre pendant le spin muet) est caduque — le spin
+        // n'existe plus, le walk finit. On vérifie la fin rapide et
+        // déterministe au lieu du battement.
         assert!(
-            heartbeats.load(Ordering::SeqCst) >= 1,
-            "le heartbeat doit battre sur classe unique (V2)"
+            heartbeats.load(Ordering::SeqCst) <= 2,
+            "instance convergée : le walk doit finir vite, pas battre ({})",
+            heartbeats.load(Ordering::SeqCst)
         );
         assert_eq!(report.best_cost.unplaced, 0);
     }

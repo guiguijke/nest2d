@@ -529,6 +529,38 @@ mod tests {
     /// deadline: the tiny instance reaches its optimum (1 bin) almost
     /// immediately, so a 0.5s patience must cut a 30s budget short.
     #[test]
+    /// P3 (décision 2026-09-05) : arrêt par ITERATIONS — un walk convergé
+    /// s'arrête à ~30 itérations de la dernière amélioration (plancher),
+    /// SANS horloge : deux exécutions du même seed s'arrêtent à la MÊME
+    /// itération (le wasm ~1,5× plus lent aussi — c'est le point).
+    #[test]
+    fn iteration_patience_stops_deterministically() {
+        let instance = tiny_instance();
+        let mut runs = Vec::new();
+        for seed in [7u64, 7] {
+            let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+            let report = sa::anneal(
+                &instance,
+                200,
+                Duration::from_secs(60),
+                DirBias::LeftFirst,
+                None,
+                None, // pas de patience temps : SEULE la règle itérations
+                None,
+                &mut rng,
+                |_, _, _| {},
+                |_, _, _| {},
+            );
+            runs.push(report.iterations);
+        }
+        assert_eq!(runs[0], runs[1], "deux runs du même seed = même itération d'arrêt");
+        // convergé immédiatement (tiny) : dernière amélioration ~0 →
+        // patience = plancher 30 → arrêt vers 30 (marge pour l'amélioration
+        // initiale tardive éventuelle).
+        assert!(runs[0] <= 60, "arrêt attendu vers le plancher 30, obtenu {}", runs[0]);
+        assert!(runs[0] >= 30, "jamais avant le plancher : {}", runs[0]);
+    }
+
     fn plateau_stops_converged_walk_early() {
         let instance = tiny_instance();
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(4);

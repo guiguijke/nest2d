@@ -52,14 +52,27 @@ impl Separator {
                 sample_config: config.sample_config,
             }).collect();
 
-        let pool = if cfg!(target_arch = "wasm32") || config.n_workers <= 1 {
+        // P7 (plan PERF-UX 2026-09-05, comptabilité threads) : le pool local
+        // du separator est borné au budget RAYON_NUM_THREADS posé par le
+        // worker (tiers : 1/4/8). Sans cette borne, un job à budget 1
+        // spawnait quand même 3 threads separator — les jetons compute
+        // étaient fictifs. À budget 1, on tourne inline comme en wasm.
+        let thread_budget = std::env::var("RAYON_NUM_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n >= 1);
+        let effective_workers = match thread_budget {
+            Some(budget) => config.n_workers.min(budget),
+            None => config.n_workers,
+        };
+        let pool = if cfg!(target_arch = "wasm32") || effective_workers <= 1 {
             // On wasm32 no OS threads exist; with a single worker a rayon
             // pool only adds scheduling jitter — run inline everywhere (the
             // mono-walk shape the browser uses, AGENTS.md moteur).
             None
         } else {
             // Create a local thread pool to keep using the same threads for the same optimization (helps the OS scheduler)
-            Some(rayon::ThreadPoolBuilder::new().num_threads(config.n_workers).build().unwrap())
+            Some(rayon::ThreadPoolBuilder::new().num_threads(effective_workers).build().unwrap())
         };
 
         Self {
