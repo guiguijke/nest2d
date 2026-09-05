@@ -337,6 +337,7 @@ const dict = {
         'report.coresOne': '1 core',
         // C03 : détails techniques repliés (post-pass, seed, moteur).
         'report.techDetails': 'Technical details',
+        'report.discarded': '{n} option(s) rejected by final validation — diagnostic kept',
         'report.material': 'Material to plan',
         'report.sheet.num': '#',
         'report.sheet.format': 'Sheet',
@@ -944,6 +945,7 @@ const dict = {
         'report.coresOne': '1 cœur',
         // C03 : détails techniques repliés (post-pass, seed, moteur).
         'report.techDetails': 'Détails techniques',
+        'report.discarded': '{n} option(s) écartée(s) par la validation finale — diagnostic conservé',
         'report.material': "Matière à prévoir",
         'report.sheet.num': '#',
         'report.sheet.format': "Tôle",

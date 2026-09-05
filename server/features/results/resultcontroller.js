@@ -51,6 +51,11 @@ export async function getResults(userId, projectSlug) {
             purgedAt: queueItem.purgedAt ?? null,
             placed: queueItem.placed || 0,
             requested: queueItem.requested || 0,
+            // AB2 (L2-bis) : diagnostics des options écartées au filet
+            // final — badge replié côté UI, jamais une erreur produit.
+            discardedCount: Array.isArray(queueItem.discardedAlternatives)
+                ? queueItem.discardedAlternatives.length
+                : 0,
             // Specific failure reason written by the worker (e.g. which part
             // does not fit the sheet); null for legacy jobs.
             information: queueItem.information ?? null,

@@ -252,6 +252,9 @@ pub fn anneal(
     // Δcost is in "bin-equivalents" (10 per bin), so T0 ~ a few bins.
     const T0: f64 = 5.0;
     const T_END: f64 = 0.01;
+    /// AB1 (L2-bis) : budget du schedule de température quand la règle P3
+    /// est active (fenêtre courte — cf. iter_budget).
+    const SA_COMPRESSED_BUDGET: usize = 200;
     // C7 (audit 2026-09-03) : plateau calibré en TEMPS — l'ancien plancher
     // MIN_ITERS_BEFORE_PLATEAU = 200 × ~210 ms/it = 42 s incompressibles sur
     // le corpus user, non calibré à n. Minimum de recherche avant arrêt :
@@ -333,6 +336,18 @@ pub fn anneal(
         // trajectoire indépendante de la machine (le deadline reste la
         // ceinture de sécurité).
         let iter_budget: usize = max_iterations.unwrap_or_else(|| {
+            // AB1 (L2-bis, correction a) : avec l'arrêt par itérations, le
+            // recuit est COMPRIMÉ sur une fenêtre courte fixe — l'ancien
+            // budget dérivé du temps (~des milliers d'itérations) laissait
+            // le walk CHAUD à l'itération 30-100 : il acceptait tout sans
+            // exploiter, et la chute de la dernière tôle de la Compaction
+            // régressait (600,6 → 532,1 mm de médiane à space 0,1, A/B 6+6
+            // runs). Fenêtre 200 : froid à l'itération 200, la patience
+            // max(30, 3×it_dernière) laisse le walk vivre s'il s'améliore.
+            if stop_k > 0 {
+                return SA_COMPRESSED_BUDGET.max(stop_floor);
+            }
+            // (règle désactivée : comportement historique inchangé)
             // itérations/seconde mesurées au fil du run, échantillon
             // initial : 50 it/s (à la louche conservatrice) affinée par
             // la moyenne glissante ; bornée pour éviter le runaway.

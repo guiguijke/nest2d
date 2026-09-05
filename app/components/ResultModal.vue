@@ -407,6 +407,11 @@
                      (ce sont les itérations du recuit moteur). -->
                 <details v-if="hasTechDetails" class="report__tech" data-testid="report-tech">
                     <summary>{{ t('report.techDetails') }}</summary>
+                    <!-- AB2 (L2-bis) : une option écartée au filet final
+                         n'est plus perdue en silence — info repliée. -->
+                    <p v-if="discardedCount" class="report__tech-line" data-testid="report-discarded">
+                        {{ t('report.discarded', { n: discardedCount }) }}
+                    </p>
                     <div class="report__engine">
                         nest-engine<template v-if="activeAltSeed"> · seed {{ activeAltSeed }}</template>
                         <template v-if="activeReport.iterations"> · {{ activeReport.iterations === 1 ? t('report.iterationsOne') : t('report.iterations', { n: activeReport.iterations }) }}</template>
@@ -679,6 +684,8 @@ const selectViewMode = (mode) => {
 
 // ---- nesting report (measured verification, per active alternative) ------
 const activeReport = computed(() => unref(alternatives)[unref(activeAlt)]?.report || null)
+// AB2 (L2-bis) : options écartées au filet final (diagnostic conservé).
+const discardedCount = computed(() => unref(resultModalData).discardedCount || 0)
 // C03 : seed absent → masqué (pas de « seed — »).
 const activeAltSeed = computed(() => unref(alternatives)[unref(activeAlt)]?.seed ?? null)
 // C02 (audit UX 2026-09-05) : la barre unique est la DENSITÉ MATIÈRE

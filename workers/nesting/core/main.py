@@ -1754,6 +1754,44 @@ def _nesting_process_impl(doc):
                 _time.sleep(REVEAL_STEP_SEC)
 
     invalid_alt_count = [0]
+    # AB2 (L2-bis) : jamais perdre une alternative en silence — chaque
+    # écartage au filet laisse un DIAGNOSTIC persisté (job doc, champ
+    # additif discardedAlternatives) : stratégie, vérification, paires en
+    # chevauchement, étape d'origine (moteur vs post-pass, en re-vérifiant
+    # l'état pre).
+    discarded_alts = []
+
+    def _record_discard(engine_alt, result_containers, reason, strategy, rank, verification):
+        try:
+            pre = verify_layout(
+                parse_result_containers(
+                    {"solution": engine_alt["solution"]}, input_items, bin_dims_engine
+                )[0],
+                input_items, space,
+            )
+        except Exception:
+            pre = {}
+        overlaps = []
+        try:
+            from core.metrics import overlapping_pairs
+            overlaps = overlapping_pairs(
+                result_containers, input_items, space, cap=10)
+        except Exception as e:
+            logger.warning("overlap pairs unavailable", extra={"error": str(e)})
+        entry = {
+            "reason": reason,
+            "strategy": strategy,
+            "rank": rank,
+            "verification": verification,
+            "overlaps": overlaps,
+            "originStage": "engine" if pre.get("overlapFree") is False or pre.get("duplicatePoses") else "post_pass",
+            "preVerification": pre,
+        }
+        discarded_alts.append(entry)
+        logger.warning(
+            "alternative discarded — diagnostic kept",
+            extra={"slug": slug, **{k: entry[k] for k in ("reason", "strategy", "originStage")}},
+        )
 
     def _finalize_alternative(engine_alt, strategy, rank):
         # Échappatoire debug (A4) : livrer quand même une alternative
@@ -1792,6 +1830,8 @@ def _nesting_process_impl(doc):
                 extra={"strategy": strategy, "transforms": n,
                        "engine": engine_total},
             )
+            _record_discard(engine_alt, result_containers, "lost_parts", strategy, rank,
+                            {"transforms": n, "engine": engine_total})
             return
 
         # A4 : garde par CLASSE — le total seul était aveugle : une pièce
@@ -1811,6 +1851,9 @@ def _nesting_process_impl(doc):
                     "reference_by_id": reference_by_id,
                 },
             )
+            _record_discard(engine_alt, result_containers, "class_mismatch", strategy, rank,
+                            {"placed_by_id": per_class_placed_counts(result_containers),
+                             "reference_by_id": reference_by_id})
             return
 
         # Measured physical verification — AVANT l'export DXF (P-4 : ne pas
@@ -1825,6 +1868,8 @@ def _nesting_process_impl(doc):
                 "structural alternative outside sheet, discarding",
                 extra={"strategy": strategy},
             )
+            _record_discard(engine_alt, result_containers, "outside_sheet", strategy, rank,
+                            verification)
             return
         # A4/U1 : un post-pass qui échoue ne doit plus être livré avec un
         # badge rouge — l'alternative mesurée en chevauchement ou en poses
@@ -1843,6 +1888,8 @@ def _nesting_process_impl(doc):
                     "duplicatePoses": verification.get("duplicatePoses"),
                 },
             )
+            _record_discard(engine_alt, result_containers, "overlap", strategy, rank,
+                            verification)
             return
 
         alt_slug = f"{slug}_alt{rank}"
@@ -1981,6 +2028,9 @@ def _nesting_process_impl(doc):
     best = alternatives[0]
     final_set = {
         "alternatives": alternatives,
+        # AB2 (L2-bis) : diagnostics des alternatives écartées au filet —
+        # additif, jamais une erreur produit ; l'UI le montre replié.
+        "discardedAlternatives": discarded_alts,
         # Legacy fields = best alternative (retro-compat readers).
         "dxf_files": best["dxf_files"],
         "svg_files": best["svg_files"],
