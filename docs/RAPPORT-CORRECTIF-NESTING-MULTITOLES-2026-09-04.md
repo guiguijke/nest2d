@@ -423,6 +423,21 @@ grille, elle, est déterministe). Rien à corriger dans ce lot ; C8
 `main` (workflow images déclenché), le déploiement attend la validation
 du vérificateur.
 
+*(Suite)* **Vérification du 2026-09-05 9 h : partie 2 VALIDÉE** (verdict
+en fin de plan — grille bit-identique serveur↔navigateur aux deux
+espacements, hôtes au pas 0,00 mm, physique 8/8 sur anneaux bruts,
+corpus 11/11, suites pytest 215+1 / vitest 436 / cargo 71+1) — **GO
+déploiement**. Suggestions non bloquantes appliquées : `.gitattributes`
+`*.py text eol=lf` (commit a2903f4, avec le verdict).
+
+**DÉPLOYÉ EN PRODUCTION le 2026-09-05 ~9 h 15 UTC** (GO vérificateur) :
+workflow « Build and publish Docker images » `completed success` sur
+`a2903f4` ; `df -h` AVANT pull (20 Go libres) ; `docker compose pull` ;
+**8/8 empreintes md5 des images publiées = HEAD** (residual/main/metrics/
+holefill + structure_multi côté worker, nest_wasm_bg.wasm/
+nest_geometry_bg.wasm/nest_wasm.js côté app) ; `up -d` ; app `200`,
+worker en polling, tous conteneurs up.
+
 ## 4. Décisions demandées (§5 du plan correctif)
 
 1. **Phase 4 (SPP à séparateurs)** : recommandée par la vérification « à
