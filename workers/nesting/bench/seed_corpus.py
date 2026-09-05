@@ -75,7 +75,14 @@ QUARTERS = [0, 90, 180, 270]
 
 
 def case_files(case):
-    """(files, sheets, space, note) par cas — files au format produit."""
+    """(files, sheets, space, note) par cas — files au format produit.
+
+    CORPUS_SPACE_ALL (P3, journée de mesure) : remplace L'ESPACEMENT de
+    TOUS les cas (les env par cas CORPUS_SPACE_X restent prioritaires).
+    """
+    _all_space = os.environ.get("CORPUS_SPACE_ALL")
+    if _all_space is not None:
+        _all_space = float(_all_space)
     if case == "A":
         outer, holes = host_ring()
         return ([
@@ -84,7 +91,7 @@ def case_files(case):
             {"slug": "piece_fillx4", "count": 800, "rotations": QUARTERS,
              "parts": [{"coordinates": fan_ring(), "holes": []}]},
         ], [{"width": 1000.0, "height": 1000.0, "count": 2}],
-        float(os.environ.get("CORPUS_SPACE_A", "0.1")),
+        (_all_space if _all_space is not None else float(os.environ.get("CORPUS_SPACE_A", "0.1"))),
         "corpus de référence 100+800")
     if case == "B":
         return ([
@@ -94,7 +101,7 @@ def case_files(case):
              "parts": [{"coordinates": rect(250, 180), "holes": []}]},
             {"slug": "rect120", "count": 40, "rotations": QUARTERS,
              "parts": [{"coordinates": rect(120, 90), "holes": []}]},
-        ], [{"width": 1500.0, "height": 1000.0, "count": 3}], 2.0,
+        ], [{"width": 1500.0, "height": 1000.0, "count": 3}], (_all_space if _all_space is not None else 2.0),
         "3 classes de rectangles proches — aucune hélice, lattice sans petit")
     if case == "C":
         return ([
@@ -102,7 +109,7 @@ def case_files(case):
              "parts": [{"coordinates": l_shape(), "holes": []}]},
             {"slug": "ushape", "count": 20, "rotations": QUARTERS,
              "parts": [{"coordinates": u_shape(), "holes": []}]},
-        ], [{"width": 1200.0, "height": 1000.0, "count": 2}], 1.0,
+        ], [{"width": 1200.0, "height": 1000.0, "count": 2}], (_all_space if _all_space is not None else 1.0),
         "pièces L et U non convexes — cible containment/doublon (W4/W9)")
     if case == "D":
         return ([
@@ -110,7 +117,7 @@ def case_files(case):
              "parts": [{"coordinates": long_thin(), "holes": []}]},
             {"slug": "small", "count": 300, "rotations": QUARTERS,
              "parts": [{"coordinates": rect(60, 40), "holes": []}]},
-        ], [{"width": 1000.0, "height": 1000.0, "count": 2}], 1.0,
+        ], [{"width": 1000.0, "height": 1000.0, "count": 2}], (_all_space if _all_space is not None else 1.0),
         "pièces longues et fines 900×40 — une orientation dominante")
     if case == "E":
         outer, holes = host_ring()
@@ -122,7 +129,7 @@ def case_files(case):
              [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330],
              "parts": [{"coordinates": fan_ring(), "holes": []}]},
         ], [{"width": 1000.0, "height": 1000.0, "count": 3}],
-        float(os.environ.get("CORPUS_SPACE_E", "0.1")),
+        (_all_space if _all_space is not None else float(os.environ.get("CORPUS_SPACE_E", "0.1"))),
         "rotations à 30° (rotationCount 12) — passes JS/Python no-op tracé (D3)")
     if case == "F":
         return ([
@@ -131,7 +138,7 @@ def case_files(case):
         ], [
             {"width": 1000.0, "height": 1000.0, "count": 1},
             {"width": 2000.0, "height": 1000.0, "count": 1},
-        ], 1.0,
+        ], (_all_space if _all_space is not None else 1.0),
         "deux formats — coût ∝ surface, container_id/V11/C13")
     if case == "G":
         return ([
@@ -139,13 +146,13 @@ def case_files(case):
              "parts": [{"coordinates": near_full(), "holes": []}]},
             {"slug": "small", "count": 200, "rotations": QUARTERS,
              "parts": [{"coordinates": rect(50, 30), "holes": []}]},
-        ], [{"width": 1000.0, "height": 1000.0, "count": 2}], 0.5,
+        ], [{"width": 1000.0, "height": 1000.0, "count": 2}], (_all_space if _all_space is not None else 0.5),
         "grande pièce quasi pleine tôle + 200 petites")
     if case == "H":
         return ([
             {"slug": "unit", "count": 200, "rotations": QUARTERS,
              "parts": [{"coordinates": rect(120, 80), "holes": []}]},
-        ], [{"width": 1000.0, "height": 1000.0, "count": 3}], 1.0,
+        ], [{"width": 1000.0, "height": 1000.0, "count": 3}], (_all_space if _all_space is not None else 1.0),
         "classe unique 600 × — recuit vivant (V2), apply_move Restart")
     if case == "J":
         outer, holes = host_ring()
@@ -159,7 +166,7 @@ def case_files(case):
              "parts": [{"coordinates": outer, "holes": holes}]},
             {"slug": "piece_fillx4", "count": 900, "rotations": QUARTERS,
              "parts": [{"coordinates": fan_ring(), "holes": []}]},
-        ], [{"width": 1000.0, "height": 2000.0, "count": 1}], 4.0,
+        ], [{"width": 1000.0, "height": 2000.0, "count": 1}], (_all_space if _all_space is not None else 4.0),
         "infaisable par espacement — 422 via l'API, refus worker <1s si semé (Z2)")
     if case == "K":
         outer, holes = host_ring()
@@ -176,7 +183,7 @@ def case_files(case):
             {"slug": "piece_fillx4", "count": 900, "rotations": QUARTERS,
              "parts": [{"coordinates": fan_ring(), "holes": []}]},
         ], [{"width": 1000.0, "height": 1000.0, "count": 2}],
-        float(os.environ.get("CORPUS_SPACE_K", "2.4")),
+        (_all_space if _all_space is not None else float(os.environ.get("CORPUS_SPACE_K", "2.4"))),
         "à la limite (R≈0,87 à 2,4 mm) — BPP, complet ou partiel propre avec leviers")
     if case == "I":
         # ESICUP en BPP : les pièces du benchmark comme items, tôle-bande

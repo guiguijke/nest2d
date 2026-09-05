@@ -109,11 +109,28 @@ def run_engine(instance, config, problem_type, on_event=None, should_cancel=None
         done_event = {}
         error_event = {}
 
+        # P3 (journée de mesure, plan PERF-UX §1) : BENCH_DUMP_EVENTS=<chemin>
+        # tee chaque évènement moteur brut (progress/heartbeat/layout/…)
+        # dans un fichier ndjson — dormant sans la variable, aucun effet en
+        # production. Format : {"slug": …, "line": {évènement}}.
+        _dump_path = os.environ.get("BENCH_DUMP_EVENTS")
+
         def _read_stdout():
+            _dump = None
+            if _dump_path:
+                try:
+                    _dump = open(_dump_path, "a", encoding="utf-8")
+                except OSError:
+                    _dump = None
             for line in proc.stdout:
                 line = line.strip()
                 if not line:
                     continue
+                if _dump is not None:
+                    try:
+                        _dump.write(json.dumps({"job": instance.get("name") if isinstance(instance, dict) else None, "line": json.loads(line)}) + chr(10))
+                    except Exception:
+                        pass
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:

@@ -183,7 +183,9 @@ pub struct SaReport {
 }
 
 /// Runs the annealing until `deadline`. `on_improvement` is called every time
-/// the incumbent improves (for live progress); `on_heartbeat` at ~1 Hz.
+/// the incumbent improves (for live progress), avec L'ITÉRATION courante
+/// (P3 — journée de mesure : itération de chaque amélioration) ;
+/// `on_heartbeat` at ~1 Hz.
 /// `bias` steers the constructive's directional tie-break (per-worker, so
 /// exported alternatives are structurally distinct).
 /// `initial_seq` is an optional warm-start sequence (positional item ids,
@@ -205,7 +207,7 @@ pub fn anneal(
     plateau_patience: Option<Duration>,
     max_iterations: Option<usize>,
     rng: &mut impl Rng,
-    mut on_improvement: impl FnMut(&Cost, &BPSolution),
+    mut on_improvement: impl FnMut(usize, &Cost, &BPSolution),
     mut on_heartbeat: impl FnMut(usize, &Cost, &BPSolution),
 ) -> SaReport {
     let started = Instant::now();
@@ -233,7 +235,7 @@ pub fn anneal(
     // constructive placement is stochastic, re-running it could regress).
     let mut best_solution = initial.solution.clone();
     let mut best_cost = current_cost;
-    on_improvement(&best_cost, &best_solution);
+    on_improvement(0, &best_cost, &best_solution);
     let mut last_improvement = Instant::now();
 
     // Temperature schedule: geometric from T0 to T_END over the time budget.
@@ -329,7 +331,7 @@ pub fn anneal(
                 best_cost = candidate_cost;
                 best_solution = candidate.solution.clone();
                 last_improvement = Instant::now();
-                on_improvement(&best_cost, &best_solution);
+                on_improvement(iterations, &best_cost, &best_solution);
             }
         } else {
             mov.revert(&mut seq);
@@ -523,7 +525,7 @@ mod tests {
             None,
             None,
             &mut rng,
-            |_, _| { improvements.fetch_add(1, Ordering::SeqCst); },
+            |_, _, _| { improvements.fetch_add(1, Ordering::SeqCst); },
             |_, _, _| { heartbeats.fetch_add(1, Ordering::SeqCst); },
         );
         assert!(report.iterations > 3, "plusieurs passes ({})", report.iterations);

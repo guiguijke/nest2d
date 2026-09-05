@@ -517,7 +517,7 @@ mod tests {
             None,
             None,
             &mut rng,
-            |_, _| {},
+            |_, _, _| {},
             |_, _, _| {},
         );
         assert_eq!(report.best_cost.unplaced, 0);
@@ -542,7 +542,7 @@ mod tests {
             Some(Duration::from_millis(500)),
             None,
             &mut rng,
-            |_, _| {},
+            |_, _, _| {},
             |_, _, _| {},
         );
         let elapsed = started.elapsed();
@@ -780,7 +780,7 @@ mod scale_tests {
                         None,
                         None,
                         &mut rng,
-                        |_, _| {},
+                        |_, _, _| {},
                         |_, _, _| {},
                     )
                 };

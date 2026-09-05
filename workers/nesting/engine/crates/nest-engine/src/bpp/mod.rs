@@ -171,10 +171,11 @@ pub fn run_bpp_mem(
             plateau_patience,
             sa_max_iterations,
             &mut rng,
-                |cost, solution| {
+                |iters, cost, solution| {
                     sink(&format!(
-                        "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"feasible\":{},\"bins\":{},\"bin_cost\":{},\"unplaced\":{},\"elapsed_sec\":{},\"bias\":\"{}\"}}",
+                        "{{\"type\":\"progress\",\"worker\":{},\"stage\":\"bpp-search\",\"iters\":{},\"feasible\":{},\"bins\":{},\"bin_cost\":{},\"unplaced\":{},\"elapsed_sec\":{},\"bias\":\"{}\"}}",
                         w,
+                        iters,
                         cost.unplaced == 0,
                         solution.layout_snapshots.len(),
                         cost.bin_cost,
