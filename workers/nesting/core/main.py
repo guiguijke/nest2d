@@ -938,6 +938,10 @@ def _nesting_process_impl(doc):
         time_budget_sec, total_requested_count, placed_vertices, has_holes
     )
 
+    # AB1 (L2-bis) : bras A/B de la règle P3 par env worker (sans rebuild).
+    # Absent → défauts du moteur (k=3, plancher 30).
+    _sa_stop_k = os.environ.get("NEST_SA_STOP_K")
+    _sa_stop_floor = os.environ.get("NEST_SA_STOP_FLOOR")
     engine_config = build_engine_config(
         time_budget_sec,
         seed,
