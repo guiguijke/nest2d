@@ -62,21 +62,27 @@ def _violates_spacing(cand, placed, space):
     return False
 
 
-def pinwheel_capacity(hole_ring, filler_coords, space, allowed=None):
-    """Rotations du pinwheel VALIDÉES pour un filler dans un trou, calculées
-    une fois en coords LOCALES (la validité est invariante par la transform
-    de l'hôte posé). Sémantique exacte du moteur : trou érodé de `space`,
-    espacement ≥ `space` entre fillers (piège #3). `allowed` restreint aux
-    orientations permises de l'item (défaut : les 4). Ordre pinwheel
-    conservé ; [] si aucune rotation ne valide (trou trop petit, forme
-    inadaptée) — l'appelant doit alors renoncer au pre-pass meta."""
-    rots = [r for r in PINWHEEL if allowed is None or r in allowed]
-    hole = Polygon(hole_ring)
+def _ring_key(coords):
+    """Clé de mémoïsation (hashable) d'un anneau — coordonnées float."""
+    return tuple((float(x), float(y)) for x, y in coords)
+
+
+# P2 (audit perf 2026-09-05) : la capacité pinwheel est réinterrogée pour
+# chaque instance d'hôte et chaque frame de décoration live avec les MÊMES
+# coordonnées LOCALES (la validité est invariante par la transform de
+# l'hôte posé, cf. docstring). Mémoïsation par (trou, filler, space,
+# rotations) — les hôtes d'une même classe partagent l'entrée.
+from functools import lru_cache
+
+
+@lru_cache(maxsize=4096)
+def _pinwheel_capacity_cached(hole_key, filler_key, space, rots):
+    hole = Polygon(hole_key)
     inner = hole.buffer(-float(space)) if space > 0 else hole
     if inner.is_empty:
-        return []
-    cx, cy = _centroid(hole_ring)
-    filler = Polygon(filler_coords)
+        return ()
+    cx, cy = _centroid(hole_key)
+    filler = Polygon(filler_key)
     valid, placed = [], []
     for rot in rots:
         cand = translate(rotate(filler, rot, origin=(0, 0)), cx, cy)
@@ -86,7 +92,22 @@ def pinwheel_capacity(hole_ring, filler_coords, space, allowed=None):
             continue
         valid.append(rot)
         placed.append(cand)
-    return valid
+    return tuple(valid)
+
+
+def pinwheel_capacity(hole_ring, filler_coords, space, allowed=None):
+    """Rotations du pinwheel VALIDÉES pour un filler dans un trou, calculées
+    une fois en coords LOCALES (la validité est invariante par la transform
+    de l'hôte posé). Sémantique exacte du moteur : trou érodé de `space`,
+    espacement ≥ `space` entre fillers (piège #3). `allowed` restreint aux
+    orientations permises de l'item (défaut : les 4). Ordre pinwheel
+    conservé ; [] si aucune rotation ne valide (trou trop petit, forme
+    inadaptée) — l'appelant doit alors renoncer au pre-pass meta.
+    Mémoïsée (P2) : résultat identique, la liste renvoyée est une copie."""
+    rots = [r for r in PINWHEEL if allowed is None or r in allowed]
+    return list(_pinwheel_capacity_cached(
+        _ring_key(hole_ring), _ring_key(filler_coords), float(space), tuple(rots)
+    ))
 
 
 def _violates_spacing_loose(cand, placed, space):

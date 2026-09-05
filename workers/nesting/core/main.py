@@ -1046,14 +1046,60 @@ def _nesting_process_impl(doc):
     # Live layout snapshots for the visualizer: the engine streams placed
     # item positions ~2Hz per worker; we persist the latest one (throttled)
     # on the job doc, the SSE stream pushes it to the browser.
+    # P2 (audit perf 2026-09-05) : la décoration (decorate_live_items →
+    # apply_hole_fill, ~0,5 s CPU par frame) et l'écriture Mongo quittent
+    # le thread lecteur de stdout du moteur — elles y volaient un demi-cœur
+    # aux walks (17 s CPU pour 40 s de solve). Un thread décorateur unique
+    # consomme la DERNIÈRE frame déposée (coalescing drop-stale) et écrit
+    # au plus 1×/s ; les frames intermédiaires sont abandonnées (vue live
+    # de progression, pas un contrat).
+    import queue as _queue_mod
+    import threading as _threading_mod
     _last_live_write = [0.0]
+    _live_q = _queue_mod.Queue(maxsize=1)
+    _live_thread = [None]
+
+    def _live_decorator_loop():
+        while True:
+            event = _live_q.get()
+            if event is None:
+                return
+            try:
+                report_live_layout(event)
+            except Exception as e:  # déjà attrapé dans report_live_layout
+                logger.warning("Live decorator failed", extra={"error": str(e)})
+
+    def _enqueue_live(event):
+        # Coalescing : une seule frame en attente, toujours la dernière.
+        try:
+            _live_q.put_nowait(event)
+        except _queue_mod.Full:
+            try:
+                _live_q.get_nowait()
+            except _queue_mod.Empty:
+                pass
+            try:
+                _live_q.put_nowait(event)
+            except _queue_mod.Full:
+                pass
+
+    def _stop_live_decorator():
+        if _live_thread[0] is None:
+            return
+        try:
+            _live_q.put_nowait(None)
+        except _queue_mod.Full:
+            pass
+        _live_thread[0].join(timeout=5.0)
+        _live_thread[0] = None
 
     def report_live_layout(event):
         now = _time.time()
         stage = event.get("stage", "")
         # Stage changes always pass (they mark phase transitions), otherwise
-        # one write per 2s max.
-        if stage == _current_progress.get("stage") and now - _last_live_write[0] < 0.35:
+        # one write per 1s max (P2 : la décoration coûte ~0,5 s CPU, 1 Hz
+        # suffit à la vue live).
+        if stage == _current_progress.get("stage") and now - _last_live_write[0] < 1.0:
             return
         _last_live_write[0] = now
         try:
@@ -1112,7 +1158,9 @@ def _nesting_process_impl(doc):
     def _on_engine_event(event):
         etype = event.get("type")
         if etype == "layout":
-            report_live_layout(event)
+            # P2 : jamais de travail lourd sur le thread lecteur de stdout —
+            # dépôt coalescé, le décorateur s'en charge.
+            _enqueue_live(event)
         elif etype == "evals":
             _record_worker_evals(event.get("worker"), event.get("evals") or 0)
         elif etype in ("progress", "heartbeat"):
@@ -1163,6 +1211,10 @@ def _nesting_process_impl(doc):
         )
 
     try:
+        _live_thread[0] = _threading_mod.Thread(
+            target=_live_decorator_loop, daemon=True, name="live-decorator"
+        )
+        _live_thread[0].start()
         engine_alternatives = run_engine(
             solve_instance, engine_config, problem_type, on_event=_on_engine_event,
             should_cancel=should_cancel,
@@ -1222,6 +1274,10 @@ def _nesting_process_impl(doc):
             },
         )
         raise Exception(information) from e
+    finally:
+        # P2 : flush de la dernière frame live puis arrêt du décorateur,
+        # sur tous les chemins (succès, annulation, erreur).
+        _stop_live_decorator()
 
     # Pass structurel (grille canonique) — SPP mono-tôle : item rectangulaire
     # dominant + petites pièces. Le solveur minimise la largeur et est
