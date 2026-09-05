@@ -2,7 +2,13 @@ import bcrypt from 'bcryptjs'
 import { connectDB } from '~~/server/db/mongo'
 import { generateSession } from '~~/server/utils/auth'
 import { setSessionCookie } from '~~/server/utils/user'
-import { assertRateLimit, rateLimitAllow, denyRateLimit } from '~~/server/utils/ratelimit'
+import {
+    assertRateLimit,
+    denyRateLimit,
+    rateLimitAllow,
+    rateLimitPeek,
+    rateLimitReset,
+} from '~~/server/utils/ratelimit'
 
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)
@@ -19,8 +25,16 @@ export default defineEventHandler(async (event) => {
     }
 
     assertRateLimit(event, 'login-ip', { limit: 20, windowMs: 15 * 60_000 })
-    if (!rateLimitAllow(`login-email:${email}`, { limit: 5, windowMs: 15 * 60_000 })) {
-        denyRateLimit(event, { windowMs: 15 * 60_000 })
+    // A2 (audit compte 2026-09-05) : le compteur par e-mail ne compte QUE
+    // les ÉCHECS — l'ancien compteur d'appels bloquait un utilisateur
+    // légitime à trois appareils (5 connexions / 15 min), et une connexion
+    // réussie REMET le compteur à zéro. Peek sans consommer, incrément
+    // uniquement sur mot de passe invalide.
+    const failKey = `login-email:${email}`
+    const failLimit = { limit: 5, windowMs: 15 * 60_000 }
+    const peek = rateLimitPeek(failKey, failLimit)
+    if (!peek.allowed) {
+        denyRateLimit(event, { windowMs: failLimit.windowMs, retryAfterMs: peek.retryAfterMs })
     }
 
     const db = await connectDB()
@@ -33,8 +47,12 @@ export default defineEventHandler(async (event) => {
     const ok = await bcrypt.compare(password, hash)
 
     if (!user || !ok) {
+        // A2 : c'est un ÉCHEC — lui seul consomme le quota.
+        rateLimitAllow(failKey, failLimit)
         throw createError({ statusCode: 401, statusMessage: 'Invalid email or password' })
     }
+    // A2 : succès — remise à zéro du compteur d'échecs.
+    rateLimitReset(failKey)
 
     // Banned accounts cannot log in (ban is set from the admin panel).
     if (user.banned) {

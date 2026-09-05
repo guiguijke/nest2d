@@ -57,9 +57,40 @@ export function rateLimitAllow(key, { limit = 10, windowMs = 60_000 } = {}) {
     return entry.count <= limit
 }
 
-export function denyRateLimit(event, { windowMs = 60_000 } = {}) {
-    setHeader(event, 'Retry-After', String(Math.max(1, Math.ceil(windowMs / 1000))))
-    throw createError({ statusCode: 429, statusMessage: 'Too many attempts. Please try again later.' })
+/**
+ * A2 (audit compte 2026-09-05) : teste la limite SANS consommer — pour les
+ * compteurs qui ne doivent incrémenter que les ÉCHECS (login). Renvoie
+ * { allowed, retryAfterMs } avec le délai réel restant dans la fenêtre.
+ */
+export function rateLimitPeek(key, { limit = 10, windowMs = 60_000 } = {}) {
+    sweep(windowMs)
+    const now = Date.now()
+    const entry = buckets.get(key)
+    if (!entry || now - entry.windowStart >= windowMs) {
+        return { allowed: true, retryAfterMs: 0 }
+    }
+    if (entry.count < limit) {
+        return { allowed: true, retryAfterMs: 0 }
+    }
+    return { allowed: false, retryAfterMs: Math.max(1000, entry.windowStart + windowMs - now) }
+}
+
+/** A2 : remise à zéro du compteur (connexion réussie). */
+export function rateLimitReset(key) {
+    buckets.delete(key)
+}
+
+export function denyRateLimit(event, { windowMs = 60_000, retryAfterMs = null } = {}) {
+    // A2 : délai RÉEL restant quand l'appelant le connaît (peek), et code
+    // stable pour un message traduit côté client avec le délai.
+    const waitMs = Math.max(1000, retryAfterMs || windowMs)
+    const retryAfterSec = Math.max(1, Math.ceil(waitMs / 1000))
+    setHeader(event, 'Retry-After', String(retryAfterSec))
+    throw createError({
+        statusCode: 429,
+        statusMessage: 'Too many attempts. Please try again later.',
+        data: { code: 'rate_limited', retryAfterSec },
+    })
 }
 
 export function assertRateLimit(event, key, options = {}) {

@@ -105,7 +105,14 @@ const onSubmit = async () => {
         }
         router.push({ path: '/home' })
     } catch (err) {
-        fieldError.value = err?.data?.statusMessage || err?.statusMessage || t('auth.errorGeneric')
+        // A2 (audit compte 2026-09-05) : le 429 rate-limit porte un code
+        // stable + le délai réel — message traduit avec les minutes.
+        if (err?.data?.code === 'rate_limited') {
+            const min = Math.max(1, Math.ceil((err?.data?.retryAfterSec || 900) / 60))
+            fieldError.value = t('auth.rateLimited', { n: min })
+        } else {
+            fieldError.value = err?.data?.statusMessage || err?.statusMessage || t('auth.errorGeneric')
+        }
     } finally {
         loading.value = false
     }
@@ -149,7 +156,7 @@ onMounted(async () => {
         width: 100%;
     }
     &__error {
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
         font-size: 14px;
         margin: 4px 0;
     }
