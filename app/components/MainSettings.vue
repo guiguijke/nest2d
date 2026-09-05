@@ -427,7 +427,7 @@ const spacingBelowKerf = computed(() => {
 
             @media (hover: hover) {
                 &:hover {
-                    color: var(--error-border);
+                    color: var(--error-text);
                 }
             }
         }

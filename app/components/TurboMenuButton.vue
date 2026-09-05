@@ -160,7 +160,7 @@ async function onToggle(event) {
 
     &__error {
         font-size: 13px;
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
     }
 }
 </style>

@@ -156,7 +156,7 @@
         &__error {
             margin-top: 10px;
             font-size: 13px;
-            color: var(--error-border, #ef4444);
+            color: var(--error-text, #ef4444);
         }
 
         &__notice {

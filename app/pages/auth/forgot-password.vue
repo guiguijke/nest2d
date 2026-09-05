@@ -99,7 +99,7 @@ const onSubmit = async () => {
         width: 100%;
     }
     &__error {
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
         font-size: 14px;
         margin: 4px 0;
     }

@@ -297,7 +297,7 @@ onMounted(refresh)
 
         summary {
             cursor: pointer;
-            color: var(--error-border, #ef4444);
+            color: var(--error-text, #ef4444);
         }
 
         &[open] summary {
@@ -323,7 +323,7 @@ onMounted(refresh)
     }
     &__danger-title {
         font-weight: 700;
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
         font-size: 15px;
     }
     &__confirm-challenge {
@@ -359,7 +359,7 @@ onMounted(refresh)
     }
     &__error {
         margin-top: 12px;
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
         font-size: 14px;
         text-align: center;
     }

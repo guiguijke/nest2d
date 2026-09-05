@@ -277,7 +277,7 @@ async function deleteAccount() {
     &__warning {
         font-size: 14px;
         font-weight: 600;
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
     }
     &__block-title {
         font-size: 14px;
@@ -300,7 +300,7 @@ async function deleteAccount() {
 
         summary {
             cursor: pointer;
-            color: var(--error-border, #ef4444);
+            color: var(--error-text, #ef4444);
         }
 
         &[open] summary {
@@ -326,7 +326,7 @@ async function deleteAccount() {
     }
     &__danger-title {
         font-weight: 700;
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
         font-size: 15px;
     }
     &__confirm-challenge {
@@ -352,7 +352,7 @@ async function deleteAccount() {
     }
     &__error {
         margin-top: 12px;
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
         font-size: 14px;
         text-align: center;
     }

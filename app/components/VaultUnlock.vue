@@ -173,7 +173,7 @@ onMounted(async () => {
     }
     &__error {
         margin-top: 12px;
-        color: var(--error-border, #ef4444);
+        color: var(--error-text, #ef4444);
         font-size: 14px;
         text-align: center;
     }
