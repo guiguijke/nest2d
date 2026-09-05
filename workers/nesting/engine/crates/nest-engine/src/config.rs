@@ -96,6 +96,13 @@ pub struct EngineConfig {
     /// is then driven by the iteration fraction, not wall clock.
     #[serde(default)]
     pub sa_max_iterations: Option<usize>,
+    /// AB1 (L2-bis) : P3 par itérations — k multiplicatif (défaut 3 ;
+    /// 0 = règle désactivée, comportement pré-P3).
+    #[serde(default)]
+    pub sa_stop_k: Option<usize>,
+    /// AB1 (L2-bis) : plancher d'itérations de la patience P3 (défaut 30).
+    #[serde(default)]
+    pub sa_stop_floor: Option<usize>,
     /// P4 — exposant du biais d'éjection par aire du séparateur GLS
     /// (0/absent = historique). La perte conteneur pondérée d'un item est
     /// multipliée par (aire/médiane)^β, clampée [0.25, 4] : à pénétration

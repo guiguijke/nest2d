@@ -137,6 +137,9 @@ pub fn run_bpp_mem(
     let biases = config.dir_biases();
     let plateau_patience = config.plateau_patience();
     let sa_max_iterations = config.sa_max_iterations;
+    // AB1 (L2-bis) : patience P3 pilotable par la config (A/B sans rebuild).
+    let sa_stop_k = config.sa_stop_k.unwrap_or(sa::DEFAULT_STOP_K);
+    let sa_stop_floor = config.sa_stop_floor.unwrap_or(sa::DEFAULT_STOP_FLOOR);
     let runs: Vec<WorkerRun> = map_workers(n_workers, |w| {
         let seed = derive_seed(config.prng_seed, w);
         let bias = biases[w % biases.len()];
@@ -170,6 +173,8 @@ pub fn run_bpp_mem(
             warm_start.clone(),
             plateau_patience,
             sa_max_iterations,
+            sa_stop_k,
+            sa_stop_floor,
             &mut rng,
                 |iters, cost, solution| {
                     sink(&format!(

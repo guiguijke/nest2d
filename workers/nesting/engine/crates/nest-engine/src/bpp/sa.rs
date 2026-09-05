@@ -198,6 +198,11 @@ pub struct SaReport {
 /// runs a fixed number of iterations and the temperature schedule is driven
 /// by the iteration fraction instead of wall clock — the walk becomes
 /// reproducible bit-for-bit across native and wasm builds.
+/// P3 (décision owner 2026-09-05) : patience d'arrêt par itérations,
+/// pilotable par la config (A/B AB1 — L2-bis). k = 0 désactive la règle.
+pub const DEFAULT_STOP_K: usize = 3;
+pub const DEFAULT_STOP_FLOOR: usize = 30;
+
 pub fn anneal(
     instance: &BPInstance,
     n_samples: usize,
@@ -206,6 +211,8 @@ pub fn anneal(
     initial_seq: Option<Vec<usize>>,
     plateau_patience: Option<Duration>,
     max_iterations: Option<usize>,
+    stop_k: usize,
+    stop_floor: usize,
     rng: &mut impl Rng,
     mut on_improvement: impl FnMut(usize, &Cost, &BPSolution),
     mut on_heartbeat: impl FnMut(usize, &Cost, &BPSolution),
@@ -279,9 +286,9 @@ pub fn anneal(
         // reste un plafond, le deadline la ceinture. Mesure : 224 walks,
         // aucun job ne perd tôle ni pièce même à k=1 ; k=3 = marge ×3 sur
         // les gaps les plus longs observés (440 it).
-        const STOP_K: usize = 3;
-        const STOP_FLOOR: usize = 30;
-        if iterations - last_improvement_iter >= STOP_FLOOR.max(STOP_K * last_improvement_iter) {
+        if stop_k > 0
+            && iterations - last_improvement_iter >= stop_floor.max(stop_k * last_improvement_iter)
+        {
             break;
         }
 
@@ -543,6 +550,8 @@ mod tests {
             None,
             None,
             None,
+            DEFAULT_STOP_K,
+            DEFAULT_STOP_FLOOR,
             &mut rng,
             |_, _, _| { improvements.fetch_add(1, Ordering::SeqCst); },
             |_, _, _| { heartbeats.fetch_add(1, Ordering::SeqCst); },

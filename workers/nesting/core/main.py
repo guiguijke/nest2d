@@ -949,6 +949,8 @@ def _nesting_process_impl(doc):
         biases=directions,
         plateau_patience_sec=plateau_patience_sec,
         separator_workers=separator_workers,
+        sa_stop_k=int(_sa_stop_k) if _sa_stop_k is not None else None,
+        sa_stop_floor=int(_sa_stop_floor) if _sa_stop_floor is not None else None,
     )
 
     # Surface the effective compute profile on the job doc: the frontend

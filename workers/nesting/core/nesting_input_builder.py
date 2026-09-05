@@ -46,6 +46,8 @@ def build_engine_config(
     biases=None,
     plateau_patience_sec=None,
     separator_workers=None,
+    sa_stop_k=None,
+    sa_stop_floor=None,
 ):
     """Engine configuration (consumed by nest-engine's `-c config.json`).
 
@@ -87,6 +89,12 @@ def build_engine_config(
         config["biases"] = list(biases)
     if plateau_patience_sec is not None:
         config["plateau_patience_sec"] = float(plateau_patience_sec)
+    # AB1 (L2-bis) : patience P3 pilotable — A/B sans rebuild. Env
+    # NEST_SA_STOP_K=0 désactive la règle (bras « avant P3 »).
+    if sa_stop_k is not None:
+        config["sa_stop_k"] = int(sa_stop_k)
+    if sa_stop_floor is not None:
+        config["sa_stop_floor"] = int(sa_stop_floor)
     if separator_workers is not None:
         # Q-m.2 (audit 2026-08-31 §Q-m.2) : clamp bas — 0 fait paniquer
         # move_items_multi (unwrap sur un itérateur vide côté Rust). Le
