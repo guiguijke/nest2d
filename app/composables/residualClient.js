@@ -182,6 +182,77 @@ function pointStrictlyInside(pt, ring) {
     return dmin > STRICT_INSIDE_MM
 }
 
+/** P1 (audit perf 2026-09-05) : bbox mémoïsée par identité d'anneau — les
+ * boucles chaudes réinterrogent les mêmes anneaux des centaines de fois. */
+const _bbCache = new WeakMap()
+
+function bbOf(ring) {
+    let bb = _bbCache.get(ring)
+    if (!bb) {
+        bb = bbox(ring)
+        _bbCache.set(ring, bb)
+    }
+    return bb
+}
+
+/** Distance ENTRE deux AABB (0 s'ils se touchent/se chevauchent) — plancher
+ * exact de la distance entre leurs contenus. */
+function bboxGapDist(a, b) {
+    const gx = Math.max(a[0] - b[2], b[0] - a[2], 0)
+    const gy = Math.max(a[1] - b[3], b[1] - a[3], 0)
+    return (gx > 0 || gy > 0) ? Math.hypot(gx, gy) : 0
+}
+
+/** P1 : index grille uniforme de l'occupation. Une paire dont les bbox sont
+ * disjointes ne peut JAMAIS violer (espacement, croisement, containment
+ * exigent tous la proximité ou l'inclusion des bbox) — on ne teste donc
+ * que les anneaux des cellules couvertes par la bbox candidate + pad.
+ * Cellule 100 mm : pièces 20-300 mm → 1-9 cellules par anneau. */
+class OccupancyIndex {
+    constructor(cell = 100) {
+        this.cell = cell
+        this.cells = new Map()
+    }
+
+    insert(ring, value) {
+        const bb = bbOf(ring)
+        const x0 = Math.floor(bb[0] / this.cell)
+        const x1 = Math.floor(bb[2] / this.cell)
+        const y0 = Math.floor(bb[1] / this.cell)
+        const y1 = Math.floor(bb[3] / this.cell)
+        for (let cx = x0; cx <= x1; cx++) {
+            for (let cy = y0; cy <= y1; cy++) {
+                const k = cx * 8192 + cy
+                let arr = this.cells.get(k)
+                if (!arr) {
+                    arr = []
+                    this.cells.set(k, arr)
+                }
+                arr.push(value)
+            }
+        }
+    }
+
+    /** Valeurs des anneaux dont la bbox passe à moins de `pad` de celle de
+     * `ring` (doublons possibles si un anneau couvre plusieurs cellules —
+     * sans effet, pairViolates est idempotent). */
+    near(ring, pad) {
+        const bb = bbOf(ring)
+        const x0 = Math.floor((bb[0] - pad) / this.cell)
+        const x1 = Math.floor((bb[2] + pad) / this.cell)
+        const y0 = Math.floor((bb[1] - pad) / this.cell)
+        const y1 = Math.floor((bb[3] + pad) / this.cell)
+        const out = []
+        for (let cx = x0; cx <= x1; cx++) {
+            for (let cy = y0; cy <= y1; cy++) {
+                const arr = this.cells.get(cx * 8192 + cy)
+                if (arr) out.push(...arr)
+            }
+        }
+        return out
+    }
+}
+
 /** Miroir exact de residual._pair_violates (V4/V5, vérif 2026-09-04) :
  * space > 0 → TOUTE paire à d < space − ε est une violation, y compris
  * le contact bord à bord à d == 0 sans aire (régression du 03/09) ;
@@ -189,10 +260,23 @@ function pointStrictlyInside(pt, ring) {
  * (ringsOverlap : croisements + points strictement intérieurs) est
  * rejeté — parité exacte avec le Python à space 0 (V5 : l'ancien
  * plancher 1e-9 rejetait le contact que Python permet, chute navigateur
- * 371 contre 562 serveur). */
+ * 371 contre 562 serveur).
+ * P1 (audit perf 2026-09-05) : pré-filtre bbox EXACT — les anneaux sont
+ * inclus dans leurs bbox, donc ringDist ≥ écart des bbox. Si l'écart
+ * bbox est ≥ space − ε (resp. > 1e-9 à space ≤ ε), le test d'espacement
+ * est acquis SANS le O(n·m) de ringDist (13 µs/paire, 400 000 paires =
+ * le gel de 5,7 s en fin de calcul) et seule reste l'arbitration W4
+ * (containedOverlap, 4 comparaisons de bbox). Résultat bit-identique :
+ * chaque branche court-circuitée est celle que ringDist aurait prise. */
 export function pairViolates(ringA, ringB, space) {
-    const d = ringDist(ringA, ringB)
+    const gap = bboxGapDist(bbOf(ringA), bbOf(ringB))
     if (space > EPS) {
+        if (gap >= space - EPS) {
+            // d ≥ gap ≥ space − ε > 0 : pas de violation d'espacement,
+            // reste le containment W4.
+            return containedOverlap(ringA, ringB)
+        }
+        const d = ringDist(ringA, ringB)
         if (d < space - EPS) return true
         // W4 (vérif 2026-09-04) : containment à d > 0 aussi à space > 0 —
         // un anneau INCLUS dans un autre (fan sur le corps d'un hôte, à
@@ -203,6 +287,11 @@ export function pairViolates(ringA, ringB, space) {
         if (d > 0) return containedOverlap(ringA, ringB)
         return false
     }
+    if (gap > 1e-9) {
+        // m ≥ gap > 1e-9 : ringDist ne plancherait pas à 0, d > 0.
+        return containedOverlap(ringA, ringB)
+    }
+    const d = ringDist(ringA, ringB)
     if (d > 0) {
         return containedOverlap(ringA, ringB)
     }
@@ -426,6 +515,10 @@ export function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) 
     // Les nouvelles entre elles sont jugées aussi (elles sont peu
     // nombreuses — linéaire suffit).
     const newRings = []
+    // P1 : index grille — ne juger que les anneaux PROCHES (les paires à
+    // bbox disjointes renvoient toujours false, cf. OccupancyIndex).
+    const occIndex = new OccupancyIndex()
+    for (const entry of all) occIndex.insert(entry.ring, entry)
     for (const pi of newPis) {
         const part = partsById.get(String(pi.item_id))
         const t = pi.transformation || {}
@@ -444,7 +537,7 @@ export function validateBatch(newPis, layout, partsById, sheetW, sheetH, space) 
         if (minx < -EPS || miny < -EPS || maxx > sheetW + EPS || maxy > sheetH + EPS) {
             return false
         }
-        for (const { pi: other, ring: otherRing } of all) {
+        for (const { pi: other, ring: otherRing } of occIndex.near(ring, space + 1)) {
             if (other === pi) continue
             if (pairViolates(ring, otherRing, space)) {
                 // Miroir du polygone À TROUS : le « chevauchement » n'est
@@ -512,13 +605,19 @@ export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space,
         // (préexistant, en cross-sheet les donneuses n'y sont jamais) ;
         // les poses commitées s'ajoutent au fil de l'eau (nouvelles-vs-
         // nouvelles, piège #51). Une pose fautive n'en coûte qu'elle-même.
-        const occupancy = []
+        // P1 : index grille de l'occupancy (au lieu du scan complet par
+        // pose de lattice — 400 000 paires × 13 µs = le gel de fin de
+        // calcul navigateur). Les poses commitées s'y ajoutent au fil de
+        // l'eau.
+        const occIndex = new OccupancyIndex()
         for (const pi of dst.placed_items || []) {
             const part2 = partsById.get(String(pi.item_id))
             if (!part2) continue
             const t2 = pi.transformation || {}
             const [tx2, ty2] = t2.translation || [0, 0]
-            occupancy.push(...occupancyRings(part2, t2.rotation, tx2, ty2))
+            for (const ring2 of occupancyRings(part2, t2.rotation, tx2, ty2)) {
+                occIndex.insert(ring2, ring2)
+            }
         }
         const newRings = []
         let committed = 0
@@ -537,7 +636,7 @@ export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space,
             if (minx < -EPS || miny < -EPS || maxx > sw + EPS || maxy > sh + EPS) {
                 continue
             }
-            if (occupancy.some((otherRing) => pairViolates(ring, otherRing, space))) {
+            if (occIndex.near(ring, space + 1).some((otherRing) => pairViolates(ring, otherRing, space))) {
                 continue
             }
             if (newRings.some((otherRing) => pairViolates(ring, otherRing, space))) {
@@ -554,6 +653,7 @@ export function fillOneBatch(layouts, dstI, srcI, partsById, sheetDimsOf, space,
             }
             dst.placed_items.push(pi)
             newRings.push(ring)
+            occIndex.insert(ring, ring)
             // V18 : seules les transformations RÉELLEMENT modifiées
             // comptent (miroir Python).
             const ox = oldTr.translation?.[0] ?? 0
