@@ -65,6 +65,20 @@
                     </svg>
                     <p class="stage__dims">{{ idleSheet.w }} × {{ idleSheet.h }} {{ unitLabel }}</p>
                 </div>
+                <!-- C01 (audit UX 2026-09-05) : un calcul en cours (notamment
+                     NAVIGATEUR — awaiting_local n'était reconnu nulle part
+                     comme « en cours ») doit être annulable AUSSI depuis la
+                     vue live, pas seulement depuis la carte résultat. -->
+                <button
+                    v-if="cancellableLiveSlug"
+                    type="button"
+                    class="live-cancel"
+                    :disabled="liveCancelling"
+                    data-testid="live-cancel"
+                    @click="cancelLiveCompute"
+                >
+                    {{ liveCancelling ? t('results.cancelling') : t('results.cancel') }}
+                </button>
             </div>
             <aside class="atelier__params">
                 <MainSettings />
@@ -205,6 +219,27 @@ const pageSlug = computed(() => route.params.slug);
 // Filtered by THIS page's project — the layout SSE list can still hold
 // the previous project's jobs for a tick after navigation.
 const liveResult = computed(() => pickLiveJob(unref(resultsList), unref(pageSlug)));
+// C01 (audit UX 2026-09-05) : annulation DEPUIS la vue live. Le calcul
+// navigateur (awaiting_local) et le job serveur streamé passent par le
+// même registre (cancelJob : POST /cancel + pools par préfixe + retrait
+// de file — R-3) ; sans frame encore arrivée, le bouton reste visible
+// tant que le slug du job local est connu.
+const awaitingLocalJob = computed(() => pickAwaitingLocal(unref(resultsList), unref(pageSlug)));
+const cancellableLiveSlug = computed(() =>
+    unref(awaitingLocalJob)?.slug || unref(liveResult)?.slug || null);
+const liveCancelling = ref(false);
+const cancelLiveCompute = async () => {
+    const slug = unref(cancellableLiveSlug);
+    if (!slug || liveCancelling.value) return;
+    liveCancelling.value = true;
+    try {
+        const { cancelJob } = await import('~/composables/localSolverRegistry');
+        await cancelJob(slug);
+    } catch (e) {
+        console.warn('cancel failed', e);
+        liveCancelling.value = false;
+    }
+};
 // The job currently being computed (if any): drives the animated state of
 // the nest button (spinning wheel + vcore count while the engine works).
 const runningJob = computed(() => {
@@ -830,6 +865,33 @@ const startsNest = () => {
         font-size: 13px;
         font-weight: 600;
         color: var(--accent-primary);
+    }
+}
+
+/* C01 (audit UX 2026-09-05) : annulation d'un calcul en cours depuis la
+   vue live — même action que la carte résultat, discret sous la scène. */
+.live-cancel {
+    margin-top: 10px;
+    align-self: flex-start;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--label-secondary);
+    background: transparent;
+    border: 1px solid var(--label-tertiary);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+
+    &:hover:not(:disabled) {
+        color: var(--error-text);
+        border-color: var(--error-text);
+    }
+
+    &:disabled {
+        opacity: 0.6;
+        cursor: default;
     }
 }
 </style>

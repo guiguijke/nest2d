@@ -208,7 +208,11 @@ const svgRowClasses = computed(() => {
 
 const isResultNexting = computed(() => {
     const status = props.result?.status;
-    return status === statusType.unfinished || status === statusType.pending;
+    // C01 (audit UX 2026-09-05) : awaiting_local = calcul navigateur EN
+    // COURS — carte « en cours » (loader + Annuler), pas « échec fantôme ».
+    return status === statusType.unfinished
+        || status === statusType.pending
+        || status === statusType.awaitingLocal;
 });
 
 // Live progress pushed by the nesting worker ({stage, label, done, total}).
