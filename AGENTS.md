@@ -19,6 +19,14 @@ toucher au moteur, au worker Python ou au visualizer.
 > (jamais `[prod]` sur du non-livré). Promesses privacy exactes :
 > `docs/THREAT-MODEL.md` (interne, ne pas publier). Posture sécu /
 > pentest : `docs/CYBERSECURITY.md` (interne).
+>
+> **Pilotage consolidé (2026-09-05) : `docs/MASTERPLAN-2026-09-05.md`** —
+> position (pas un CAM : le meilleur DXF-in/DXF-out), état des lots
+> perf/UX, features « n°1 » ordonnées (import robuste, bibliothèque de
+> chutes, contraintes de tôle, amorce, coupe commune, API), séquenciation
+> T0-T5 et registre des décisions owner. **Mis à jour à chaque grande
+> étape accomplie** (lot livré/déployé, décision tranchée) — y faire
+> référence avant d'ouvrir un nouveau chantier produit.
 
 ## 1. Architecture
 

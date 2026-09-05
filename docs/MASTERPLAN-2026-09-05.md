@@ -37,9 +37,15 @@ publics et vérifiables**.
   badges verdict, couleur d'erreur, rate-limit sur échecs. CPU décorateur
   serveur 0,5 s/51 s.
 - **Lot 2 en cours** : journée de mesure P3 FAITE (224 walks × 3
-  espacements — `MESURE-P3-2026-09-05.md`) : **aucun job ne perd rien à
-  l'arrêt par itérations, même à k=1** ; recommandation k=3/plancher 15/
-  ≥3 s. Instrumentation commitée (c2aaeaa, non poussée).
+  espacements — `MESURE-P3-2026-09-05.md`) : **aucun job ne perd ni tôle
+  ni pièce à l'arrêt par itérations, même à k=1**. Réserve du vérificateur :
+  la chute de la dernière tôle n'était pas dans les évènements mesurés —
+  la validation finale se fait sur le banc de compaction à space 2 lors de
+  l'implémentation. Reco vérificateur : **k=3, plancher 30 itérations, sans
+  plancher de temps** (un plancher en secondes casserait le déterminisme
+  natif/wasm que P3 apporte). Instrumentation commitée (c2aaeaa).
+- Post-pass Python après le moteur : 5,8-9,4 s CPU mesurés (P8 promu au
+  lot 2 ou 4 — deviendra un tiers du job après P3).
 - Lots 3-6 cadrés (UX 2.1.4→2.3, compte 3.x, P4-P11) — non entamés.
 
 **Business (réalité à intégrer)**
@@ -57,8 +63,8 @@ publics et vérifiables**.
 | # | Action | Type |
 |---|---|---|
 | 1 | **Vérifier le webhook Stripe live** (URL = `app.nestorcut.com`, secret mono-endpoint, un événement test livré) | Ops critique |
-| 2 | **Décision k** : arrêt BPP par itérations — reco **k=3, plancher 15, ≥3 s** (mesure : 0 job perdu, même à k=1) | Décision owner |
-| 3 | **Décision SAMPLE_CFG** (600/200/3 : +0,01 remnant pour +47 % de temps) — peut suivre P3 | Décision owner |
+| 2 | **Décision k** : arrêt BPP par itérations — reco vérificateur **k=3, plancher 30 itérations, pas de plancher de temps** (mesure : 0 job perdu en tôles/pièces, même à k=1 ; chute à valider au banc space 2) | Décision owner |
+| 3 | **Décision SAMPLE_CFG** — reco vérificateur : **inchangé** (600/200/3 : +0,01 remnant pour +47 % de temps ; 150/50/3 : −0,006 pour −23 %) ; à rouvrir seulement si les cibles de temps sont manquées après P3 | Décision owner |
 | 4 | Envoyer la campagne feedback FR (intérêt légitime, 0 promo, désinscription) | Growth |
 
 ## 3. Les features « n°1 » (analyse auditeur, ordre de valeur)
@@ -67,19 +73,24 @@ Position de l'auditeur (partagée) : **CAM non, CAM-ready oui.**
 
 ### 3.1 Sortie CAM-ready (le socle export)
 
-À vérifier puis corriger — l'export Rust/ezdxf produit probablement des
-**polylignes** (arcs/cercles discrétisés = dégradation laser) :
+**Vérifié le 05/09 (vérificateur)** : les arcs, cercles et splines sont
+**déjà conservés** aux deux exports — côté serveur `build_part` copie les
+entités d'origine par handle et les transforme (ezdxf), côté Rust
+`nest-export/dxf_writer.rs` écrit des entités ARC/CIRCLE/SPLINE natives.
+Il n'y a pas de discrétisation à corriger. Reste à faire :
 
-1. **Arcs et cercles conservés** à l'export (entités ARC/CIRCLE natives).
-2. Contours fermés garantis, **un calque par nature** (extérieur, trou,
-   marquage, chute, texte), identifiants de pièce, **un fichier par
-   tôle**, unités explicites dans le header.
-3. **Rapport de fabrication imprimable** (tôles, liste de pièces, matière,
+1. **Un calque par nature** (extérieur, trou, marquage, chute, texte) —
+   aujourd'hui : calques d'origine + `BIN_BOUNDARY` + `OUT_SHAPE` ;
+   identifiants de pièce (texte ou attribut) ; unités explicites dans le
+   header ; contour de la chute réutilisable sur son calque.
+2. **Rapport de fabrication imprimable** (tôles, liste de pièces, matière,
    chutes) — le rapport matière existe, il manque la mise en page
    imprimable (candidat Pro).
+3. Test d'export « golden » par entité (arc, cercle, spline, polyligne à
+   bulges) sur les deux chemins, pour que 1 ne casse pas l'acquis.
 
-Effort : export ~1-2 semaines (miroir Rust export + dxf_writer ezdxf,
-déjà identifiés en dette), rapport imprimable ~0,5-1 semaine.
+Effort : calques + identifiants ~1 semaine (les deux écrivains à tenir en
+miroir), rapport imprimable ~0,5-1 semaine.
 
 ### 3.2 Robustesse d'import DXF — la priorité n°1
 
@@ -95,15 +106,22 @@ confiance de bout en bout.
 
 ### 3.3 Bibliothèque de chutes — l'argent direct
 
-Sauvegarder la chute d'un job comme **nouvelle tôle avec son contour
-réel**, et nester dedans. Pour un petit atelier c'est de la matière
-économisée à chaque job ; peu de SaaS le font bien. Le moteur traite des
-polygones quelconques → aucun changement d'algorithme, de la plomberie
-(schéma « tôles utilisateur », sélecteur, pré-contrôle capacité sur
-contour réel — le pré-contrôle actuel est déjà là).
+Sauvegarder la chute d'un job comme **nouvelle tôle** et nester dedans.
+Pour un petit atelier c'est de la matière économisée à chaque job ; peu de
+SaaS le font bien. En deux temps :
 
-Effort : ~1-2 semaines. Différenciateur marketing fort (« your offcuts
-are sheets »).
+- **v1 : chute rectangulaire** — le produit calcule déjà la « chute
+  réutilisable W × H » de chaque tôle ; un bouton « enregistrer comme
+  tôle » + une bibliothèque de formats utilisateur suffisent. Aucun
+  changement moteur ni post-pass. ~1 semaine.
+- **v2 : contour réel (polygone)** — le moteur (jagua-rs) accepte des
+  conteneurs polygonaux, mais **tout le reste suppose une tôle
+  rectangulaire** : pré-contrôle de capacité `(W−s)(H−s)`, grille
+  structurelle, compaction de la dernière tôle, métriques de chute,
+  vue live, wasm. C'est un chantier de 3-4 semaines, à ne lancer qu'après
+  retour utilisateurs sur la v1.
+
+Différenciateur marketing fort (« your offcuts are sheets »).
 
 ### 3.4 Contraintes de tôle
 
@@ -135,9 +153,12 @@ Python/Rust/JS + pré-contrôle capacité) — **1-2 semaines**.
 ### 3.6 Pièces de remplissage
 
 Quantité minimale + **« autant que possible »** pour des pièces d'appoint
-qui comblent les vides (les hélices/lattice actuels en sont l'esprit
-automatique ; ici la version utilisateur). Extension du modèle de
-quantités + logique de priorité dans le solve. ~1 semaine.
+qui comblent les vides. Le moteur (BPP/SPP) ne connaît pas les pièces
+optionnelles : les traiter dans le solve serait un changement d'objectif
+(sac à dos), 2-3 semaines. Voie courte : nester les pièces obligatoires,
+puis **remplir les bandes résiduelles avec les pièces d'appoint via la
+passe résiduelle existante** (`fill_residual_bands` place déjà des
+lattices) — ~1 semaine, résultat borné par la qualité de cette passe.
 
 ### 3.7 Coupe commune en grappes
 
@@ -181,25 +202,30 @@ toute la promesse), en parallèle les **vérifications business critiques**
 
 | Horizon | Contenu | Livrable mesurable |
 |---|---|---|
-| **T0 (semaine en cours)** | Webhook Stripe vérifié ; décision k + SAMPLE_CFG ; campagne feedback ; envoi lot 2 (P3 arrêt par itérations + P7 threads) | Job standard 58 → 15-25 s ; paiements vivants |
+| **T0 (semaine en cours)** | ~~décision k + SAMPLE_CFG~~ **FAIT 05/09** (k=3/plancher 30/sans plancher temps ; SAMPLE_CFG inchangé) ; ~~lot 2 (P3 + P7)~~ **LIVRÉ 05/09 soir — non déployé** (job standard 62-65 → **21-22 s**, navigateur 42-46 → **22 s**, corpus 11/11, déterminisme natif≡wasm — `RAPPORT-PERF-UX-L2-2026-09-05.md`) ; webhook Stripe **TOUJOURS À VÉRIFIER** ; campagne feedback à envoyer | Job standard ≤ 25 s ✓ ; paiements vivants ⏳ |
 | **T1 (+1 sem.)** | Lot 3 (UX 2.1.4-2.1.9 + compte 3.1.3-3.1.6) ; **3.10 kerf explicite** ; **3.9 benchmarks publics** | Parcours nesting sans bloquant ; page /benchmarks |
-| **T2 (+2-3 sem.)** | Lot 4 (P4 worker finalisation, P5 plateau SPP, P6 zones //) ; **3.1 export CAM-ready** (arcs natifs, calques, rapport imprimable) | Mono-tôle 95-145 → 20-40 s ; export à zéro polyligne |
-| **T3 (+4-6 sem.)** | Lot 5 (accessibilité, plan & quota, coffre) ; **3.2 robustesse import** ; **3.3 bibliothèque de chutes** | Rapport de réparation par fichier ; « your offcuts are sheets » |
+| **Porte utilisateurs (fin T1)** | Campagne feedback dépouillée + 5 entretiens d'atelier (import, export, chutes, amorce) — **avant d'engager T3-T5** : l'ordre 3.2 → 3.7 est une hypothèse de l'auditeur, pas une donnée | Liste des 3 irritants réels ; ordre T3-T5 confirmé ou corrigé |
+| **T2 (+2-3 sem.)** | Lot 4 (P4 worker finalisation, P5 plateau SPP, P6 zones //) ; **3.2 robustesse import (démarrage)** ; **3.1 calques + identifiants** (~1 sem., les arcs sont déjà conservés) | Mono-tôle 95-145 → 20-40 s ; rapport de réparation par fichier (v1) |
+| **T3 (+4-6 sem.)** | Lot 5 (accessibilité, plan & quota, coffre) ; **3.2 robustesse import (fin)** ; **3.3 bibliothèque de chutes v1 (rectangulaire)** ; rapport imprimable | Import sans réparation manuelle ≥ 95 % ; « your offcuts are sheets » |
 | **T4 (+7-9 sem.)** | Lot 6 (profil cible, transverse, P8-P11) ; **3.4 contraintes tôle** ; **3.5 réserve d'amorce** | Grain/zones interdites ; lead-in marqué à l'export |
 | **T5 (+10-12 sem.)** | **3.6 remplissage** ; **3.7 coupe commune** (selon son plan) ; décision **API/batch 3.8** (nouveau chantier + pricing) | Clusters à arêtes communes ; GO/NO-GO API |
 | Continu | Infra : décision split workers homelab (avant T4 — la perf P3 réduit la pression) ; re-mesure business mensuelle (inscrits → payants, rétention) | — |
 
 Dépendances clés : 3.7 après 3.2+3.3 (position de l'auditeur) ; 3.8 après
-les lots 2-4 ; 3.5 après 3.1 (le point de départ n'a de sens qu'avec un
-export propre) ; la coupe commune et l'amorce héritent du chantier B
-(kerf explicite).
+les lots 2-4 ; 3.5 après 3.1 (le point de départ n'a de sens qu'avec des
+calques propres) ; la coupe commune et l'amorce héritent du chantier B
+(kerf explicite) ; 3.3 v2 (polygonale) après retour utilisateurs sur la v1.
+Charge : T0-T5 représentent ~12 semaines d'implémentation pour un seul
+agent + vérification ; toute semaine passée sur le business (Stripe,
+entretiens, premier payant) décale d'autant — c'est voulu, la porte
+utilisateurs prime.
 
 ## 5. Registre des décisions owner (ouvertes)
 
 | Décision | Reco | Statut |
 |---|---|---|
-| Constante d'arrêt BPP par itérations | k=3, plancher 15, ≥3 s | **En attente** (mesure faite) |
-| SAMPLE_CFG (qualité vs temps) | Décider après P3 livré | En attente |
+| Constante d'arrêt BPP par itérations | k=3, plancher 30 itérations, sans plancher de temps (vérificateur) ; chute validée au banc space 2 | **En attente** (mesure faite) |
+| SAMPLE_CFG (qualité vs temps) | Inchangé ; rouvrir si cibles de temps manquées après P3 | **En attente** (peut être tranchée maintenant) |
 | Webhook Stripe live | Vérifier l'URL immédiatement | **Critique** |
 | Infra split (workers homelab) | Reco du 30/08 ; la pression baisse après P3 | Ouverte |
 | API/batch (3.8) | GO après lots 2-4, pricing à l'usage | Non tranchée |
@@ -219,8 +245,9 @@ export propre) ; la coupe commune et l'amorce héritent du chantier B
 - **Technique** : job standard ≤ 25 s (post-P3) ; gel < 0,5 s (atteint) ;
   corpus 11/11 en continu ; physique 0 chevauchement.
 - **Produit** : taux d'import sans réparation manuelle ≥ 95 % (post-3.2) ;
-  jobs utilisant une chute sauvegardée (post-3.3) ; parts des exports
-  contenant des arcs natifs = 100 % (post-3.1).
+  jobs utilisant une chute sauvegardée (post-3.3) ; export : golden par
+  entité vert sur les deux chemins (arcs déjà natifs), calques par nature
+  présents (post-3.1).
 - **Business** : premier payant (le webhook vivant est le prérequis) ;
   rétention S1 > 25 % à 3 mois ; conversions Free→Unlimited après
   activation du 10e nesting réussi.
