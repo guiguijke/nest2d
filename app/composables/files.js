@@ -588,6 +588,13 @@ function dismissNestUnfit() {
     state.nestUnfit = null
 }
 
+/** AA2 (vérif L1 2026-09-05) : appelé sur toute annulation — le bouton
+ * Nest redevient actif avec les MÊMES paramètres (isNewParams repasse à
+ * vrai ; sans ce reset, il fallait modifier un réglage ou recharger). */
+function resetLastParams() {
+    state.lastParams = ''
+}
+
 export const filesStore = readonly({
     getters: {
         projectFiles: computed(() => state.projectFiles),
@@ -636,6 +643,7 @@ export const filesStore = readonly({
         decrement,
         addFiles,
         nest,
-        dismissNestUnfit
+        dismissNestUnfit,
+        resetLastParams,
     }
 })

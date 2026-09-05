@@ -39,6 +39,11 @@ export async function getResults(userId, projectSlug) {
             // SSE list from project A cannot drive project B's atelier.
             projectSlug: queueItem.projectSlug ?? null,
             status: status,
+            // AA2 (vérif L1 2026-09-05) : l'annulation est mapée « failed »
+            // ci-dessus — ce drapeau permet à la page projet de réarmer le
+            // bouton Nest (resetLastParams) quand le job de SON projet
+            // passe annulé, même depuis un autre appareil.
+            wasCancelled: queueItem.status === 'cancelled',
             isMultiSheet: isMultiSheet,
             createdAt: queueItem.createdAt,
             // Purge 24 h (D-PRV-10) : posé quand les blobs résultats ont été

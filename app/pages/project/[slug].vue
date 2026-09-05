@@ -186,7 +186,7 @@ import { isLocalComputeEnabled } from "~/composables/localCompute";
 import { hasActiveJob, progressFor } from "~/composables/localSolverRegistry";
 import { invalidateLocalRecords } from "~/composables/localHydrate";
 import { useLocalMode } from "~/composables/useLocalMode";
-import { pickAwaitingLocal, pickLiveJob, pickRunningJob } from "~/utils/liveJob";
+import { belongsToProject, pickAwaitingLocal, pickLiveJob, pickRunningJob } from "~/utils/liveJob";
 import {
     DEMO_NESTING_LIMIT,
     DEMO_PROJECT_SLUG,
@@ -228,6 +228,12 @@ const awaitingLocalJob = computed(() => pickAwaitingLocal(unref(resultsList), un
 const cancellableLiveSlug = computed(() =>
     unref(awaitingLocalJob)?.slug || unref(liveResult)?.slug || null);
 const liveCancelling = ref(false);
+// AA2 (vérif L1 2026-09-05) : un NOUVEAU calcul réarme le bouton Annuler
+// (l'ancien liveCancelling=true ne repassait jamais à faux après une
+// annulation réussie — « Annulation… » désactivé au calcul suivant).
+watch(cancellableLiveSlug, () => {
+    liveCancelling.value = false;
+});
 const cancelLiveCompute = async () => {
     const slug = unref(cancellableLiveSlug);
     if (!slug || liveCancelling.value) return;
@@ -235,11 +241,24 @@ const cancelLiveCompute = async () => {
     try {
         const { cancelJob } = await import('~/composables/localSolverRegistry');
         await cancelJob(slug);
+        // AA2 : le bouton Nest doit redevenir actif avec les MÊMES
+        // paramètres après une annulation.
+        resetLastParams();
     } catch (e) {
         console.warn('cancel failed', e);
+    } finally {
         liveCancelling.value = false;
     }
 };
+// AA2 : annulation venue d'AILLEURS (autre appareil/onglet, carte
+// résultat) — le flux SSE mappe « cancelled » en failed mais pose
+// wasCancelled : réarmer le bouton Nest quand c'est un job de CE projet.
+watch(
+    () => unref(resultsList).some((r) => r.wasCancelled && belongsToProject(r, unref(pageSlug))),
+    (cancelled) => {
+        if (cancelled) resetLastParams();
+    },
+);
 // The job currently being computed (if any): drives the animated state of
 // the nest button (spinning wheel + vcore count while the engine works).
 const runningJob = computed(() => {
@@ -394,7 +413,7 @@ watch(
 );
 const { getters: filesGetters, actions } = filesStore;
 const params = computed(() => filesGetters.params);
-const { setProjectFiles, setProjectName, nest, getProject, consumePendingLocalFiles } = actions;
+const { setProjectFiles, setProjectName, nest, getProject, consumePendingLocalFiles, resetLastParams } = actions;
 const filesCount = computed(() => filesGetters.filesCount);
 const isNewParams = computed(() => filesGetters.isNewParams);
 const nestRequestError = computed(() => filesGetters.nestRequestError);
