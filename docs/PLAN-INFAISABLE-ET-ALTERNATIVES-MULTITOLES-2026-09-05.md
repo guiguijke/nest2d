@@ -340,3 +340,39 @@ cadrage issus des vérifications précédentes :
 **Étape 3 — Déploiement** : après GO 1 (la partie 1 protège l'utilisateur
 et le quota), avec `assert_images_head.sh` sur les images publiées ; la
 partie 2 suit en release séparée.
+
+---
+
+## Vérification de la partie 2 (commits `23bb4aa..b3a06eb`) — 2026-09-05, 9 h — VALIDÉE
+
+Méthode : images = HEAD (script OK ; le `M residual.py` de `git status` est
+un artefact CRLF, md5 identique HEAD/working/conteneur) ; suites ; banc
+serveur 0,1 et 2 ; e2e navigateur 0,1 et 2 ; corpus complet 11 cas ;
+physique shapely sur anneaux bruts et **homogénéité mesurée** (hôtes au pas
+`w + s` sur chaque tôle) pour **chaque alternative**.
+
+| Run | Grille (t1 / t2, chute) | Compaction (t1 / t2, chute) | Physique |
+|---|---|---|---|
+| Serveur 0,1 | 587 / 313, 580 | 582 / 318, 604 | OK ×2 (grille : min-dist 0,1000 exact, 0 paire < space) |
+| Serveur 2 | 573 / 327, 544 | 528 / 372, 514 (merge refusé « front ») | OK ×2 |
+| Navigateur 0,1 | **587 / 313**, 580 (= serveur) | 590 / 310, 604 | OK ×2 |
+| Navigateur 2 | **573 / 327**, 544 (= serveur) | 555 / 345, 479 | OK ×2 |
+
+Homogénéité : la grille a ses 81 + 19 hôtes exactement au pas (écart 0,00 mm)
+sur les deux tôles, aux deux espacements, des deux côtés ; la compaction
+garde les hôtes moteur libres sur les deux tôles (aucune re-grille).
+La grille est **bit-identique serveur ↔ navigateur** ; la compaction porte la
+variance moteur (C8). Corpus 11/11 : alternative grille seulement sur T-A et
+T-K (motif reconnu), aucune sur T-B..T-I, T-J refusé, T-F partiel attendu.
+Suites : pytest 215 + 1, vitest 436, cargo 71 + 1.
+
+Réserves non bloquantes : (1) la compaction à space 2 oscille entre runs et
+chemins (528 serveur avec merge refusé, 555 navigateur) — la grille couvre
+le besoin et s'affiche en premier ; (2) piège #44 toujours vrai : les
+fichiers `_alt0_` sont l'alternative moteur et `_alt1_` la grille, l'ordre
+d'affichage est inverse ; (3) ajouter `.gitattributes` (`*.py text eol=lf`)
+pour supprimer le faux `M` CRLF ; (4) paires à 0,099 mm côté navigateur sur
+la compaction (D9), inchangé.
+
+**GO déploiement de la partie 2** (même procédure, `assert_images_head.sh`
+sur les images publiées).

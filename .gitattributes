@@ -1,0 +1,5 @@
+# Python toujours LF dans le dépôt ET le worktree : les écritures d'outils
+# en CRLF créaient un faux « M » (le build Docker copie le worktree →
+# md5 conteneur ≠ HEAD, intercepté par assert_images_head ; constat
+# vérification partie 2, 2026-09-05).
+*.py text eol=lf
