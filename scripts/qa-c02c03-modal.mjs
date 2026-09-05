@@ -8,7 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const BASE = process.env.QA_BASE_URL || 'http://localhost:7100'
-const ROOT = path.dirname(fileURLToPath(import.meta.url))
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const TROU = path.join(ROOT, '.testparts', 'Piece_Trou.DXF')
 const FILL = path.join(ROOT, '.testparts', 'Piece_Fillx4.DXF')
 
@@ -79,9 +79,35 @@ try {
     await check('onglet actif porte la densité matière', /material/i.test(tabText), JSON.stringify(tabText.replace(/\s+/g, ' ').slice(0, 90)))
     await check('onglet actif ne dit plus "% used"', !/used/i.test(tabText))
 
-    // --- C02 : ligne pourquoi en premier ---
-    const why = await page.locator('.alts__why').count()
-    await check('ligne « proposée en premier » présente (rang 0)', why === 1, (await page.locator('.alts__why').first().innerText().catch(() => '')) + '')
+    // --- C02/AA1 : densités MESURÉES identiques entre options (mêmes
+    // pièces, mêmes tôles → Σ pièces / Σ tôles) à 0,1 pt près ---
+    const tabTexts = await page.locator('.alts__tab').allInnerTexts()
+    const tabDensity = tabTexts.map((t) => {
+        const m = t.match(/([\d.]+)% material/i)
+        return m ? parseFloat(m[1]) : null
+    })
+    log('densités par onglet :', JSON.stringify(tabDensity))
+    const dens = tabDensity.filter((d) => d != null)
+    if (dens.length >= 2) {
+        const spread = Math.max(...dens) - Math.min(...dens)
+        await check('densité homogène entre options (≤ 0,1 pt)', spread <= 0.1, `spread = ${spread.toFixed(2)} pt`)
+    }
+
+    // --- C02/AA1 : whyFirst VRAI — « plus grande chute » seulement si la
+    // chute du rang 0 est bien maximale (aire des chutes des onglets) ---
+    const whyEl = page.locator('.alts__why')
+    const whyText = await whyEl.count() ? (await whyEl.first().innerText()).trim() : ''
+    const tabOffcutArea = tabTexts.map((t) => {
+        const m = t.match(/offcut ([\d.]+) mm × ([\d.]+) mm/i)
+        return m ? parseFloat(m[1]) * parseFloat(m[2]) : 0
+    })
+    log('aires de chute par onglet (mm²) :', JSON.stringify(tabOffcutArea))
+    const maxOther = Math.max(...tabOffcutArea.slice(1), 0)
+    const claimsLargest = /largest clean offcut|plus grande chute propre/i.test(whyText)
+    const isLargest = tabOffcutArea[0] >= maxOther - 1
+    await check("whyFirst dit « plus grande chute » ⇔ c est vrai", claimsLargest === isLargest,
+        `whyFirst = "${whyText.slice(0, 50)}" · area0 = ${tabOffcutArea[0]} · max autres = ${maxOther}`)
+    await check('ligne « proposée en premier » présente (rang 0)', await whyEl.count() === 1, whyText)
 
     // --- C02 : sous-titre méthode grille ---
     const explain = await page.locator('.headline__explain').innerText().catch(() => '')
@@ -131,7 +157,13 @@ try {
         log('option 2 : pas de détails techniques (rien à montrer)')
     }
 
-    console.log('C02/C03 OK — modal : indicateur qualité unique, méthode, badges verdict, détails techniques repliés')
+    // --- AA1 : la carte de l'aside n'affiche plus « % used » ---
+    await page.keyboard.press('Escape').catch(() => {})
+    await page.waitForTimeout(600)
+    const cardTitle = await page.locator('.result__name').first().innerText().catch(() => '')
+    await check('carte résultat : densité matière, plus jamais « % used »', /% material/i.test(cardTitle) && !/% used/i.test(cardTitle), cardTitle.trim().slice(0, 60))
+
+    console.log('C02/C03 OK — modal : densité mesurée homogène, whyFirst vrai, indicateur qualité unique, badges verdict, détails repliés')
     await browser.close()
     process.exit(0)
 } catch (e) {

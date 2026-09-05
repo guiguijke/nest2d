@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const BASE = process.env.QA_BASE_URL || 'http://localhost:7100'
-const ROOT = path.dirname(fileURLToPath(import.meta.url))
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const TROU = path.join(ROOT, '.testparts', 'Piece_Trou.DXF')
 const FILL = path.join(ROOT, '.testparts', 'Piece_Fillx4.DXF')
 
@@ -79,10 +79,36 @@ try {
     log('stage freed:', freed)
     if (!freed) throw new Error('stage did not free after cancel')
 
-    // le bouton Nest est réutilisable (retour à l'état repos)
-    const nestLabel = await page.locator('.atelier__nest').innerText().catch(() => '')
-    log('nest button after cancel:', JSON.stringify(nestLabel.trim().slice(0, 60)))
-    console.log('C01 OK — annulation calcul navigateur depuis la vue live')
+    // le bouton Nest est réutilisable — AA2 (vérif L1 2026-09-05) : le
+    // VRAI test est qu'il n'est pas GRISÉ (isNewParams réinitialisé par
+    // l'annulation), pas seulement son libellé.
+    const nestBtn = page.locator('.atelier__nest')
+    const nestLabel = await nestBtn.innerText().catch(() => '')
+    const nestDisabled = await nestBtn.isDisabled().catch(() => null)
+    log('nest button after cancel:', JSON.stringify(nestLabel.trim().slice(0, 60)), 'disabled =', nestDisabled)
+    if (nestDisabled) throw new Error('AA2 REGRESSION: nest button still disabled after cancel (isNewParams not reset)')
+
+    // --- 4. DEUXIÈME CYCLE : relance SANS changer un seul paramètre ---
+    await nestBtn.click({ timeout: 8000 })
+    log('nest clicked again (same params)')
+    const btn2 = page.locator('[data-testid="live-cancel"]')
+    await btn2.waitFor({ state: 'visible', timeout: 30000 })
+    await page.waitForTimeout(2000)
+    const label2 = (await btn2.innerText()).trim()
+    const disabled2 = await btn2.isDisabled()
+    log('second run: live-cancel label =', JSON.stringify(label2), 'disabled =', disabled2)
+    if (disabled2 || !/^cancel$/i.test(label2)) {
+        throw new Error('C01 REGRESSION: cancel button not re-armed on second run (label=' + label2 + ', disabled=' + disabled2 + ')')
+    }
+    await btn2.click()
+    let freed2 = false
+    for (let i = 0; i < 15; i++) {
+        await page.waitForTimeout(2000)
+        if (!(await page.locator('.stage__status').count()) && !(await page.locator('[data-testid="live-cancel"]').count())) { freed2 = true; break }
+    }
+    log('second cancel freed:', freed2)
+    if (!freed2) throw new Error('second cancel did not free the stage')
+    console.log('C01 OK — annulation calcul navigateur depuis la vue live (x2, relance sans changement de paramètre)')
     await browser.close()
     process.exit(0)
 } catch (e) {
