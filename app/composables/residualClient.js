@@ -25,6 +25,7 @@ import {
     rotatedBbox,
     ringCentroid,
     ringDist,
+    ringDistBelow,
     smallLattice,
 } from './structureClient'
 // Cycle ESM sûr avec localBridge (qui importe fillResidualBands) : les
@@ -276,16 +277,22 @@ export function pairViolates(ringA, ringB, space) {
             // reste le containment W4.
             return containedOverlap(ringA, ringB)
         }
-        const d = ringDist(ringA, ringB)
-        if (d < space - EPS) return true
-        // W4 (vérif 2026-09-04) : containment à d > 0 aussi à space > 0 —
-        // un anneau INCLUS dans un autre (fan sur le corps d'un hôte, à
-        // ≥ space du bord externe et des trous) mesure une distance de
-        // frontière ≥ space mais chevauche le matériau. Python (shapely,
-        // d = 0 par construction de la distance au polygone À TROUS)
-        // le rejette. Miroir exact du test Python.
-        if (d > 0) return containedOverlap(ringA, ringB)
-        return false
+        // AA3(b) (vérif L1 2026-09-05) : un sommet de l'un STRICTEMENT
+        // dans l'autre ⇒ les anneaux se croisent (d = 0 < space − ε) ou
+        // l'un est inclus dans l'autre (containment W4 — à ≥ space du
+        // bord, containedOverlap serait vrai aussi) : violation dans tous
+        // les cas, sans le O(n·m) de ringDist (paires proches d'une tôle
+        // dense = le gel résiduel).
+        if (pointStrictlyInside(ringA[0], ringB) || pointStrictlyInside(ringB[0], ringA)) {
+            return true
+        }
+        // AA3 (extension mesurée) : prédicat à sortie anticipée — ringDist
+        // devait parcourir TOUTES les paires d'arêtes pour établir le min
+        // des paires proches légitimes (1,3 s de gel restant après le
+        // vertex test). Faux ⇒ d ≥ space − ε > 0 : la branche W4
+        // containedOverlap est exactement celle que prenait l'original.
+        if (ringDistBelow(ringA, ringB, space - EPS)) return true
+        return containedOverlap(ringA, ringB)
     }
     if (gap > 1e-9) {
         // m ≥ gap > 1e-9 : ringDist ne plancherait pas à 0, d > 0.

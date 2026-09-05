@@ -12,6 +12,7 @@
  * (record riche : relecture + téléchargements hors-ligne) → POST local-quota
  * (scalaires) OU local-fail (échec = refund, jamais de quota consommé).
  */
+import { markRaw } from 'vue'
 import { saveLocalResult } from './localResultsStore'
 import {
     buildAlternativeArtifacts,
@@ -481,6 +482,13 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     }
 
     const result = outcome.result
+    // AA3(c) (vérif L1 2026-09-05) : la géométrie de la solution ne doit
+    // vivre sous AUCUN proxy réactif — les passes et la finalisation
+    // parcourent des dizaines de milliers de coordonnées (profil V8 :
+    // 0,15 s de seul proxy get) et le stockage registre n'a pas besoin de
+    // la réactivité profonde (les frames live, elles, restent réactives).
+    markRaw(result)
+    markRaw(payload)
     // QA (vérif 2026-09-04) : pré-état moteur AVANT post-pass, pour les
     // diagnostics de parité navigateur/serveur (e2e le dump).
     if (typeof window !== 'undefined') {

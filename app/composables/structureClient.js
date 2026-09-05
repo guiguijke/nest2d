@@ -143,6 +143,43 @@ export function ringDist(c1, c2) {
     return m
 }
 
+/** AA3 (vérif L1 2026-09-05) : prédicat « distance minimale < seuil » à
+ * sortie anticipée — même segSegDist, même ordre de parcours que ringDist
+ * (le min n'est pas retourné, juste le prédicat strict). Exact : vrai ⇔
+ * il existe une paire d'arêtes à distance < seuil ⇔ min < seuil. C'est le
+ * seul besoin du régime space > ε de pairViolates (d < space − ε), où
+ * ringDist devait parcourir TOUTES les paires d'arêtes pour établir le
+ * min des paires proches légitimes — le gel résiduel de fin de calcul. */
+export function ringDistBelow(c1, c2, threshold) {
+    const n1 = c1.length
+    const n2 = c2.length
+    for (let i = 0; i < n1; i++) {
+        const ax = c1[i][0]; const ay = c1[i][1]
+        const bx = c1[(i + 1) % n1][0]; const by = c1[(i + 1) % n1][1]
+        // Pré-filtre bbox par SEGMENT (P1 appliqué au niveau inférieur) :
+        // une arête B entièrement à > threshold d'un côté de la bbox de A
+        // (gonflée de threshold) est à distance ≥ threshold — on saute
+        // segSegDist. Anneaux à 95 sommets : seules les arêtes Faisantes
+        // restent, ~15× moins d'appels.
+        const iMinX = (ax < bx ? ax : bx) - threshold
+        const iMaxX = (ax < bx ? bx : ax) + threshold
+        const iMinY = (ay < by ? ay : by) - threshold
+        const iMaxY = (ay < by ? by : ay) + threshold
+        for (let j = 0; j < n2; j++) {
+            const cx = c2[j][0]; const cy = c2[j][1]
+            const dx = c2[(j + 1) % n2][0]; const dy = c2[(j + 1) % n2][1]
+            // Rejet PAR AXE : l'arête B tout entière d'un côté de la bbox
+            // gonflée sur UN axe ⇒ séparation > threshold sur cet axe ⇒
+            // distance ≥ threshold (jamais « chaque extrémité dehors » —
+            // une arête en diagonale peut traverser le coin).
+            if ((cx < iMinX && dx < iMinX) || (cx > iMaxX && dx > iMaxX)) continue
+            if ((cy < iMinY && dy < iMinY) || (cy > iMaxY && dy > iMaxY)) continue
+            if (segSegDist(ax, ay, bx, by, cx, cy, dx, dy) < threshold) return true
+        }
+    }
+    return false
+}
+
 /**
  * Remplit un rectangle libre. Méthode GÉNÉRALE (toute forme, tout space) :
  *   1. grille bbox (pas = dim+space, rot 0 et 90) — toujours valide dès
@@ -422,7 +459,10 @@ function latticeVariant(coords, itemId, space, zone, threshold, deg0, yPhase, xP
             for (let b = a + 1; b < patch.length; b++) {
                 const A = patch[a]; const B = patch[b]
                 if (Math.abs(A.i - B.i) > 2 || Math.abs(A.j - B.j) > 2) continue
-                if (ringDist(A.ring, B.ring) < threshold - 1e-9) return false
+                // AA3 : prédicat à sortie anticipée — un pas REJETÉ trouve
+                // vite sa preuve, un pas accepté doit tout scanner (comme
+                // ringDist) ; la dichotomie enchaîne les rejets.
+                if (ringDistBelow(A.ring, B.ring, threshold - 1e-9)) return false
             }
         }
         return true
