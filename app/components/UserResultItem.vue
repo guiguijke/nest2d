@@ -120,6 +120,7 @@ import { sizeType } from '~~/constants/size.constants';
 import { themeType } from '~~/constants/theme.constants';
 import { statusType } from "~~/constants/status.constants";
 import { trackEvent } from '~/utils/track';
+import { altDensityPctOf } from '~/utils/resultQuality';
 import { computed, ref } from "vue";
 
 const props = defineProps({
@@ -154,6 +155,10 @@ const cancelNesting = async () => {
         // avec un bandeau d'erreur mensonger sur un job annulé).
         const { cancelJob } = await import('~/composables/localSolverRegistry');
         await cancelJob(props.result.slug);
+        // AA2 (vérif L1 2026-09-05) : annulation depuis la carte — le bouton
+        // Nest doit redevenir actif avec les MÊMES paramètres.
+        const { filesStore } = await import('~/composables/files');
+        filesStore.actions.resetLastParams();
     } catch (e) {
         console.warn('cancel failed', e);
         cancelling.value = false;
@@ -278,14 +283,11 @@ const resultTitle = computed(() => {
         return isNoFit.value ? t('result.failed.nofitHint') : t('result.failed')
     }
     const alt = primaryAlt.value
-    const share = alt?.usedSheetShare ?? alt?.density
-    const densityPct = share != null
-        ? share
-        : alt?.report?.totals?.densityPct != null
-            ? alt.report.totals.densityPct / 100
-            : null
+    // AA1 (vérif L1 2026-09-05) : densité MESURÉE du rapport vérifié —
+    // même définition pour toutes les options ; plus jamais « % used ».
+    const densityPct = altDensityPctOf(alt)
     const densityLabel = densityPct != null
-        ? `${(densityPct * 100).toFixed(1)}% ${t('result.used')}`
+        ? `${densityPct.toFixed(1)}% ${t('result.densityShort')}`
         : t('results.title')
     const sheetN = alt?.layoutCount
         || (props.result?.isMultiSheet ? (props.result?.svgs?.length || 0) : 1)

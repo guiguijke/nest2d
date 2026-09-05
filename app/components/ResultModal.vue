@@ -18,13 +18,12 @@
                 </button>
             </div>
             <!-- C02 (audit UX 2026-09-05) : pourquoi l'option 1 est
-                 proposée en premier — la Grille (chute propre) ne doit pas
-                 paraître « moins bonne » que la Compaction. -->
-            <p
-                v-if="alternatives.length > 1 && !isHaveError && activeAlt === 0"
-                class="alts__why"
-            >
-                {{ t('result.whyFirst') }}
+                 proposée en premier. AA1 (vérif L1) : la raison doit être
+                 VRAIE — « plus grande chute propre » seulement si la chute
+                 du rang 0 est bien maximale, sinon la régularité des
+                 rangées. -->
+            <p v-if="whyFirstLine" class="alts__why">
+                {{ whyFirstLine }}
             </p>
             <div
                 v-if="resultModalData.isMultiSheet && !isHaveError"
@@ -489,6 +488,7 @@
 </template>
 
 <script setup>
+import { altDensityPctOf, whyFirstKind } from '~/utils/resultQuality'
 import { iconType } from '~~/constants/icon.constants'
 import { sizeType } from '~~/constants/size.constants'
 import { themeType } from '~~/constants/theme.constants'
@@ -685,10 +685,12 @@ const activeAltSeed = computed(() => unref(alternatives)[unref(activeAlt)]?.seed
 // (plus = mieux). L'ancienne « Sheet utilization » (emprise/tôle, MOINS =
 // mieux) se lisait à l'envers et dévalorisait la Grille proposée en
 // premier ; les jobs antérieurs sans densité n'affichent plus de barre.
-const densityPct = computed(() => {
-    const alt = unref(alternatives)[unref(activeAlt)]
-    return alt?.density != null ? alt.density * 100 : null
-})
+// AA1 (vérif L1 2026-09-05) : UNE définition MESURÉE — totals.densityPct
+// du rapport vérifié (Σ aires pièces / Σ aires tôles), identique pour la
+// grille et le moteur. Repli sur alt.density SEULEMENT si l'alternative
+// n'a pas de rapport (jobs antérieurs).
+const altDensityPct = altDensityPctOf
+const densityPct = computed(() => altDensityPct(unref(alternatives)[unref(activeAlt)]))
 const freeAreaMm2 = computed(() => {
     const r = unref(activeReport)
     if (!r) return 0
@@ -929,7 +931,8 @@ const formatDensity = (density) => {
 // (emprise, moins = mieux, lu comme une utilisation).
 const altQualityLine = (alt) => {
     const parts = [altSheetsCount(alt)]
-    if (alt?.density != null) parts.push(`${(alt.density * 100).toFixed(1)}% ${t('result.densityShort')}`)
+    const d = altDensityPct(alt)
+    if (d != null) parts.push(`${d.toFixed(1)}% ${t('result.densityShort')}`)
     const off = alt?.offcut
     if (off && off.area > 1) {
         parts.push(t('result.offcutShort', {
@@ -996,7 +999,8 @@ const headlineTitle = computed(() => {
     const strategy = alt?.strategy ? strategyLabel(alt.strategy) : t('result.option', { n: (alt?.altId ?? 0) + 1 })
     // C02 : qualité = densité matière (plus = mieux) + chute réutilisable.
     const quality = []
-    if (alt?.density != null) quality.push(`${t('result.densityFull')} ${(alt.density * 100).toFixed(1)}%`)
+    const density = altDensityPct(alt)
+    if (density != null) quality.push(`${t('result.densityFull')} ${density.toFixed(1)}%`)
     if (alt?.offcut && alt.offcut.area > 1) {
         quality.push(t('result.cleanOffcut', { w: fmtLength(alt.offcut.width), h: fmtLength(alt.offcut.height) }))
     }
@@ -1013,6 +1017,18 @@ const activeStrategyExplain = computed(() => {
     const key = `alts.explain.${s}`
     const translated = t(key)
     return translated === key ? null : translated
+})
+
+// AA1 (vérif L1 2026-09-05) : justification du rang 0, VÉRIFIÉE — « plus
+// grande chute propre » si et seulement si la chute du rang 0 est
+// maximale (à 1 mm² près) ; sinon la vraie raison de proposer la Grille
+// en premier : des rangées régulières, des découpes prévisibles.
+const whyFirstLine = computed(() => {
+    const alts = unref(alternatives)
+    if (!alts || alts.length < 2 || unref(isHaveError)) return null
+    if (unref(activeAlt) !== 0) return null
+    const kind = whyFirstKind(alts)
+    return kind === 'offcut' ? t('result.whyFirst') : t('result.whyFirstGrid')
 })
 const activePart = ref(0)
 const updatePartPage = (partIndex) => {

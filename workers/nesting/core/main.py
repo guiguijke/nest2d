@@ -1053,45 +1053,14 @@ def _nesting_process_impl(doc):
     # consomme la DERNIÈRE frame déposée (coalescing drop-stale) et écrit
     # au plus 1×/s ; les frames intermédiaires sont abandonnées (vue live
     # de progression, pas un contrat).
-    import queue as _queue_mod
-    import threading as _threading_mod
+    from core.livedeco import LiveDecorator
     _last_live_write = [0.0]
-    _live_q = _queue_mod.Queue(maxsize=1)
-    _live_thread = [None]
-
-    def _live_decorator_loop():
-        while True:
-            event = _live_q.get()
-            if event is None:
-                return
-            try:
-                report_live_layout(event)
-            except Exception as e:  # déjà attrapé dans report_live_layout
-                logger.warning("Live decorator failed", extra={"error": str(e)})
 
     def _enqueue_live(event):
-        # Coalescing : une seule frame en attente, toujours la dernière.
-        try:
-            _live_q.put_nowait(event)
-        except _queue_mod.Full:
-            try:
-                _live_q.get_nowait()
-            except _queue_mod.Empty:
-                pass
-            try:
-                _live_q.put_nowait(event)
-            except _queue_mod.Full:
-                pass
+        _live_decorator.submit(event)
 
     def _stop_live_decorator():
-        if _live_thread[0] is None:
-            return
-        try:
-            _live_q.put_nowait(None)
-        except _queue_mod.Full:
-            pass
-        _live_thread[0].join(timeout=5.0)
-        _live_thread[0] = None
+        _live_decorator.stop(timeout=5.0)
 
     def report_live_layout(event):
         now = _time.time()
@@ -1117,10 +1086,16 @@ def _nesting_process_impl(doc):
             density = event.get("density")
             if items and (meta or has_holes):
                 from core.holefill import decorate_live_items
+                # AA4 (vérif L1 2026-09-05) : PAS d'apply_hole_fill en live —
+                # chaque frame refaisait tout le remplissage (100 hôtes) pour
+                # 0,19 cœur consommé. On ne garde que l'expansion des fans
+                # (transform de poses locales, ~10 ms) : la vue live montre
+                # les hôtes non remplis, le remplissage apparaît au résultat
+                # final. La densité mesurée reste calculée.
                 items, live_stats = decorate_live_items(
                     items, input_items, space,
                     meta=meta,
-                    apply_fill=bool(has_holes),
+                    apply_fill=False,
                     sheets=sheet_pairs,
                 )
                 holes_filled = live_stats.get("holesFilled") or 0
@@ -1154,6 +1129,14 @@ def _nesting_process_impl(doc):
             )
         except Exception as e:
             logger.warning("Failed to write live layout", extra={"error": str(e)})
+
+    # AA5 (vérif L1 2026-09-05) : mécanique extraite dans core/livedeco.py —
+    # arrêt SÛR testé unitairement (drapeau d'abord : une frame en attente à
+    # l'arrêt est abandonnée, jamais décorée après finalisation ; l'ancien
+    # put_nowait(None) sur file pleine perdait le sentinel → join(5) mort
+    # + thread bloqué sur get() = fuite d'un thread par job). Instancié
+    # ICI : report_live_layout doit exister (référence directe).
+    _live_decorator = LiveDecorator(report_live_layout)
 
     def _on_engine_event(event):
         etype = event.get("type")
@@ -1211,10 +1194,7 @@ def _nesting_process_impl(doc):
         )
 
     try:
-        _live_thread[0] = _threading_mod.Thread(
-            target=_live_decorator_loop, daemon=True, name="live-decorator"
-        )
-        _live_thread[0].start()
+        _live_decorator.start()
         engine_alternatives = run_engine(
             solve_instance, engine_config, problem_type, on_event=_on_engine_event,
             should_cancel=should_cancel,
@@ -1873,10 +1853,17 @@ def _nesting_process_impl(doc):
         # Per-sheet measured material accounting (quoting numbers) — ADDITIVE
         # report fields, legacy jobs without them keep the old UI block.
         sheets_metrics = per_sheet_metrics(result_containers, input_items)
+        # AA1 (vérif L1 2026-09-05) : la densité STOCKÉE de l'alternative
+        # moteur devient matière / Σ tôles (mesurée, même définition que la
+        # grille) — l'accueil et les listes n'ont plus deux échelles selon
+        # l'option. La densité moteur (matière / emprise) reste celle des
+        # frames live.
+        totals = report_totals(sheets_metrics)
         alternatives.append({
             "seed": engine_alt.get("seed"),
             "strategy": strategy,
-            "density": density,
+            "density": (totals["densityPct"] / 100.0)
+                if totals.get("densityPct") is not None else density,
             # Share of sheet actually consumed (used bbox / sheet area,
             # lower = better): the score that rewards compaction.
             "usedSheetShare": compute_used_sheet_share(result_containers, input_items),
@@ -1895,7 +1882,7 @@ def _nesting_process_impl(doc):
                 # Quoting view: per-sheet measured metrics + totals (material
                 # to buy) + the enriched offcut (reusable vs scrap).
                 "sheets": sheets_metrics,
-                "totals": report_totals(sheets_metrics),
+                "totals": totals,
                 "offcut": enrich_offcut(offcut),
                 # A5 : observabilité des post-pass (additif — les jobs
                 # antérieurs n'ont pas le champ, l'UI l'ignore).

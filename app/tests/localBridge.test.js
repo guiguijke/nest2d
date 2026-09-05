@@ -142,7 +142,10 @@ describe('toServerShapeAlternatives (forme consommée par ResultModal)', () => {
         const alts = toServerShapeAlternatives(sppResult, payload, artifacts)
         expect(alts[0].strategy).toBe('balanced')
         expect(alts[0].seed).toBe(42)
-        expect(alts[0].density).toBeCloseTo(0.61)
+        // AA1 (vérif L1 2026-09-05) : la densité mappée est la MESURÉE
+        // (totals.densityPct / 100, matière / Σ tôles — même définition que
+        // la grille), plus la densité moteur (matière / emprise).
+        expect(alts[0].density).toBeCloseTo(alts[0].report.totals.densityPct / 100)
     })
 
     it('artefact manquant ⇒ alternative sautée (jamais de throw)', () => {

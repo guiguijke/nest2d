@@ -122,8 +122,23 @@ function _itemCoords(item) {
     return item?.coords || item?.coordinates || []
 }
 
+// AA3(a) (vérif L1 2026-09-05) : miroir EXACT de _pinwheel_capacity_cached
+// (Python) — même clé (anneaux joints, space, rotations), valeur copiée en
+// sortie. Paie sur le double appel d'applyHoleFill par alternative (le
+// second, après fillResidualBands, retrouve les anneaux du premier) et sur
+// les trous multi-membres.
+const _pinwheelCache = new Map()
+const _ringKey = (ring) => {
+    let k = ''
+    for (let i = 0; i < ring.length; i++) k += `${ring[i][0]},${ring[i][1]};`
+    return k
+}
+
 function _jsPinwheelCapacity(holeRing, fillerCoords, space, allowed) {
     const rots = PINWHEEL.filter((r) => !allowed || allowed.includes(r))
+    const key = `${_ringKey(holeRing)}|${_ringKey(fillerCoords)}|${space}|${rots.join(',')}`
+    const hit = _pinwheelCache.get(key)
+    if (hit) return [...hit]
     const c = _centroid(holeRing)
     const valid = []
     const placed = []
@@ -134,7 +149,9 @@ function _jsPinwheelCapacity(holeRing, fillerCoords, space, allowed) {
         valid.push(rot)
         placed.push(cand)
     }
-    return valid
+    if (_pinwheelCache.size > 4096) _pinwheelCache.clear()
+    _pinwheelCache.set(key, valid)
+    return [...valid]
 }
 
 /** Maximise l'aire de fillers dans un trou. Repli pinwheel si le glouton
@@ -1035,7 +1052,12 @@ export function toServerShapeAlternatives(result, payload, artifacts) {
             // Alternative structurelle (grille canonique) : sa propre classe
             // d'affichage — miroir de _strategy_for côté serveur.
             strategy: alt.structural ? 'grid' : (alt.bias || 'balanced'),
-            density: alt.solution?.density ?? alt.density ?? null,
+            // AA1 (vérif L1 2026-09-05) : densité mesurée matière / Σ tôles
+            // (totals), même définition que la grille — repli sur la valeur
+            // moteur si le rapport n'a pas de totals.
+            density: totals?.densityPct != null
+                ? totals.densityPct / 100
+                : (alt.solution?.density ?? alt.density ?? null),
             usedSheetShare: usedSheetShareOf(art, partsById),
             offcut: bestOffcut
                 ? { width: bestOffcut.widthMm, height: bestOffcut.heightMm, area: bestOffcut.areaMm2 }

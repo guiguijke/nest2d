@@ -408,6 +408,7 @@ const dict = {
         'result.densityShort': 'material',
         'result.offcutShort': 'offcut {w} × {h}',
         'result.whyFirst': 'Shown first — largest clean offcut',
+        'result.whyFirstGrid': 'Shown first — regular rows, predictable cuts',
         // §2.2d : tôles + chute réutilisable par tôle dans le sélecteur.
         'result.sheetsCount': '{n} sheets',
         'result.sheetsCountOne': '1 sheet',
@@ -1012,6 +1013,7 @@ const dict = {
         'result.densityShort': 'matière',
         'result.offcutShort': 'chute {w} × {h}',
         'result.whyFirst': 'Proposée en premier — plus grande chute propre',
+        'result.whyFirstGrid': 'Proposée en premier — rangées régulières, découpes prévisibles',
         // §2.2d : tôles + chute réutilisable par tôle dans le sélecteur.
         'result.sheetsCount': '{n} tôles',
         'result.sheetsCountOne': '1 tôle',
