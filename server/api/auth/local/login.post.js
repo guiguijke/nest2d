@@ -3,7 +3,7 @@ import { connectDB } from '~~/server/db/mongo'
 import { generateSession } from '~~/server/utils/auth'
 import { setSessionCookie } from '~~/server/utils/user'
 import {
-    assertRateLimit,
+    clientIp,
     denyRateLimit,
     rateLimitAllow,
     rateLimitPeek,
@@ -24,17 +24,27 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 400, statusMessage: 'Email and password are required' })
     }
 
-    assertRateLimit(event, 'login-ip', { limit: 20, windowMs: 15 * 60_000 })
-    // A2 (audit compte 2026-09-05) : le compteur par e-mail ne compte QUE
+    // A2 (audit compte 2026-09-05) : les compteurs login ne comptent QUE
     // les ÉCHECS — l'ancien compteur d'appels bloquait un utilisateur
     // légitime à trois appareils (5 connexions / 15 min), et une connexion
-    // réussie REMET le compteur à zéro. Peek sans consommer, incrément
+    // réussie REMET les compteurs à zéro. Peek sans consommer, incrément
     // uniquement sur mot de passe invalide.
-    const failKey = `login-email:${email}`
-    const failLimit = { limit: 5, windowMs: 15 * 60_000 }
-    const peek = rateLimitPeek(failKey, failLimit)
-    if (!peek.allowed) {
-        denyRateLimit(event, { windowMs: failLimit.windowMs, retryAfterMs: peek.retryAfterMs })
+    // AA6 (vérif L1 2026-09-05) : le compteur IP suit la même mécanique
+    // (50 échecs / 15 min) — un atelier derrière un NAT ne se bloque plus
+    // par ses connexions RÉUSSIES.
+    const failLimits = {
+        email: { limit: 5, windowMs: 15 * 60_000 },
+        ip: { limit: 50, windowMs: 15 * 60_000 },
+    }
+    const failKeys = {
+        email: `login-email:${email}`,
+        ip: `login-ip:${clientIp(event)}`,
+    }
+    for (const scope of ['ip', 'email']) {
+        const peek = rateLimitPeek(failKeys[scope], failLimits[scope])
+        if (!peek.allowed) {
+            denyRateLimit(event, { windowMs: failLimits[scope].windowMs, retryAfterMs: peek.retryAfterMs })
+        }
     }
 
     const db = await connectDB()
@@ -47,12 +57,14 @@ export default defineEventHandler(async (event) => {
     const ok = await bcrypt.compare(password, hash)
 
     if (!user || !ok) {
-        // A2 : c'est un ÉCHEC — lui seul consomme le quota.
-        rateLimitAllow(failKey, failLimit)
+        // A2/AA6 : c'est un ÉCHEC — lui seul consomme les quotas.
+        rateLimitAllow(failKeys.email, failLimits.email)
+        rateLimitAllow(failKeys.ip, failLimits.ip)
         throw createError({ statusCode: 401, statusMessage: 'Invalid email or password' })
     }
-    // A2 : succès — remise à zéro du compteur d'échecs.
-    rateLimitReset(failKey)
+    // A2/AA6 : succès — remise à zéro des compteurs d'échecs.
+    rateLimitReset(failKeys.email)
+    rateLimitReset(failKeys.ip)
 
     // Banned accounts cannot log in (ban is set from the admin panel).
     if (user.banned) {
