@@ -14,9 +14,10 @@
             <span v-if="scoreLabel" class="live__stat live__stat--accent" :title="t('live.scoreTitle')">
                 {{ scoreLabel }} <span class="live__stat-suffix">{{ t('live.score') }}</span>
             </span>
-            <span v-if="evalsCount" class="live__stat" :title="evalsTitle">
-                {{ evalsCount }} <span class="live__stat-suffix">{{ evalsSuffix }}</span>
-            </span>
+            <!-- C12 (audit UX 2026-09-05) : le compteur « n combinaisons »
+                 est retiré — itérations de recuit BPP et évaluations
+                 separator SPP n'y sont pas comparables et le nombre n'était
+                 pas crédible comme indicateur de qualité. -->
             <span v-if="cores" class="live__stat" :title="t('nest.coresTitle', { n: cores })">
                 <CoresSpinner :cores="cores" :size="16" show-count />
                 <span class="live__stat-suffix">{{ t('live.cores') }}</span>
@@ -543,31 +544,11 @@ function formatScore(density) {
 const scoreLabel = computed(() => {
     const live = best.value || props.result?.liveLayout;
     return live?.density != null ? formatScore(live.density) : null;
-});
-
-// BPP heartbeats report SA iterations (one full rebuild of every part);
-// SPP reports separator evaluations (millions). Same slot, different unit.
-const isBppEvals = computed(() => {
-    const live = best.value || props.result?.liveLayout
-    if (live?.isSpp === true) return false
-    if (typeof live?.stage === 'string' && live.stage.startsWith('bpp')) return true
-    const it = live?.items?.[0]
-    return Array.isArray(it) && it.length === 5
 })
-const evalsCount = computed(() => {
-    const n = props.result?.progress?.evals;
-    if (!n) return null;
-    if (isBppEvals.value) return `${n}`;
-    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
-    if (n >= 1e3) return `${Math.round(n / 1e3)} k`;
-    return `${n}`;
-});
-const evalsSuffix = computed(() =>
-    isBppEvals.value ? t('live.layouts') : t('live.combinations'),
-)
-const evalsTitle = computed(() =>
-    isBppEvals.value ? t('live.layoutsTitle') : t('live.evalsTitle'),
-)
+
+// C12 (audit UX 2026-09-05) : les compteurs « combinaisons » (itérations
+// de recuit BPP / évaluations separator SPP — unités différentes, nombre
+// non crédible comme indicateur) sont retirés de l'en-tête.
 
 const stageLabel = computed(() => {
     const stage = props.result?.progress?.stage || best.value?.stage;

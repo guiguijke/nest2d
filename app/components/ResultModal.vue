@@ -14,9 +14,18 @@
                     @click="selectAlt(alt.altId)"
                 >
                     <span v-if="alt.strategy" class="alts__strategy">{{ strategyLabel(alt.strategy) }}</span>
-                    {{ t('result.option', { n: alt.altId + 1 }) }} · {{ altSheetsCount(alt) }} · {{ formatScore(alt) }}
+                    {{ t('result.option', { n: alt.altId + 1 }) }} · {{ altQualityLine(alt) }}
                 </button>
             </div>
+            <!-- C02 (audit UX 2026-09-05) : pourquoi l'option 1 est
+                 proposée en premier — la Grille (chute propre) ne doit pas
+                 paraître « moins bonne » que la Compaction. -->
+            <p
+                v-if="alternatives.length > 1 && !isHaveError && activeAlt === 0"
+                class="alts__why"
+            >
+                {{ t('result.whyFirst') }}
+            </p>
             <div
                 v-if="resultModalData.isMultiSheet && !isHaveError"
                 class="modal__list-sheets list-sheets"
@@ -56,17 +65,22 @@
                 class="modal__headline headline"
             >
                 <p class="headline__title">{{ headlineTitle }}</p>
+                <!-- C02 : sous-titre explicatif de la méthode d'agencement
+                     (Grille vs Compaction). -->
+                <p v-if="activeStrategyExplain" class="headline__explain">
+                    {{ activeStrategyExplain }}
+                </p>
                 <p class="headline__slug" :title="t('result.copySlug')">{{ name }}</p>
             </div>
             <div
-                v-if="!isHaveError && activeReport"
+                v-if="!isHaveError && activeReport && densityPct != null"
                 class="modal__summary summary"
             >
-                <span class="summary__label">{{ t('report.utilization') }}</span>
+                <span class="summary__label">{{ t('result.densityFull') }}</span>
                 <div class="summary__bar">
-                    <div class="summary__bar-fill" :style="{ width: `${usedPct}%` }" />
+                    <div class="summary__bar-fill" :style="{ width: `${densityPct}%` }" />
                 </div>
-                <span class="summary__value">{{ usedPct.toFixed(1) }}%</span>
+                <span class="summary__value">{{ densityPct.toFixed(1) }}%</span>
             </div>
             <div
                 v-if="hasColorPreview"
@@ -210,14 +224,14 @@
                 class="modal__report report"
             >
                 <div class="report__row">
-                    <span class="report__label">{{ t('report.utilization') }}</span>
+                    <span class="report__label">{{ t('result.densityFull') }}</span>
                     <div class="report__bar">
                         <div
                             class="report__bar-fill"
-                            :style="{ width: `${usedPct}%` }"
+                            :style="{ width: `${densityPct != null ? densityPct : 0}%` }"
                         />
                     </div>
-                    <span class="report__value">{{ usedPct.toFixed(1) }}%</span>
+                    <span class="report__value">{{ densityPct != null ? densityPct.toFixed(1) + '%' : '—' }}</span>
                 </div>
                 <div class="report__row report__row--detail">
                     <span>{{ t('report.areas', { parts: fmtArea(activeReport.partsAreaMm2), free: fmtArea(freeAreaMm2) }) }}</span>
@@ -385,11 +399,24 @@
                         {{ badge.ok === false ? '✗' : '✓' }} {{ badge.label }}
                     </span>
                 </div>
-                <div class="report__engine">
-                    nest-engine · seed {{ activeAltSeed }}
-                    <template v-if="activeReport.iterations"> · {{ t('report.iterations', { n: activeReport.iterations }) }}</template>
-                    <template v-if="activeReport.vcores"> · {{ t('report.cores', { n: activeReport.vcores }) }}</template>
-                </div>
+                <!-- C03/C12 (audit UX 2026-09-05) : le post-pass (rollback
+                     compris) et les paramètres moteur ne sont plus des
+                     badges — un résultat découpable n'affiche JAMAIS de
+                     rouge « Post-pass … rollback ». Ils vivent repliés
+                     dans les détails techniques ; seed/cores absents
+                     masqués ; « combinations tested » reformulé honnêtement
+                     (ce sont les itérations du recuit moteur). -->
+                <details v-if="hasTechDetails" class="report__tech" data-testid="report-tech">
+                    <summary>{{ t('report.techDetails') }}</summary>
+                    <div class="report__engine">
+                        nest-engine<template v-if="activeAltSeed"> · seed {{ activeAltSeed }}</template>
+                        <template v-if="activeReport.iterations"> · {{ activeReport.iterations === 1 ? t('report.iterationsOne') : t('report.iterations', { n: activeReport.iterations }) }}</template>
+                        <template v-if="activeReport.vcores"> · {{ activeReport.vcores === 1 ? t('report.coresOne') : t('report.cores', { n: activeReport.vcores }) }}</template>
+                    </div>
+                    <p v-for="(line, i) in postPassLines" :key="i" class="report__tech-line">
+                        {{ line }}
+                    </p>
+                </details>
             </div>
             <div class="controls">
                 <MainButton
@@ -652,11 +679,15 @@ const selectViewMode = (mode) => {
 
 // ---- nesting report (measured verification, per active alternative) ------
 const activeReport = computed(() => unref(alternatives)[unref(activeAlt)]?.report || null)
-const activeAltSeed = computed(() => unref(alternatives)[unref(activeAlt)]?.seed ?? '—')
-const usedPct = computed(() => {
+// C03 : seed absent → masqué (pas de « seed — »).
+const activeAltSeed = computed(() => unref(alternatives)[unref(activeAlt)]?.seed ?? null)
+// C02 (audit UX 2026-09-05) : la barre unique est la DENSITÉ MATIÈRE
+// (plus = mieux). L'ancienne « Sheet utilization » (emprise/tôle, MOINS =
+// mieux) se lisait à l'envers et dévalorisait la Grille proposée en
+// premier ; les jobs antérieurs sans densité n'affichent plus de barre.
+const densityPct = computed(() => {
     const alt = unref(alternatives)[unref(activeAlt)]
-    const share = alt?.usedSheetShare ?? alt?.density
-    return share != null ? share * 100 : 0
+    return alt?.density != null ? alt.density * 100 : null
 })
 const freeAreaMm2 = computed(() => {
     const r = unref(activeReport)
@@ -850,19 +881,10 @@ const reportBadges = computed(() => {
     // A4 : pose dupliquée = même pièce posée deux fois (la garde anti-perte
     // par total y était aveugle).
     if (r.duplicatePoses > 0) badges.push({ ok: false, label: t('report.duplicates', { n: r.duplicatePoses }) })
-    // V17 (vérif 2026-09-04) : le post-pass n'est plus invisible — une
-    // ligne compacte « n déplacées · rollback » sous les badges.
-    {
-        const pp = r.postPass
-        if (pp && ((pp.residualMoved || 0) > 0 || pp.compactRollback || (pp.errors || []).length)) {
-            const label = t('report.postPass', {
-                n: pp.residualMoved || 0,
-                rb: pp.compactRollback ? ' · rollback' : '',
-                e: (pp.errors || []).length ? ` · ${(pp.errors || []).length} err` : '',
-            })
-            badges.push({ ok: !(pp.compactRollback || (pp.errors || []).length), label })
-        }
-    }
+    // C03 (audit UX 2026-09-05) : plus de badge post-pass ici — le post-pass
+    // (rollback et erreurs compris) vit dans les détails techniques
+    // repliés : un résultat découpable n'affiche jamais de rouge
+    // « Post-pass … rollback ».
     // §1.2c : « All parts placed » n'est JAMAIS vert quand le verdict est
     // unfit (pièces posées mais hors tôle = pas découpables).
     const allPlaced = unref(resultModalData).requested === unref(resultModalData).placed
@@ -878,16 +900,44 @@ const reportBadges = computed(() => {
     }
     return badges
 })
+// C03 : lignes techniques du post-pass (repliées, jamais en badge).
+const postPassLines = computed(() => {
+    const pp = unref(activeReport)?.postPass
+    if (!pp) return []
+    const lines = []
+    if ((pp.residualMoved || 0) > 0 || pp.compactRollback || (pp.errors || []).length) {
+        lines.push(t('report.postPass', {
+            n: pp.residualMoved || 0,
+            rb: pp.compactRollback ? ' · rollback' : '',
+            e: (pp.errors || []).length ? ` · ${(pp.errors || []).length} err` : '',
+        }))
+    }
+    return lines
+})
+const hasTechDetails = computed(() => Boolean(
+    unref(activeAltSeed)
+    || unref(activeReport)?.iterations
+    || unref(activeReport)?.vcores
+    || unref(postPassLines).length
+))
 const formatDensity = (density) => {
     if (density == null) return '—'
     return `${(density * 100).toFixed(1)}%`
 }
-// Share of the sheet actually consumed by the layout (lower = better: the
-// rest is a clean reusable offcut). Falls back to solver density on jobs
-// run before the metric existed.
-const formatScore = (alt) => {
-    if (alt.usedSheetShare != null) return `${(alt.usedSheetShare * 100).toFixed(1)}% ${t('result.used')}`
-    return formatDensity(alt.density)
+// C02 : un seul indicateur de qualité par option, dans le bon sens —
+// tôles · densité matière · chute réutilisable. Remplace « 55% used »
+// (emprise, moins = mieux, lu comme une utilisation).
+const altQualityLine = (alt) => {
+    const parts = [altSheetsCount(alt)]
+    if (alt?.density != null) parts.push(`${(alt.density * 100).toFixed(1)}% ${t('result.densityShort')}`)
+    const off = alt?.offcut
+    if (off && off.area > 1) {
+        parts.push(t('result.offcutShort', {
+            w: fmtLength(off.width),
+            h: fmtLength(off.height),
+        }))
+    }
+    return parts.join(' · ')
 }
 // Tooltip: what this option is good for, incl. its clean offcut size.
 const strategyLabel = (strategy) => {
@@ -944,8 +994,25 @@ const headlineTitle = computed(() => {
     const alts = unref(alternatives)
     const alt = alts[unref(activeAlt)] || alts[0]
     const strategy = alt?.strategy ? strategyLabel(alt.strategy) : t('result.option', { n: (alt?.altId ?? 0) + 1 })
-    const score = alt ? formatScore(alt) : ''
+    // C02 : qualité = densité matière (plus = mieux) + chute réutilisable.
+    const quality = []
+    if (alt?.density != null) quality.push(`${t('result.densityFull')} ${(alt.density * 100).toFixed(1)}%`)
+    if (alt?.offcut && alt.offcut.area > 1) {
+        quality.push(t('result.cleanOffcut', { w: fmtLength(alt.offcut.width), h: fmtLength(alt.offcut.height) }))
+    }
+    const score = quality.join(' · ')
     return score ? `${strategy} · ${score}` : strategy
+})
+// C02 : sous-titre explicatif de la méthode (Grille vs Compaction) —
+// masqué quand la stratégie est inconnue.
+const activeStrategyExplain = computed(() => {
+    const alts = unref(alternatives)
+    const alt = alts[unref(activeAlt)] || alts[0]
+    const s = alt?.strategy
+    if (!s) return null
+    const key = `alts.explain.${s}`
+    const translated = t(key)
+    return translated === key ? null : translated
 })
 const activePart = ref(0)
 const updatePartPage = (partIndex) => {
@@ -1207,6 +1274,16 @@ const updatePartPage = (partIndex) => {
             border-color: var(--accent-primary);
         }
     }
+
+    /* C02 (audit UX 2026-09-05) : pourquoi l'option 1 est proposée en
+       premier — la Grille (chute propre) ne doit pas paraître « moins
+       bonne » que la Compaction. */
+    &__why {
+        margin: -6px auto 12px;
+        font-size: 12px;
+        color: var(--label-tertiary);
+        text-align: center;
+    }
 }
 .report {
     margin-top: 12px;
@@ -1281,7 +1358,7 @@ const updatePartPage = (partIndex) => {
 
         &--ko {
             background-color: color-mix(in srgb, var(--error-border, #c62828) 12%, transparent);
-            color: var(--error-border, #c62828);
+            color: var(--error-text, #c62828);
         }
 
         // Scrap offcut: informational, never alarming (not an error).
@@ -1414,6 +1491,42 @@ const updatePartPage = (partIndex) => {
     &>* {
         margin-left: 4px;
         margin-right: 4px;
+    }
+}
+
+/* C02 (audit UX 2026-09-05) : sous-titre explicatif de la méthode
+   d'agencement sous le titre de l'option. */
+.headline__explain {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--label-tertiary);
+    text-align: center;
+}
+
+/* C03/C12 : détails techniques REPLIÉS — post-pass (rollback compris),
+   seed/itérations/cœurs moteur. Un résultat découpable n'affiche jamais
+   de rouge « Post-pass … rollback ». */
+.report__tech {
+    margin: 6px 0;
+
+    & summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--label-tertiary);
+        user-select: none;
+    }
+
+    & .report__engine {
+        margin: 4px 0 0;
+        font-size: 11px;
+        color: var(--label-tertiary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    & .report__tech-line {
+        margin: 2px 0 0;
+        font-size: 11px;
+        color: var(--label-tertiary);
     }
 }
 </style>

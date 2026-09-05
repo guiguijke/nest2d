@@ -296,6 +296,10 @@ const dict = {
         'alts.strategy.grid': 'Grid',
         'alts.strategy.max offcut': 'Max offcut',
         'alts.strategy.compact': 'Compact',
+        // C02 (audit UX 2026-09-05) : sous-titre explicatif de la méthode
+        // d'agencement active (Grille vs Compaction).
+        'alts.explain.grid': 'Regular rows — predictable cuts, cleanest reusable offcut. Offered when the part motif suits it.',
+        'alts.explain.compact': 'Tightest packing — minimizes the surface used.',
         'report.utilization': 'Sheet utilization',
         'report.areas': '{parts} parts · {free} free',
         'report.offcut': 'Clean offcut {w} × {h} {unit}',
@@ -325,8 +329,14 @@ const dict = {
         'report.unplaced': '{n} parts not placed (tight stock)',
         'report.duplicates': '{n} duplicate poses',
         'report.postPass': 'Post-pass: {n} moved{rb}{e}',
-        'report.iterations': '{n} combinations tested',
+        // C12 (audit UX 2026-09-05) : honnête — ce sont les itérations du
+        // recuit moteur, pas des « combinaisons » comparables entre modes.
+        'report.iterations': '{n} iterations',
+        'report.iterationsOne': '1 iteration',
         'report.cores': '{n} cores',
+        'report.coresOne': '1 core',
+        // C03 : détails techniques repliés (post-pass, seed, moteur).
+        'report.techDetails': 'Technical details',
         'report.material': 'Material to plan',
         'report.sheet.num': '#',
         'report.sheet.format': 'Sheet',
@@ -390,6 +400,14 @@ const dict = {
         'result.option': 'Option {n}',
         'result.used': 'used',
         'result.cleanOffcut': 'Clean offcut: {w} × {h}',
+        // C02 (audit UX 2026-09-05) : indicateur de qualité unique par
+        // option — densité matière (plus = mieux) + chute réutilisable ;
+        // l'ancien « {n}% used » (emprise, moins = mieux) se lisait à
+        // l'envers.
+        'result.densityFull': 'Material density',
+        'result.densityShort': 'material',
+        'result.offcutShort': 'offcut {w} × {h}',
+        'result.whyFirst': 'Shown first — largest clean offcut',
         // §2.2d : tôles + chute réutilisable par tôle dans le sélecteur.
         'result.sheetsCount': '{n} sheets',
         'result.sheetsCountOne': '1 sheet',
@@ -553,6 +571,8 @@ const dict = {
         'auth.toggleToLogin': 'Already have an account? Login',
         'auth.toggleToRegister': "Don't have an account? Sign up",
         'auth.errorGeneric': 'Something went wrong. Please try again.',
+        // A2 (audit compte 2026-09-05) : message rate-limit traduit avec le délai.
+        'auth.rateLimited': 'Too many failed attempts. Try again in {n} min.',
 
         // ── Email verification & newsletter ──
         'auth.newsletterOptIn': 'Keep me informed about NestorCut news and updates (optional newsletter, unsubscribe anytime).',
@@ -884,6 +904,10 @@ const dict = {
         'alts.strategy.grid': 'Grille',
         'alts.strategy.max offcut': 'Chute max',
         'alts.strategy.compact': 'Compact',
+        // C02 (audit UX 2026-09-05) : sous-titre explicatif de la méthode
+        // d'agencement active (Grille vs Compaction).
+        'alts.explain.grid': 'Rangées régulières — découpes prévisibles, chute réutilisable la plus propre. Proposée quand le motif des pièces s’y prête.',
+        'alts.explain.compact': 'Compactage maximal — minimise la surface utilisée.',
         'report.utilization': 'Utilisation de la tôle',
         'report.areas': '{parts} de pièces · {free} libres',
         'report.offcut': 'Chute propre {w} × {h} {unit}',
@@ -911,8 +935,14 @@ const dict = {
         'report.unplaced': '{n} pièces non placées (stock serré)',
         'report.duplicates': '{n} poses dupliquées',
         'report.postPass': 'Post-pass : {n} déplacées{rb}{e}',
-        'report.iterations': '{n} combinaisons testées',
+        // C12 (audit UX 2026-09-05) : honnête — ce sont les itérations du
+        // recuit moteur, pas des « combinaisons » comparables entre modes.
+        'report.iterations': '{n} itérations',
+        'report.iterationsOne': '1 itération',
         'report.cores': '{n} cœurs',
+        'report.coresOne': '1 cœur',
+        // C03 : détails techniques repliés (post-pass, seed, moteur).
+        'report.techDetails': 'Détails techniques',
         'report.material': "Matière à prévoir",
         'report.sheet.num': '#',
         'report.sheet.format': "Tôle",
@@ -974,6 +1004,14 @@ const dict = {
         'result.option': 'Option {n}',
         'result.used': 'utilisé',
         'result.cleanOffcut': 'Chute réutilisable : {w} × {h}',
+        // C02 (audit UX 2026-09-05) : indicateur de qualité unique par
+        // option — densité matière (plus = mieux) + chute réutilisable ;
+        // l'ancien « {n}% utilisé » (emprise, moins = mieux) se lisait à
+        // l'envers.
+        'result.densityFull': 'Densité matière',
+        'result.densityShort': 'matière',
+        'result.offcutShort': 'chute {w} × {h}',
+        'result.whyFirst': 'Proposée en premier — plus grande chute propre',
         // §2.2d : tôles + chute réutilisable par tôle dans le sélecteur.
         'result.sheetsCount': '{n} tôles',
         'result.sheetsCountOne': '1 tôle',
@@ -1139,6 +1177,7 @@ const dict = {
         'auth.toggleToLogin': 'Déjà un compte ? Connexion',
         'auth.toggleToRegister': 'Pas de compte ? Inscrivez-vous',
         'auth.errorGeneric': 'Une erreur est survenue. Veuillez réessayer.',
+        'auth.rateLimited': 'Trop de tentatives échouées. Réessayez dans {n} min.',
 
         // ── Vérification d'email & newsletter ──
         'auth.newsletterOptIn': 'Je veux être tenu informé des nouveautés de NestorCut (newsletter facultative, désinscription à tout moment).',
