@@ -178,3 +178,15 @@ P8 (STRtree + dry-run lattice) promu au lot 2 ou 4, mesure de référence
 4. Déploiement NON fait — attend GO. Procédure : build images +
    `assert_images_head.sh`, corpus vert sur images publiées, e2e 0,1/2/4,
    qa-c01 ×2, qa-c02c03.
+
+## Déploiement (2026-09-05, 18h30 UTC)
+
+GO du vérificateur reçu (§5 du plan correctif). Procédure habituelle :
+
+- push `4fb25cd` → workflow « Build and publish Docker images » `33977243648` success ;
+- images publiées tirées localement, `assert_images_head.sh` : **OK** (worker + wasm + bundle JS = HEAD) ;
+- sur ces bits : corpus **11/11** (T-A [587, 313] bit-identique), e2e 0,1/2 exit 0
+  (onglets 55,4 % matière ×2), refus 4 mm GO 2,2 s, `qa-c01` ×2 OK, `qa-c02c03` 18/18 ;
+- Hetzner : `df -h` 18 Go libres vérifiés AVANT pull, `docker compose pull && up -d`,
+  `livedeco.py` md5 prod == HEAD, conteneurs Up, logs propres ;
+- smoke prod : `/` 200, `/auth/local` 200, API vivante.
