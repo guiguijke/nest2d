@@ -39,6 +39,10 @@ def _layouts():
     # rangée légale (pas 32 mm > 30 + space 2).
     recv = {"container_id": 0, "placed_items": [
         {"item_id": 0, "transformation": {"rotation": 0, "translation": [200, 200]}},
+        # fan cible sur la RECEVEUSE : le relais sabotage va s'empiler
+        # DESSUS (chevauchement INTRA-tôle — les paires ne se jugent
+        # qu'au sein d'une même tôle, fix L2-ter).
+        {"item_id": 1, "transformation": {"rotation": 0, "translation": [700, 700]}},
     ]}
     donor = {"container_id": 0, "placed_items": [
         {"item_id": 1, "transformation": {"rotation": 0, "translation": [200 + 32 * k, 600]}}
@@ -56,12 +60,15 @@ def test_belt_restores_when_pass_degrades(monkeypatch):
     stats = {}
 
     def _evil_relay(layouts_, recv_i, candidates, items_by_id, bin_dims, space):
-        # pose la 1ʳᵉ candidate EN CHEVAUCHEMENT d'une fan restée en place
-        for pi in candidates:
-            pi["transformation"] = {"rotation": 0, "translation": [216.0, 600.0]}
+        # pose DEUX candidates AU MÊME POINT (700,700) : la fan cible de la
+        # receveuse est elle-même détachée (candidate) — le chevauchement
+        # vient donc de nouvelles-vs-nouvelles, intra-tôle.
+        placed = 0
+        for pi in candidates[:2]:
+            pi["transformation"] = {"rotation": 0, "translation": [700.0, 700.0]}
             layouts_[recv_i]["placed_items"].append(pi)
-            return 1
-        return 0
+            placed += 1
+        return placed
 
     monkeypatch.setattr(R, "_relay_candidates_in_bands", _evil_relay)
     moved = R.fill_residual_bands(layouts, ITEMS, BIN, 2.0, stats=stats,
@@ -102,8 +109,8 @@ def test_belt_passes_clean_pass(monkeypatch):
 def test_exact_overlap_area_measures_raw_rings():
     """La mesure exacte compte les chevauchements réels (anneaux bruts)."""
     dirty = _layouts()
-    dirty[1]["placed_items"].append(
-        {"item_id": 1, "transformation": {"rotation": 0, "translation": [216.0, 600.0]}})
+    dirty[0]["placed_items"].append(
+        {"item_id": 1, "transformation": {"rotation": 0, "translation": [700.0, 700.0]}})
     by_id = {i["id"]: i for i in ITEMS}
     clean = _exact(_layouts(), by_id)
     dirt = _exact(dirty, by_id)
