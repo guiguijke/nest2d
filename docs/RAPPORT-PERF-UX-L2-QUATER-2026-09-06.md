@@ -81,3 +81,45 @@ atteinte même sous charge résiduelle du banc). Cumul long tasks :
 3. La durée de ceinture en log et non en postPass : le verrou
    bit-identique interdit une mesure horloge dans stats — compromis
    documenté (la journée P8 lira les logs).
+
+
+## Addendum v2 (AE1/AE2/AE3 corrigés, 07:30-08:00 UTC)
+
+Les trois constats du vérificateur sont traités :
+
+**AE1** — ceinture JS : `j === i` + clé symétrique `min/max` + votre test
+adopté tel quel (`app/tests/belt_blindspot.test.js`, 2/2 — mesure
+complète 1 = mesure différentielle 1 dans les DEUX sens d'index).
+
+**AE2** — le test vitest est réécrit sur l'INVARIANT : la fan suit une
+pose propre, la physique mesurée autour d'elle = 0, le job tient.
+Plus aucune attente de raison de rollback (elle n'existe plus dans le
+code — la cascade remplace le rollback systématique).
+
+**AE3** — cascade + RE-RELAY. Mesure intermédiaire instructive : la
+cascade pure (donneuse → receveuse → rollback) donnait **0-2/8** de
+fusions — le diagnostic `recvCascade` persisté dans postPass montre
+POURQUOI : 4-10 fans par run échouent aux DEUX poses d'origine avec
+`mindist=0.000` des deux côtés (le lattice du relais a OCCUPÉ leur pose
+receveuse ; la donneuse est en contact aux mêmes coordonnées — le motif
+AD1 lui-même). Ces fans ont besoin d'une NOUVELLE pose : étape (3) de
+la cascade = **re-relay par batch** (`_fill_one_batch(free=échecs)`,
+UNE recherche de pas par tôle, receveuse puis donneuse — le re-relay
+par fan faisait repasser le gel navigateur à 0,7 s). Ne restent en
+rollback `restore-recv` que les vrais « plus de place » (1-3 fans,
+mindist=0 partout, aucun spot lattice).
+
+**Verrou chiffré du plan : FUSION 5/8** (comptes 557/343, 577/323×2,
+555/345 — référence 555±3/345±3), **0 écartée, 0 ceinturée**.
+`eval_corpus.py` affiche désormais `FUSION: acceptée n/N (x %)`.
+
+**Gel** (harnais du vérificateur) : 0,1 → **339 ms**, 2 → **355 ms**
+(le coût AE1 absorbé par : exemption trou jugée AVANT ringsOverlap —
+une fan nichée a sa bbox dans celle de l'hôte et le scan complet était
+inutile — + pré-filtre bbox par paire + re-relay en batch).
+
+**Verrous v2** : vitest **452/452** (+2 blindspot), pytest résiduels
+57/57 (suite complète : 225+1 au dernier passage docker), corpus
+**11/11** + FUSION 2/11 affichée (T-A@0,1 : fusion non requise à cet
+espacement), e2e 0,1/2 exit 0 (done 9-12 s), refus 4 mm GO 2,2 s,
+déterminisme replayUserBpp bit-identique, images = HEAD à chaque banc.
