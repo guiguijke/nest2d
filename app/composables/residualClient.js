@@ -1064,33 +1064,34 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
             // X1 : TOUTES les non-posées vont sur la DONNEUSE à leur pose
             // d'origine — jamais rendues sur la receveuse (poses
             // possiblement occupées par le lattice).
-            // AD1 (L2-quater, variante 2 du plan) : les non-posées
-            // d'origine RECEVEUSE RETOURNENT SUR LA RECEVEUSE à leur pose
-            // d'origine (validées par batch contre toute la receveuse,
-            // poses du lattice comprises) — JAMAIS sur la donneuse, où
-            // leurs coordonnées recouvraient des fans moteur sans jamais
-            // être testées (validateReturn exclut les rendues et ne juge
-            // pas les paires entre elles). Les non-posées d'origine
-            // donneuse suivent le chemin X1.2/Y2 (même tôle d'origine :
-            // l'exemption y est valide).
+            // AE3 (L2-quater, cascade du vérificateur) : les rendues
+            // d'origine RECEVEUSE tentent PIÈCE PAR PIÈCE (1) la DONNEUSE
+            // à leur pose d'origine (batch contre toute la donneuse),
+            // (2) sinon la RECEVEUSE (batch, le lattice a pu l'occuper),
+            // (3) sinon rollback tracé 'restore-recv'. Les rendues
+            // d'origine donneuse suivent X1.2/Y2 (même tôle : exemption
+            // entre-rendues valide).
             const recvIds = new Set(recvFree.map((pi) => pi))
-            const remainingRecv = []
             const remainingDonor = []
+            const remainingRecv = []
             for (const pi of remaining) {
                 pi.transformation = savedPoses.get(pi)
-                if (recvIds.has(pi)) {
-                    recv.placed_items.push(pi)
-                    remainingRecv.push(pi)
-                } else {
-                    donor.placed_items.push(pi)
-                    remainingDonor.push(pi)
-                }
+                donor.placed_items.push(pi)
+                if (recvIds.has(pi)) remainingRecv.push(pi)
+                else remainingDonor.push(pi)
             }
+            const [swD2, shD2] = sheetDimsOf(donor)
+            const [swR2, shR2] = sheetDimsOf(recv)
             let okRecv = true
-            if (remainingRecv.length) {
-                const [swR, shR] = sheetDimsOf(recv)
-                okRecv = validateBatch(remainingRecv, recv, partsById, swR, shR, space)
-                if (!okRecv) rollbackReason = 'restore-recv'
+            for (const pi of remainingRecv) {
+                if (validateBatch([pi], donor, partsById, swD2, shD2, space)) continue
+                donor.placed_items = (donor.placed_items || []).filter((x) => x !== pi)
+                recv.placed_items.push(pi)
+                if (validateBatch([pi], recv, partsById, swR2, shR2, space)) continue
+                recv.placed_items = (recv.placed_items || []).filter((x) => x !== pi)
+                okRecv = false
+                rollbackReason = 'restore-recv'
+                break
             }
             // Y2 (vérif tour 5) : les rendues DONNEUSE validées contre
             // TOUTE la donneuse.
@@ -1324,8 +1325,14 @@ export function exactOverlapArea(layouts, partsById, watchedTuples = null) {
                     const arr = cells.get(cx * 8192 + cy)
                     if (!arr) continue
                     for (const j of arr) {
-                        if (j <= i) continue
-                        const key = i * local.length + j
+                        // AE1 (L2-quater) : j === i (pas j <= i) — en mode
+                        // ciblé, une pièce NOUVELLE (index élevé : les poses
+                        // du lattice s'ajoutent en fin de liste) qui
+                        // recouvre une pièce ANCIENNE d'index inférieur
+                        // doit être comptée : c'est exactement le motif du
+                        // défaut. Dédoublonnage par clé symétrique.
+                        if (j === i) continue
+                        const key = Math.min(i, j) * local.length + Math.max(i, j)
                         if (seen.has(key)) continue
                         seen.add(key)
                         const ringsB = local[j].rings

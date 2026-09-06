@@ -47,6 +47,10 @@ def fiche(slug_prefix="bench-corpus-", since=None):
         requested = sum(int(f.get("count") or 0) for f in (j.get("files") or []))
         placed = j.get("placed")
         row = {"case": case, "slug": j["slug"], "status": j.get("status"),
+               "merged": next((a.get("report", {}).get("postPass", {})
+                          .get("mergedReceivers") or 0)
+                          for a in (j.get("alternatives") or [])
+                          if a.get("strategy") != "grid"),
                "placed": placed, "requested": requested}
         # Z2/Z5 : refus worker attendu (T-J semé) — statut error avec
         # unfit capacité AVANT le moteur, refund par worker_loop.
@@ -147,5 +151,11 @@ if __name__ == "__main__":
               f" | pp {json.dumps(r.get('postPass'), ensure_ascii=False)}")
         if r["verdict"] not in ("OK", "PARTIEL (attendu)", "REFUS (attendu)"):
             fails += 1
+    # AE3 (L2-quater) : taux d'acceptation de la FUSION inter-toles -
+    # verrou chiffe du verificateur (>= 4/8 sur T-A a space 2,
+    # reference 555+-3/345+-3, moved 400).
+    merged = sum(1 for r in rows if (r.get("merged") or 0) > 0)
+    if rows:
+        print(f"FUSION: acceptee {merged}/{len(rows)} ({100 * merged // max(1, len(rows))} %)")
     print(f"\nCORPUS: {len(rows) - fails}/{len(rows)} OK")
     sys.exit(1 if fails else 0)

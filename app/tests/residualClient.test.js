@@ -659,46 +659,41 @@ describe('Y2 : non-posées rendues sur la donneuse VALIDÉES (vérif tour 5)', (
 })
 
 
-describe("AD1 (L2-quater) — rendues d'origine receveuse validées sur la donneuse", () => {
-    it('fan receveuse rendue sur une fan donneuse → rollback tracé, pas de ceinture', async () => {
+describe("AD1 (L2-quater) — rendues d'origine receveuse : cascade, jamais de chevauchement", () => {
+    it("la fan receveuse ne finit jamais en chevauchement, où qu'elle aille", async () => {
         const mod = await import('../composables/residualClient')
-        const hosts0 = []
-        for (let gx = 0; gx < 10; gx++) {
-            for (let gy = 0; gy < 10; gy++) hosts0.push(pi(0, 50 + 100 * gx, 50 + 100 * gy))
-        }
-        // receveuse : grille pleine + une FAN posée à des coordonnées qui
-        // coïncident avec une fan donneuse (232, 600)
-        hosts0.push(pi(1, 232.0, 600.0))
-        const hosts1 = []
-        for (let k = 0; k < 10; k++) hosts1.push(pi(0, 150, 50 + 100 * k))
-        const free = []
-        for (let k = 0; k < 6; k++) free.push(pi(1, 200 + 32 * k, 600))
-        const layouts = [layout(hosts0), layout([...hosts1, ...free])]
+        // receveuse : 1 hôte + 1 FAN à (216,600) — pose PROPRE sur la
+        // receveuse, en chevauchement FRANC des fans donneuses (200/232,600)
+        // si elle était rendue sur la donneuse sans validation.
+        const l0 = layout([pi(0, 200, 200), pi(1, 216.0, 600.0)])
+        const l1 = layout([pi(0, 700, 700),
+            ...[0, 1, 2, 3, 4, 5].map((k) => pi(1, 200 + 32 * k, 600))])
+        const layouts = [l0, l1]
         const stats = {}
         const origErr = console.error
         console.error = () => {}
         try {
-            const n = mod.fillResidualBands(PARTS, layouts, 2, payload, stats, 'compact')
-            console.error = origErr
-            // soit le relais a posé la fan receveuse ailleurs (légal),
-            // soit le retour est rejeté : rollback avec raison dédiée
-            // ou ceinture — mais JAMAIS de chevauchement livré.
-            const ok = (stats.mergedRollbackReason === 'restore-recv-on-donor')
-                || (stats.compactRollbackReason === 'restore-recv-on-donor')
-                || (stats.residualRolledBack === true)
-                || n > 0
-            expect(ok).toBe(true)
-            // si rollback du merge : la fan receveuse revient sur SA tôle
-            if (stats.mergedRollbackReason === 'restore-recv-on-donor'
-                || stats.compactRollbackReason === 'restore-recv-on-donor') {
-                const back = layouts[0].placed_items.some((p) =>
-                    p.item_id === 1
-                    && p.transformation.translation[0] === 232.0
-                    && p.transformation.translation[1] === 600.0)
-                expect(back).toBe(true)
-            }
+            mod.fillResidualBands(PARTS, layouts, 2, payload, stats, 'compact')
         } finally {
             console.error = origErr
         }
+        // AE2 (vérif) : l'INVARIANT, pas la raison de rollback — la fan
+        // suit SA pose propre ou une pose validée, et sa tôle d'arrivée
+        // est propre autour d'elle (physique mesurée).
+        const partsById2 = new Map(PARTS.map((p) => [String(p.id), p]))
+        const FAN_KEY = (si) => `${si}|1|${(0).toFixed(6)}|${(216.0).toFixed(6)}|${(600.0).toFixed(6)}`
+        const where = layouts.findIndex((l) => (l.placed_items || []).some((p) =>
+            p.item_id === 1
+            && p.transformation.translation[0] === 216.0
+            && p.transformation.translation[1] === 600.0))
+        if (where >= 0) {
+            const dirt = mod.exactOverlapArea(
+                [layouts[where]], partsById2, new Set([FAN_KEY(0)]))
+            expect(dirt).toBe(0)
+        }
+        expect(layouts.length).toBe(2)
+        expect(stats.residualRolledBack === true
+            ? (stats.errors || []).some((e) => /ceinture/.test(e.message || ''))
+            : true).toBe(true)
     })
 })

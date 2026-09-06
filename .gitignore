@@ -77,3 +77,8 @@ workers/nesting/bench/out_*.svg
 workers/nesting/bench/out_*.png
 # Fixtures user : servent aux tests vitest (replayUserBpp, skipIf absent).
 !workers/nesting/bench/out_user_*.json
+
+# QA locaux (dumps bancs, captures, scripts jetables) — jamais commités
+.qa-pw/
+# spike : copie locale non suivie (wasm de dev, payloads)
+spike/

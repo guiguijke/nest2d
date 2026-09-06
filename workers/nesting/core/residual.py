@@ -840,31 +840,41 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
             # receveuses passent par _validate_batch : nouvelles contre
             # TOUTE la donneuse (rendues donneuses comprises) et entre
             # elles, bornes tôle comprises.
-            # Variante 2 du plan L2-quater : les rendues d'origine
-            # RECEVEUSE RETOURNENT sur la RECEVEUSE (elles y étaient
-            # légales avant la passe), validées par batch contre TOUTE la
-            # receveuse (poses du lattice comprises) et entre elles — si
-            # le lattice occupe leur place, rollback. Les rendues
-            # d'origine donneuse suivent le chemin X1.2/Y2 d'origine
-            # (leur pose était légale contre la donneuse intacte, et
-            # l'exemption des paires entre rendues y est valide : toutes
-            # viennent de la même tôle).
+            # AE3 (L2-quater, cascade du vérificateur) : les rendues
+            # d'origine RECEVEUSE tentent, PIÈCE PAR PIÈCE et sans
+            # rollback intégral :
+            #   (1) la DONNEUSE à leur pose d'origine, validée par batch
+            #       contre toute la donneuse (rendues donneuses comprises) ;
+            #   (2) sinon la RECEVEUSE à leur pose d'origine, validée par
+            #       batch (le lattice a pu l'occuper) ;
+            #   (3) sinon rollback complet tracé 'restore-recv'.
+            # La variante 2 pure annulait la fusion 7/8 (retour receveuse
+            # systématiquement occupé par le lattice). La cascade sauve le
+            # gain de la fusion ET ne livre jamais un chevauchement.
             donor_ids = {id(pi) for pi in donor_free}
             for pi in remaining:
                 pi["transformation"] = saved_poses[id(pi)]
-                if id(pi) in recv_free_ids and id(pi) not in donor_ids:
-                    recv["placed_items"].append(pi)
-                else:
-                    donor["placed_items"].append(pi)
+                donor["placed_items"].append(pi)
             remaining_recv = [pi for pi in remaining
                               if id(pi) in recv_free_ids
                               and id(pi) not in donor_ids]
-            if remaining_recv:
-                sw_r2, sh_r2 = bin_dims[recv["container_id"]]
-                if not _validate_batch(remaining_recv, recv, items_by_id,
-                                       sw_r2, sh_r2, space):
-                    rollback_reason = "restore-recv"
-                    raise _CompactRollback("restore")
+            sw_d2, sh_d2 = bin_dims[donor["container_id"]]
+            sw_r2, sh_r2 = bin_dims[recv["container_id"]]
+            recv_failed = []
+            for pi in remaining_recv:
+                if _validate_batch([pi], donor, items_by_id, sw_d2, sh_d2, space):
+                    continue  # tentée sur la donneuse : valide
+                donor["placed_items"] = [x for x in donor.get("placed_items", [])
+                                         if x is not pi]
+                recv["placed_items"].append(pi)
+                if _validate_batch([pi], recv, items_by_id, sw_r2, sh_r2, space):
+                    continue  # retournée sur la receveuse : valide
+                recv["placed_items"] = [x for x in recv.get("placed_items", [])
+                                        if x is not pi]
+                recv_failed.append(pi)
+            if recv_failed:
+                rollback_reason = "restore-recv"
+                raise _CompactRollback("restore")
             # Y2 : les rendues DONNEUSE ne doivent chevaucher aucune
             # pièce donneuse restante (l'exemption entre-rendues reste
             # valide : même tôle d'origine).
