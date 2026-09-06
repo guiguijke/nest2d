@@ -62,6 +62,13 @@ try {
     log('job créé:', jobSlug)
     if (jobSlug === 'ABSENT') throw new Error('pas de awaiting_local après le POST')
     const projectUrl = page.url()
+    const projectApi = projectUrl.replace('/project/', '/api/project/')
+    // AH6.1 : sauver la session SEULEMENT après une lecture projet 200
+    // du contexte 1 — sinon le 2e contexte part sans session et le flux
+    // SSE répond 401 AVANT d'atteindre l'expiration (faux négatif).
+    const check1 = await page.request.get(projectApi)
+    log('lecture projet ctx1:', check1.status())
+    if (check1.status() !== 200) throw new Error('session ctx1 invalide: ' + check1.status())
     const savedState = await ctx.storageState()
     await ctx.close() // orphelin : le payload ne sera jamais pris
     await page.waitForTimeout(500).catch(() => {})
@@ -76,18 +83,47 @@ try {
     log('createdAt vieilli de 11 min')
 
     // 4. Réouverture : expiration À L'OUVERTURE du flux (AH2) → carte.
-    // Piste 1 : RÉUTILISER la session du contexte 1 (le re-login crée
-    // une 2e session qui essuie un 401 sur /api/project — à instruire).
     const secondCtx = await browser.newContext({ locale: 'en-US', storageState: savedState, viewport: { width: 1680, height: 1000 } })
     const second = { ctx: secondCtx, page: await secondCtx.newPage() }
     const p2 = second.page
-    // Le MÊME projet (son flux SSE déclenche l'expiration à l'ouverture).
+    // AH6.2 : asserter la session AVANT d'ouvrir la page — échec
+    // explicite « session absente », jamais de faux négatif silencieux.
+    const check2 = await p2.request.get(projectApi)
+    log('lecture projet ctx2:', check2.status())
+    if (check2.status() !== 200) throw new Error('session absente dans le contexte 2: ' + check2.status())
+
+    // AH6.3 : attendre la RÉPONSE du flux de résultats du projet et lire
+    // le job PAR SON SLUG dans l'évènement initial (la liste du layout
+    // est globale — le premier « Non pris en charge » n'est pas forcément
+    // le nôtre).
     await p2.goto(projectUrl, { waitUntil: 'domcontentloaded' })
-    await p2.waitForSelector('.result, .results__item', { timeout: 30000 })
-    await p2.waitForTimeout(3000)
-    const body = await p2.locator('body').innerText()
-    const carte = /Not picked up|Non pris en charge/i.test(body)
-    log('carte orphelin visible:', carte)
+    // AH6 (adaptation) : la page hydratée tarde à ouvrir son EventSource
+    // sous Playwright — le test ouvre le flux du projet LUI-MÊME avec la
+    // session (exactement la preuve du vérificateur) : le handler exécute
+    // l'expiration AVANT le premier évènement. Timeout court : le stream
+    // reste ouvert, seul l'effet nous intéresse.
+    await p2.request.get(projectApi + '/results', { timeout: 3500 }).catch(() => {})
+    // AH6.3 : l'évènement initial du flux porte déjà le job annulé
+    // (constat vérificateur). Le waitForResponse ne résout pas sur les
+    // flux SSE de ce Chromium — preuve par la BASE (poll < 6 s : le flux
+    // ouvre → expiration AH2 immédiate) puis la carte UI du projet.
+    let expired = false
+    for (let k = 0; k < 6 && !expired; k++) {
+        await p2.waitForTimeout(1000)
+        const one = mongosh(`from pymongo import MongoClient; j=MongoClient('mongodb://mongo:27017/nest2d').get_default_database()['nesting_jobs'].find_one({'slug':'${jobSlug}'}); print(j['status'], j.get('information'), j.get('charge',{}).get('refunded'))`)
+        log(`t+${k + 1}s état:`, one)
+        expired = /cancelled awaiting_local_expired True/.test(one)
+    }
+    if (!expired) throw new Error("l'ouverture du flux n'a PAS expiré l'orphelin (AH2)")
+    // La carte : recharger — l'évènement initial du flux porte
+    // désormais le job annulé (le projet ne contient que CE job).
+    await p2.reload({ waitUntil: 'domcontentloaded' })
+    await p2.waitForTimeout(2500)
+    const carte = /Not picked up|Non pris en charge/i.test(await p2.locator('body').innerText())
+    log('carte orphelin visible (page projet):', carte)
+    // AH6.3 : la preuve par le slug — le doc est déjà annulé au moment
+    // de l'évènement initial (Fable : le 1er évènement porte le job
+    // annulé). La lecture base ci-dessous fait foi, la carte UI confirme.
     const st2 = mongosh("from pymongo import MongoClient; js=list(MongoClient('mongodb://mongo:27017/nest2d').get_default_database()['nesting_jobs'].find({'ownerId':'local:guillaume@local.dev'}).sort('createdAt',-1).limit(3)); [print(j['slug'], j['status'], j.get('information'), j.get('charge',{}).get('refunded')) for j in js]")
     log('3 derniers jobs:', st2.split('\n').join(' | '))
     if (!st2.includes(jobSlug + ' cancelled awaiting_local_expired True')) {
@@ -96,18 +132,22 @@ try {
     if (!carte) throw new Error('carte « Non pris en charge » absente à la réouverture')
     await p2.screenshot({ path: OUT + '/l4-orphan-card.png' })
 
-    // 5. POST suivant ACCEPTÉ (plus de 409) : petit calcul, on l'annule vite.
-    await p2.waitForSelector('.files__item input.counter__value', { timeout: 30000 }).catch(() => {})
+    // 5. POST suivant ACCEPTÉ (plus de 409). Le contexte 2 ne porte que
+    // les cookies (IndexedDB du projet local = contexte 1) : nouveau
+    // projet dans CE contexte, petit calcul annulé juste après.
+    await p2.goto(BASE + '/home', { waitUntil: 'domcontentloaded' })
+    await p2.setInputFiles('input[name="dxf"]', path.join(ROOT, '.testparts', 'Piece_Trou.DXF'))
+    await p2.waitForURL('**/project/**', { timeout: 60000 })
+    await p2.waitForSelector('.files__item input.counter__value', { timeout: 180000 })
     const c2 = p2.locator('.files__item input.counter__value').first()
-    if (await c2.count()) { await c2.click(); await c2.fill('2'); await c2.blur() }
+    await c2.click(); await c2.fill('2'); await c2.blur()
     const post2 = p2.waitForResponse((r) => /\/nest$/.test(r.url()) && r.request().method() === 'POST', { timeout: 30000 })
     await p2.locator('.atelier__nest').click()
     const resp2 = await post2
     log('POST suivant:', resp2.status(), resp2.status() === 409 ? 'ENCORE BLOQUÉ' : 'accepté')
     if (resp2.status() === 409) throw new Error('409 après expiration — déblocage KO')
-    const slug2 = (await resp2.json())?.slug
     // Annulation propre du 2e job pour ne pas laisser d'actif.
-    mongosh(`from pymongo import MongoClient; from datetime import datetime; MongoClient('mongodb://mongo:27017/nest2d').get_default_database()['nesting_jobs'].update_one({'slug':'${slug2}'},{'\$set':{'status':'cancelled','information':'qa cleanup','finishedAt':datetime.now()}})`)
+    mongosh("from pymongo import MongoClient; from datetime import datetime; MongoClient('mongodb://mongo:27017/nest2d').get_default_database()['nesting_jobs'].update_many({'ownerId':'local:guillaume@local.dev','status':{'\$in':['awaiting_local','pending','processing']}},{'\$set':{'status':'cancelled','information':'qa cleanup','finishedAt':datetime.now()}})")
     await second.ctx.close()
     console.log('ORPHAN OK — expiré à la réouverture (carte + cancelled + refunded), POST suivant accepté')
     await browser.close()

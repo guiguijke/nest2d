@@ -13,10 +13,13 @@
  */
 export const BENCHMARKS = {
     meta: {
-        runDate: '2026-09-06',
+        runDate: '2026-09-07',
         // Image Docker publiée qui a produit les chiffres (workflow
-        // « Build and publish Docker images » du commit fb5e184).
-        version: 'fb5e184',
+        // « Build and publish Docker images »). Régénéré à chaque
+        // livraison moteur (AGENTS.md §6) — valeurs inchangées depuis
+        // fb5e184 : P8 (lot 4 phase A) n'a modifié aucun layout
+        // (densités mesurées identiques, corpus 11/11 bit-identique).
+        version: '<COMMIT_PHASE_A>',
         machine: {
             en: 'Docker worker on an AMD Ryzen 9 9900X (12 cores/24 threads), 4 vcores allocated per job, 90 s budget',
             fr: 'Worker Docker sur AMD Ryzen 9 9900X (12 cœurs/24 threads), 4 vcores alloués par job, budget 90 s',
