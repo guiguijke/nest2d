@@ -139,11 +139,19 @@ export function hydrateLocalItem(item, record = null) {
 /** Hydrate une liste entière (SSE initial/update). Le mapper SSE ne porte
  * pas de marqueur local (contrat serveur inchangé) : la source de vérité
  * est le record IndexedDB — un record n'existe qu'après un solve local
- * réussi de CE slug. */
+ * réussi de CE slug. C05 (lot 3) : un job localOnly SANS record sur CET
+ * appareil a été calculé ailleurs — marqué `localElsewhere` pour que la
+ * carte dise « autre appareil » au lieu de « 0 tôles + Download All ». */
 export async function hydrateLocalItems(items) {
     if (!Array.isArray(items) || !items.length) return items
     if (!isLocalComputeEnabled()) return items
     await loadLocalRecords()
-    if (!recordsBySlug || !Object.keys(recordsBySlug).length) return items
-    return items.map((i) => (i && getLocalRecord(i.slug) ? hydrateLocalItem(i) : i))
+    if (!recordsBySlug || !Object.keys(recordsBySlug).length) {
+        return items.map((i) => (i?.localOnly ? { ...i, localElsewhere: true } : i))
+    }
+    return items.map((i) => {
+        if (!i) return i
+        if (getLocalRecord(i.slug)) return hydrateLocalItem(i)
+        return i.localOnly ? { ...i, localElsewhere: true } : i
+    })
 }

@@ -36,12 +36,29 @@
             </button>
         </template>
         <template v-else>
-            <div v-if="isResultFailed" class="result__placeholder" :title="result.information || undefined">
+            <!-- C09 (lot 3) : un refus capacité (unfit reason=capacity) est
+                 une VÉRITÉ produit, pas un « Nesting failed » fantôme — la
+                 carte dit « ne tient pas », le panneau de la page porte les
+                 leviers chiffrés. -->
+            <div
+                v-if="isResultFailed"
+                class="result__placeholder"
+                :title="isCapacityRefusal ? t('nest.capacity.title') : (result.information || undefined)"
+            >
                 {{ failureTitle }}
             </div>
             <template v-else>
+                <!-- C05 : job localOnly calculé sur un autre appareil —
+                     aperçu explicite, pas une rangée vide. -->
                 <div
-                    v-if="!result.purgedAt"
+                    v-if="result.localElsewhere"
+                    class="result__placeholder result__placeholder--elsewhere"
+                    :title="t('results.otherDeviceHint')"
+                >
+                    {{ t('results.otherDevice.short') }}
+                </div>
+                <div
+                    v-else-if="!result.purgedAt"
                     :class="svgRowClasses"
                     class="result__svg-row"
                 >
@@ -85,9 +102,11 @@
                     @click="openReport"
                 />
                 <!-- Job serveur : href GridFS. Job local (J-082) : contenus
-                     persistés en IndexedDB, téléchargement 100 % navigateur. -->
+                     persistés en IndexedDB, téléchargement 100 % navigateur.
+                     C05 : job localOnly calculé ailleurs — RIEN à télécharger
+                     ici (l'ancien « Download All » sans contenu masqué). -->
                 <MainButton
-                    v-if="isResultCompleted && !isLocal && !result.purgedAt"
+                    v-if="isResultCompleted && !isLocal && !result.purgedAt && !result.localElsewhere"
                     :href="downloadUrl"
                     :label="downloadButtonText"
                     tag="a"
@@ -136,7 +155,7 @@ const props = defineProps({
 
 const emit = defineEmits(["openModal"]);
 
-const { t } = useLocale();
+const { t, fmtPercent } = useLocale();
 
 // Cancel a running nesting: asks the API to flag the job; the worker kills
 // the engine within ~2s and the SSE stream updates the card to failed with
@@ -274,20 +293,32 @@ const isNoFit = computed(() => {
     const info = String(props.result?.information || '')
     return /no feasible solution|Not all items could be placed/i.test(info)
 })
+// C09 : refus capacité (422 API ou refus navigateur refundé) — la carte
+// étiquette « ne tient pas », jamais « Nesting failed ».
+const isCapacityRefusal = computed(() =>
+    props.result?.unfit?.reason === 'capacity')
 const failureTitle = computed(() =>
-    isNoFit.value ? t('result.failed.nofit') : t('result.failed')
-)
+    isCapacityRefusal.value ? t('results.unfit')
+    : isNoFit.value ? t('result.failed.nofit') : t('result.failed'))
 
 const resultTitle = computed(() => {
     if (isResultFailed.value) {
+        // C09 : un seul titre + LA cause — refus capacité disait
+        // « Nesting failed » sans raison.
+        if (isCapacityRefusal.value) return t('nest.capacity.title')
         return isNoFit.value ? t('result.failed.nofitHint') : t('result.failed')
+    }
+    // C05 (lot 3) : job calculé dans le navigateur d'un AUTRE appareil —
+    // la géométrie n'existe pas ici : message explicite, pas « 0 tôles ».
+    if (props.result?.localElsewhere) {
+        return t('results.otherDevice')
     }
     const alt = primaryAlt.value
     // AA1 (vérif L1 2026-09-05) : densité MESURÉE du rapport vérifié —
     // même définition pour toutes les options ; plus jamais « % used ».
     const densityPct = altDensityPctOf(alt)
     const densityLabel = densityPct != null
-        ? `${densityPct.toFixed(1)}% ${t('result.densityShort')}`
+        ? `${fmtPercent(densityPct)} ${t('result.densityShort')}`
         : t('results.title')
     const sheetN = alt?.layoutCount
         || (props.result?.isMultiSheet ? (props.result?.svgs?.length || 0) : 1)
@@ -421,6 +452,15 @@ const onDownload = () => {
         max-width: 120px;
         height: auto;
         min-height: 40px;
+    }
+
+    // C05 : état « autre appareil » — discret, pas une erreur (la géométrie
+    // n'a jamais quitté l'appareil qui a calculé : comportement attendu du
+    // mode privé).
+    &__placeholder--elsewhere {
+        background-color: var(--fill-tertiary);
+        border-color: var(--separator-secondary);
+        font-weight: 600;
     }
 
     &__name {

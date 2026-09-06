@@ -47,4 +47,30 @@ describe('capacityPanelModel', () => {
         expect(capacityPanelModel({}, {})).toBeNull()
         expect(capacityPanelModel({ reason: 'capacity' }, {})).toBeNull()
     })
+
+    // C04 (lot 3) : levier « réduire l'espacement » MASQUÉ sous 0,5 mm —
+    // plus de bouton illusoire, la phrase « même sans espacement » prend
+    // le relais (noSpacingGain).
+    it('masque le levier et pose noSpacingGain quand space ≤ 0,5 mm', () => {
+        const m = capacityPanelModel(unfit, { sheets: [], spaceMm: 0.3 })
+        expect(m.reduceSpacingToMm).toBeNull()
+        expect(m.noSpacingGain).toBe(true)
+        // Le levier chiffré reste affiché (information utile).
+        expect(m.levers.maxSpacingMm).toBe(2.1)
+    })
+
+    it('kerf explicite : cible ≤ kerf → levier masqué (on ne coupe pas dans l’outil)', () => {
+        const m = capacityPanelModel(unfit, { sheets: [], spaceMm: 4, kerfMm: 2.5 })
+        expect(m.reduceSpacingToMm).toBeNull()
+        expect(m.noSpacingGain).toBe(true)
+        // Cible au-dessus du kerf → levier visible.
+        const ok = capacityPanelModel(unfit, { sheets: [], spaceMm: 4, kerfMm: 1 })
+        expect(ok.reduceSpacingToMm).toBe(2.1)
+        expect(ok.noSpacingGain).toBeFalsy()
+    })
+
+    it('espacement confortable : pas de phrase plancher', () => {
+        const m = capacityPanelModel(unfit, { sheets: [], spaceMm: 4 })
+        expect(m.noSpacingGain).toBeFalsy()
+    })
 })

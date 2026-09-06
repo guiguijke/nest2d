@@ -9,7 +9,7 @@
                     class="content__chip"
                 />
             </div>
-            <p v-if="!isDemo && filesCount > 0" class="content__count">{{ t('project.files', { n: filesCount }) }}</p>
+            <p v-if="!isDemo && filesCount > 0" class="content__count">{{ t('project.partsFiles', { parts: filesCount, files: projectFilesCount }) }}</p>
         </header>
         <p v-if="privacyStatus" class="content__privacy">{{ privacyStatus }}</p>
         <div v-if="isDemo" class="demo-banner">
@@ -29,19 +29,25 @@
                     <h2 class="stage__title">
                         {{ stageHeading }}
                         <span v-if="localComputeRunning" class="stage__meta">
-                            {{ Number(localElapsed).toFixed(1) }}s
-                            <template v-if="localWalks > 1">
-                                · ×{{ localWalks }} {{ t('live.walks') }}
-                            </template>
+                            · {{ fmtElapsed(localElapsed) }}
                         </span>
                     </h2>
+                    <!-- C10/C28 : UNE ligne d'état pendant le calcul — temps
+                         écoulé, meilleur score, nombre de recherches en
+                         parallèle, arrêt automatique ; la mention remplissage
+                         des trous (le live ne le montre plus depuis AA4). -->
                     <p v-if="localComputeRunning" class="stage__status">
-                        {{ t(isLocalProject ? 'localCompute.runningLocal' : 'localCompute.running') }}
-                        <span v-if="localZonePhase" class="stage__zone">
-                            · {{ t('localCompute.zone', { zone: localZonePhase.zone, attempt: localZonePhase.attempt, attempts: localZonePhase.attempts, step: localZonePhase.step || 1, steps: localZonePhase.steps || 1 }) }}
-                        </span>
-                        <span v-else-if="localQueued" class="stage__zone">
-                            · {{ t('localCompute.queued') }}
+                        <template v-if="localZonePhase">
+                            {{ t('localCompute.zone', { zone: localZonePhase.zone, attempt: localZonePhase.attempt, attempts: localZonePhase.attempts, step: localZonePhase.step || 1, steps: localZonePhase.steps || 1 }) }}
+                            ·
+                        </template>
+                        <template v-else-if="localQueued">
+                            {{ t('localCompute.queued') }}
+                            ·
+                        </template>
+                        {{ statusLine }}
+                        <span v-if="holesFillNote" class="stage__holes">
+                            · {{ t('live.holesNote') }}
                         </span>
                     </p>
                 </div>
@@ -95,53 +101,65 @@
                         {{ t('nest.computing') }}
                     </template>
                 </MainButton>
+                <!-- Z1/C04 : refus capacité (422 API ou refus navigateur) —
+                     UN SEUL panneau, ancré sous le bouton Nest qui a déclenché
+                     l'action (plus un scrollIntoView pour l'amener à l'écran
+                     sur petit viewport). -->
+                <div
+                    v-if="capacityPanel"
+                    ref="capacityPanelEl"
+                    class="capacity-panel"
+                    data-testid="capacity-panel"
+                >
+                    <div class="capacity-panel__title">{{ t('nest.capacity.title') }}</div>
+                    <ul class="capacity-panel__levers">
+                        <li v-if="capacityPanel.levers.sheetsNeeded">
+                            {{ t('report.unfit.sheetsNeeded', { n: capacityPanel.levers.sheetsNeeded }) }}
+                        </li>
+                        <li v-if="capacityPanel.levers.maxParts != null">
+                            {{ t('report.unfit.maxParts', { n: capacityPanel.levers.maxParts }) }}
+                        </li>
+                        <li v-if="capacityPanel.levers.maxSpacingMm != null">
+                            {{ t('report.unfit.maxSpacing', { v: capacityPanel.levers.maxSpacingMm }) }}
+                        </li>
+                    </ul>
+                    <!-- C04 : espacement déjà au plancher (≤ 0,5 mm) ou kerf
+                         bloquant — le levier est masqué, la phrase dit
+                         pourquoi. -->
+                    <p v-if="capacityPanel.noSpacingGain" class="capacity-panel__floor">
+                        {{ t('nest.capacity.noSpacingGain') }}
+                    </p>
+                    <div class="capacity-panel__actions">
+                        <MainButton
+                            v-if="capacityPanel.nextSheets"
+                            :label="t('report.unfit.addSheet')"
+                            :size="sizeType.s"
+                            :theme="themeType.primary"
+                            data-testid="capacity-add-sheet"
+                            @click="onCapacityAddSheet"
+                        />
+                        <MainButton
+                            v-if="capacityPanel.reduceSpacingToMm != null"
+                            :label="t('report.unfit.reduceSpacing', { v: capacityPanel.reduceSpacingToMm })"
+                            :size="sizeType.s"
+                            :theme="themeType.secondary"
+                            data-testid="capacity-reduce-spacing"
+                            @click="onCapacityReduceSpacing"
+                        />
+                        <MainButton
+                            :label="t('nest.capacity.retry')"
+                            :size="sizeType.s"
+                            :theme="themeType.secondary"
+                            data-testid="capacity-retry"
+                            @click="startsNest"
+                        />
+                    </div>
+                </div>
                 <FreeNestBanner v-if="!isDemo" />
             </aside>
         </section>
         <div v-if="localComputeError" class="content__error">
             {{ localErrorText }}
-        </div>
-        <!-- Z1 (vérif 2026-09-05) : refus capacité (422 API ou refus
-             navigateur) — les trois leviers chiffrés + actions, pas une
-             ligne générique. -->
-        <div v-if="capacityPanel" class="capacity-panel" data-testid="capacity-panel">
-            <div class="capacity-panel__title">{{ t('nest.capacity.title') }}</div>
-            <ul class="capacity-panel__levers">
-                <li v-if="capacityPanel.levers.sheetsNeeded">
-                    {{ t('report.unfit.sheetsNeeded', { n: capacityPanel.levers.sheetsNeeded }) }}
-                </li>
-                <li v-if="capacityPanel.levers.maxParts != null">
-                    {{ t('report.unfit.maxParts', { n: capacityPanel.levers.maxParts }) }}
-                </li>
-                <li v-if="capacityPanel.levers.maxSpacingMm != null">
-                    {{ t('report.unfit.maxSpacing', { v: capacityPanel.levers.maxSpacingMm }) }}
-                </li>
-            </ul>
-            <div class="capacity-panel__actions">
-                <MainButton
-                    v-if="capacityPanel.nextSheets"
-                    :label="t('report.unfit.addSheet')"
-                    :size="sizeType.s"
-                    :theme="themeType.primary"
-                    data-testid="capacity-add-sheet"
-                    @click="onCapacityAddSheet"
-                />
-                <MainButton
-                    v-if="capacityPanel.reduceSpacingToMm != null"
-                    :label="t('report.unfit.reduceSpacing', { v: capacityPanel.reduceSpacingToMm })"
-                    :size="sizeType.s"
-                    :theme="themeType.secondary"
-                    data-testid="capacity-reduce-spacing"
-                    @click="onCapacityReduceSpacing"
-                />
-                <MainButton
-                    :label="t('nest.capacity.retry')"
-                    :size="sizeType.s"
-                    :theme="themeType.secondary"
-                    data-testid="capacity-retry"
-                    @click="startsNest"
-                />
-            </div>
         </div>
         <div v-if="isDemo && demoQuotaReached && !demoUnlimited" class="content__error">
             {{ t('demo.quotaEmpty') }}
@@ -201,7 +219,7 @@ definePageMeta({
     middleware: "auth",
 });
 
-const { t } = useLocale()
+const { t, fmtPercent } = useLocale()
 // Part dims arrive in canonical mm; sheet params are display-unit strings —
 // displayToMm normalizes them for the fit check.
 const { unit, unitLabel, fmtLengthValue, displayToMm } = useUnit()
@@ -267,6 +285,11 @@ const runningJob = computed(() => {
     return hasActiveJob(unref(pageSlug)) ? { isInProgress: true } : null
 });
 const runningCores = computed(() => {
+    // C10 : un job LOCAL n'a pas de `compute` côté SSE (awaiting_local) —
+    // les cœurs réels sont le pool de walks du navigateur.
+    if (unref(localComputeRunning)) {
+        return Math.min(8, Math.max(1, Number(unref(localWalks)) || 1));
+    }
     const n = unref(runningJob)?.compute?.vcores;
     return Math.min(8, Math.max(1, Number(n) || 1));
 });
@@ -415,6 +438,8 @@ const { getters: filesGetters, actions } = filesStore;
 const params = computed(() => filesGetters.params);
 const { setProjectFiles, setProjectName, nest, getProject, consumePendingLocalFiles, resetLastParams } = actions;
 const filesCount = computed(() => filesGetters.filesCount);
+// C06 : « 900 pièces · 2 fichiers » — les deux compteurs honnêtes.
+const projectFilesCount = computed(() => (filesGetters.projectFiles || []).length);
 const isNewParams = computed(() => filesGetters.isNewParams);
 const nestRequestError = computed(() => filesGetters.nestRequestError);
 // R-2 (audit 2026-08-31 §R-1) : erreur de soumission (409 concurrent_limit,
@@ -477,11 +502,14 @@ const applyDemoDefaults = () => {
             ...sheetDims(sheet),
             count: String(sheet.count),
         })),
-        space: mmToDisp(DEMO_SPACE_MM),
+        // B.4 : la démo règle les deux causes de l'espacement (kerf nul +
+        // sécurité 1 mm) — l'effectif DEMO_SPACE_MM (2 mm) est reconstitué
+        // par updateKerfSafety, pas écrit en dur.
         addOutShape: false,
         fillHoles: true,
         rotationCount: 4,
     });
+    actions.updateKerfSafety({ kerf: '0', safety: mmToDisp(DEMO_SPACE_MM / 2) });
     // Cloisonnement projets : ces curated defaults ne valent que pour la
     // PREMIÈRE visite de la démo — setProjectFiles ne les écrasera pas
     // (drapeau), mais au retour c'est le snapshot utilisateur qui gagne.
@@ -510,6 +538,30 @@ const stageHeading = computed(() => {
     if (unref(stageLive)) return t('live.title')
     return t('live.ready')
 });
+
+// C10/C28 : ligne d'état du calcul local — « Recherche · 22 s · meilleur
+// 55,4 % · 4 recherches en parallèle · arrêt automatique dès stagnation ».
+const fmtElapsed = (sec) => {
+    const n = Number(sec) || 0;
+    if (n < 60) return `${n.toFixed(0)} s`;
+    const min = Math.floor(n / 60);
+    return `${min} min ${String(Math.floor(n % 60)).padStart(2, '0')}`;
+};
+const bestDensityPct = computed(() => {
+    const d = unref(localLive)?.liveLayout?.density;
+    return (typeof d === 'number' && d > 0) ? d * 100 : null;
+});
+const statusLine = computed(() => {
+    const score = unref(bestDensityPct);
+    const n = Math.max(1, Number(unref(localWalks)) || 1);
+    const time = fmtElapsed(unref(localElapsed));
+    return score != null
+        ? t('live.statusLine', { time, score: fmtPercent(score), n })
+        : t('live.statusLine.noScore', { time, n });
+});
+// AA4/C28 : la vue live ne montre pas le remplissage des trous (il arrive
+// au post-pass du résultat final) — le dire tant que le réglage est actif.
+const holesFillNote = computed(() => unref(params)?.fillHoles !== false);
 
 const idleSheet = computed(() => {
     const s = unref(currentSheets)[0] || { width: 1000, height: 2000 }
@@ -594,6 +646,7 @@ const btnLabel = computed(() => {
 // aucun quota consommé) ou refus navigateur (localUnfit, job refundé).
 // ---------------------------------------------------------------------------
 const nestUnfit = computed(() => filesGetters.nestUnfit);
+const capacityPanelEl = ref(null);
 const capacityPanel = computed(() => {
     const unfit = (localComputeError.value === 'capacity_exceeded' && localUnfit.value)
         || unref(nestUnfit)
@@ -601,9 +654,19 @@ const capacityPanel = computed(() => {
     if (!unfit) return null;
     const p = unref(params);
     const spaceNum = Number(String(p.space ?? '0').replace(',', '.')) || 0;
+    const kerfNum = Number(String(p.kerf ?? '0').replace(',', '.')) || 0;
     return capacityPanelModel(unfit, {
         sheets: unref(currentSheets),
         spaceMm: displayToMm(spaceNum),
+        kerfMm: displayToMm(kerfNum),
+    });
+});
+// C04 : le panneau est ancré sous le bouton Nest — sur un petit viewport il
+// peut quand même naître hors écran : on l'amène à l'écran une fois.
+watch(capacityPanel, (v) => {
+    if (!v) return;
+    requestAnimationFrame(() => {
+        capacityPanelEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     });
 });
 const onCapacityAddSheet = () => {
@@ -616,9 +679,16 @@ const onCapacityAddSheet = () => {
 const onCapacityReduceSpacing = () => {
     const mm = unref(capacityPanel)?.reduceSpacingToMm;
     if (mm == null) return;
-    const disp = mmToDisplay(mm, unit.value);
-    actions.updateParams({
-        space: unit.value === 'inch' ? String(Math.round(disp * 1000) / 1000) : String(disp),
+    const p = unref(params);
+    // B.4 : le levier réduit la SÉCURITÉ — le kerf décrit l'outil physique,
+    // on n'y touche pas. Effectif cible = kerf + 2 × nouvelle sécurité ;
+    // si la cible ne permet même pas le kerf, le levier est masqué en
+    // amont (capacityPanel), on ne fait rien ici.
+    const kerfMm = displayToMm(Number(String(p.kerf ?? '0').replace(',', '.')) || 0);
+    if (mm <= kerfMm) return;
+    const disp = mmToDisplay((mm - kerfMm) / 2, unit.value);
+    actions.updateKerfSafety({
+        safety: unit.value === 'inch' ? String(Math.round(disp * 10000) / 10000) : String(disp),
     });
     localComputeError.value = null;
     actions.dismissNestUnfit();
@@ -736,6 +806,14 @@ const startsNest = () => {
         font-size: 13px;
         line-height: 1.6;
         color: var(--label-secondary);
+    }
+
+    &__floor {
+        margin: 10px 0 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--label-secondary);
+        font-style: italic;
     }
 
     &__actions {

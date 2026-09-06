@@ -70,6 +70,14 @@
                         Changelog
                     </NuxtLink>
                 </li>
+                <li class="list__item">
+                    <NuxtLink
+                        to="/benchmarks"
+                        class="list__link"
+                    >
+                        Benchmarks
+                    </NuxtLink>
+                </li>
             </ul>
             <div class="footer__meta">
                 <p class="footer__copyright">

@@ -158,6 +158,12 @@ const dict = {
         'settings.units': 'units',
         'settings.spacing': 'Spacing',
         'settings.spacingKerf': 'Spacing below 0.05 mm: thinner than a laser kerf — parts may touch or micro-overlap at cutting.',
+        // B.4 / masterplan 3.10 : kerf et sécurité explicites — l'espacement
+        // effective envoyée au moteur vaut toujours kerf + 2 × sécurité.
+        'settings.kerf': 'Kerf (cut width)',
+        'settings.safety': 'Safety (margin per part)',
+        'settings.spacingRule': 'Part-to-part spacing = kerf + 2 × safety = {v} {unit}',
+        'settings.spacingHolesDisabled': 'Above 2.4 mm spacing, nesting inside cutouts is disabled (engine limit).',
         'settings.sheetPreset.hint': 'Standard sheet size',
         'units.label': 'Measurement units',
         'units.mm': 'Millimeters (mm)',
@@ -178,15 +184,16 @@ const dict = {
         'sheet.axisY': 'Y',
         'demo.quotaEmpty': 'You have used all your demo nestings for this month — try again next month, or upload your own DXF files.',
         'settings.noRotation': 'No rotation (0° only)',
-        'settings.nestFiles': 'Nest {n} files',
+        // C06 : le bouton compte des PIÈCES (somme des quantités), pas des fichiers.
+        'settings.nestFiles': 'Nest {n} parts',
         'settings.directions': 'Layout directions',
-        'settings.directions.help': 'Each direction is a full optimization along the sheet axes (origin on the drawing): towards –X (width), towards –Y (length), or a mix. Fewer directions = faster result.',
-        'settings.directions.left': '–X',
-        'settings.directions.leftHint': 'Towards –X (width / left edge of the sheet — follow the X arrow)',
-        'settings.directions.bottom': '–Y',
-        'settings.directions.bottomHint': 'Towards –Y (length / bottom edge of the sheet — follow the Y arrow)',
-        'settings.directions.balanced': 'Mixed',
-        'settings.directions.balancedHint': 'Balanced mix of –X and –Y',
+        'settings.directions.help': "Each direction packs the parts towards one edge of the sheet (in the drawing's coordinate system): left edge (X = 0), bottom edge (Y = 0), or a balanced mix. Fewer directions = faster result.",
+        'settings.directions.left': 'Left edge',
+        'settings.directions.leftHint': "Towards the left edge of the sheet (X = 0), in the drawing's axes — follow the arrow",
+        'settings.directions.bottom': 'Bottom edge',
+        'settings.directions.bottomHint': "Towards the bottom edge of the sheet (Y = 0), in the drawing's axes — follow the arrow",
+        'settings.directions.balanced': 'Balanced',
+        'settings.directions.balancedHint': 'Balanced mix of both edges (X and Y)',
         'settings.directions.freeHint': 'Your plan includes 1 direction per nesting — run 3 nestings to compare all 3.',
         'settings.demoPower': 'Demo power',
         'settings.demoPower.help': 'The demo lets you try Free, Unlimited and Pro parallelism on this device — it does not change your real plan.',
@@ -206,6 +213,8 @@ const dict = {
         // Z1 (vérif 2026-09-05) : bandeau refus capacité (leviers + actions).
         'nest.capacity.title': 'These parts do not fit the declared sheets at this spacing.',
         'nest.capacity.retry': 'Retry',
+        // C04 : levier espacement masqué au plancher — la phrase explique.
+        'nest.capacity.noSpacingGain': 'Even with zero spacing these parts do not fit — add a sheet or remove parts.',
         // Purge 24 h (D-PRV-10) : états « expiré » (la phrase live est privacy.status.*).
         'results.expired': 'Expired (24 h purge)',
         'files.expired': 'Expired (24 h purge) — re-upload this file to nest it again',
@@ -289,6 +298,10 @@ const dict = {
         'live.score': 'density',
         'live.scoreTitle': 'Sheet utilization of the current best layout',
         'live.waiting': 'Searching for a first layout…',
+        // C10/C28 (lot 3) : ligne d'état pendant le calcul local.
+        'live.statusLine': 'Searching · {time} · best {score} · {n} search(es) in parallel · auto-stops at stagnation',
+        'live.statusLine.noScore': 'Searching · {time} · {n} search(es) in parallel · auto-stops at stagnation',
+        'live.holesNote': 'parts nested inside cutouts appear in the final result',
         'nest.coresTitle': '{n} compute core(s) at work',
         'alts.strategy.left': '–X',
         'alts.strategy.bottom': '–Y',
@@ -324,11 +337,6 @@ const dict = {
         // le badge « n pièces non placées ».
         'report.partial.title': 'Partial layout — {n} parts not placed',
         'report.partial.detail': 'Everything placed fits and is cuttable; to nest the rest:',
-        'localMode.allInvalid': 'Every layout option was rejected by physical validation (measured overlaps). The nesting was refunded — please retry in server mode.',
-        'localMode.capacityExceeded': 'These parts do not fit the declared sheets at this spacing — add a sheet, reduce the spacing or remove parts. The nesting was refunded.',
-        'report.unplaced': '{n} parts not placed (tight stock)',
-        'report.duplicates': '{n} duplicate poses',
-        'report.postPass': 'Post-pass: {n} moved{rb}{e}',
         // C12 (audit UX 2026-09-05) : honnête — ce sont les itérations du
         // recuit moteur, pas des « combinaisons » comparables entre modes.
         'report.iterations': '{n} iterations',
@@ -364,6 +372,8 @@ const dict = {
         'project.new': 'New project',
         'project.empty': 'Your projects will be here',
         'project.files': 'Files: {n}',
+        // C06 : compteur honnête de la zone fichiers — pièces ET fichiers.
+        'project.partsFiles': '{parts} parts · {files} files',
         'project.needFiles': 'Select at least one file to nest.',
         'project.invalidParams': 'Enter valid values for every sheet (width, height, count) and spacing.',
         'project.result': 'result',
@@ -390,8 +400,11 @@ const dict = {
         'parts.count': '{n} parts: ',
 
         'results.title': 'Results',
-        'results.unfit': 'Ne tient pas — non découpable',
         'results.unfit': 'Does not fit — not cuttable',
+        // C05 (lot 3) : job localOnly calculé sur un autre appareil.
+        'results.otherDevice': 'Computed on another device — results not available here',
+        'results.otherDevice.short': 'Other device',
+        'results.otherDeviceHint': 'This nesting ran in the browser of another device. Its files never left that device — run the nesting again here to get the layouts.',
         'results.all': 'All results',
         'results.empty': 'Your nested results will be here',
         'results.download': 'Download',
@@ -575,6 +588,32 @@ const dict = {
         'auth.errorGeneric': 'Something went wrong. Please try again.',
         // A2 (audit compte 2026-09-05) : message rate-limit traduit avec le délai.
         'auth.rateLimited': 'Too many failed attempts. Try again in {n} min.',
+        // 3.1.3 (lot 3) : codes d'erreur stables → clés i18n.
+        'auth.error.invalid_email': 'This email address is not valid.',
+        'auth.error.name_required': 'Please enter your name.',
+        'auth.error.password_too_short': 'The password must be at least 8 characters.',
+        'auth.error.password_required': 'Please enter your password.',
+        'auth.error.email_taken': 'An account already exists with this email — log in instead.',
+        'auth.error.invalid_credentials': 'Wrong email or password.',
+        'auth.error.account_suspended': 'This account has been suspended. Contact support.',
+        'auth.error.fields_required': 'Please fill in your email and password.',
+        'auth.error.auth_disabled': 'Email login is currently unavailable.',
+        'auth.showPassword': 'Show password',
+        'auth.hidePassword': 'Hide password',
+        'auth.legalPrefix': 'By creating an account, you accept our',
+        'auth.legalTerms': 'Terms and Conditions',
+        'auth.legalAnd': 'and',
+        'auth.legalPrivacy': 'Privacy Policy',
+        // 3.1.5 (lot 3) : bannière e-mail non vérifié.
+        'verify.banner': 'Your email is not verified yet — nesting stays locked until you click the link we sent to {email}.',
+        'verify.bannerResend': 'Resend the email',
+        'verify.bannerResent': 'Email sent again ✓',
+        'verify.badge': 'Verified ✓',
+        // A8/3.1.6 : échec connexion Google (callback ?auth_error=…).
+        'auth.googleError.exchange_failed': 'Google sign-in failed — please try again.',
+        'auth.googleError.access_denied': 'Google sign-in was canceled.',
+        'auth.googleError.no_email': 'Your Google account exposes no email address.',
+        'auth.googleError.generic': 'Google sign-in failed — please try another method.',
 
         // ── Email verification & newsletter ──
         'auth.newsletterOptIn': 'Keep me informed about NestorCut news and updates (optional newsletter, unsubscribe anytime).',
@@ -728,7 +767,7 @@ const dict = {
         'plans.unlimited.desc': 'Pour les fabricants et ateliers qui imbriquent chaque semaine.',
         'plans.unlimited.f1': 'Imbrications illimitées',
         'plans.unlimited.f2': "3 sens d'optimisation par tâche",
-        'plans.unlimited.f3': 'Tâches multi-plaques',
+        'plans.unlimited.f3': 'Tâches multi-tôles',
         'plans.unlimited.f4': '4 cœurs de calcul — livraison plus rapide',
         'plans.unlimited.f5': "Coffre-fort zero-knowledge (optionnel)",
         'plans.pro.desc': 'Budget moteur maximal et livraison prioritaire.',
@@ -744,8 +783,8 @@ const dict = {
         'plans.compare.altLayouts': 'Sens d\'optimisation par tâche',
         'plans.compare.vcores': 'Cœurs de calcul (vitesse de livraison)',
         'plans.compare.priority': 'Priorité de traitement',
-        'plans.compare.multiSheet': 'Tâches multi-plaques',
-        'plans.compare.heterogeneous': 'Types de plaques hétérogènes',
+        'plans.compare.multiSheet': 'Tâches multi-tôles',
+        'plans.compare.heterogeneous': 'Types de tôles hétérogènes',
         'plans.compare.export': 'Export DXF & ZIP',
         'plans.compare.emailNotif': 'Notifications par e-mail',
         'plans.compare.zeroKnowledge': 'Chiffrement zero-knowledge',
@@ -759,15 +798,21 @@ const dict = {
         'plans.measured.collecting': "Mesures réelles en cours de collecte",
 
         'settings.nesting': 'Réglages',
-        'settings.sheet': 'Plaque {n}',
-        'settings.removeSheet': 'Retirer ce type de plaque',
-        'settings.addSheet': '+ Ajouter un type de plaque',
+        'settings.sheet': 'Tôle {n}',
+        'settings.removeSheet': 'Retirer ce type de tôle',
+        'settings.addSheet': '+ Ajouter un type de tôle',
         'settings.width': 'Largeur (X)',
         'settings.height': 'Longueur (Y)',
         'settings.count': 'Qté',
         'settings.units': 'unités',
         'settings.spacing': 'Espacement',
         'settings.spacingKerf': 'Espacement < 0,05 mm : plus fin qu’un kerf laser — des pièces peuvent se toucher ou micro-chevaucher à la découpe.',
+        // B.4 / masterplan 3.10 : kerf et sécurité explicites — l'espacement
+        // effectif envoyé au moteur vaut toujours kerf + 2 × sécurité.
+        'settings.kerf': 'Kerf (largeur de coupe)',
+        'settings.safety': 'Sécurité (marge par pièce)',
+        'settings.spacingRule': 'Espacement entre pièces = kerf + 2 × sécurité = {v} {unit}',
+        'settings.spacingHolesDisabled': 'Au-delà de 2,4 mm d’espacement, l’imbrication dans les trous est désactivée (limite moteur).',
         'settings.sheetPreset.hint': 'Format de tôle standard',
         'units.label': 'Unités de mesure',
         'units.mm': 'Millimètres (mm)',
@@ -788,15 +833,15 @@ const dict = {
         'demo.remaining': '{n} / {total} imbrications démo restantes ce mois-ci',
         'demo.quotaEmpty': "Vous avez utilisé toutes vos imbrications de démonstration ce mois-ci — réessayez le mois prochain, ou importez vos propres fichiers DXF.",
         'settings.noRotation': 'Aucune rotation (0° uniquement)',
-        'settings.nestFiles': 'Imbriquer {n} fichiers',
+        'settings.nestFiles': 'Imbriquer {n} pièces',
         'settings.directions': "Sens d'optimisation",
-        'settings.directions.help': "Chaque sens est une optimisation complète selon les axes de la tôle (repère sur le dessin) : vers –X (largeur), vers –Y (longueur), ou un mix. Moins de sens = résultat plus rapide.",
-        'settings.directions.left': '–X',
-        'settings.directions.leftHint': 'Vers –X (largeur / bord gauche de la tôle — suivez la flèche X)',
-        'settings.directions.bottom': '–Y',
-        'settings.directions.bottomHint': 'Vers –Y (longueur / bord bas de la tôle — suivez la flèche Y)',
-        'settings.directions.balanced': 'Mixte',
-        'settings.directions.balancedHint': 'Mix équilibré –X et –Y',
+        'settings.directions.help': "Chaque sens tasse les pièces vers un bord de la tôle (repère du dessin) : bord gauche (X = 0), bord bas (Y = 0), ou un mix équilibré. Moins de sens = résultat plus rapide.",
+        'settings.directions.left': 'Bord gauche',
+        'settings.directions.leftHint': 'Vers le bord gauche de la tôle (X = 0), dans le repère du dessin — suivez la flèche',
+        'settings.directions.bottom': 'Bord bas',
+        'settings.directions.bottomHint': 'Vers le bord bas de la tôle (Y = 0), dans le repère du dessin — suivez la flèche',
+        'settings.directions.balanced': 'Équilibré',
+        'settings.directions.balancedHint': 'Mix équilibré des deux bords (X et Y)',
         'settings.directions.freeHint': 'Votre offre inclut 1 sens par imbrication — lancez 3 imbrications pour comparer les 3.',
         'settings.demoPower': 'Puissance démo',
         'settings.demoPower.help': "La démo permet d'essayer le parallélisme Free, Unlimited et Pro sur cet appareil — ça ne change pas votre offre réelle.",
@@ -816,6 +861,8 @@ const dict = {
         // Z1 (vérif 2026-09-05) : bandeau refus capacité (leviers + actions).
         'nest.capacity.title': "Ces pièces ne tiennent pas sur les tôles déclarées à cet espacement.",
         'nest.capacity.retry': 'Relancer',
+        // C04 : levier espacement masqué au plancher — la phrase explique.
+        'nest.capacity.noSpacingGain': "Même sans espacement, ces pièces ne tiennent pas — ajoutez une tôle ou retirez des pièces.",
         // Purge 24 h (D-PRV-10) : états « expiré » (la phrase live est privacy.status.*).
         'results.expired': "Expiré (purge 24 h)",
         'files.expired': "Expiré (purge 24 h) — réimportez ce fichier pour le nester à nouveau",
@@ -823,24 +870,24 @@ const dict = {
         // Régime privacy (création + pastille projet).
         'privacy.choice': "Où vivent les pièces",
         'privacy.device.title': "Cet appareil",
-        'privacy.device.body': "Tes pièces restent ici. Pas d'autre PC, pas de DWG.",
+        'privacy.device.body': "Vos pièces restent ici. Pas d'autre appareil, pas de DWG.",
         'privacy.cloud.title': "Nos serveurs",
-        'privacy.cloud.body': "Tous tes appareils, DWG compris. Sans coffre : en clair, effacé après 24 h.",
-        'privacy.cloud.vaultOff': "Activer le coffre (clé à toi)",
+        'privacy.cloud.body': "Tous vos appareils, DWG compris. Sans coffre : en clair, effacé après 24 h.",
+        'privacy.cloud.vaultOff': "Activer le coffre (votre clé)",
         'privacy.cloud.vaultOn': "Coffre actif — les nouveaux envois sont chiffrés",
         'privacy.chip.device': "Cet appareil",
         'privacy.chip.cloud': "Cloud · 24 h",
         'privacy.chip.vault': "Cloud · coffre",
         'privacy.status.device': "Pièces et résultats dans ce navigateur. Rien à télécharger pour les garder.",
-        'privacy.status.cloud': "Télécharge tes DXF — sources et résultats sont effacés après 24 h.",
+        'privacy.status.cloud': "Téléchargez vos DXF — sources et résultats sont effacés après 24 h.",
         'privacy.status.vault': "Fichiers chiffrés chez nous. Sans le fichier-clé, personne ne peut les lire — y compris nous, hors session de travail.",
-        'localImport.missingGeometry': "Ces pièces sont dans l'autre navigateur. Réimporte-les ici — rien n'a été envoyé chez nous.",
+        'localImport.missingGeometry': "Ces pièces sont dans l'autre navigateur. Réimportez-les ici — rien n'a été envoyé chez nous.",
         'localImport.dwgRejected': "Les fichiers DWG sont convertis sur nos serveurs — choisis « Nos serveurs » pour ce fichier.",
         'localImport.unsupportedType': "Type de fichier non supporté — DXF ou SVG uniquement sur cet appareil.",
         'localImport.parseError': "Ce fichier n'a pas pu être analysé dans le navigateur — essayez « Nos serveurs ».",
         'localImport.tooManyEntities': "Ce fichier contient trop d'entités pour un import navigateur — essayez « Nos serveurs ».",
         'localImport.noParts': "Aucune pièce fermée trouvée dans ce fichier.",
-        'localImport.emptyBrowser': "Ces fichiers vivent dans ce navigateur. Liste vide : ils ont été importés ailleurs, ou le stockage a été effacé — dépose-les à nouveau ci-dessous. Rien n'a été envoyé chez nous.",
+        'localImport.emptyBrowser': "Ces fichiers vivent dans ce navigateur. Liste vide : ils ont été importés ailleurs, ou le stockage de ce navigateur a été effacé — déposez-les à nouveau ci-dessous. Rien n'a été envoyé chez nous.",
         // Suppression de projet (J-095) — confirmation + états.
         'project.delete': "Supprimer",
         'project.deleteConfirmTitle': "Supprimer {name} ?",
@@ -899,6 +946,10 @@ const dict = {
         'live.score': 'densité',
         'live.scoreTitle': "Utilisation de la tôle du meilleur agencement actuel",
         'live.waiting': "Recherche d'un premier agencement…",
+        // C10/C28 (lot 3) : ligne d'état pendant le calcul local.
+        'live.statusLine': 'Recherche · {time} · meilleur {score} · {n} recherche(s) en parallèle · arrêt automatique dès stagnation',
+        'live.statusLine.noScore': 'Recherche · {time} · {n} recherche(s) en parallèle · arrêt automatique dès stagnation',
+        'live.holesNote': 'le remplissage des trous apparaît au résultat final',
         'nest.coresTitle': '{n} cœur(s) de calcul au travail',
         'alts.strategy.left': '–X',
         'alts.strategy.bottom': '–Y',
@@ -932,11 +983,6 @@ const dict = {
         'report.unfit.reduceSpacing': 'Réduire l’espacement à {v} mm',
         'report.partial.title': 'Imbrication partielle — {n} pièces non placées',
         'report.partial.detail': 'Tout ce qui est placé tient et est découpage ; pour imbriquer le reste :',
-        'localMode.allInvalid': "Toutes les options ont été rejetées par la validation physique (chevauchements mesurés). L'imbrication a été remboursée — réessayez en mode serveur.",
-        'localMode.capacityExceeded': "Ces pièces ne tiennent pas sur les tôles déclarées à cet espacement — ajoutez une tôle, réduisez l'espacement ou retirez des pièces. L'imbrication a été remboursée.",
-        'report.unplaced': '{n} pièces non placées (stock serré)',
-        'report.duplicates': '{n} poses dupliquées',
-        'report.postPass': 'Post-pass : {n} déplacées{rb}{e}',
         // C12 (audit UX 2026-09-05) : honnête — ce sont les itérations du
         // recuit moteur, pas des « combinaisons » comparables entre modes.
         'report.iterations': '{n} itérations',
@@ -972,13 +1018,15 @@ const dict = {
         'project.new': 'Nouveau projet',
         'project.empty': 'Vos projets apparaîtront ici',
         'project.files': 'Fichiers : {n}',
+        // C06 : compteur honnête de la zone fichiers — pièces ET fichiers.
+        'project.partsFiles': '{parts} pièces · {files} fichiers',
         'project.needFiles': 'Sélectionnez au moins un fichier à imbriquer.',
         'project.invalidParams': "Saisissez des valeurs valides pour chaque tôle (largeur, hauteur, quantité) et l'espacement.",
         'project.result': 'résultat',
         'project.results': 'résultats',
         'project.nestingInProgress': 'calcul en cours',
         'project.minSheet':
-            "La plus grande pièce nécessite une plaque d'au moins {w} × {h} {unit} — aucun type de plaque déclaré n'est assez grand.",
+            "La plus grande pièce nécessite une tôle d'au moins {w} × {h} {unit} — aucun type de tôle déclaré n'est assez grand.",
         'project.changeToRegenerate': 'Modifiez les réglages ou les fichiers pour relancer',
 
         'time.justNow': "à l'instant",
@@ -998,6 +1046,13 @@ const dict = {
         'parts.count': '{n} pièces : ',
 
         'results.title': 'Résultats',
+        // C06 : la clé FR manquait (la valeur FR vivait dans le bloc EN —
+        // doublon détecté par le test d'unicité i18n).
+        'results.unfit': 'Ne tient pas — non découpable',
+        // C05 (lot 3) : job localOnly calculé sur un autre appareil.
+        'results.otherDevice': 'Calculé sur un autre appareil — résultats non disponibles ici',
+        'results.otherDevice.short': 'Autre appareil',
+        'results.otherDeviceHint': "Cette imbrication a été calculée dans le navigateur d'un autre appareil. Ses fichiers n'ont jamais quitté cet appareil — relancez l'imbrication ici pour obtenir les agencements.",
         'results.all': 'Tous les résultats',
         'results.empty': "Vos résultats d'imbrication apparaîtront ici",
         'results.download': 'Télécharger',
@@ -1021,12 +1076,12 @@ const dict = {
         'result.sheetsCountOne': '1 tôle',
         'result.sheetOffcut': 'Chute tôle {n} : {w} × {h} {unit}',
         'result.layoutOption': 'Option de placement',
-        'result.sheet': 'Plaque {n} / {total}',
-        'result.downloadSheet': 'Télécharger la plaque {n}',
+        'result.sheet': 'Tôle {n} / {total}',
+        'result.downloadSheet': 'Télécharger la tôle {n}',
         'result.allPlaced': 'Toutes les pièces sont placées',
         'result.neededToPlace': '{n} pièces à placer',
         'result.placed': '{n} pièces placées',
-        'result.noSolution': "Aucune solution trouvée — essayez d'agrandir la plaque ou de réduire le nombre de pièces",
+        'result.noSolution': "Aucune solution trouvée — essayez d'agrandir la tôle ou de réduire le nombre de pièces",
         'result.tryAgain': 'Réessayer',
         'result.colorView': "Aperçu couleur",
         'result.dxfView': "Vue DXF",
@@ -1035,14 +1090,14 @@ const dict = {
         'progress.stage.preparing': 'Préparation de la géométrie',
         'progress.stage.explore': 'Exploration des imbrications',
         'progress.stage.compress': 'Compaction du placement',
-        'progress.stage.bpp-search': 'Optimisation des plaques',
+        'progress.stage.bpp-search': 'Optimisation des tôles',
         'progress.stage.reveal': 'Révélation des placements finaux',
         'progress.stage.building': 'Génération des fichiers résultat',
         'progress.stage.final': 'Placement final',
         'results.nesting': 'Imbrication en cours',
         'results.cancel': 'Annuler',
         'live.width': 'Largeur utilisée',
-        'live.sheets': 'Plaques',
+        'live.sheets': 'Tôles',
         'live.feasible': 'Faisable',
         'live.searching': 'Recherche…',
         'live.best': 'Meilleur',
@@ -1169,7 +1224,7 @@ const dict = {
         'auth.orContinue': 'ou continuez avec',
         'auth.loginAccount': 'Connexion à votre compte',
         'auth.tagline': "Imbrication true-shape pour laser, plasma et CNC. 10 nestings gratuits par mois.",
-        'auth.demoHint': "Après connexion, essaie le projet démo — rien à importer.",
+        'auth.demoHint': "Après connexion, essayez le projet démo — rien à importer.",
         'auth.loginGoogle': 'Connexion avec Google',
         'auth.loginEmail': 'Connexion avec e-mail',
         'auth.or': 'ou',
@@ -1182,6 +1237,32 @@ const dict = {
         'auth.toggleToRegister': 'Pas de compte ? Inscrivez-vous',
         'auth.errorGeneric': 'Une erreur est survenue. Veuillez réessayer.',
         'auth.rateLimited': 'Trop de tentatives échouées. Réessayez dans {n} min.',
+        // 3.1.3 (lot 3) : codes d'erreur stables → clés i18n.
+        'auth.error.invalid_email': "Cette adresse e-mail n'est pas valide.",
+        'auth.error.name_required': 'Saisissez votre nom.',
+        'auth.error.password_too_short': 'Le mot de passe doit contenir au moins 8 caractères.',
+        'auth.error.password_required': 'Saisissez votre mot de passe.',
+        'auth.error.email_taken': 'Un compte existe déjà avec cette adresse e-mail — connectez-vous.',
+        'auth.error.invalid_credentials': 'E-mail ou mot de passe incorrect.',
+        'auth.error.account_suspended': 'Ce compte a été suspendu. Contactez le support.',
+        'auth.error.fields_required': 'Saisissez votre e-mail et votre mot de passe.',
+        'auth.error.auth_disabled': 'La connexion par e-mail est momentanément indisponible.',
+        'auth.showPassword': 'Afficher le mot de passe',
+        'auth.hidePassword': 'Masquer le mot de passe',
+        'auth.legalPrefix': 'En créant un compte, vous acceptez nos',
+        'auth.legalTerms': "conditions d'utilisation",
+        'auth.legalAnd': 'et notre',
+        'auth.legalPrivacy': 'politique de confidentialité',
+        // 3.1.5 (lot 3) : bannière e-mail non vérifié.
+        'verify.banner': "Votre e-mail n'est pas encore vérifié — l'imbrication reste bloquée jusqu'au clic sur le lien envoyé à {email}.",
+        'verify.bannerResend': "Renvoyer l'e-mail",
+        'verify.bannerResent': 'E-mail renvoyé ✓',
+        'verify.badge': 'Vérifié ✓',
+        // A8/3.1.6 : échec connexion Google (callback ?auth_error=…).
+        'auth.googleError.exchange_failed': 'La connexion Google a échoué — réessayez.',
+        'auth.googleError.access_denied': 'La connexion Google a été annulée.',
+        'auth.googleError.no_email': "Votre compte Google n'expose pas d'adresse e-mail.",
+        'auth.googleError.generic': 'La connexion Google a échoué — essayez une autre méthode.',
 
         // ── Vérification d'email & newsletter ──
         'auth.newsletterOptIn': 'Je veux être tenu informé des nouveautés de NestorCut (newsletter facultative, désinscription à tout moment).',
@@ -1250,4 +1331,24 @@ export function translate(key, locale = DEFAULT_LOCALE, params = {}) {
         }
     }
     return value
+}
+
+/**
+ * C20/C21 (lot 3) : nombres formatés selon la locale — « 55,4 » en FR,
+ * « 55.4 » en EN, via Intl.NumberFormat (pas de toFixed affiché brut).
+ */
+export function formatNumber(v, locale = DEFAULT_LOCALE, digits = 1) {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return '—'
+    return new Intl.NumberFormat(locale === 'fr' ? 'fr-FR' : 'en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: digits,
+    }).format(n)
+}
+
+/** Pourcentage localisé : « 55.4% » EN / « 55,4 % » FR. */
+export function formatPercent(v, locale = DEFAULT_LOCALE, digits = 1) {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return '—'
+    return formatNumber(n, locale, digits) + (locale === 'fr' ? ' %' : '%')
 }

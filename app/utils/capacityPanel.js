@@ -13,10 +13,11 @@
 /**
  * @param {object|null} unfit {reason, ratio?, sheetsNeeded?,
  *   maxPartsAtSpacing?, maxSpacingForFitMm?, unplaced?}
- * @param {object} ctx {sheets: [{width, height, count}], spaceMm: number|null}
+ * @param {object} ctx {sheets: [{width, height, count}], spaceMm: number|null,
+ *   kerfMm?: number|null}
  * @returns {object|null} null quand il n'y a rien à afficher.
  */
-export function capacityPanelModel(unfit, { sheets = [], spaceMm = null } = {}) {
+export function capacityPanelModel(unfit, { sheets = [], spaceMm = null, kerfMm = null } = {}) {
     if (!unfit || !unfit.reason) return null
     const num = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null)
     const sheetsNeeded = num(unfit.sheetsNeeded)
@@ -35,16 +36,28 @@ export function capacityPanelModel(unfit, { sheets = [], spaceMm = null } = {}) 
             ? { ...s, count: String((Number(s.count) || 0) + 1) }
             : s))
         : null
-    // « Réduire l'espacement » : utile seulement si le levier existe ET
-    // abaisse réellement l'espacement courant (un maxSpacing ≥ space
-    // n'est pas une action).
-    const canReduceSpacing = maxSpacingMm != null
-        && spaceMm != null && maxSpacingMm < spaceMm
+    // « Réduire l'espacement » (C04) : utile seulement si le levier existe
+    // ET abaisse réellement l'espacement courant (un maxSpacing ≥ space
+    // n'est pas une action) ET qu'il reste quelque chose à gagner —
+    // sous 0,5 mm d'espacement courant le levier est MASQUÉ (la marge
+    // restante est illusoire), et avec le kerf explicite la cible doit
+    // dépasser le kerf (on ne réduit jamais la largeur de coupe de
+    // l'outil).
+    const SPACING_FLOOR_MM = 0.5
+    const spacingAtFloor = spaceMm != null && spaceMm <= SPACING_FLOOR_MM
+    const kerf = num(kerfMm)
+    const leverWouldHelp = maxSpacingMm != null && spaceMm != null && maxSpacingMm < spaceMm
+    const kerfBlocks = leverWouldHelp && kerf != null && maxSpacingMm <= kerf
+    const canReduceSpacing = leverWouldHelp && !spacingAtFloor && !kerfBlocks
     return {
         reason: unfit.reason,
         unplaced: num(unfit.unplaced),
         levers: { sheetsNeeded, maxParts, maxSpacingMm },
         nextSheets,
         reduceSpacingToMm: canReduceSpacing ? maxSpacingMm : null,
+        // C04 : espacement courant déjà au plancher (≤ 0,5 mm) ou kerf
+        // bloquant — la page affiche « même sans espacement, ça ne tient
+        // pas » au lieu d'un bouton inutile.
+        noSpacingGain: spacingAtFloor || kerfBlocks,
     }
 }

@@ -79,7 +79,7 @@
                 <div class="summary__bar">
                     <div class="summary__bar-fill" :style="{ width: `${densityPct}%` }" />
                 </div>
-                <span class="summary__value">{{ densityPct.toFixed(1) }}%</span>
+                <span class="summary__value">{{ fmtPercent(densityPct) }}</span>
             </div>
             <div
                 v-if="hasColorPreview"
@@ -230,7 +230,7 @@
                             :style="{ width: `${densityPct != null ? densityPct : 0}%` }"
                         />
                     </div>
-                    <span class="report__value">{{ densityPct != null ? densityPct.toFixed(1) + '%' : '—' }}</span>
+                    <span class="report__value">{{ densityPct != null ? fmtPercent(densityPct) : '—' }}</span>
                 </div>
                 <div class="report__row report__row--detail">
                     <span>{{ t('report.areas', { parts: fmtArea(activeReport.partsAreaMm2), free: fmtArea(freeAreaMm2) }) }}</span>
@@ -283,7 +283,7 @@
                                     <span class="report__area">{{ fmtAreaStacked(s.freeAreaMm2).main }}</span>
                                     <span v-if="fmtAreaStacked(s.freeAreaMm2).sub" class="report__area-sub">{{ fmtAreaStacked(s.freeAreaMm2).sub }}</span>
                                 </td>
-                                <td>{{ s.densityPct != null ? s.densityPct.toFixed(1) + '%' : '—' }}</td>
+                                <td>{{ s.densityPct != null ? fmtPercent(s.densityPct) : '—' }}</td>
                                 <td>
                                     <template v-if="s.offcut">
                                         {{ fmtLengthValue(s.offcut.widthMm) }} × {{ fmtLengthValue(s.offcut.heightMm) }} {{ unitLabel }}
@@ -510,7 +510,7 @@ const emit = defineEmits(['unfit-add-sheet', 'unfit-reduce-spacing'])
 
 const { getters } = globalStore
 const resultModalData = computed(() => getters.resultModalData)
-const { t } = useLocale()
+const { t, fmtPercent, fmtNumber } = useLocale()
 const { unit, fmtArea, fmtLength, fmtLengthValue, unitLabel } = useUnit()
 
 // J-082 : job Mode Local hydraté depuis IndexedDB — les téléchargements
@@ -764,7 +764,7 @@ const buildReportText = () => {
             sheets: totals.sheetCount,
             parts: fmtArea(totals.partsAreaMm2),
             free: fmtArea(totals.freeAreaMm2),
-            pct: totals.densityPct != null ? totals.densityPct.toFixed(1) : '—',
+            pct: totals.densityPct != null ? fmtNumber(totals.densityPct) : '—',
         }),
     ]
     for (const s of unref(reportSheets)) {
@@ -775,7 +775,7 @@ const buildReportText = () => {
             n: s.partCount,
             used: fmtArea(s.partsAreaMm2),
             free: fmtArea(s.freeAreaMm2),
-            pct: s.densityPct != null ? s.densityPct.toFixed(1) : '—',
+            pct: s.densityPct != null ? fmtNumber(s.densityPct) : '—',
             offcut: offcutText(s.offcut),
         }))
     }
@@ -931,7 +931,7 @@ const hasTechDetails = computed(() => Boolean(
 ))
 const formatDensity = (density) => {
     if (density == null) return '—'
-    return `${(density * 100).toFixed(1)}%`
+    return fmtPercent(density * 100)
 }
 // C02 : un seul indicateur de qualité par option, dans le bon sens —
 // tôles · densité matière · chute réutilisable. Remplace « 55% used »
@@ -939,7 +939,7 @@ const formatDensity = (density) => {
 const altQualityLine = (alt) => {
     const parts = [altSheetsCount(alt)]
     const d = altDensityPct(alt)
-    if (d != null) parts.push(`${d.toFixed(1)}% ${t('result.densityShort')}`)
+    if (d != null) parts.push(`${fmtPercent(d)} ${t('result.densityShort')}`)
     const off = alt?.offcut
     if (off && off.area > 1) {
         parts.push(t('result.offcutShort', {
@@ -1007,7 +1007,7 @@ const headlineTitle = computed(() => {
     // C02 : qualité = densité matière (plus = mieux) + chute réutilisable.
     const quality = []
     const density = altDensityPct(alt)
-    if (density != null) quality.push(`${t('result.densityFull')} ${density.toFixed(1)}%`)
+    if (density != null) quality.push(`${t('result.densityFull')} ${fmtPercent(density)}`)
     if (alt?.offcut && alt.offcut.area > 1) {
         quality.push(t('result.cleanOffcut', { w: fmtLength(alt.offcut.width), h: fmtLength(alt.offcut.height) }))
     }

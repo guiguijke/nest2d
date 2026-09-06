@@ -45,6 +45,11 @@ export async function getResults(userId, projectSlug) {
             // passe annulé, même depuis un autre appareil.
             wasCancelled: queueItem.status === 'cancelled',
             isMultiSheet: isMultiSheet,
+            // C05 (lot 3) : job calculé dans le NAVIGATEUR d'un autre
+            // appareil — la géométrie n'existe nulle part ailleurs ; l'UI
+            // affiche « calculé sur un autre appareil » au lieu d'un
+            // téléchargement vide.
+            localOnly: Boolean(queueItem.localOnly),
             createdAt: queueItem.createdAt,
             // Purge 24 h (D-PRV-10) : posé quand les blobs résultats ont été
             // supprimés — l'UI masque les téléchargements (le rapport reste).

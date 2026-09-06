@@ -744,6 +744,15 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         // idx[0] désigne la même alternative brute des deux côtés).
         liveLayout = buildLiveLayout(result, payload,
             result.alternatives[idx[0]] ?? bestRaw)
+        // C31 (lot 3) : pousse la frame de l'alternative rang 0 dans la vue
+        // live APRÈS le post-pass — la dernière frame affichée est
+        // exactement le layout de l'option 1 (le garde champion du registre
+        // accepte toujours stage 'final').
+        if (liveHandler && liveLayout) {
+            try {
+                liveHandler(liveLayout)
+            } catch { /* décorateur best-effort : le reveal reste la source */ }
+        }
     } catch (e) {
         // V8 : la sentinelle avorte le reste des artefacts — le flag
         // portera le local-fail (refund) APRÈS le catch ; une exception

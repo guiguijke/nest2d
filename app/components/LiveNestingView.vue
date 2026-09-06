@@ -167,7 +167,7 @@ const props = defineProps({
     compact: { type: Boolean, default: false },
 });
 
-const { t } = useLocale();
+const { t, fmtPercent } = useLocale();
 // strip_width arrives in canonical mm — fmtLength converts at display.
 const { fmtLength } = useUnit();
 // NOTE: bare $fetch (Nuxt auto-import) — nuxtApp.$fetch is not reliable
@@ -538,7 +538,7 @@ const elapsedSec = computed(() => {
 function formatScore(density) {
     const n = Number(density);
     if (!Number.isFinite(n)) return null;
-    return `${(n * 100).toFixed(1)} %`;
+    return fmtPercent(n * 100);
 }
 
 const scoreLabel = computed(() => {

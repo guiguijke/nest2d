@@ -1,4 +1,4 @@
-import { translate, DEFAULT_LOCALE, LOCALES } from '~/utils/i18n'
+import { translate, DEFAULT_LOCALE, LOCALES, formatNumber, formatPercent } from '~/utils/i18n'
 
 /**
  * Locale state for the whole app.
@@ -63,5 +63,9 @@ export function useLocale() {
     // Reactive translator bound to the current locale.
     const t = (key, params) => translate(key, localeState.value, params)
 
-    return { locale, setLocale, t }
+    // C20/C21 : formatage localisé des nombres affichés (%, aires).
+    const fmtPercent = (v, digits = 1) => formatPercent(v, localeState.value, digits)
+    const fmtNumber = (v, digits = 1) => formatNumber(v, localeState.value, digits)
+
+    return { locale, setLocale, t, fmtPercent, fmtNumber }
 }

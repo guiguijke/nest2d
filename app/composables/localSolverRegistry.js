@@ -107,7 +107,11 @@ async function launch(jobSlug, projectSlug, itemMap) {
                 // Keep the BEST feasible snapshot, not the last walk's
                 // working state (a worse live frame used to replace the
                 // compact −X champion and unmount LiveNestingView).
-                if (!j.frame || liveFrameBetter(evt, j.frame)) j.frame = evt
+                // C31 : une frame stage 'final' (alternative rang 0 post-
+                // pass) est LA conclusion — elle remplace toujours le
+                // champion, même si un champion moteur brut semble mieux
+                // classé (c'est lui que le modal va afficher en option 1).
+                if (evt.stage === 'final' || !j.frame || liveFrameBetter(evt, j.frame)) j.frame = evt
             },
         })
         job.result = res || null

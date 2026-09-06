@@ -184,4 +184,21 @@ describe('localSolverRegistry — navigation isolée, file tier, idempotence', (
         await new Promise((r) => setTimeout(r, 30))
         expect(mod.progressFor('pA').frame.items).toEqual([2])
     })
+
+    // C31 (lot 3) : la frame stage 'final' (alternative rang 0 post-pass)
+    // est LA conclusion — elle remplace le champion même si une frame
+    // moteur brute semble mieux classée (bins moindre ici).
+    it('champion registre : stage final remplace toujours (verrou C31)', async () => {
+        const champ = { feasible: true, isSpp: false, bins: 1, remnant: 900, items: [1] }
+        const final = { stage: 'final', feasible: true, isSpp: false, bins: 2, remnant: null, items: [1, 2] }
+        const mod = await freshRegistry(async (_slug, { onLive }) => {
+            onLive(champ)
+            onLive(final)
+            return { ok: true }
+        })
+        mod.ensureJob(job('j1'), { projectSlug: 'pA', maxConcurrent: 1 })
+        await new Promise((r) => setTimeout(r, 30))
+        expect(mod.progressFor('pA').frame.stage).toBe('final')
+        expect(mod.progressFor('pA').frame.items).toEqual([1, 2])
+    })
 })
