@@ -2,7 +2,7 @@
 
 Vérification indépendante des commits `623cdd1..e5b0042` (rapport
 [`RAPPORT-PERF-UX-L1-2026-09-05.md`](RAPPORT-PERF-UX-L1-2026-09-05.md),
-plan [`PLAN-PERF-UX-2026-09-05.md`](PLAN-PERF-UX-2026-09-05.md) §1 P1-P2,
+plan [`PLAN-PERF-UX-2026-09-05.md`](../../PLAN-PERF-UX-2026-09-05.md) §1 P1-P2,
 §2.1.1-2.1.3, §3.1.1-3.1.2). Méthode : `assert_images_head.sh` OK contre
 HEAD `e5b0042` (images en place, pas de rebuild nécessaire : le moteur n'a
 pas changé) ; vitest complet ; pytest workers en docker sur la copie de

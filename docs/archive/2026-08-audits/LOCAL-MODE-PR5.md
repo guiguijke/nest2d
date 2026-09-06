@@ -42,7 +42,7 @@ serveur.
 
 ## Amendement 2026-08-29 — orchestration locale, grille canonique, BPP
 
-Référence complète des correctifs : `docs/AUDIT-2026-08-29.md`. Points qui
+Référence complète des correctifs : `docs/archive/2026-08-audits/AUDIT-2026-08-29.md`. Points qui
 modifient le CONTRAT ci-dessus ou ajoutent des composants au flux local :
 
 - **Registre de solves** (`app/composables/localSolverRegistry.js`) : le

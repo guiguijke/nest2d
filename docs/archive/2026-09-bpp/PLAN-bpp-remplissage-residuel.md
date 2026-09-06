@@ -1,6 +1,6 @@
 # Plan d'amélioration — BPP multi-tôles : remplissage des bandes résiduelles
 
-**Statut : LIVRÉ le 2026-09-01 (option A, `docs/PLAN-bpp-impl.md`) — pass `fill_residual_bands` implémenté le 2026-08-31, puis 3 correctifs le 2026-09-01 (vue live multi-tôles, `apply_hole_fill` scopé par tôle, coquille tx/ty `layoutAabb` JS). Les « jumeaux expand_meta » du 31/08 sont RÉEXPLIQUÉS et CORRIGÉS : ils venaient du hole-fill poolé à travers des tôles aux coordonnées coïncidantes, pas d'expand_meta (`plan_hole_fills` retourne None à space 0,1 sur cette géométrie). Récit complet : `docs/LIVRAISON-BPP-2026-09-01.md`.**  
+**Statut : LIVRÉ le 2026-09-01 (option A, `docs/archive/2026-09-bpp/PLAN-bpp-impl.md`) — pass `fill_residual_bands` implémenté le 2026-08-31, puis 3 correctifs le 2026-09-01 (vue live multi-tôles, `apply_hole_fill` scopé par tôle, coquille tx/ty `layoutAabb` JS). Les « jumeaux expand_meta » du 31/08 sont RÉEXPLIQUÉS et CORRIGÉS : ils venaient du hole-fill poolé à travers des tôles aux coordonnées coïncidantes, pas d'expand_meta (`plan_hole_fills` retourne None à space 0,1 sur cette géométrie). Récit complet : `docs/archive/2026-09-bpp/LIVRAISON-BPP-2026-09-01.md`.**  
 Constat user 2026-08-31 : « 2 tôles customs 1000×1000, 100 holes + 800
 fillers : tôle 1 = hélices seules, tôle 2 = hélices restantes + tous les
 fillers, alors qu'il aurait pu en mettre PLEIN sur la première tôle. »

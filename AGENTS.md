@@ -20,13 +20,16 @@ toucher au moteur, au worker Python ou au visualizer.
 > `docs/THREAT-MODEL.md` (interne, ne pas publier). Posture sécu /
 > pentest : `docs/CYBERSECURITY.md` (interne).
 >
-> **Pilotage consolidé (2026-09-05) : `docs/MASTERPLAN-2026-09-05.md`** —
-> position (pas un CAM : le meilleur DXF-in/DXF-out), état des lots
-> perf/UX, features « n°1 » ordonnées (import robuste, bibliothèque de
-> chutes, contraintes de tôle, amorce, coupe commune, API), séquenciation
-> T0-T5 et registre des décisions owner. **Mis à jour à chaque grande
-> étape accomplie** (lot livré/déployé, décision tranchée) — y faire
-> référence avant d'ouvrir un nouveau chantier produit.
+> **Pilotage consolidé : `docs/MASTERPLAN-2026-09-05.md`** (recentré le
+> 2026-09-06) — position : **la référence du nesting dans le navigateur**
+> (pas un CAM ; DXF entrant, DXF sortant, rien ne quitte la machine),
+> règle de tri de tout chantier (§0 : chemin navigateur principal, toute
+> fonction livrée d'abord dessus, un seul code, preuve publique), état des
+> lots, features ordonnées, séquenciation T0-T5, registre des décisions
+> owner, forme des instructions à l'implémenteur (§8). **Mis à jour à
+> chaque grande étape accomplie** — y faire référence avant d'ouvrir un
+> chantier. Carte de tous les documents : `docs/README.md` (vivants à la
+> racine, cycles clos dans `docs/archive/<cycle>/`).
 
 ## 1. Architecture
 
@@ -745,23 +748,43 @@ Compte de test : `guillaume@local.dev` / `nestorcut-local-2026`
 ## 5. Avant de pousser
 
 ```bash
-npx vitest run                                             # app+server (330)
-cd workers/nesting/engine && cargo test --release -p nest-engine   # 66 + 1 ignore (dont le verrou bpp_live_frame)
-cd workers/nesting && python -m pytest tests/ -q --ignore=tests/test_integration_holes.py   # 104 (fixtures holes absentes en dev local)
-cd workers/common && python -m pytest tests/ -q            # 48
-cd workers/fileprocessing && python -m pytest tests/ -q    # 33 (+2 skipped)
+npx vitest run                                             # app+server (≈480 au 2026-09-06)
+cd workers/nesting/engine && cargo test --release -p nest-engine   # 72 + 1 ignore (dont le verrou bpp_live_frame)
+cd workers/nesting && python -m pytest tests/ -q --ignore=tests/test_integration_holes.py   # ≈233 + 1 skip (dans l'image docker : les deps ne sont pas installées sur le poste)
+cd workers/common && python -m pytest tests/ -q            # 48 (image docker)
+cd workers/fileprocessing && python -m pytest tests/ -q    # 33 (+2 skipped) (image docker)
+python workers/nesting/bench/determinism_lock.py           # natif ≡ wasm, SHA identiques
 npx nuxt build                                             # app
-cd nestorcut-website && npm run build                      # site marketing
+cd ../nestorcut-website && npm run build                   # site marketing (dépôt frère)
 ```
+Les comptes sont datés : un écart de quelques tests est normal, un écart
+de dizaines signale une suite qui ne tourne plus.
 
 Après tout changement moteur : rebuild le wasm dans la MÊME PR (piège
 #33b) ET vider le cache navigateur (piège 14i). Référence complète des
-correctifs 2026-08-28/29 : `docs/AUDIT-2026-08-29.md`.
+correctifs 2026-08-28/29 : `docs/archive/2026-08-audits/AUDIT-2026-08-29.md`.
 
 Benchmarks ESICUP (lents) : `pytest benchmarks/test_benchmarks.py -m slow`.
 Harnais A/B warm-start : `cargo test --release warm_start_160_ab -- --ignored --nocapture`.
 
-## 6bis. Checklist de déploiement (AF4, L3-bis)
+## 6. Checklist de déploiement
+
+### Homelab (débordement, constat 2026-09-06)
+
+Les trois workers
+`nestorcut-overflow-worker-{1,2,3}` du homelab (192.168.1.149,
+`/containers/nestorcut-overflow`, image `ghcr.io/…/nest2d-nesting-worker:latest`)
+consomment la MÊME file que la prod. **Tout déploiement qui touche
+`workers/nesting` ou le moteur se termine sur le homelab** :
+`docker compose pull && docker compose up -d --force-recreate` dans
+`/containers/nestorcut-overflow`, puis
+`python workers/nesting/bench/assert_overflow_head.py` (md5 des fichiers
+clés = HEAD, date du binaire moteur), et `NEST_COMPUTE_TOKENS` aligné avec
+le `.env` Hetzner. Sans cela, une partie des jobs de production est
+calculée avec l'ancien moteur et l'ancien post-pass (constaté : image du
+31/08 pendant que six lots étaient déployés sur Hetzner).
+
+### Benchmarks publics (AF4, L3-bis)
 
 Après un GO de vérification, AVANT le déploiement d'une livraison qui
 touche le MOTEUR (`workers/nesting/engine`, `public/engine`) :
@@ -780,7 +803,7 @@ touche le MOTEUR (`workers/nesting/engine`, `public/engine`) :
 
 Procédure complète : runbook privé `specs/infra/DEPLOY-HETZNER.md`.
 
-## 6. Conventions
+## 7. Conventions
 
 - **Branding : NestorCut = produit, APlasma = entité légale** (Guillaume
   Jerke EI — encaissements Stripe, mentions légales, factures, fiscalité).
@@ -796,4 +819,8 @@ Procédure complète : runbook privé `specs/infra/DEPLOY-HETZNER.md`.
   mort alors que `scripts/crypto-interop/verify_vector.py` l'importe,
   audit du 2026-08-12).
 - `main` direct (petit projet), merge requests pour les grosses branches.
-- i18n : `app/utils/i18n.js` (EN+FR, dict plat) ; site : `src/i18n/ui.ts`.
+- i18n : `app/utils/i18n.js` (EN+FR, dict plat) ; site marketing :
+  `src/i18n/ui.ts` dans le dépôt frère `../nestorcut-website`.
+- Documents : vivants à la racine de `docs/`, cycle clos → `git mv` vers
+  `docs/archive/<année-mois-cycle>/` avec liens réécrits, index
+  `docs/README.md` tenu à jour (rangement du 2026-09-06).

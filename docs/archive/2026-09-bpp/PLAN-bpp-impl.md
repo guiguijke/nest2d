@@ -1,7 +1,7 @@
 # Plan d’implémentation — BPP : remplissage des bandes résiduelles
 
 Handoff pour un agent **sans** le contexte de session.  
-Parent (constat + options) : `docs/PLAN-bpp-remplissage-residuel.md`.  
+Parent (constat + options) : `docs/archive/2026-09-bpp/PLAN-bpp-remplissage-residuel.md`.  
 Revue 2026-08-31 : option A **GO**, avec les corrections §2 ci-dessous (inset `space`, pas de L comme cible, pas de cap 50 %).
 
 **Ne commence pas CLC / kerf.** Pas de Rust, **pas de rebuild wasm**.  
@@ -48,7 +48,7 @@ Donc un **post-pass** (comme `apply_hole_fill`) est le bon fix. Pas de Rust.
 ### Docs à lire
 
 1. Ce fichier.
-2. `docs/PLAN-bpp-remplissage-residuel.md` §1–2 (constat).
+2. `docs/archive/2026-09-bpp/PLAN-bpp-remplissage-residuel.md` §1–2 (constat).
 3. `AGENTS.md` pièges **#3, #6, #41, #42, #45, #48, #50**.
 4. `workers/nesting/core/holefill.py` `apply_hole_fill` / `nested_hole` (détection « dans un trou » à **réutiliser**).
 5. `structure.py` `small_lattice` + `structureClient.js` `smallLattice`.
@@ -229,7 +229,7 @@ Toute exception / invalide → **rollback de CE batch**, bande suivante. L’alt
 | `AGENTS.md` | piège **#51** |
 | `docs/ARCHITECTURE.md` | 1 phrase : post-pass BPP bandes résiduelles après hole-fill |
 | `specs/90-decisions.md` | **local** D-MOT-19 (gitignored) |
-| `docs/PLAN-bpp-remplissage-residuel.md` | statut → implémenté / lien vers ce fichier (quand tu livres) |
+| `docs/archive/2026-09-bpp/PLAN-bpp-remplissage-residuel.md` | statut → implémenté / lien vers ce fichier (quand tu livres) |
 
 **Pas** de `structure.py` / `gravity.rs` / wasm / `localSolverRegistry`.
 
@@ -429,7 +429,7 @@ remplies. Pas de moteur. Repli silencieux si validation KO.
 ## 9. Critère de « terminé »
 
 > **LIVRÉ le 2026-09-01** (pass + correctifs satellite : voir
-> `docs/LIVRAISON-BPP-2026-09-01.md`). Vitest 377/377, pytest 142,
+> `docs/archive/2026-09-bpp/LIVRAISON-BPP-2026-09-01.md`). Vitest 377/377, pytest 142,
 > banc VERDICT OK, re-test navigateur user 85,2 % / chute 2,1 mm.
 
 - [x] T1–T8 Python verts (shapely) ; miroirs JS verts. (+ T9 coin couvert, ajouté 2026-09-01)

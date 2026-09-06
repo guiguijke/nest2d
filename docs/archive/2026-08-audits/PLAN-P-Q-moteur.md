@@ -1,7 +1,7 @@
 # Plan d’implémentation — bugs moteur audit 2026-08-31 (§P Python, §Q Rust)
 
 Handoff pour un agent qui n’a **pas** le contexte de session.  
-Source des constats : `docs/AUDIT-2026-08-31.md` §P, §Q, §S, §T.  
+Source des constats : `docs/archive/2026-08-audits/AUDIT-2026-08-31.md` §P, §Q, §S, §T.  
 §R (UI) est **déjà livré** (`24af38c`, AUDIT §W) — ne pas y revenir, ne pas le revert.
 
 **Ne commence pas CLC / kerf.** Ne touche pas l’isolation live (piège #47).  
@@ -32,7 +32,7 @@ Ne change pas le nom du wasm (`public/engine/nest_wasm_bg.wasm`).
 ### Docs à lire (dans cet ordre)
 
 1. Ce fichier.
-2. `docs/AUDIT-2026-08-31.md` §P, §Q, §S (pas besoin de §R).
+2. `docs/archive/2026-08-audits/AUDIT-2026-08-31.md` §P, §Q, §S (pas besoin de §R).
 3. `AGENTS.md` pièges **#2, #2b, #6, #33b, #41, #42, #45, #48**.
 4. `workers/nesting/core/structure.py` (docstring + `small_lattice` + `plan_lattice` + `_zone_solve` + `build_structural_layout`).
 5. `specs/90-decisions.md` D-MOT-17 (gitignored, local — y ajouter D-MOT-18 en livrant).
@@ -494,7 +494,7 @@ M1 est le **veto** : si la grille phare casse ou sort de la tôle, rollback du l
 | `AGENTS.md` | 1–2 | pièges #49, #50 |
 | `docs/ARCHITECTURE.md` | 1 | 1 phrase : garde 2×space + filet `insideSheet` structural |
 | `specs/90-decisions.md` | 1–2 | **local** D-MOT-18 (gitignored) |
-| `docs/AUDIT-2026-08-31.md` | ship | petit § « correctifs P/Q » en bas, comme §W — **ne pas** réécrire §P |
+| `docs/archive/2026-08-audits/AUDIT-2026-08-31.md` | ship | petit § « correctifs P/Q » en bas, comme §W — **ne pas** réécrire §P |
 
 ### Lot 4 selon items
 

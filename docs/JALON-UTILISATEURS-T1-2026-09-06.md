@@ -94,6 +94,7 @@ sauter : c'est la seule donnée de marché du plan.
 
 - **Webhook Stripe live** : à vérifier avant tout, une session admin
   Stripe suffit ; sans lui aucun paiement récurrent ne survit.
+- **Workers overflow du homelab** : à mettre à jour avant les entretiens (image du 31/08 le 06/09) — un testeur dont le job tombe sur le homelab verrait l'ancien produit.
 - **Campagne feedback FR** : à envoyer en début de semaine, c'est elle qui
   alimente le dépouillement et le recrutement des entretiens.
 
