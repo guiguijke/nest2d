@@ -129,3 +129,22 @@ est aujourd'hui levée par les axes + flèches + libellés par bord.
   record hydraté) — non exigé par le plan, non fait.
 - Le renvoi d'e-mail de vérification reste muet en local (mailer
   absent) — inchangé.
+
+
+## 9. Déploiement (GO du vérificateur, 2026-09-06 ~17h50 UTC)
+
+- Workflow images 87b8bae : succès ; images publiées tirées, retaggées,
+  `assert_images_head.sh` **OK (2026-09-06T17:47:27Z)**.
+- Zéro diff `workers/`/`public/engine` entre c47b2d2 et 87b8bae (correctif
+  100 % app) : le corpus reste couvert par le run bits publiés du lot 3.
+- Verrous rejoués sur les bits publiés : partiel 892/900 + 3 leviers +
+  physique propre (`qa-l3bis-partial`), refus à message unique
+  (`qa-l3-refus-4mm`), harnais @0,1 grille **[587, 313]**.
+- Hetzner : df 22 Go AVANT pull ; `pull && up -d` ; md5 prod == HEAD
+  (localBridge.js, localJobPrivate.js, useLocalMode.js) ; `/` et
+  `/benchmarks` 200 ; logs app 0 erreur.
+- Résidu du vérificateur (§5 de son plan) — garde par classe calculée
+  après le post-pass qui mute la solution moteur en place : la référence
+  compare l'état final à lui-même ; le test vitest de détection construit
+  ses conteneurs à la main. Inscrit au **lot 4** du masterplan (comptes à
+  prendre AVANT le post-pass, avec P8).
