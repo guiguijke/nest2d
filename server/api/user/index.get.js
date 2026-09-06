@@ -32,6 +32,9 @@ export default defineEventHandler(async (event) => {
         email: user.email,
         provider: user.provider,
         avatar: user.avatarUrl || '/api/user/avatar',
+        // 3.1.5 (lot 3) : comptes locaux — la bannière « e-mail non vérifié »
+        // s'appuie dessus (les comptes Google sont vérifiés d'office).
+        emailVerified: user.provider === 'local' ? Boolean(user.emailVerified) : true,
         isStripFeatureEnable: isStripFeatureEnable,
         // Lazy default: accounts created before the units feature have no
         // preferredUnit field — they are metric.

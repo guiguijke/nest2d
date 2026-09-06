@@ -13,7 +13,7 @@ import {
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)
     if (config.public.localAuthEnabled === false || config.public.localAuthEnabled === 'false') {
-        throw createError({ statusCode: 403, statusMessage: 'Local authentication is disabled' })
+        throw createError({ statusCode: 403, statusMessage: 'Local authentication is disabled', data: { code: 'auth_disabled' } })
     }
 
     const body = await readBody(event)
@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
     const password = String(body?.password || '')
 
     if (!email || !password) {
-        throw createError({ statusCode: 400, statusMessage: 'Email and password are required' })
+        throw createError({ statusCode: 400, statusMessage: 'Email and password are required', data: { code: 'fields_required', field: 'email' } })
     }
 
     // A2 (audit compte 2026-09-05) : les compteurs login ne comptent QUE
@@ -60,7 +60,7 @@ export default defineEventHandler(async (event) => {
         // A2/AA6 : c'est un ÉCHEC — lui seul consomme les quotas.
         rateLimitAllow(failKeys.email, failLimits.email)
         rateLimitAllow(failKeys.ip, failLimits.ip)
-        throw createError({ statusCode: 401, statusMessage: 'Invalid email or password' })
+        throw createError({ statusCode: 401, statusMessage: 'Invalid email or password', data: { code: 'invalid_credentials' } })
     }
     // A2/AA6 : succès — remise à zéro des compteurs d'échecs.
     rateLimitReset(failKeys.email)
@@ -68,7 +68,7 @@ export default defineEventHandler(async (event) => {
 
     // Banned accounts cannot log in (ban is set from the admin panel).
     if (user.banned) {
-        throw createError({ statusCode: 403, statusMessage: 'This account has been suspended' })
+        throw createError({ statusCode: 403, statusMessage: 'This account has been suspended', data: { code: 'account_suspended' } })
     }
 
     const session = generateSession()

@@ -12,6 +12,7 @@
             :type="type"
             :placeholder="placeholder"
             :value="modelValue"
+            v-bind="$attrs"
             @input="handleInput"
             @keydown="$emit('keydown', $event)"
             class="input__value"
@@ -23,6 +24,9 @@
 </template>
 
 <script setup>
+// 3.1.4 (lot 3, a11y) : les attributs non-props (id, name, autocomplete,
+// aria-invalid…) descendent sur l'INPUT, pas sur le <label> racine.
+defineOptions({ inheritAttrs: false })
 
 const inputElement = ref(null)
 

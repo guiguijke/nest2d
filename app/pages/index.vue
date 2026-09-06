@@ -1,5 +1,10 @@
 <template>
     <div class="welcome">
+        <!-- A8/3.1.6 : échec de connexion Google remonté par le callback
+             (?auth_error=…) — un message explicite, pas un retour muet. -->
+        <div v-if="googleError" class="welcome__auth-error" role="alert">
+            {{ googleError }}
+        </div>
         <div class="welcome__card card">
             <img src="/brand/n-mark.png" alt="NestorCut" class="card__logo" />
             <MainTitle :label="t('auth.loginAccount')" class="card__title" />
@@ -48,6 +53,20 @@ if (unref(userIsSet)) {
 
 const { t } = useLocale()
 
+// A8 : codes renvoyés par /auth/google/callback vers /?auth_error=…
+const GOOGLE_ERROR_KEYS = {
+    exchange_failed: 'auth.googleError.exchange_failed',
+    access_denied: 'auth.googleError.access_denied',
+    no_email: 'auth.googleError.no_email',
+}
+const route = useRoute()
+const googleError = computed(() => {
+    const code = String(route.query.auth_error || '')
+    if (!code) return ''
+    const key = GOOGLE_ERROR_KEYS[code]
+    return key ? t(key) : t('auth.googleError.generic')
+})
+
 const config = useRuntimeConfig()
 const localAuthEnabled = computed(() => config.public.localAuthEnabled !== false && config.public.localAuthEnabled !== 'false')
 const googleEnabled = computed(() => Boolean(config.public.googleClientId))
@@ -69,6 +88,18 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .welcome {
+    &__auth-error {
+        max-width: 380px;
+        margin: 0 auto 12px;
+        padding: 10px 14px;
+        border: 1px solid var(--error-border);
+        border-radius: 10px;
+        background-color: var(--error-background);
+        color: var(--error-text, #ef4444);
+        font-size: 13.5px;
+        line-height: 1.45;
+    }
+
     display: flex;
     align-items: center;
     justify-content: center;

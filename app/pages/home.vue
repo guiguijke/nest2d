@@ -1,5 +1,7 @@
 <template>
     <div class="home">
+        <!-- 3.1.5 : bannière e-mail non vérifié (comptes locaux). -->
+        <VerifyEmailBanner />
         <!-- Account summary -->
         <section class="home__welcome welcome">
             <Avatar

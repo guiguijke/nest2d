@@ -46,6 +46,8 @@ import { useChangelog } from "~~/data/changelog";
 
 definePageMeta({
     layout: "doc",
+    // 3.1.6 : publique, mais reconnaît la session (nav cohérente).
+    middleware: "auth-optional",
 });
 
 const posts = useChangelog();

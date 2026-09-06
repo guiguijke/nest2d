@@ -15,7 +15,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event)
     if (config.public.localAuthEnabled === false || config.public.localAuthEnabled === 'false') {
-        throw createError({ statusCode: 403, statusMessage: 'Local authentication is disabled' })
+        throw createError({ statusCode: 403, statusMessage: 'Local authentication is disabled', data: { code: 'auth_disabled' } })
     }
 
     const body = await readBody(event)
@@ -28,13 +28,13 @@ export default defineEventHandler(async (event) => {
     const newsletterOptIn = body?.newsletterOptIn === true
 
     if (!EMAIL_RE.test(email)) {
-        throw createError({ statusCode: 400, statusMessage: 'Invalid email' })
+        throw createError({ statusCode: 400, statusMessage: 'Invalid email', data: { code: 'invalid_email', field: 'email' } })
     }
     if (!name || name.length < 1 || name.length > 80) {
-        throw createError({ statusCode: 400, statusMessage: 'Name is required' })
+        throw createError({ statusCode: 400, statusMessage: 'Name is required', data: { code: 'name_required', field: 'name' } })
     }
     if (password.length < 8) {
-        throw createError({ statusCode: 400, statusMessage: 'Password must be at least 8 characters' })
+        throw createError({ statusCode: 400, statusMessage: 'Password must be at least 8 characters', data: { code: 'password_too_short', field: 'password' } })
     }
 
     assertRateLimit(event, 'register-ip', { limit: 5, windowMs: 60 * 60_000 })
@@ -44,7 +44,7 @@ export default defineEventHandler(async (event) => {
 
     const existing = await db.collection('users').findOne({ id: userId })
     if (existing) {
-        throw createError({ statusCode: 409, statusMessage: 'An account with this email already exists' })
+        throw createError({ statusCode: 409, statusMessage: 'An account with this email already exists', data: { code: 'email_taken', field: 'email' } })
     }
 
     const passwordHash = await bcrypt.hash(password, 10)

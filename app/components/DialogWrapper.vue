@@ -2,7 +2,17 @@
     <teleport to="body">
         <div v-if="isModalOpen" class="modal">
             <div class="modal__background" @click="closeModal"></div>
-            <div class="modal__body modal-body">
+            <!-- 3.1.4 (lot 3, M1) : dialogue accessible — role/aria-modal,
+                 focus initial dans la boîte, piège de focus Tab/Shift+Tab,
+                 restitution au déclencheur à la fermeture. -->
+            <div
+                ref="bodyEl"
+                class="modal__body modal-body"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Dialog"
+                @keydown.tab="trapTab"
+            >
                 <MainButton label="close modal" :isLabelShow=false :size="sizeType.s" :icon="iconType.close" trackingTag="modal_close" @click="closeModal" class="modal-body__close" />
                 <slot />
             </div>
@@ -13,7 +23,7 @@
 <script setup>
 import { iconType } from '~~/constants/icon.constants';
 import { sizeType } from '~~/constants/size.constants';
-import { onMounted, onUnmounted, watch } from 'vue';
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { trackEvent } from '~/utils/track';
 
 const { isModalOpen, trackingTag } = defineProps({
@@ -29,13 +39,49 @@ const { isModalOpen, trackingTag } = defineProps({
 
 const emit = defineEmits(["update:isModalOpen"]);
 
+const bodyEl = ref(null)
+// 3.1.4 : élément qui avait le focus quand le dialogue s'est ouvert — il
+// y est RESTITUÉ à la fermeture (clavier et lecteurs d'écran).
+let previouslyFocused = null
+
 const closeModal = () => {
     emit("update:isModalOpen", false);
 }
 
-watch(() => isModalOpen, (isOpen) => {
-    if (isOpen && Boolean(trackingTag)) {
-        trackEvent(`dialog_view_${trackingTag}`);
+// 3.1.4 : piège de focus — Tab/Shift+Tab restent dans le dialogue.
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+const trapTab = (event) => {
+    const root = bodyEl.value
+    if (!root) return
+    const nodes = [...root.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null)
+    if (!nodes.length) return
+    const first = nodes[0]
+    const last = nodes[nodes.length - 1]
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !root.contains(active))) {
+        event.preventDefault()
+        last.focus()
+    } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+    }
+}
+
+watch(() => isModalOpen, async (isOpen) => {
+    if (isOpen) {
+        if (Boolean(trackingTag)) {
+            trackEvent(`dialog_view_${trackingTag}`);
+        }
+        previouslyFocused = document.activeElement
+        // Focus initial : premier focusable du dialogue (le bouton fermer
+        // en pratique) — annoncé comme dialogue par aria-modal.
+        await nextTick()
+        const root = bodyEl.value
+        const first = root?.querySelector(FOCUSABLE)
+        ;(first || root)?.focus?.()
+    } else if (previouslyFocused?.focus) {
+        previouslyFocused.focus()
+        previouslyFocused = null
     }
 });
 
@@ -57,9 +103,10 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .modal {
-    font-size: 12px;
-    font-family: $sf_mono;
-    line-height: 1.2;
+    // 3.1.4 : la police mono héritée produisait des dialogues « code » —
+    // la typo vient désormais du contenu (résultat, auth…).
+    font-size: 14px;
+    line-height: 1.4;
     display: flex;
     align-items: center;
     justify-content: center;

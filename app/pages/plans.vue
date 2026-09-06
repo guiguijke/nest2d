@@ -82,6 +82,12 @@
 </template>
 
 <script setup>
+
+// 3.1.6 (P3) : page publique qui reconnaît la session — un connecté voit
+// « Gérer dans le profil », un anonyme « Commencer ».
+definePageMeta({
+    middleware: 'auth-optional',
+})
 import { themeType } from '~~/constants/theme.constants'
 import { FREE_NESTING_LIMIT, TRIAL_DAYS, SUBSCRIPTION_PRICE_LABEL, PRO_PRICE_LABEL } from '~~/shared/constants/payment.constants'
 
