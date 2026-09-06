@@ -19,7 +19,7 @@ export const BENCHMARKS = {
         // livraison moteur (AGENTS.md §6) — valeurs inchangées depuis
         // fb5e184 : P8 (lot 4 phase A) n'a modifié aucun layout
         // (densités mesurées identiques, corpus 11/11 bit-identique).
-        version: '<COMMIT_PHASE_A>',
+        version: '2e48ad2',
         machine: {
             en: 'Docker worker on an AMD Ryzen 9 9900X (12 cores/24 threads), 4 vcores allocated per job, 90 s budget',
             fr: 'Worker Docker sur AMD Ryzen 9 9900X (12 cœurs/24 threads), 4 vcores alloués par job, budget 90 s',
