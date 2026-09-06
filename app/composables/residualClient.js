@@ -1229,11 +1229,13 @@ export function hasNonQuarterRotation(parts, layouts, payload) {
     return false
 }
 
-// AC3 (L2-ter) : miroir JS de _exact_overlap_area — chevauchements
-// cumulés sur anneaux BRUTS (la géométrie livrée), mesure DIFFÉRENTIELLE
-// de la ceinture du pass résiduel. Grille bbox 100 mm comme OccupancyIndex.
-function exactOverlapArea(layouts, partsById) {
-    const polys = []
+// AC3 (L2-ter) : miroir JS de _exact_overlap_area — comptage de paires
+// en chevauchement RÉEL sur anneaux bruts, TROU-AWARE comme le Python
+// (Polygon(coords, holes)) : un filler niché dans un trou n'est PAS un
+// chevauchement de matière (exemption ringInsideAHole). Mesure
+// DIFFÉRENTIELLE de la ceinture du pass résiduel, grille bbox 100 mm.
+export function exactOverlapArea(layouts, partsById) {
+    const ringsByPose = []
     const polysBb = []
     for (const l of layouts) {
         for (const pi of l.placed_items || []) {
@@ -1241,45 +1243,72 @@ function exactOverlapArea(layouts, partsById) {
             if (!part) continue
             const t = pi.transformation || {}
             const [tx, ty] = t.translation || [0, 0]
-            const ring = placedRing(part, t.rotation, tx, ty)
+            const rings = occupancyRings(part, t.rotation, tx, ty)
+            const outer = rings[0]
             let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-            for (const [x, y] of ring) {
+            for (const [x, y] of outer) {
                 if (x < x0) x0 = x; if (y < y0) y0 = y
                 if (x > x1) x1 = x; if (y > y1) y1 = y
             }
-            polys.push(ring)
+            ringsByPose.push(rings)
             polysBb.push([x0, y0, x1, y1])
         }
     }
-    const cells = new Map()
-    polys.forEach((ring, i) => {
-        const [ax0, ay0, ax1, ay1] = polysBb[i]
-        for (let cx = Math.floor(ax0 / 100); cx <= Math.floor(ax1 / 100); cx++) {
-            for (let cy = Math.floor(ay0 / 100); cy <= Math.floor(ay1 / 100); cy++) {
-                const k = cx * 8192 + cy
-                let arr = cells.get(k)
-                if (!arr) { arr = []; cells.set(k, arr) }
-                arr.push(i)
-            }
-        }
-    })
+    // Les tôles PARTAGENT le repère : paires au sein d'une MÊME tôle
+    // uniquement (préfixer la clé de cellule par l'index de tôle).
     let total = 0
-    const seen = new Set()
-    polys.forEach((ring, i) => {
-        const [ax0, ay0, ax1, ay1] = polysBb[i]
-        for (let cx = Math.floor(ax0 / 100); cx <= Math.floor(ax1 / 100); cx++) {
-            for (let cy = Math.floor(ay0 / 100); cy <= Math.floor(ay1 / 100); cy++) {
-                const arr = cells.get(cx * 8192 + cy)
-                if (!arr) continue
-                for (const j of arr) {
-                    if (j <= i) continue
-                    const key = i * polys.length + j
-                    if (seen.has(key)) continue
-                    seen.add(key)
-                    if (ringsOverlap(ring, polys[j])) total += 1
+    layouts.forEach((l) => {
+        const cells = new Map()
+        const local = []
+        for (const pi of l.placed_items || []) {
+            const part = partsById.get(String(pi.item_id))
+            if (!part) continue
+            const t = pi.transformation || {}
+            const [tx, ty] = t.translation || [0, 0]
+            const rings = occupancyRings(part, t.rotation, tx, ty)
+            const outer = rings[0]
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+            for (const [x, y] of outer) {
+                if (x < x0) x0 = x; if (y < y0) y0 = y
+                if (x > x1) x1 = x; if (y > y1) y1 = y
+            }
+            local.push({ rings, bb: [x0, y0, x1, y1] })
+        }
+        local.forEach(({ rings, bb }, i) => {
+            const [ax0, ay0, ax1, ay1] = bb
+            for (let cx = Math.floor(ax0 / 100); cx <= Math.floor(ax1 / 100); cx++) {
+                for (let cy = Math.floor(ay0 / 100); cy <= Math.floor(ay1 / 100); cy++) {
+                    const k = cx * 8192 + cy
+                    let arr = cells.get(k)
+                    if (!arr) { arr = []; cells.set(k, arr) }
+                    arr.push(i)
                 }
             }
-        }
+        })
+        const seen = new Set()
+        local.forEach(({ rings: ringsA, bb }, i) => {
+            const [ax0, ay0, ax1, ay1] = bb
+            for (let cx = Math.floor(ax0 / 100); cx <= Math.floor(ax1 / 100); cx++) {
+                for (let cy = Math.floor(ay0 / 100); cy <= Math.floor(ay1 / 100); cy++) {
+                    const arr = cells.get(cx * 8192 + cy)
+                    if (!arr) continue
+                    for (const j of arr) {
+                        if (j <= i) continue
+                        const key = i * local.length + j
+                        if (seen.has(key)) continue
+                        seen.add(key)
+                        const ringsB = local[j].rings
+                        if (!ringsOverlap(ringsA[0], ringsB[0])) continue
+                        // exemption trous (miroir Polygon(coords, holes))
+                        const holesB = ringsB.slice(1)
+                        if (holesB.length && ringInsideAHole(ringsA[0], holesB)) continue
+                        const holesA = ringsA.slice(1)
+                        if (holesA.length && ringInsideAHole(ringsB[0], holesA)) continue
+                        total += 1
+                    }
+                }
+            }
+        })
     })
     return total
 }
@@ -1312,9 +1341,11 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null, 
     }
     const sheetDimsOf = (layout) => sheetDims(payload, layout.container_id ?? 0) || [0, 0]
     const snapshot = JSON.parse(JSON.stringify(layouts))
-    // AC3 (L2-ter) : ceinture différentielle exacte — miroir Python.
-    const dirtBefore = exactOverlapArea(layouts, partsById)
     try {
+        // AC3 (L2-ter) : ceinture différentielle exacte — miroir Python.
+        // DANS le try : une géométrie sabotée doit tomber dans le filet
+        // A5 (restauration + trace), pas lever hors du pass.
+        const dirtBefore = exactOverlapArea(layouts, partsById)
         let moved = 0
         stats.residualRounds = 1
         const ratios = layouts.map((l) => fillRatio(l, partsById, sheetDimsOf))

@@ -1073,8 +1073,13 @@ def _exact_overlap_area(layouts, items_by_id):
     Sert de mesure DIFFÉRENTIELLE : l'état moteur d'entrée peut avoir des
     quasi-contacts connus (W6/D9), seule la DÉGRADATION importe."""
     from shapely.strtree import STRtree
-    polys = []
+    # Les tôles PARTAGENT le repère de coordonnées : les paires ne se
+    # jugent qu'AU SEIN d'une même tôle (comparer à travers les tôles
+    # comptait des coïncidences fictives — deux pièces aux mêmes
+    # coordonnées sur deux tôles différentes ne se chevauchent pas).
+    total = 0.0
     for l in layouts:
+        polys = []
         for pi in l.get("placed_items", []):
             it = items_by_id.get(pi.get("item_id"))
             if it is None:
@@ -1083,18 +1088,17 @@ def _exact_overlap_area(layouts, items_by_id):
             t = tr.get("translation") or [0, 0]
             polys.append(_placed_poly(it, tr.get("rotation", 0), t[0], t[1],
                                       simplify=False))
-    if not polys:
-        return 0.0
-    tree = STRtree(polys)
-    total = 0.0
-    for i, a in enumerate(polys):
-        for j in tree.query(a.buffer(5.0)):
-            j = int(j)
-            if j <= i:
-                continue
-            inter = a.intersection(polys[j]).area
-            if inter > 0.01:
-                total += inter
+        if not polys:
+            continue
+        tree = STRtree(polys)
+        for i, a in enumerate(polys):
+            for j in tree.query(a.buffer(5.0)):
+                j = int(j)
+                if j <= i:
+                    continue
+                inter = a.intersection(polys[j]).area
+                if inter > 0.01:
+                    total += inter
     return total
 
 
@@ -1144,8 +1148,9 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
     # final est PLUS SALE que l'entrée (anneaux bruts), on restaure tout :
     # une alternative moins compacte mais DÉCOUPABLE vaut mieux qu'une
     # écartée au filet final.
-    dirt_before = _exact_overlap_area(layouts, items_by_id)
     try:
+        # AC3 : dans le try — géométrie sabotée → filet A5, pas raise.
+        dirt_before = _exact_overlap_area(layouts, items_by_id)
         moved = 0
         stats["residualRounds"] = 1
         ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
