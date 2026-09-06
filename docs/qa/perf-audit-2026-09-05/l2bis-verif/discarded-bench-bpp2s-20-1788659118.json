@@ -1,0 +1,57 @@
+[
+ {
+  "reason": "overlap",
+  "strategy": "left",
+  "rank": 0,
+  "verification": {
+   "smallestGapMm": 0,
+   "overlapFree": false,
+   "insideSheet": true,
+   "spacingOk": false,
+   "holesFilled": 400,
+   "holesTotal": 100,
+   "holesOverflow": 0,
+   "duplicatePoses": 0,
+   "verifyStatus": "measured"
+  },
+  "overlaps": [
+   {
+    "a": 1,
+    "b": 1,
+    "areaMm2": 101.61
+   },
+   {
+    "a": 1,
+    "b": 1,
+    "areaMm2": 308.93
+   },
+   {
+    "a": 1,
+    "b": 1,
+    "areaMm2": 91.39
+   },
+   {
+    "a": 1,
+    "b": 1,
+    "areaMm2": 22.96
+   },
+   {
+    "a": 1,
+    "b": 1,
+    "areaMm2": 81.17
+   }
+  ],
+  "originStage": "engine",
+  "preVerification": {
+   "smallestGapMm": 0,
+   "overlapFree": false,
+   "insideSheet": true,
+   "spacingOk": false,
+   "holesFilled": 400,
+   "holesTotal": 100,
+   "holesOverflow": 0,
+   "duplicatePoses": 0,
+   "verifyStatus": "measured"
+  }
+ }
+]

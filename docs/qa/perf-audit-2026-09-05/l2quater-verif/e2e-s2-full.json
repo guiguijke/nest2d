@@ -1,0 +1,273 @@
+{
+ "slug": "nested-f-230aa007aac8587c_100-f-d4ca89a0446efaea_800-d4c870",
+ "requested": 900,
+ "placed": 900,
+ "isSpp": false,
+ "sheets": [
+  [
+   1000,
+   1000
+  ]
+ ],
+ "keys": [
+  "slug",
+  "projectSlug",
+  "createdAt",
+  "problem",
+  "isSpp",
+  "sheets",
+  "requested",
+  "placed",
+  "alternatives",
+  "liveLayout",
+  "meta"
+ ],
+ "alternatives": [
+  {
+   "altId": 0,
+   "strategy": "grid",
+   "seed": "null",
+   "density": 0.5539999999999999,
+   "layoutCount": 2,
+   "usedSheetShare": 0.7203419717676076,
+   "offcut": {
+    "width": 543.915,
+    "height": 1000,
+    "area": 543914.8
+   },
+   "report": {
+    "duplicatePoses": 0,
+    "holesFilled": 400,
+    "holesOverflow": 0,
+    "holesTotal": 100,
+    "insideSheet": true,
+    "overlapFree": true,
+    "smallestGapMm": 2,
+    "spacingOk": true,
+    "verifyStatus": "measured",
+    "unplaced": 0,
+    "postPass": {
+     "expandMeta": 0,
+     "holeFillRecovered": 0,
+     "residualMoved": 0,
+     "residualRounds": 0,
+     "compactRollback": false,
+     "errors": [],
+     "pre": [
+      {
+       "sheet": 0,
+       "count": 573,
+       "frontX": 996.5
+      },
+      {
+       "sheet": 1,
+       "count": 327,
+       "frontX": 456.1
+      }
+     ]
+    },
+    "partsAreaMm2": 1107470.7,
+    "sheetAreaMm2": 2000000,
+    "iterations": null,
+    "vcores": 1,
+    "sheets": [
+     {
+      "densityPct": 80.1,
+      "freeAreaMm2": 198839.6,
+      "heightMm": 1000,
+      "index": 0,
+      "offcut": {
+       "areaMm2": 3473,
+       "heightMm": 3.473,
+       "reusable": false,
+       "widthMm": 1000
+      },
+      "partCount": 573,
+      "partsAreaMm2": 801160.4,
+      "sheetAreaMm2": 1000000,
+      "widthMm": 1000
+     },
+     {
+      "densityPct": 30.6,
+      "freeAreaMm2": 693689.7,
+      "heightMm": 1000,
+      "index": 1,
+      "offcut": {
+       "areaMm2": 543914.8,
+       "heightMm": 1000,
+       "reusable": true,
+       "widthMm": 543.915
+      },
+      "partCount": 327,
+      "partsAreaMm2": 306310.3,
+      "sheetAreaMm2": 1000000,
+      "widthMm": 1000
+     }
+    ],
+    "totals": {
+     "densityPct": 55.4,
+     "formats": [
+      {
+       "count": 2,
+       "heightMm": 1000,
+       "widthMm": 1000
+      }
+     ],
+     "freeAreaMm2": 892529.3,
+     "partsAreaMm2": 1107470.7,
+     "sheetAreaMm2": 2000000,
+     "sheetCount": 2
+    },
+    "offcut": {
+     "areaMm2": 543914.8,
+     "heightMm": 1000,
+     "reusable": true,
+     "widthMm": 543.915
+    }
+   },
+   "keys": [
+    "seed",
+    "strategy",
+    "density",
+    "usedSheetShare",
+    "offcut",
+    "cost",
+    "layoutCount",
+    "svgs",
+    "report",
+    "dxfs",
+    "altId"
+   ],
+   "svgs": 2,
+   "dxfNames": [
+    "nested-f-230aa007aac8587c_100-f-d4ca89a0446efaea_800-d4c870_alt0_part_1.dxf",
+    "nested-f-230aa007aac8587c_100-f-d4ca89a0446efaea_800-d4c870_alt0_part_2.dxf"
+   ]
+  },
+  {
+   "altId": 1,
+   "strategy": "left",
+   "seed": "6825704941837900974",
+   "density": 0.5539999999999999,
+   "layoutCount": 2,
+   "usedSheetShare": 0.7320806776022338,
+   "offcut": {
+    "width": 512.302,
+    "height": 1000,
+    "area": 512301.7
+   },
+   "report": {
+    "duplicatePoses": 0,
+    "holesFilled": 400,
+    "holesOverflow": 0,
+    "holesTotal": 100,
+    "insideSheet": true,
+    "overlapFree": true,
+    "smallestGapMm": 2,
+    "spacingOk": true,
+    "verifyStatus": "measured",
+    "unplaced": 0,
+    "postPass": {
+     "expandMeta": 400,
+     "holeFillRecovered": 0,
+     "residualMoved": 0,
+     "residualRounds": 1,
+     "compactRollback": true,
+     "errors": [],
+     "pre": [
+      {
+       "sheet": 0,
+       "count": 524,
+       "frontX": 995.4
+      },
+      {
+       "sheet": 1,
+       "count": 376,
+       "frontX": 487.7
+      }
+     ],
+     "profile": "compact",
+     "mergedReceivers": 0,
+     "mergedRollbackReason": "restore-recv",
+     "compactRollbackReason": "front"
+    },
+    "partsAreaMm2": 1107470.8,
+    "sheetAreaMm2": 2000000,
+    "iterations": 30,
+    "vcores": 1,
+    "sheets": [
+     {
+      "densityPct": 77.1,
+      "freeAreaMm2": 228959.1,
+      "heightMm": 1000,
+      "index": 0,
+      "offcut": {
+       "areaMm2": 8515.7,
+       "heightMm": 8.516,
+       "reusable": false,
+       "widthMm": 1000
+      },
+      "partCount": 524,
+      "partsAreaMm2": 771040.9,
+      "sheetAreaMm2": 1000000,
+      "widthMm": 1000
+     },
+     {
+      "densityPct": 33.6,
+      "freeAreaMm2": 663570.1,
+      "heightMm": 1000,
+      "index": 1,
+      "offcut": {
+       "areaMm2": 512301.7,
+       "heightMm": 1000,
+       "reusable": true,
+       "widthMm": 512.302
+      },
+      "partCount": 376,
+      "partsAreaMm2": 336429.9,
+      "sheetAreaMm2": 1000000,
+      "widthMm": 1000
+     }
+    ],
+    "totals": {
+     "densityPct": 55.4,
+     "formats": [
+      {
+       "count": 2,
+       "heightMm": 1000,
+       "widthMm": 1000
+      }
+     ],
+     "freeAreaMm2": 892529.2,
+     "partsAreaMm2": 1107470.8,
+     "sheetAreaMm2": 2000000,
+     "sheetCount": 2
+    },
+    "offcut": {
+     "areaMm2": 512301.7,
+     "heightMm": 1000,
+     "reusable": true,
+     "widthMm": 512.302
+    }
+   },
+   "keys": [
+    "seed",
+    "strategy",
+    "density",
+    "usedSheetShare",
+    "offcut",
+    "cost",
+    "layoutCount",
+    "svgs",
+    "report",
+    "dxfs",
+    "altId"
+   ],
+   "svgs": 2,
+   "dxfNames": [
+    "nested-f-230aa007aac8587c_100-f-d4ca89a0446efaea_800-d4c870_alt1_part_1.dxf",
+    "nested-f-230aa007aac8587c_100-f-d4ca89a0446efaea_800-d4c870_alt1_part_2.dxf"
+   ]
+  }
+ ]
+}

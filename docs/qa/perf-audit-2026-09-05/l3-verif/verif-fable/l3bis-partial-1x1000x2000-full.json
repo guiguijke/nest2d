@@ -1,0 +1,128 @@
+{
+ "slug": "nested-f-0502095582fe9a2b_100-f-ebb1ffce20c49192_800-55041a",
+ "requested": 900,
+ "placed": 894,
+ "isSpp": false,
+ "sheets": [
+  [
+   1000,
+   2000
+  ]
+ ],
+ "keys": [
+  "slug",
+  "projectSlug",
+  "createdAt",
+  "problem",
+  "isSpp",
+  "sheets",
+  "requested",
+  "placed",
+  "alternatives",
+  "liveLayout",
+  "unfit",
+  "meta"
+ ],
+ "alternatives": [
+  {
+   "altId": 0,
+   "strategy": "left",
+   "seed": "429912234922344450",
+   "density": 0.544,
+   "layoutCount": 1,
+   "usedSheetShare": 0.981632507969519,
+   "offcut": {
+    "width": 7.183,
+    "height": 2000,
+    "area": 14365.1
+   },
+   "report": {
+    "duplicatePoses": 0,
+    "holesFilled": 0,
+    "holesOverflow": 0,
+    "holesTotal": 97,
+    "insideSheet": true,
+    "overlapFree": true,
+    "smallestGapMm": 4,
+    "spacingOk": true,
+    "verifyStatus": "measured",
+    "unplaced": 6,
+    "postPass": {
+     "expandMeta": 0,
+     "holeFillRecovered": 0,
+     "residualMoved": 0,
+     "residualRounds": 0,
+     "compactRollback": false,
+     "errors": [],
+     "pre": [
+      {
+       "sheet": 0,
+       "count": 894,
+       "frontX": 992.8
+      }
+     ],
+     "profile": "compact"
+    },
+    "partsAreaMm2": 1087155,
+    "sheetAreaMm2": 2000000,
+    "iterations": 95,
+    "vcores": 1,
+    "sheets": [
+     {
+      "densityPct": 54.4,
+      "freeAreaMm2": 912845,
+      "heightMm": 2000,
+      "index": 0,
+      "offcut": {
+       "areaMm2": 14365.1,
+       "heightMm": 2000,
+       "reusable": false,
+       "widthMm": 7.183
+      },
+      "partCount": 894,
+      "partsAreaMm2": 1087155,
+      "sheetAreaMm2": 2000000,
+      "widthMm": 1000
+     }
+    ],
+    "totals": {
+     "densityPct": 54.4,
+     "formats": [
+      {
+       "count": 1,
+       "heightMm": 2000,
+       "widthMm": 1000
+      }
+     ],
+     "freeAreaMm2": 912845,
+     "partsAreaMm2": 1087155,
+     "sheetAreaMm2": 2000000,
+     "sheetCount": 1
+    },
+    "offcut": {
+     "areaMm2": 14365.1,
+     "heightMm": 2000,
+     "reusable": false,
+     "widthMm": 7.183
+    }
+   },
+   "keys": [
+    "seed",
+    "strategy",
+    "density",
+    "usedSheetShare",
+    "offcut",
+    "cost",
+    "layoutCount",
+    "svgs",
+    "report",
+    "dxfs",
+    "altId"
+   ],
+   "svgs": 1,
+   "dxfNames": [
+    "nested-f-0502095582fe9a2b_100-f-ebb1ffce20c49192_800-55041a_alt0_part_1.dxf"
+   ]
+  }
+ ]
+}
