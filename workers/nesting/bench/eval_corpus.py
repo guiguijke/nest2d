@@ -46,11 +46,12 @@ def fiche(slug_prefix="bench-corpus-", since=None):
         case = j["slug"].split("-")[2].upper()
         requested = sum(int(f.get("count") or 0) for f in (j.get("files") or []))
         placed = j.get("placed")
+        _mrf = [a.get("report", {}).get("postPass", {})
+                .get("mergedReceivers") or 0
+                for a in (j.get("alternatives") or [])
+                if a.get("strategy") != "grid"]
         row = {"case": case, "slug": j["slug"], "status": j.get("status"),
-               "merged": next((a.get("report", {}).get("postPass", {})
-                          .get("mergedReceivers") or 0)
-                          for a in (j.get("alternatives") or [])
-                          if a.get("strategy") != "grid"),
+               "merged": _mrf[0] if _mrf else 0,
                "placed": placed, "requested": requested}
         # Z2/Z5 : refus worker attendu (T-J semé) — statut error avec
         # unfit capacité AVANT le moteur, refund par worker_loop.
