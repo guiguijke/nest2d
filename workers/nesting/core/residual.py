@@ -1066,6 +1066,38 @@ def _has_non_quarter_rotation(layouts, input_items):
     return False
 
 
+def _exact_overlap_area(layouts, items_by_id):
+    """AC3 (L2-ter) : aire de chevauchement TOTALE, anneaux BRUTS (même
+    géométrie que metrics.verify_layout — le pass résiduel valide sur
+    anneaux simplifiés, sa ceinture doit juger la géométrie livrée).
+    Sert de mesure DIFFÉRENTIELLE : l'état moteur d'entrée peut avoir des
+    quasi-contacts connus (W6/D9), seule la DÉGRADATION importe."""
+    from shapely.strtree import STRtree
+    polys = []
+    for l in layouts:
+        for pi in l.get("placed_items", []):
+            it = items_by_id.get(pi.get("item_id"))
+            if it is None:
+                continue
+            tr = pi.get("transformation") or {}
+            t = tr.get("translation") or [0, 0]
+            polys.append(_placed_poly(it, tr.get("rotation", 0), t[0], t[1],
+                                      simplify=False))
+    if not polys:
+        return 0.0
+    tree = STRtree(polys)
+    total = 0.0
+    for i, a in enumerate(polys):
+        for j in tree.query(a.buffer(5.0)):
+            j = int(j)
+            if j <= i:
+                continue
+            inter = a.intersection(polys[j]).area
+            if inter > 0.01:
+                total += inter
+    return total
+
+
 def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
                         profile="grid"):
     """Mutate layouts in place. Retourne le nombre de pièces déplacées
@@ -1106,6 +1138,13 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
         return 0
     space = float(space or 0)
     snapshot = copy.deepcopy(layouts)
+    # AC3 (L2-ter) : ceinture différentielle EXACTE — le 1/30 banc a livré
+    # une alternative en chevauchement (origin=post_pass : les garde du
+    # passvalident sur anneaux simplifiés avec tolérance A14). Si l'état
+    # final est PLUS SALE que l'entrée (anneaux bruts), on restaure tout :
+    # une alternative moins compacte mais DÉCOUPABLE vaut mieux qu'une
+    # écartée au filet final.
+    dirt_before = _exact_overlap_area(layouts, items_by_id)
     try:
         moved = 0
         stats["residualRounds"] = 1
@@ -1131,6 +1170,21 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
             moved += _compact_last_sheet(layouts, last, items_by_id,
                                          bin_dims, space, stats=stats,
                                          regrid=(stats.get("profile") == "grid"))
+        dirt_after = _exact_overlap_area(layouts, items_by_id)
+        if dirt_after > dirt_before + 0.05:
+            layouts[:] = snapshot
+            stats["residualMoved"] = 0
+            stats["residualRolledBack"] = True
+            stats.setdefault("errors", []).append({
+                "stage": "residual",
+                "message": (f"ceinture exacte : chevauchement "
+                            f"{dirt_before:.2f} → {dirt_after:.2f} mm², "
+                            f"état d'entrée restauré")})
+            logger.warning(
+                "residual pass rolled back by exact belt",
+                extra={"beforeMm2": round(dirt_before, 2),
+                       "afterMm2": round(dirt_after, 2)})
+            return 0
         stats["residualMoved"] = moved
         return moved
     except Exception as e:

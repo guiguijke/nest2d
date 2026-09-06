@@ -1229,6 +1229,61 @@ export function hasNonQuarterRotation(parts, layouts, payload) {
     return false
 }
 
+// AC3 (L2-ter) : miroir JS de _exact_overlap_area — chevauchements
+// cumulés sur anneaux BRUTS (la géométrie livrée), mesure DIFFÉRENTIELLE
+// de la ceinture du pass résiduel. Grille bbox 100 mm comme OccupancyIndex.
+function exactOverlapArea(layouts, partsById) {
+    const polys = []
+    const polysBb = []
+    for (const l of layouts) {
+        for (const pi of l.placed_items || []) {
+            const part = partsById.get(String(pi.item_id))
+            if (!part) continue
+            const t = pi.transformation || {}
+            const [tx, ty] = t.translation || [0, 0]
+            const ring = placedRing(part, t.rotation, tx, ty)
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+            for (const [x, y] of ring) {
+                if (x < x0) x0 = x; if (y < y0) y0 = y
+                if (x > x1) x1 = x; if (y > y1) y1 = y
+            }
+            polys.push(ring)
+            polysBb.push([x0, y0, x1, y1])
+        }
+    }
+    const cells = new Map()
+    polys.forEach((ring, i) => {
+        const [ax0, ay0, ax1, ay1] = polysBb[i]
+        for (let cx = Math.floor(ax0 / 100); cx <= Math.floor(ax1 / 100); cx++) {
+            for (let cy = Math.floor(ay0 / 100); cy <= Math.floor(ay1 / 100); cy++) {
+                const k = cx * 8192 + cy
+                let arr = cells.get(k)
+                if (!arr) { arr = []; cells.set(k, arr) }
+                arr.push(i)
+            }
+        }
+    })
+    let total = 0
+    const seen = new Set()
+    polys.forEach((ring, i) => {
+        const [ax0, ay0, ax1, ay1] = polysBb[i]
+        for (let cx = Math.floor(ax0 / 100); cx <= Math.floor(ax1 / 100); cx++) {
+            for (let cy = Math.floor(ay0 / 100); cy <= Math.floor(ay1 / 100); cy++) {
+                const arr = cells.get(cx * 8192 + cy)
+                if (!arr) continue
+                for (const j of arr) {
+                    if (j <= i) continue
+                    const key = i * polys.length + j
+                    if (seen.has(key)) continue
+                    seen.add(key)
+                    if (ringsOverlap(ring, polys[j])) total += 1
+                }
+            }
+        }
+    })
+    return total
+}
+
 export function fillResidualBands(parts, layouts, space, payload, stats = null, profile = 'grid') {
     // A5 (audit 2026-09-03) : `stats` (additif) reçoit residualMoved /
     // residualRounds / compactRollback / errors — le post-pass ne peut
@@ -1257,6 +1312,8 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null, 
     }
     const sheetDimsOf = (layout) => sheetDims(payload, layout.container_id ?? 0) || [0, 0]
     const snapshot = JSON.parse(JSON.stringify(layouts))
+    // AC3 (L2-ter) : ceinture différentielle exacte — miroir Python.
+    const dirtBefore = exactOverlapArea(layouts, partsById)
     try {
         let moved = 0
         stats.residualRounds = 1
@@ -1287,6 +1344,20 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null, 
                 if (ratios2[i] <= ratios2[last2]) last2 = i
             }
             moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload, stats, stats.profile === 'grid')
+        }
+        const dirtAfter = exactOverlapArea(layouts, partsById)
+        if (dirtAfter > dirtBefore) {
+            layouts.length = 0
+            layouts.push(...JSON.parse(JSON.stringify(snapshot)))
+            stats.residualMoved = 0
+            stats.residualRolledBack = true
+            if (!Array.isArray(stats.errors)) stats.errors = []
+            stats.errors.push({
+                stage: 'residual',
+                message: `ceinture exacte : chevauchements ${dirtBefore} → ${dirtAfter}, état d'entrée restauré`,
+            })
+            console.error('[local] residual pass rolled back by exact belt', dirtBefore, '→', dirtAfter)
+            return 0
         }
         stats.residualMoved = moved
         return moved
