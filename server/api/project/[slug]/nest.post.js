@@ -457,46 +457,12 @@ export default defineEventHandler(async (event) => {
         if (!isDemo) {
             // find().toArray() (et pas countDocuments) : le fakeMongo des tests
             // serveur ne l'implémente pas — sémantique identique côté Mongo réel.
-            // A3 (lot 4, AF5) : un awaiting_local ORPHELIN (l'appareil qui
-            // devait le résoudre a fermé avant de prendre le payload) est
-            // expiré ICI — TTL sans takenAt — annulé + remboursé, puis le
-            // POST CONTINUE au lieu de 409 jusqu'à annulation manuelle.
-            const ORPHAN_TTL_MS = (Number(useRuntimeConfig(event)?.awaitingLocalTtlMin) || 10) * 60_000
-            const cutoff = new Date(Date.now() - ORPHAN_TTL_MS)
-            const orphans = await db.collection('nesting_jobs').find({
-                ownerId: userId,
-                status: 'awaiting_local',
-                takenAt: { $exists: false },
-                createdAt: { $lt: cutoff },
-            }).project({ slug: 1, charge: 1 }).toArray()
-            for (const orphan of orphans) {
-                const refund = {}
-                const chargeType = orphan.charge?.type
-                if (chargeType === 'free') {
-                    refund.$inc = { freeNestingUsed: -1 }
-                } else if (chargeType === 'demo' && !orphan.charge?.skippedQuota) {
-                    refund.$inc = { demoNestingUsed: -1 }
-                }
-                await db.collection('users').updateOne(
-                    { id: userId, ...(refund.$inc ? { [Object.keys(refund.$inc)[0]]: { $gt: 0 } } : {}) },
-                    refund,
-                )
-                await db.collection('nesting_jobs').updateOne(
-                    { slug: orphan.slug },
-                    {
-                        $set: {
-                            status: 'cancelled',
-                            placed: 0,
-                            // Carte dédiée : « non pris en charge par cet appareil ».
-                            information: 'awaiting_local_expired',
-                            finishedAt: new Date(),
-                            update_ts: new Date(),
-                            'charge.refunded': true,
-                        },
-                        $unset: { progress: '', compute: '', localPayload: '' },
-                    },
-                )
-            }
+            // A3/AH2/AH3 : orphelins awaiting_local expirés ici ET à
+            // l'ouverture du flux SSE (utilitaire partagé, transition
+            // atomique, remboursement uniquement si ELLE a matché).
+            const { expireOrphanAwaitingLocalForEvent } = await import('~~/server/utils/expireOrphanAwaitingLocal')
+            await expireOrphanAwaitingLocalForEvent(event, userId)
+
             const activeJobs = (await db.collection('nesting_jobs').find({
                 ownerId: userId,
                 status: { $in: ['pending', 'processing', 'awaiting_local'] },

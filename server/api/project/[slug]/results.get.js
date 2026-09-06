@@ -11,6 +11,14 @@ export default defineEventHandler(async (event) => {
 
     const eventStream = createEventStream(event)
 
+    // AH2 (lot 4) : orphelins awaiting_local expirés à L'OUVERTURE du
+    // flux — sinon la carte « non pris en charge » n'apparaît qu'au
+    // prochain POST nest du propriétaire.
+    try {
+        const { expireOrphanAwaitingLocalForEvent } = await import('~~/server/utils/expireOrphanAwaitingLocal')
+        await expireOrphanAwaitingLocalForEvent(event, userId)
+    } catch { /* best-effort : la liste reste servie */ }
+
     const result = await getResults(userId, projectSlug)
     const items = result.items
 

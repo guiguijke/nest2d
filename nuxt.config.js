@@ -30,6 +30,10 @@ export default defineNuxtConfig({
     },
     runtimeConfig: {
         mongoUri: '',
+        // A3/AH5 : TTL (minutes) des awaiting_local orphelins (sans
+        // takenAt) — annulation + remboursement au POST/à l'ouverture du
+        // flux. Override : NUXT_AWAITING_LOCAL_TTL_MIN.
+        awaitingLocalTtlMin: 10,
         stripeSecretKey: '',
         // Signing secret for the Stripe webhook endpoint (whsec_...). Set via
         // NUXT_STRIPE_WEBHOOK_SECRET. Empty string disables signature checks

@@ -1617,6 +1617,18 @@ def _nesting_process_impl(doc):
                 "moved": _delta}
             _pass_timings[engine_alt.get("bias") or "alt"] = {
                 "expandMs": int((_pass_t.monotonic() - _t0) * 1000)}
+            # AH1 (relecture A2/A3) : comptes par classe capturés JUSTE
+            # après l'expansion, AVANT hole-fill/résiduel — c'est l'état
+            # moteur RESTITUÉ (fans comprises). Le X2 calculait cette
+            # référence à la finalisation, sur une solution mutée en place
+            # par les passes : la garde serveur comparait l'état final à
+            # lui-même (miroir du résidu AG1 côté navigateur).
+            _ec = {}
+            for _l in sol.get("layouts") or []:
+                for _pi in _l.get("placed_items", []):
+                    _k = _pi["item_id"]
+                    _ec[_k] = _ec.get(_k, 0) + 1
+            engine_alt["_engine_counts"] = _ec
 
     # Post-pass hole-fill (SPP et BPP) : AVANT le reveal.
     if has_holes:
@@ -1915,11 +1927,15 @@ def _nesting_process_impl(doc):
 
         # X2 : posé MOTEUR par classe — référence des deux gardes (une
         # solution partielle sur stock serré n'est pas une « perte »).
-        engine_placed_by_id = {}
-        for l in (engine_alt.get("solution") or {}).get("layouts") or []:
-            for pi in l.get("placed_items", []):
-                engine_placed_by_id[pi["item_id"]] = (
-                    engine_placed_by_id.get(pi["item_id"], 0) + 1)
+        # AH1 : la référence est la capture post-expansion (l'état moteur
+        # restitué) ; le recalcul ci-dessous reste en repli défensif pour
+        # un doc qui aurait perdu _engine_counts.
+        engine_placed_by_id = dict(engine_alt.get("_engine_counts") or {})
+        if not engine_placed_by_id:
+            for l in (engine_alt.get("solution") or {}).get("layouts") or []:
+                for pi in l.get("placed_items", []):
+                    engine_placed_by_id[pi["item_id"]] = (
+                        engine_placed_by_id.get(pi["item_id"], 0) + 1)
         unplaced_count = max(0, total_requested_count
                              - sum(engine_placed_by_id.values()))
 
