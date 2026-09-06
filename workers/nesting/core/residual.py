@@ -852,23 +852,36 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
             # systématiquement occupé par le lattice). La cascade sauve le
             # gain de la fusion ET ne livre jamais un chevauchement.
             donor_ids = {id(pi) for pi in donor_free}
-            for pi in remaining:
-                pi["transformation"] = saved_poses[id(pi)]
-                donor["placed_items"].append(pi)
             remaining_recv = [pi for pi in remaining
                               if id(pi) in recv_free_ids
                               and id(pi) not in donor_ids]
             sw_d2, sh_d2 = bin_dims[donor["container_id"]]
             sw_r2, sh_r2 = bin_dims[recv["container_id"]]
+            # rendues DONNEUSE d'abord (poses legales contre la donneuse
+            # moins ses libres partis au relais) — chaque pose acceptee
+            # PERSISTE et sert d'occupancy aux suivantes.
+            for pi in remaining:
+                if id(pi) in recv_free_ids and id(pi) not in donor_ids:
+                    continue
+                pi["transformation"] = saved_poses[id(pi)]
+                donor["placed_items"].append(pi)
+            # cascade piece par piece pour les RECEVEUSES : tentative
+            # donneuse (batch), sinon receveuse (batch), sinon rollback.
+            # NE PAS tout appender d'avance : une fan validee alors que
+            # d'autres non-traitees trainent a des poses mutuellement
+            # chevauchantes echoue a tort (7/8 fusions perdues, bancs
+            # 678403-678413).
             recv_failed = []
             for pi in remaining_recv:
+                pi["transformation"] = saved_poses[id(pi)]
+                donor["placed_items"].append(pi)
                 if _validate_batch([pi], donor, items_by_id, sw_d2, sh_d2, space):
-                    continue  # tentée sur la donneuse : valide
+                    continue
                 donor["placed_items"] = [x for x in donor.get("placed_items", [])
                                          if x is not pi]
                 recv["placed_items"].append(pi)
                 if _validate_batch([pi], recv, items_by_id, sw_r2, sh_r2, space):
-                    continue  # retournée sur la receveuse : valide
+                    continue
                 recv["placed_items"] = [x for x in recv.get("placed_items", [])
                                         if x is not pi]
                 recv_failed.append(pi)

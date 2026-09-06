@@ -1075,15 +1075,19 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
             const remainingDonor = []
             const remainingRecv = []
             for (const pi of remaining) {
+                if (recvIds.has(pi)) { remainingRecv.push(pi); continue }
                 pi.transformation = savedPoses.get(pi)
                 donor.placed_items.push(pi)
-                if (recvIds.has(pi)) remainingRecv.push(pi)
-                else remainingDonor.push(pi)
+                remainingDonor.push(pi)
             }
             const [swD2, shD2] = sheetDimsOf(donor)
             const [swR2, shR2] = sheetDimsOf(recv)
+            // cascade AU FIL DE L'EAU (miroir Python) : chaque pose
+            // acceptee persiste avant de juger la suivante.
             let okRecv = true
             for (const pi of remainingRecv) {
+                pi.transformation = savedPoses.get(pi)
+                donor.placed_items.push(pi)
                 if (validateBatch([pi], donor, partsById, swD2, shD2, space)) continue
                 donor.placed_items = (donor.placed_items || []).filter((x) => x !== pi)
                 recv.placed_items.push(pi)
