@@ -1084,6 +1084,9 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
             const [swR2, shR2] = sheetDimsOf(recv)
             // cascade AU FIL DE L'EAU (miroir Python) : chaque pose
             // acceptee persiste avant de juger la suivante.
+            // (3) RE-RELAY (AE3, miroir Python) : la pose d'origine ne
+            // passe nulle part → NOUVELLE pose au lattice, receveuse puis
+            // donneuse, avant tout rollback.
             let okRecv = true
             for (const pi of remainingRecv) {
                 pi.transformation = savedPoses.get(pi)
@@ -1093,6 +1096,13 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
                 recv.placed_items.push(pi)
                 if (validateBatch([pi], recv, partsById, swR2, shR2, space)) continue
                 recv.placed_items = (recv.placed_items || []).filter((x) => x !== pi)
+                let relayed = 0
+                for (const dstI of [recvI, donorI]) {
+                    relayed = fillOneBatch(layouts, dstI, dstI, partsById,
+                        sheetDimsOf, space, payload, [pi], null, 1)
+                    if (relayed) break
+                }
+                if (relayed) continue
                 okRecv = false
                 rollbackReason = 'restore-recv'
                 break

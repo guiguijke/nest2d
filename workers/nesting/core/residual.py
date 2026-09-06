@@ -770,6 +770,12 @@ def _relay_frees_behind_anchor(layouts, sheet_i, free, pocket_rects,
     return moved
 
 
+def _tr_round(pi):
+    t = pi.get("transformation") or {}
+    tr = t.get("translation") or [0, 0]
+    return [round(float(t.get("rotation", 0)), 1), round(float(tr[0]), 1), round(float(tr[1]), 1)]
+
+
 def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
                                   space, stats=None):
     """W3 (vérif 2026-09-04) + X1 (vérif tour 4) : remplissage inter-tôles
@@ -872,19 +878,78 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
             # chevauchantes echoue a tort (7/8 fusions perdues, bancs
             # 678403-678413).
             recv_failed = []
+            ok_donor = ok_recv = ok_relayed = 0
+            fail_reasons = []
+
+            def _fail_kind(pi, layout):
+                it = items_by_id[pi["item_id"]]
+                tr = pi["transformation"]
+                key = (pi["item_id"], round(float(tr["rotation"]), 4),
+                       round(float(tr["translation"][0]), 3),
+                       round(float(tr["translation"][1]), 3))
+                for q in layout.get("placed_items", []):
+                    t2 = q["transformation"]
+                    if (q["item_id"], round(float(t2["rotation"]), 4),
+                            round(float(t2["translation"][0]), 3),
+                            round(float(t2["translation"][1]), 3)) == key:
+                        return "duplicate"
+                poly = _placed_poly(it, tr["rotation"],
+                                    tr["translation"][0], tr["translation"][1])
+                entries, tree = _occupancy(
+                    layout, items_by_id, exclude=[id(pi)])
+                best = None
+                for j in tree.query(poly.buffer(max(space, 0) + 50.0)):
+                    d = poly.distance(entries[int(j)][1])
+                    if best is None or d < best:
+                        best = d
+                return f"mindist={best:.3f}" if best is not None else "vide"
+
             for pi in remaining_recv:
                 pi["transformation"] = saved_poses[id(pi)]
                 donor["placed_items"].append(pi)
                 if _validate_batch([pi], donor, items_by_id, sw_d2, sh_d2, space):
+                    ok_donor += 1
                     continue
                 donor["placed_items"] = [x for x in donor.get("placed_items", [])
                                          if x is not pi]
                 recv["placed_items"].append(pi)
                 if _validate_batch([pi], recv, items_by_id, sw_r2, sh_r2, space):
+                    ok_recv += 1
                     continue
                 recv["placed_items"] = [x for x in recv.get("placed_items", [])
                                         if x is not pi]
+                # (3) RE-RELAY : la pose d'origine ne passe nulle part
+                # (lattice du relais l'a occupée / donneuse en contact) —
+                # chercher une NOUVELLE pose au lattice, receveuse puis
+                # donneuse (AE3 : sans ça, 4-10 fans/run perdaient toute
+                # la fusion, 0/8 d'acceptation contre >= 4/8 exigé).
+                pi["transformation"] = saved_poses[id(pi)]
+                placed_n = 0
+                for dst_i in (recv_i, donor_i):
+                    placed_n = _fill_one_batch(
+                        layouts, dst_i, dst_i, items_by_id, bin_dims, space,
+                        free=[pi], min_poses=1)
+                    if placed_n:
+                        break
+                if placed_n:
+                    ok_relayed += 1
+                    continue
+                fail_reasons.append({
+                    "donor": _fail_kind(pi, donor),
+                    "recv": _fail_kind(pi, recv),
+                    "pose": [pi["item_id"], _tr_round(pi)],
+                })
                 recv_failed.append(pi)
+            # Diagnostic additif (postPass) : où échoue la cascade.
+            if stats is not None and remaining_recv:
+                stats["recvCascade"] = {
+                    "remaining": len(remaining_recv),
+                    "okDonor": ok_donor,
+                    "okRecv": ok_recv,
+                    "okRelayed": ok_relayed,
+                    "failed": len(recv_failed),
+                    "failReasons": fail_reasons[:6],
+                }
             if recv_failed:
                 rollback_reason = "restore-recv"
                 raise _CompactRollback("restore")
