@@ -69,12 +69,23 @@
                 >
                     {{ t('settings.addSheet') }}
                 </button>
+                <!-- B.4 / masterplan 3.10 : l'espacement se règle par ses deux
+                     causes — kerf (largeur de coupe) et sécurité (marge par
+                     pièce). L'espacement effectif (clé moteur `space`) vaut
+                     toujours kerf + 2 × sécurité, règle affichée dessous. -->
                 <InputField
-                    :prefix="t('settings.spacing')"
+                    :prefix="t('settings.kerf')"
                     :suffix="unitLabel"
-                    v-model="localSpace"
+                    v-model="localKerf"
                     class="size__input"
                 />
+                <InputField
+                    :prefix="t('settings.safety')"
+                    :suffix="unitLabel"
+                    v-model="localSafety"
+                    class="size__input"
+                />
+                <p class="size__rule">{{ spacingRule }}</p>
                 <!-- W10 (vérif 2026-09-04) : espacement sous le kerf laser —
                      avertissement visible (micro-chevauchements possibles). -->
                 <div
@@ -82,6 +93,14 @@
                     class="size__warning"
                 >
                     {{ t('settings.spacingKerf') }}
+                </div>
+                <!-- B.4 : au-delà de 2,4 mm d'espacement le moteur ne peut plus
+                     ouvrir les trous pour y nicher (limite canal, D-MOT-2). -->
+                <div
+                    v-if="holesDisabledHint"
+                    class="size__warning"
+                >
+                    {{ t('settings.spacingHolesDisabled') }}
                 </div>
                 <div class="size__rotations rotations">
                     <InputField
@@ -171,7 +190,7 @@
     const { t } = useLocale()
     const { unit, unitLabel, enabled: unitsEnabled } = useUnit()
     const { getters, actions } = filesStore
-    const { updateParams, updateSheet, addSheet, removeSheet } = actions
+    const { updateParams, updateKerfSafety, updateSheet, addSheet, removeSheet } = actions
     const params = computed(() => getters.params)
 
     // Standard sheet sizes of the current unit (a US user picks 48×96 from a
@@ -190,10 +209,36 @@
         return [{ width: p.widthPlate ?? '400', height: p.heightPlate ?? '560', count: p.sheetCount ?? '1' }]
     })
 
-    const localSpace = computed({
-        get: () => unref(params).space,
-        set: (value) => updateParams({ space: value }),
+    // B.4 : les deux réglages explicites passent par updateKerfSafety —
+    // l'unique chemin qui maintient `space` (= kerf + 2 × sécurité), la
+    // clé comprise par l'API et les deux moteurs.
+    const localKerf = computed({
+        get: () => unref(params).kerf ?? '0',
+        set: (value) => updateKerfSafety({ kerf: value }),
     })
+
+    const localSafety = computed({
+        get: () => unref(params).safety ?? '0',
+        set: (value) => updateKerfSafety({ safety: value }),
+    })
+
+    const effectiveSpace = computed(() => Number(String(unref(params).space ?? '0').replace(',', '.')) || 0)
+
+    // Règle affichée (B.4/3.10) : « espacement entre pièces = kerf +
+    // 2 × sécurité = {v} » — l'utilisateur voit la décomposition ET le
+    // chiffre effectivement envoyé au moteur.
+    const spacingRule = computed(() =>
+        t('settings.spacingRule', {
+            kerf: unref(params).kerf ?? '0',
+            safety: unref(params).safety ?? '0',
+            v: unref(params).space ?? '0',
+            unit: unitLabel.value,
+        })
+    )
+
+    const holesDisabledHint = computed(() =>
+        effectiveSpace.value > 2.4 && unref(params).fillHoles !== false
+    )
 
     const localAddOutShape = computed({
         get: () => unref(params).addOutShape,
@@ -291,9 +336,10 @@
         return `→ ${angles.map((a) => a + '°').join(', ')}`
     })
 
-// W10 : espacement < 0,05 mm (kerf laser) — la découpe peut micro-chevaucher.
+// W10 : espacement EFFECTIF < 0,05 mm (kerf laser) — la découpe peut
+// micro-chevaucher.
 const spacingBelowKerf = computed(() => {
-    const v = Number(localSpace.value)
+    const v = effectiveSpace.value
     return Number.isFinite(v) && v > 0 && v < 0.05
 })
 </script>
@@ -304,6 +350,12 @@ const spacingBelowKerf = computed(() => {
     color: var(--warning, #d97706);
     font-size: 12px;
     margin-top: 2px;
+}
+
+.size__rule {
+    margin: 2px 4px 0;
+    font-size: 12px;
+    color: var(--label-tertiary);
 }
 
     .settings {

@@ -648,7 +648,7 @@ export async function buildLocalPayload({ files, params = {}, profile = {} }, de
     // si le stock déclaré est UNE tôle ET que l'aire tient à 80 %. count > 1
     // → BPP : sparrow ne peut pas répartir sur plusieurs tôles, et un job
     // démo 3×3000×1500 en SPP échoue (« no feasible solution in directions
-    // mode ») même quand l'aire tient statistiquement sur une plaque.
+    // mode ») même quand l'aire tient statistiquement sur une tôle.
     const sheetArea = sheets[0].width * sheets[0].height
     const totalStock = sheets.reduce((n, s) => n + (Number(s.count) || 1), 0)
     // –X (left seul) = strip : on minimise la largeur même si le stock

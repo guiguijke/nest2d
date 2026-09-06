@@ -1,7 +1,8 @@
 
 import { computed, reactive, readonly } from 'vue'
 import { processingType } from '~~/constants/files.constants'
-import { convertInputValue, displayToMm, DEFAULT_SHEET, equivalentSheetPreset } from '~/utils/units'
+import { convertInputValue, displayToMm, DEFAULT_SHEET, equivalentSheetPreset, MM_PER_INCH } from '~/utils/units'
+import { spacingFromKerfSafety, withKerfDefaults } from '~/utils/spacingParams'
 import { getUnitState } from '~/composables/useUnit'
 
 const { actions } = globalStore
@@ -15,7 +16,15 @@ const { getProjects, setModalNestData } = actions
 function factoryParams() {
     return {
         sheets: [{ width: '1000', height: '2000', count: '1' }],
-        space: '0.1',
+        // B.4 / masterplan 3.10 : l'espacement est porté par deux réglages
+        // explicites — kerf (largeur de coupe de l'outil) et sécurité
+        // (marge gardée autour de chaque pièce). `space` reste LA clé
+        // envoyée à l'API/moteur (contrat inchangé, jobs en base
+        // intacts) et vaut toujours kerf + 2 × sécurité. Défault usine
+        // 2 mm (B.4 : 0,1 mm était irréaliste).
+        kerf: '0',
+        safety: '1',
+        space: '2',
         addOutShape: false,
         // Allow nesting smaller parts inside the cutouts of holed parts
         // (engine opens them with a hairline channel; off = sealed cutouts).
@@ -333,7 +342,9 @@ function setProjectFiles(files, path) {
         // était déjà passé), sinon les curated defaults posés au montage
         // (démo), sinon les défauts d'usine.
         if (snap) {
-            state.params = JSON.parse(JSON.stringify(snap.params))
+            // withKerfDefaults : snapshot posé avant le chantier kerf
+            // (B.4) — même espacement effectif après migration.
+            state.params = withKerfDefaults(JSON.parse(JSON.stringify(snap.params)))
             paramsUnit = snap.paramsUnit
         } else if (!pendingCuratedDefaults) {
             state.params = factoryParams()
@@ -397,6 +408,25 @@ function updateParams(param) {
     state.params = { ...state.params, ...param }
     scheduleSnapshotPersist()
 }
+/**
+ * Chemin d'écriture UNIQUE des deux réglages explicites d'espacement
+ * (B.4) : maintient `space` — la clé comprise par l'API et les deux
+ * moteurs — en phase avec la règle space = kerf + 2 × sécurité.
+ * Écrire `space` directement reste possible (levier capacité, démo),
+ * mais alors sans kerf/safety cohérents la réouverture re-dériverait :
+ * passer par ici partout.
+ */
+function updateKerfSafety(patch) {
+    const kerf = patch.kerf != null ? String(patch.kerf) : state.params.kerf
+    const safety = patch.safety != null ? String(patch.safety) : state.params.safety
+    state.params = {
+        ...state.params,
+        kerf,
+        safety,
+        space: spacingFromKerfSafety(kerf, safety),
+    }
+    scheduleSnapshotPersist()
+}
 function updateSheet(index, patch) {
     const sheets = normalizedSheets(state.params).map((sheet, i) =>
         i === index ? { ...sheet, ...patch } : sheet
@@ -427,17 +457,38 @@ let paramsUnit = 'mm'
 function syncParamsToUnit(toUnit) {
     if (!toUnit || paramsUnit === toUnit) return
     const fromUnit = paramsUnit
-    const p = state.params
+    // B.3/B.4 : kerf et sécurité sont des longueurs comme space — la
+    // conversion les prend, puis space est RECALCULÉ depuis eux pour que
+    // la règle space = kerf + 2 × sécurité reste exacte après un switch
+    // d'unité (pas d'arrondis cumulés indépendants).
+    const p = withKerfDefaults(state.params)
     const sheets = normalizedSheets(p)
     const conv = (v) => convertInputValue(v, fromUnit, toUnit)
+    // Kerf et sécurité sont des PETITES longueurs (typ. 0-3 mm) : la
+    // résolution standard des champs (0,1 mm / 0,001") ferait dériver la
+    // demi-valeur héritée d'un ancien espacement (0,05 mm -> 0,1 mm au
+    // retour d'inch). Résolution fine dédiée : 0,01 mm / 0,0001".
+    const convFine = (v) => {
+        if (fromUnit === toUnit) return v
+        const n = Number(String(v).replace(',', '.'))
+        if (!Number.isFinite(n)) return v
+        const mm = fromUnit === 'inch' ? n * MM_PER_INCH : n
+        const out = toUnit === 'inch' ? mm / MM_PER_INCH : mm
+        const d = toUnit === 'inch' ? 4 : 2
+        return out.toFixed(d).replace(/\.?0+$/, '')
+    }
     const convSheet = (s) => {
         const eq = equivalentSheetPreset(s.width, s.height, fromUnit, toUnit)
         return eq ? { ...s, ...eq } : { ...s, width: conv(s.width), height: conv(s.height) }
     }
+    const kerf = convFine(p.kerf)
+    const safety = convFine(p.safety)
     state.params = {
         ...p,
         sheets: sheets.map(convSheet),
-        space: conv(p.space),
+        kerf,
+        safety,
+        space: spacingFromKerfSafety(kerf, safety),
     }
     paramsUnit = toUnit
     scheduleSnapshotPersist()
@@ -632,6 +683,7 @@ export const filesStore = readonly({
         consumePendingLocalFiles,
         markCuratedDefaults,
         updateParams,
+        updateKerfSafety,
         updateSheet,
         addSheet,
         removeSheet,
