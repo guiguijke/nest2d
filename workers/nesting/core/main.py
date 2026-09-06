@@ -1552,6 +1552,12 @@ def _nesting_process_impl(doc):
             logger.warning("grid-multi pass failed, keeping engine result",
                            extra={"error": str(e)})
 
+    # P8 (lot 4) : temps CPU par passe — en LOG et au niveau du JOB
+    # (hors alternatives/stats : le verrou bit-identique exige des stats
+    # sans horloge, piège beltMs L2-ter).
+    import time as _pass_t
+    _pass_timings = {}
+
     # X4 (vérif tour 4) : état BRUT par tôle AVANT tout post-pass — la
     # mesure « pire que le moteur ? » du corpus compare pre → final.
     # J-085 / D-MOT-16 : expansion meta — rattache les fillers figés aux
@@ -1588,6 +1594,9 @@ def _nesting_process_impl(doc):
             # passes — sans copie, la « pré-vérification » de l'observabilité
             # mesurait l'état final (attribution toujours « engine »).
             engine_alt["_pre_layouts"] = copy.deepcopy(layouts)
+            # A5 : traçabilité du post-pass (additif, jamais muet) + P8 :
+            # ventilation perPass et timing (monotonic hors stats).
+            _t0 = _pass_t.monotonic()
             if meta.get("packs"):
                 sol["layouts"] = expand_packs(input_items, meta["packs"], layouts)
             else:
@@ -1595,10 +1604,13 @@ def _nesting_process_impl(doc):
                     input_items, meta["host"], meta["fill"], meta["slots"],
                     layouts, meta.get("ringRotations"),
                 )
-            # A5 : traçabilité du post-pass (additif, jamais muet).
-            engine_alt["postPass"]["expandMeta"] = (
-                sum(len(l.get("placed_items", []))
-                    for l in sol.get("layouts") or []) - before)
+            _delta = sum(len(l.get("placed_items", []))
+                         for l in sol.get("layouts") or []) - before
+            engine_alt["postPass"]["expandMeta"] = _delta
+            engine_alt["postPass"].setdefault("perPass", {})["expand"] = {
+                "moved": _delta}
+            _pass_timings[engine_alt.get("bias") or "alt"] = {
+                "expandMs": int((_pass_t.monotonic() - _t0) * 1000)}
 
     # Post-pass hole-fill (SPP et BPP) : AVANT le reveal.
     if has_holes:
@@ -1613,14 +1625,19 @@ def _nesting_process_impl(doc):
             if "layouts" not in sol and "layout" in sol:
                 sol = {**sol, "layouts": [sol["layout"]]}
                 engine_alt["solution"] = sol
+            _t0 = _pass_t.monotonic()
             n = apply_hole_fill(input_items, sol.get("layouts", []), space)
             if n:
                 logger.info("hole-fill post-pass relocated fillers", extra={"n": n})
-            engine_alt.setdefault(
+            _pp = engine_alt.setdefault(
                 "postPass",
                 {"expandMeta": 0, "holeFillRecovered": 0, "residualMoved": 0,
                  "residualRounds": 0, "compactRollback": False, "errors": []},
-            )["holeFillRecovered"] = n
+            )
+            _pp["holeFillRecovered"] = n
+            _pp.setdefault("perPass", {})["holeFill"] = {"moved": n}
+            _tk = _pass_timings.setdefault(engine_alt.get("bias") or "alt", {})
+            _tk["holeFillMs"] = int((_pass_t.monotonic() - _t0) * 1000)
 
     # Y4 (vérif tour 5) : pre = état APRÈS expansion + hole-fill, AVANT
     # fill_residual_bands — le gain mesuré est celui du post-pass
@@ -1666,10 +1683,13 @@ def _nesting_process_impl(doc):
             # conservée) : l'alternative « Compaction » est homogène sur
             # toutes ses tôles (le style « grille » appartient à
             # l'alternative grille).
+            _t0 = _pass_t.monotonic()
             n = fill_residual_bands(sol.get("layouts") or [], input_items,
                                     bin_dims_engine, space,
                                     stats=engine_alt["postPass"],
                                     profile="compact")
+            _tk = _pass_timings.setdefault(engine_alt.get("bias") or "alt", {})
+            _tk["residualMs"] = int((_pass_t.monotonic() - _t0) * 1000)
             if n:
                 logger.info("residual-band pass moved parts", extra={"n": n})
             if engine_alt["postPass"].get("compactRollback"):
@@ -2121,6 +2141,9 @@ def _nesting_process_impl(doc):
         "layoutCount": best["layoutCount"],
         "density": best["density"],
         "usedSheetShare": best["usedSheetShare"],
+        # P8 : temps CPU par passe et par alternative — au niveau du JOB,
+        # jamais dans stats/alternatives (horloge ≠ bit-identique).
+        "postPassTimingsMs": _pass_timings,
         "update_ts": datetime.now()
     }
     # Z3 (vérif 2026-09-05) : une solution partielle UTILE est livrée

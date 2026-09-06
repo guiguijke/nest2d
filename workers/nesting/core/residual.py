@@ -47,6 +47,18 @@ N_ITER = 4
 _EPS = 1e-6
 
 
+# P8 (lot 4) : les passes reconstruisent le même polygone des milliers de
+# fois (profil 06/09 : 75 799 appels pour ~1 100 poses uniques sur T-A —
+# translate/rotate shapely ≈ 6 s, la moitié du job serveur). Mémoïsation
+# par pose : les items vivent dans la collection du job pendant toute la
+# finalisation (références fortes) et les Polygon shapely sont immuables
+# — zéro changement de résultat, la même géométrie construite une fois.
+# La clé embarque deux points du contour : un id() réutilisé par un dict
+# éphémère d'un autre job ne peut pas se coller au cache par accident.
+_PLACED_CACHE = {}
+_PLACED_CACHE_MAX = 200_000
+
+
 def _placed_poly(item, rot, tx, ty, simplify=True):
     from shapely.affinity import rotate, translate
     from shapely.geometry import Polygon
@@ -56,10 +68,20 @@ def _placed_poly(item, rot, tx, ty, simplify=True):
     # simplify=False : anneau BRUT — le test de couverture tôle l'exige
     # (le simplify peut plonger un sommet de ~0,05 sous un bord touché
     # exactement, cf. compaction ancre au bord, 2026-09-02).
-    poly = Polygon(item["coords"], item.get("holes") or [])
+    coords = item["coords"]
+    key = (id(item), len(coords), coords[0][0], coords[0][1],
+           round(float(rot), 6), round(float(tx), 6), round(float(ty), 6),
+           bool(simplify))
+    hit = _PLACED_CACHE.get(key)
+    if hit is not None:
+        return hit
+    poly = Polygon(coords, item.get("holes") or [])
     poly = translate(rotate(poly, float(rot), origin=(0, 0)), float(tx), float(ty))
     if simplify:
         poly = poly.simplify(_SIMPLIFY_MM, preserve_topology=True)
+    if len(_PLACED_CACHE) >= _PLACED_CACHE_MAX:
+        _PLACED_CACHE.clear()
+    _PLACED_CACHE[key] = poly
     return poly
 
 
@@ -879,30 +901,13 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
             # 678403-678413).
             recv_failed = []
             ok_donor = ok_recv = ok_relayed = 0
-            fail_reasons = []
-
-            def _fail_kind(pi, layout):
-                it = items_by_id[pi["item_id"]]
-                tr = pi["transformation"]
-                key = (pi["item_id"], round(float(tr["rotation"]), 4),
-                       round(float(tr["translation"][0]), 3),
-                       round(float(tr["translation"][1]), 3))
-                for q in layout.get("placed_items", []):
-                    t2 = q["transformation"]
-                    if (q["item_id"], round(float(t2["rotation"]), 4),
-                            round(float(t2["translation"][0]), 3),
-                            round(float(t2["translation"][1]), 3)) == key:
-                        return "duplicate"
-                poly = _placed_poly(it, tr["rotation"],
-                                    tr["translation"][0], tr["translation"][1])
-                entries, tree = _occupancy(
-                    layout, items_by_id, exclude=[id(pi)])
-                best = None
-                for j in tree.query(poly.buffer(max(space, 0) + 50.0)):
-                    d = poly.distance(entries[int(j)][1])
-                    if best is None or d < best:
-                        best = d
-                return f"mindist={best:.3f}" if best is not None else "vide"
+            # P8 (lot 4) : le diagnostic d'échec est RÉSOLU EN DIFFÉRÉ —
+            # _fail_kind reconstruisait l'occupancy de la tôle entière pour
+            # CHAQUE fan en échec (×2 : donneuse + receveuse). Ici on ne
+            # collecte que les pièces, puis le bloc diagnostic ci-dessous
+            # construit UNE occupancy par tôle (verrou fiche : STRtree une
+            # fois par tôle) sur l'état post-boucle, cohérent et stable.
+            fail_pis = []
 
             for pi in remaining_recv:
                 pi["transformation"] = saved_poses[id(pi)]
@@ -924,20 +929,50 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
                 # batch de lattice par tôle (une recherche de pas au lieu
                 # d'une par fan — le gel navigateur repassait à 0,7 s),
                 # receveuse puis donneuse.
-                fail_reasons.append({
-                    "donor": _fail_kind(pi, donor),
-                    "recv": _fail_kind(pi, recv),
-                    "pose": [pi["item_id"], _tr_round(pi)],
-                })
+                fail_pis.append(pi)
                 recv_failed.append(pi)
-            # Diagnostic additif (postPass) : où échoue la cascade.
+            # P8 : diagnostic résolu en différé — UNE occupancy par tôle
+            # (verrou fiche) sur l'état post-boucle. Posé AVANT le
+            # re-relay pour survivre à un éventuel rollback ; okRelayed
+            # (écrit avant l'incrément = toujours 0, résidu L2-quater)
+            # est corrigé APRÈS le re-relay.
             if stats is not None and remaining_recv:
+                def _fail_kind(pi, layout, occ):
+                    it = items_by_id[pi["item_id"]]
+                    tr = pi["transformation"]
+                    key = (pi["item_id"], round(float(tr["rotation"]), 4),
+                           round(float(tr["translation"][0]), 3),
+                           round(float(tr["translation"][1]), 3))
+                    for q in layout.get("placed_items", []):
+                        t2 = q["transformation"]
+                        if (q["item_id"], round(float(t2["rotation"]), 4),
+                                round(float(t2["translation"][0]), 3),
+                                round(float(t2["translation"][1]), 3)) == key:
+                            return "duplicate"
+                    poly = _placed_poly(it, tr["rotation"],
+                                        tr["translation"][0],
+                                        tr["translation"][1])
+                    entries, tree = occ
+                    best = None
+                    for j in tree.query(poly.buffer(max(space, 0) + 50.0)):
+                        d = poly.distance(entries[int(j)][1])
+                        if best is None or d < best:
+                            best = d
+                    return f"mindist={best:.3f}" if best is not None else "vide"
+
+                occ_donor = _occupancy(donor, items_by_id)
+                occ_recv = _occupancy(recv, items_by_id)
+                fail_reasons = [{
+                    "donor": _fail_kind(pi, donor, occ_donor),
+                    "recv": _fail_kind(pi, recv, occ_recv),
+                    "pose": [pi["item_id"], _tr_round(pi)],
+                } for pi in fail_pis]
                 stats["recvCascade"] = {
                     "remaining": len(remaining_recv),
                     "okDonor": ok_donor,
                     "okRecv": ok_recv,
-                    "okRelayed": ok_relayed,
-                    "failed": len(recv_failed),
+                    "okRelayed": 0,
+                    "failed": len(fail_pis),
                     "failReasons": fail_reasons[:6],
                 }
             # batch re-relay : UNE recherche de lattice par tôle pour
@@ -961,6 +996,11 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
                 if recv_failed:
                     rollback_reason = "restore-recv"
                     raise _CompactRollback("restore")
+            # P8 : le compteur réel du re-relay, après l'incrément (survit
+            # au rollback : le raise ci-dessus ne passe pas ici, le
+            # diagnostic garde 0 — le rollbackReason dit le reste).
+            if stats is not None and stats.get("recvCascade") is not None:
+                stats["recvCascade"]["okRelayed"] = ok_relayed
             # Y2 : les rendues DONNEUSE ne doivent chevaucher aucune
             # pièce donneuse restante (l'exemption entre-rendues reste
             # valide : même tôle d'origine).
@@ -1325,6 +1365,19 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
         _before_tuples = _tuples(layouts)
         moved = 0
         stats["residualRounds"] = 1
+        # P8 (lot 4) : ventilation PAR PASSE — la décision « retirer les
+        # passes sans gain » (lot 5) exige gain/moved/rollback par passe et
+        # par cas. frontX = emprise par tôle (le format du champ `pre`),
+        # déterministe — les DURÉES restent en LOG/main.py (stats hors
+        # horloge, verrou bit-identique).
+        def _fronts(ls):
+            out = []
+            for l in ls:
+                a = layout_aabb(l, items_by_id) if l.get("placed_items") else None
+                out.append(round(a[2], 1) if a else None)
+            return out
+
+        stats.setdefault("perPass", {})
         ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
         donor_i = min(range(len(layouts)), key=lambda i: (ratios[i], -i))
         # W3 (plan correctif 2, étape B) : remplissage inter-tôles et
@@ -1332,8 +1385,11 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
         # receveuse + libres de la DONNEUSE, AVANT la compaction donneuse
         # (l'ancienne séquence laissait les bandes jugées pleines par le
         # remplissage partiel : à space 2, 0 fan transférée).
-        moved += _merge_fill_compact_receivers(
+        _n_merge = _merge_fill_compact_receivers(
             layouts, donor_i, items_by_id, bin_dims, space, stats=stats)
+        moved += _n_merge
+        stats["perPass"]["merge"] = {"moved": _n_merge,
+                                     "frontX": _fronts(layouts)}
         # Tôle source entièrement vidée de ses libres : on la retire.
         layouts[:] = [l for l in layouts if l.get("placed_items")]
         # Compaction de la tôle la moins remplie (la donneuse) — le moteur
@@ -1344,9 +1400,15 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
         if len(layouts) >= 2:
             ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
             last = min(range(len(layouts)), key=lambda i: (ratios[i], -i))
-            moved += _compact_last_sheet(layouts, last, items_by_id,
-                                         bin_dims, space, stats=stats,
-                                         regrid=(stats.get("profile") == "grid"))
+            _n_compact = _compact_last_sheet(layouts, last, items_by_id,
+                                             bin_dims, space, stats=stats,
+                                             regrid=(stats.get("profile") == "grid"))
+            moved += _n_compact
+            stats["perPass"]["compact"] = {
+                "moved": _n_compact,
+                "rolledBack": bool(stats.get("compactRollback")),
+                "frontX": _fronts(layouts),
+            }
         import time as _belt_t
         _belt_t0 = _belt_t.monotonic()
         _after_tuples = _tuples(layouts)

@@ -84,6 +84,10 @@ def fiche(slug_prefix="bench-corpus-", since=None):
             final_total = sum((s2.get("partCount") or 0) for s2 in final)
             row["gainParTôle"] = gains
             row["pireQueMoteur"] = final_total < pre_total
+            # P8 (lot 4) : ventilation par passe — gain/moved/rollback par
+            # passe (expand, holeFill, merge, compact) : la mesure qui
+            # décide du retrait des passes au lot 5.
+            row["perPass"] = (a.get("report", {}) or {}).get("postPass", {}).get("perPass")
             row.update({
                 "layouts": a.get("layoutCount"),
                 "overlapFree": r.get("overlapFree"),
@@ -149,7 +153,8 @@ if __name__ == "__main__":
               f" | tôles {r.get('layouts')} {r.get('perSheet')}"
               f" | overlap {r.get('overlapFree')} inside {r.get('insideSheet')}"
               f" dups {r.get('dups')} gap {r.get('gap')}"
-              f" | pp {json.dumps(r.get('postPass'), ensure_ascii=False)}")
+              f" | pp {json.dumps(r.get('postPass'), ensure_ascii=False)}"
+              f" | perPass {json.dumps(r.get('perPass'), ensure_ascii=False)}")
         if r["verdict"] not in ("OK", "PARTIEL (attendu)", "REFUS (attendu)"):
             fails += 1
     # AE3 (L2-quater) : taux d'acceptation de la FUSION inter-toles -
