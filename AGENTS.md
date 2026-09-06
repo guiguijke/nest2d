@@ -761,6 +761,25 @@ correctifs 2026-08-28/29 : `docs/AUDIT-2026-08-29.md`.
 Benchmarks ESICUP (lents) : `pytest benchmarks/test_benchmarks.py -m slow`.
 Harnais A/B warm-start : `cargo test --release warm_start_160_ab -- --ignored --nocapture`.
 
+## 6bis. Checklist de déploiement (AF4, L3-bis)
+
+Après un GO de vérification, AVANT le déploiement d'une livraison qui
+touche le MOTEUR (`workers/nesting/engine`, `public/engine`) :
+
+- **Régénérer la page des benchmarks publics** : rejouer le corpus sur les
+  images publiées puis extraire les densités et mettre à jour
+  `data/benchmarks.js` (version affichée = commit déployé) :
+  ```
+  docker run --rm -i --network nestorcut_nest2d       -e MONGO_URI=mongodb://mongo:27017/nest2d       nest2d-nesting-worker:dev python - < workers/nesting/bench/densities_corpus.py
+  ```
+  La page affiche « produites par l'image déployée en production à la date
+  indiquée » — des chiffres périmés y sont un mensonge public.
+- Une livraison UI seule (aucun diff runtime moteur/worker) n'invalide pas
+  les chiffres : le vérifier par `git diff <dernier run>..HEAD -- workers/
+  public/engine` comme au lot 3.
+
+Procédure complète : runbook privé `specs/infra/DEPLOY-HETZNER.md`.
+
 ## 6. Conventions
 
 - **Branding : NestorCut = produit, APlasma = entité légale** (Guillaume
