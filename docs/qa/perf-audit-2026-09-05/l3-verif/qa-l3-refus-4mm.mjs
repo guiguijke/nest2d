@@ -5,8 +5,13 @@
 // 1000×2000, effectif 4 mm (kerf 0 + sécurité 2).
 import { chromium } from 'file:///C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut/node_modules/playwright/index.mjs'
 import path from 'node:path'
+import fs from 'node:fs'
 
 const BASE = process.env.QA_BASE_URL || 'http://localhost:7100'
+// AF7 (L3-bis) : captures hors dossier suivi (QA_OUT) — un rejeu
+// ne modifie aucun fichier commité (assert_images_head reste vert).
+const OUT = process.env.QA_OUT || '.qa-pw/l3-verif'
+fs.mkdirSync(OUT, { recursive: true })
 const ROOT = 'C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut'
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a)
 const browser = await chromium.launch({ headless: true })
@@ -67,12 +72,20 @@ try {
     log('levier visible:', await reduce.innerText())
     // Phrase plancher absente.
     if (await page.locator('.capacity-panel__floor').count()) throw new Error('phrase plançon inattendue à 4 mm')
+    // AF1 (L3-bis) : UN SEUL message — l'ancien bandeau rouge sous la
+    // scène (content__error) doit disparaître quand le panneau est affiché.
+    const redBanners = await page.locator('.content__error').count()
+    log('bandeaux rouges:', redBanners)
+    if (redBanners) throw new Error('double message de refus (content__error présent)')
+    const refundedNote = await page.locator('.capacity-panel__refunded').innerText().catch(() => '')
+    log('mention non-facturé =', JSON.stringify(refundedNote.trim()))
+    if (!refundedNote.trim()) throw new Error('mention remboursement absente du panneau')
     // AUCUNE carte « Nesting failed » fantôme.
     await page.waitForTimeout(1500)
     const failedCards = await page.locator('.result__placeholder', { hasText: /failed|Nesting/i }).count()
     log('cartes failed:', failedCards)
     if (failedCards) throw new Error('carte Nesting failed fantôme')
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-refus-4mm-panel.png', fullPage: false })
+    await page.screenshot({ path: OUT + '/l3-refus-4mm-panel.png', fullPage: false })
 
     // Clic levier : la SÉCURITÉ est réduite (kerf intact), effectif = cible.
     await reduce.click()
@@ -91,7 +104,7 @@ try {
     process.exit(0)
 } catch (e) {
     console.error('FAIL:', e.message)
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-refus-4mm-fail.png' }).catch(() => {})
+    await page.screenshot({ path: OUT + '/l3-refus-4mm-fail.png' }).catch(() => {})
     await browser.close()
     process.exit(1)
 }

@@ -119,9 +119,18 @@ try {
     const SHEET_COUNT = process.env.QA_SHEET_COUNT || '2'
     if (String(cnt) !== SHEET_COUNT) { await countInput.fill(SHEET_COUNT); await countInput.blur() }
 
-    const spacing = page.locator('label.input', { hasText: 'Spacing' }).locator('.input__value')
-    await spacing.fill(process.env.QA_SPACE || '0.1')
-    await spacing.blur()
+    // Lot 3 (B.4/AF2) : le champ « Espacement » n'existe plus — deux
+    // champs kerf + sécurité. Effectif = kerf + 2 x sécurité : kerf 0 et
+    // sécurité = QA_SPACE / 2 transmet exactement QA_SPACE au moteur.
+    const SPACE = process.env.QA_SPACE || '0.1'
+    const half = String(Number(SPACE) / 2)
+    const kerfF = page.locator('label.input', { hasText: 'Kerf' }).locator('.input__value')
+    await kerfF.fill('0')
+    await kerfF.blur()
+    const safetyF = page.locator('label.input', { hasText: 'Safety' }).locator('.input__value')
+    await safetyF.fill(half)
+    await safetyF.blur()
+    log(`kerf/safety set: 0 / ${half} (effectif ${SPACE})`)
     const rot = page.locator('label.input', { hasText: 'Rotations' }).locator('.input__value')
     const rotVal = await rot.inputValue()
     log('rotations:', rotVal)

@@ -4,8 +4,13 @@
 // « Download All » fantôme.
 import { chromium } from 'file:///C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut/node_modules/playwright/index.mjs'
 import path from 'node:path'
+import fs from 'node:fs'
 
 const BASE = process.env.QA_BASE_URL || 'http://localhost:7100'
+// AF7 (L3-bis) : captures hors dossier suivi (QA_OUT) — un rejeu
+// ne modifie aucun fichier commité (assert_images_head reste vert).
+const OUT = process.env.QA_OUT || '.qa-pw/l3-verif'
+fs.mkdirSync(OUT, { recursive: true })
 const ROOT = 'C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut'
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a)
 const browser = await chromium.launch({ headless: true })
@@ -70,13 +75,13 @@ try {
     const ph = await pageB.locator('.result__placeholder--elsewhere').count()
     log('placeholder elsewhere:', ph)
     if (!ph) throw new Error('placeholder « Autre appareil » absent')
-    await pageB.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-other-device-card.png' })
+    await pageB.screenshot({ path: OUT + '/l3-other-device-card.png' })
     console.log('OTHER DEVICE OK — message explicite, aucun téléchargement fantôme')
     await browser.close()
     process.exit(0)
 } catch (e) {
     console.error('FAIL:', e.message)
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-other-device-fail.png' }).catch(() => {})
+    await page.screenshot({ path: OUT + '/l3-other-device-fail.png' }).catch(() => {})
     await browser.close()
     process.exit(1)
 }

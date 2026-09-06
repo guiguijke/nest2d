@@ -2,8 +2,13 @@
 // s'affiche, l'effectif = kerf + 2×sécurité se propage dans params.
 import { chromium } from 'file:///C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut/node_modules/playwright/index.mjs'
 import path from 'node:path'
+import fs from 'node:fs'
 
 const BASE = process.env.QA_BASE_URL || 'http://localhost:7100'
+// AF7 (L3-bis) : captures hors dossier suivi (QA_OUT) — un rejeu
+// ne modifie aucun fichier commité (assert_images_head reste vert).
+const OUT = process.env.QA_OUT || '.qa-pw/l3-verif'
+fs.mkdirSync(OUT, { recursive: true })
 const ROOT = 'C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut'
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a)
 const browser = await chromium.launch({ headless: true })
@@ -52,13 +57,13 @@ try {
     const hint = await page.locator('.size__warning', { hasText: 'cutouts' }).count()
     log('hint 2.4 visible:', hint)
     if (!hint) throw new Error('hint 2,4 mm absent')
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-kerf-settings.png' })
+    await page.screenshot({ path: OUT + '/l3-kerf-settings.png' })
     console.log('SMOKE KERF OK')
     await browser.close()
     process.exit(0)
 } catch (e) {
     console.error('FAIL:', e.message)
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-smoke-kerf-fail.png' }).catch(() => {})
+    await page.screenshot({ path: OUT + '/l3-smoke-kerf-fail.png' }).catch(() => {})
     await browser.close()
     process.exit(1)
 }

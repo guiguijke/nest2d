@@ -1,9 +1,11 @@
 // Lot 3 / 3.1.5 — inscription locale : bannière persistante « e-mail non
 // vérifié » sur /home avec bouton de renvoi (compte neuf, non vérifié).
 import { chromium } from 'file:///C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut/node_modules/playwright/index.mjs'
+import fs from 'node:fs'
 
 const BASE = process.env.QA_BASE_URL || 'http://localhost:7100'
-const OUT = 'docs/qa/perf-audit-2026-09-05/l3-verif'
+const OUT = process.env.QA_OUT || '.qa-pw/l3-verif'
+fs.mkdirSync(OUT, { recursive: true })
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a)
 const browser = await chromium.launch({ headless: true })
 const ctx = await browser.newContext({ locale: 'fr-FR', viewport: { width: 1680, height: 1000 } })

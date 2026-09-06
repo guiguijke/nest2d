@@ -3,8 +3,13 @@
 // phrase « même sans espacement, ça ne tient pas » prend le relais.
 import { chromium } from 'file:///C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut/node_modules/playwright/index.mjs'
 import path from 'node:path'
+import fs from 'node:fs'
 
 const BASE = process.env.QA_BASE_URL || 'http://localhost:7100'
+// AF7 (L3-bis) : captures hors dossier suivi (QA_OUT) — un rejeu
+// ne modifie aucun fichier commité (assert_images_head reste vert).
+const OUT = process.env.QA_OUT || '.qa-pw/l3-verif'
+fs.mkdirSync(OUT, { recursive: true })
 const ROOT = 'C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut'
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a)
 const browser = await chromium.launch({ headless: true })
@@ -53,13 +58,13 @@ try {
     await floor.waitFor({ state: 'visible', timeout: 5000 })
     log('phrase =', JSON.stringify((await floor.innerText()).slice(0, 80)))
     if (!/zero spacing/i.test(await floor.innerText())) throw new Error('phrase « même sans espacement » absente')
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-refus-0.3mm-panel.png' })
+    await page.screenshot({ path: OUT + '/l3-refus-0.3mm-panel.png' })
     console.log('REFUS 0.3MM OK — levier masqué, phrase plancher affichée')
     await browser.close()
     process.exit(0)
 } catch (e) {
     console.error('FAIL:', e.message)
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-refus-0.3mm-fail.png' }).catch(() => {})
+    await page.screenshot({ path: OUT + '/l3-refus-0.3mm-fail.png' }).catch(() => {})
     await browser.close()
     process.exit(1)
 }

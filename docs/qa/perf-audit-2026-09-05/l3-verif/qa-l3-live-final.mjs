@@ -4,8 +4,13 @@
 // de alternatives[0] (multiset de tuples item/tôle/rotation/x/y).
 import { chromium } from 'file:///C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut/node_modules/playwright/index.mjs'
 import path from 'node:path'
+import fs from 'node:fs'
 
 const BASE = process.env.QA_BASE_URL || 'http://localhost:7100'
+// AF7 (L3-bis) : captures hors dossier suivi (QA_OUT) — un rejeu
+// ne modifie aucun fichier commité (assert_images_head reste vert).
+const OUT = process.env.QA_OUT || '.qa-pw/l3-verif'
+fs.mkdirSync(OUT, { recursive: true })
 const ROOT = 'C:/Users/guiguijke/OneDrive/Projects/Nestorcut_Suite/Nestorcut'
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a)
 const browser = await chromium.launch({ headless: true })
@@ -49,7 +54,7 @@ try {
         const txt = await page.locator('.stage__status').innerText().catch(() => '')
         if (/Searching/.test(txt)) {
             log('ligne d état =', JSON.stringify(txt.slice(0, 200)))
-            await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-status-line-live.png' })
+            await page.screenshot({ path: OUT + '/l3-status-line-live.png' })
             break
         }
     }
@@ -95,20 +100,20 @@ try {
     // Attends le RENDU du reveal (flush du watch) avant la capture.
     await page.locator('.live').waitFor({ state: 'visible', timeout: 15000 })
     await page.waitForTimeout(600)
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-live-final.png' })
+    await page.screenshot({ path: OUT + '/l3-live-final.png' })
 
     // Contrôle visuel : l'option 1 du modal doit montrer le MÊME agencement
     // que la frame finale de la vue live (captures à comparer).
     const firstCard = page.locator('.result__area').first()
     await firstCard.click({ timeout: 10000 })
     await page.waitForTimeout(1500)
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-modal-option1.png' })
+    await page.screenshot({ path: OUT + '/l3-modal-option1.png' })
     console.log(`LIVE FINAL OK — frame finale stage=${cmp.stage}, ${cmp.livePoses}/${cmp.placed} poses, option 1 = ${cmp.strategy}`)
     await browser.close()
     process.exit(0)
 } catch (e) {
     console.error('FAIL:', e.message)
-    await page.screenshot({ path: 'docs/qa/perf-audit-2026-09-05/l3-verif/l3-live-final-fail.png' }).catch(() => {})
+    await page.screenshot({ path: OUT + '/l3-live-final-fail.png' }).catch(() => {})
     await browser.close()
     process.exit(1)
 }
