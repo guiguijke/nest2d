@@ -918,22 +918,12 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
                     continue
                 recv["placed_items"] = [x for x in recv.get("placed_items", [])
                                         if x is not pi]
-                # (3) RE-RELAY : la pose d'origine ne passe nulle part
-                # (lattice du relais l'a occupée / donneuse en contact) —
-                # chercher une NOUVELLE pose au lattice, receveuse puis
-                # donneuse (AE3 : sans ça, 4-10 fans/run perdaient toute
-                # la fusion, 0/8 d'acceptation contre >= 4/8 exigé).
-                pi["transformation"] = saved_poses[id(pi)]
-                placed_n = 0
-                for dst_i in (recv_i, donor_i):
-                    placed_n = _fill_one_batch(
-                        layouts, dst_i, dst_i, items_by_id, bin_dims, space,
-                        free=[pi], min_poses=1)
-                    if placed_n:
-                        break
-                if placed_n:
-                    ok_relayed += 1
-                    continue
+                # (3) RE-RELAY (BATCH, AE3) : la pose d'origine ne passe
+                # nulle part (lattice du relais l'a occupée / donneuse en
+                # contact) — les fans en échec sont re-groupées en UN
+                # batch de lattice par tôle (une recherche de pas au lieu
+                # d'une par fan — le gel navigateur repassait à 0,7 s),
+                # receveuse puis donneuse.
                 fail_reasons.append({
                     "donor": _fail_kind(pi, donor),
                     "recv": _fail_kind(pi, recv),
@@ -950,9 +940,27 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
                     "failed": len(recv_failed),
                     "failReasons": fail_reasons[:6],
                 }
+            # batch re-relay : UNE recherche de lattice par tôle pour
+            # toutes les fans sans pose d'origine valide.
             if recv_failed:
-                rollback_reason = "restore-recv"
-                raise _CompactRollback("restore")
+                still = []
+                for dst_i in (recv_i, donor_i):
+                    if not recv_failed:
+                        break
+                    placed_n = _fill_one_batch(
+                        layouts, dst_i, dst_i, items_by_id, bin_dims, space,
+                        free=recv_failed, min_poses=1)
+                    if placed_n:
+                        ok_relayed += placed_n
+                        # _fill_one_batch déplace les poses placées : les
+                        # restantes sont celles restées dans recv_failed
+                        # sans pose changée — recalculer.
+                        still = [pi for pi in recv_failed
+                                 if pi["transformation"] == saved_poses[id(pi)]]
+                        recv_failed = still
+                if recv_failed:
+                    rollback_reason = "restore-recv"
+                    raise _CompactRollback("restore")
             # Y2 : les rendues DONNEUSE ne doivent chevaucher aucune
             # pièce donneuse restante (l'exemption entre-rendues reste
             # valide : même tôle d'origine).

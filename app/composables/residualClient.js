@@ -1088,6 +1088,7 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
             // passe nulle part → NOUVELLE pose au lattice, receveuse puis
             // donneuse, avant tout rollback.
             let okRecv = true
+            let recvFailedBatch = []
             for (const pi of remainingRecv) {
                 pi.transformation = savedPoses.get(pi)
                 donor.placed_items.push(pi)
@@ -1096,16 +1097,23 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
                 recv.placed_items.push(pi)
                 if (validateBatch([pi], recv, partsById, swR2, shR2, space)) continue
                 recv.placed_items = (recv.placed_items || []).filter((x) => x !== pi)
-                let relayed = 0
+                recvFailedBatch.push(pi)
+            }
+            // (3bis) batch re-relay : UNE recherche de lattice par tôle
+            // pour toutes les fans sans pose d'origine valide (une par
+            // fan faisait repasser le gel a 0,7 s).
+            if (recvFailedBatch.length) {
                 for (const dstI of [recvI, donorI]) {
-                    relayed = fillOneBatch(layouts, dstI, dstI, partsById,
-                        sheetDimsOf, space, payload, [pi], null, 1)
-                    if (relayed) break
+                    if (!recvFailedBatch.length) break
+                    fillOneBatch(layouts, dstI, dstI, partsById,
+                        sheetDimsOf, space, payload, recvFailedBatch, null, 1)
+                    recvFailedBatch = recvFailedBatch.filter((pi) =>
+                        JSON.stringify(pi.transformation) === JSON.stringify(savedPoses.get(pi)))
                 }
-                if (relayed) continue
-                okRecv = false
-                rollbackReason = 'restore-recv'
-                break
+                if (recvFailedBatch.length) {
+                    okRecv = false
+                    rollbackReason = 'restore-recv'
+                }
             }
             // Y2 (vérif tour 5) : les rendues DONNEUSE validées contre
             // TOUTE la donneuse.
@@ -1350,12 +1358,21 @@ export function exactOverlapArea(layouts, partsById, watchedTuples = null) {
                         if (seen.has(key)) continue
                         seen.add(key)
                         const ringsB = local[j].rings
-                        if (!ringsOverlap(ringsA[0], ringsB[0])) continue
-                        // exemption trous (miroir Polygon(coords, holes))
+                        // Pré-filtre bbox par PAIRE (P1 au niveau inférieur) :
+                        // bboxes disjointes ⇒ anneaux disjoints — on saute
+                        // ringsOverlap (le coût doublé par AE1 repassait le
+                        // gel au-dessus de la cible).
+                        const bbB = local[j].bb
+                        if (bb[2] < bbB[0] || bb[0] > bbB[2] || bb[3] < bbB[1] || bb[1] > bbB[3]) continue
+                        // exemption trous AVANT ringsOverlap (miroir
+                        // Polygon(coords, holes)) : une fan nichee a sa
+                        // bbox DANS celle de lhote — ringsOverlap
+                        // scannerait tout avant de conclure.
                         const holesB = ringsB.slice(1)
                         if (holesB.length && ringInsideAHole(ringsA[0], holesB)) continue
                         const holesA = ringsA.slice(1)
                         if (holesA.length && ringInsideAHole(ringsB[0], holesA)) continue
+                        if (!ringsOverlap(ringsA[0], ringsB[0])) continue
                         total += 1
                     }
                 }
