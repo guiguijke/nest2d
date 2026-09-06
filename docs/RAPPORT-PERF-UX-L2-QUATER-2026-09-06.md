@@ -123,3 +123,13 @@ inutile — + pré-filtre bbox par paire + re-relay en batch).
 **11/11** + FUSION 2/11 affichée (T-A@0,1 : fusion non requise à cet
 espacement), e2e 0,1/2 exit 0 (done 9-12 s), refus 4 mm GO 2,2 s,
 déterminisme replayUserBpp bit-identique, images = HEAD à chaque banc.
+
+
+## Déploiement (2026-09-06, 11h35 UTC)
+
+GO du vérificateur (§6.3). Procédure habituelle : push `fb5e184` →
+workflow images success → images publiées tirées, assert OK → sur ces
+bits : corpus 11/11 + FUSION 2/11, e2e 0,1 (18 s) / 2 / refus 4 mm
+GO 2,3 s → Hetzner : df 24 Go libres, pull + up -d, md5 prod = HEAD
+(residual.py, main.py), conteneurs Up, app 200. Les résidus 6.2
+(okRelayed, coût du diagnostic d'échec) sont notés pour la journée P8.
