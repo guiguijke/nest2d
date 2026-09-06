@@ -54,9 +54,12 @@ _EPS = 1e-6
 # finalisation (références fortes) et les Polygon shapely sont immuables
 # — zéro changement de résultat, la même géométrie construite une fois.
 # La clé embarque deux points du contour : un id() réutilisé par un dict
-# éphémère d'un autre job ne peut pas se coller au cache par accident.
+# éphémère ne peut pas se coller au cache par accident. Contrôle
+# intermédiaire P8 (§5) : vidange PAR JOB dans nesting_process (à côté du
+# cache DXF) + plafond 20 000 (défense seulement — ~1 100 poses uniques
+# par job sur T-A) : la clé par id() ne survit jamais à un job.
 _PLACED_CACHE = {}
-_PLACED_CACHE_MAX = 200_000
+_PLACED_CACHE_MAX = 20_000
 
 
 def _placed_poly(item, rot, tx, ty, simplify=True):

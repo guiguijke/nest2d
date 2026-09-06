@@ -416,10 +416,16 @@ def nesting_process(doc):
     # au job — le doc du job N restait en RAM pendant tout l'idle du worker
     # (vidé seulement au début du job SUIVANT, dizaines de Mo sur un gros
     # DXF). Le clear d'entrée reste (défense contre un résiduel).
+    # P8 (contrôle intermédiaire §5) : le cache de poses de residual suit la
+    # même règle — vidé PAR JOB (centaines de Mo retenus sinon pendant des
+    # heures dans un worker de longue durée, plafond mémoire homelab 2 Go)
+    # ET la clé par id() ne peut pas fuiter d'un job à l'autre.
+    from core.residual import _PLACED_CACHE
     try:
         return _nesting_process_impl(doc)
     finally:
         dxf_document_cache.clear()
+        _PLACED_CACHE.clear()
 
 
 def _nesting_process_impl(doc):
