@@ -27,16 +27,17 @@ export async function unsubscribeFromNewsletter(event, { email }) {
     }
 
     try {
-        // listmonk search takes a SQL-ish expression on the subscribers table.
+        // `query` takes a SQL expression (requires subscribers:sql_query, which
+        // API users shouldn't have) — `search` is a plain filter needing only
+        // subscribers:get. Exact-match client-side to avoid substring hits.
         const results = await $fetch(`${base}/api/subscribers`, {
             method: 'GET',
             headers,
-            query: {
-                query: `subscribers.email = '${String(email).replace(/'/g, "''")}'`,
-                per_page: 100,
-            },
+            query: { search: email, per_page: 100 },
         })
-        const subscribers = results?.data?.results || []
+        const subscribers = (results?.data?.results || []).filter(
+            (s) => String(s.email).toLowerCase() === String(email).toLowerCase()
+        )
         if (subscribers.length === 0) {
             logger.info(`No listmonk subscriber found for ${email} — nothing to delete`)
             return false

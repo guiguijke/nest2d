@@ -55,8 +55,8 @@ export async function subscribeToNewsletter(event, { email, name }) {
  * blocklisted (no more campaigns), which is the listmonk-idiomatic opt-out.
  *
  * listmonk v6 API: blocklist only accepts subscriber ids — resolve the email
- * first via the search endpoint (same SQL-expression lookup as unsubscribe.js).
- * Account deletion (full erasure) uses unsubscribe.js instead.
+ * first via the search endpoint. Account deletion (full erasure) uses
+ * unsubscribe.js instead.
  */
 export async function unsubscribeFromNewsletter(event, { email }) {
     const config = useRuntimeConfig(event)
@@ -74,15 +74,17 @@ export async function unsubscribeFromNewsletter(event, { email }) {
     }
 
     try {
+        // `query` takes a SQL expression (requires subscribers:sql_query, which
+        // API users shouldn't have) — `search` is a plain filter needing only
+        // subscribers:get. Exact-match client-side to avoid substring hits.
         const results = await $fetch(`${base}/api/subscribers`, {
             method: 'GET',
             headers,
-            query: {
-                query: `subscribers.email = '${String(email).replace(/'/g, "''")}'`,
-                per_page: 100,
-            },
+            query: { search: email, per_page: 100 },
         })
-        const ids = (results?.data?.results || []).map((s) => s.id)
+        const ids = (results?.data?.results || [])
+            .filter((s) => String(s.email).toLowerCase() === String(email).toLowerCase())
+            .map((s) => s.id)
         if (ids.length === 0) {
             logger.info(`No listmonk subscriber found for ${email} — opt-out is a no-op`)
             return true
