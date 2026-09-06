@@ -641,22 +641,40 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         )
         const { perClassCountsMatch } = await import('./localBridge')
         const keptIdx = []
+        // AC6 (L2-ter) : miroir minimal de l'observabilité serveur — les
+        // alternatives écartées laissent un diagnostic (raison + stratégie)
+        // dans le rapport, jamais une perte silencieuse.
+        const localDiscarded = []
         rawAlts.forEach((alt, i) => {
             const art = arts?.[i]
-            if (alt.structural && art?.report?.verify?.insideSheet === false) return
+            const strategy = alt.bias || alt.strategy || 'engine'
+            if (alt.structural && art?.report?.verify?.insideSheet === false) {
+                localDiscarded.push({ reason: 'outside_sheet', strategy })
+                return
+            }
             if (art?.containers?.length
                 && !perClassCountsMatch(art.containers, requestedById)) {
                 console.error('[local] alternative per-class count mismatch, discarding', {
-                    strategy: alt.bias || alt.strategy || 'engine',
+                    strategy,
                 })
+                localDiscarded.push({ reason: 'class_mismatch', strategy })
                 return
             }
             const verify = art?.report?.verify
             if (verify && (verify.overlapFree === false || (verify.duplicatePoses || 0) > 0)) {
                 console.error('[local] alternative physically invalid, discarding', {
-                    strategy: alt.bias || alt.strategy || 'engine',
+                    strategy,
                     overlapFree: verify.overlapFree,
                     duplicatePoses: verify.duplicatePoses,
+                })
+                localDiscarded.push({
+                    reason: 'overlap',
+                    strategy,
+                    verification: {
+                        overlapFree: verify.overlapFree,
+                        duplicatePoses: verify.duplicatePoses,
+                        smallestGapMm: verify.smallestGapMm ?? null,
+                    },
                 })
                 return
             }
@@ -792,6 +810,10 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             alternatives,
             liveLayout,
             ...(partialUnfit ? { unfit: partialUnfit } : {}),
+            // AC6 (L2-ter) : miroir navigateur — les options écartées par
+            // la garde physique restent tracées dans le record (compteur +
+            // raisons), hydratées comme le champ serveur.
+            ...(localDiscarded?.length ? { discardedAlternatives: localDiscarded } : {}),
             meta: { memory: outcome.memory },
         })
     } catch {
@@ -810,5 +832,5 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             ...(partialUnfit ? { unfit: partialUnfit } : {}),
         },
     })
-    return { ok: true, alternatives, liveLayout, itemMap }
+    return { ok: true, alternatives, liveLayout, itemMap, discarded: localDiscarded }
 }

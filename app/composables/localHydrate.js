@@ -121,6 +121,11 @@ export function hydrateLocalItem(item, record = null) {
         ...item,
         isLocal: true,
         localRecord: rec,
+        // AC6 (L2-ter) : compteur des options écartées (miroir du champ
+        // serveur) pour le badge replié du modal.
+        discardedCount: Array.isArray(rec.discardedAlternatives)
+            ? rec.discardedAlternatives.length
+            : 0,
         svgs: alternatives[0]?.svgs || [],
         alternatives,
         isMultiSheet: (alternatives[0]?.layoutCount ?? 0) > 1,

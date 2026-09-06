@@ -1,4 +1,5 @@
 from datetime import datetime
+import copy
 import sys
 import os
 import io
@@ -1582,6 +1583,11 @@ def _nesting_process_impl(doc):
                     if isinstance(pid, int) and 0 <= pid < len(id_map):
                         pi["item_id"] = id_map[pid]
             before = sum(len(l.get("placed_items", [])) for l in layouts)
+            # AC1 (L2-ter) : snapshot APRÈS remap des ids, AVANT expansion.
+            # La solution moteur est mutée EN PLACE par l'expansion puis les
+            # passes — sans copie, la « pré-vérification » de l'observabilité
+            # mesurait l'état final (attribution toujours « engine »).
+            engine_alt["_pre_layouts"] = copy.deepcopy(layouts)
             if meta.get("packs"):
                 sol["layouts"] = expand_packs(input_items, meta["packs"], layouts)
             else:
@@ -1762,30 +1768,81 @@ def _nesting_process_impl(doc):
     discarded_alts = []
 
     def _record_discard(engine_alt, result_containers, reason, strategy, rank, verification):
+        # AC1 (L2-ter) : attribution par étage — snapshot moteur (pris
+        # AVANT expansion, cf. _pre_layouts), expansion seule REJOUÉE sur
+        # une copie du snapshot, puis état final.
+        def _dirty(v):
+            return bool(v) and (v.get("overlapFree") is False or v.get("duplicatePoses"))
+
+        pre, expanded, origin = {}, {}, "unknown"
+        snapshot = engine_alt.get("_pre_layouts")
         try:
-            pre = verify_layout(
-                parse_result_containers(
-                    {"solution": engine_alt["solution"]}, input_items, bin_dims_engine
-                )[0],
-                input_items, space,
-            )
-        except Exception:
-            pre = {}
+            if snapshot is not None:
+                pre = verify_layout(
+                    parse_result_containers(
+                        {"solution": {"layouts": snapshot}}, input_items, bin_dims_engine
+                    )[0],
+                    input_items, space,
+                )
+                snap_copy = copy.deepcopy(snapshot)
+                if meta.get("packs"):
+                    exp_layouts = expand_packs(input_items, meta["packs"], snap_copy)
+                else:
+                    exp_layouts = expand_meta(
+                        input_items, meta["host"], meta["fill"], meta["slots"],
+                        snap_copy, meta.get("ringRotations"),
+                    )
+                expanded = verify_layout(
+                    parse_result_containers(
+                        {"solution": {"layouts": exp_layouts}}, input_items, bin_dims_engine
+                    )[0],
+                    input_items, space,
+                )
+                origin = "engine" if _dirty(pre) else "expand" if _dirty(expanded) else "post_pass"
+        except Exception as e:
+            logger.warning("origin attribution failed", extra={"error": str(e)})
+        # AC2 (L2-ter) : paires par POSE + layouts + postPass, pour rejeu
+        # hors ligne.
         overlaps = []
         try:
             from core.metrics import overlapping_pairs
             overlaps = overlapping_pairs(
-                result_containers, input_items, space, cap=10)
+                result_containers, input_items, space, cap=20)
         except Exception as e:
             logger.warning("overlap pairs unavailable", extra={"error": str(e)})
+        poses = []
+        svg_files = []
+        try:
+            for ci, c in enumerate(result_containers):
+                poses.append({
+                    "sheet": ci,
+                    "poses": [
+                        [getattr(t, "item_id", None),
+                         round(math.degrees(getattr(t, "angle", 0.0) or 0.0), 3),
+                         round(getattr(t, "x", 0.0) or 0.0, 3),
+                         round(getattr(t, "y", 0.0) or 0.0, 3)]
+                        for t in c.transforms
+                    ],
+                })
+                name = f"{slug}_alt{rank}_discarded_sheet{ci + 1}.svg"
+                save_svg_result(doc.get("owner"), name, c.transforms,
+                                {i["id"]: i for i in input_items}, dek,
+                                bin_width=c.bin_width, bin_height=c.bin_height)
+                svg_files.append(name)
+        except Exception as e:
+            logger.warning("discarded layouts/svg unavailable", extra={"error": str(e)})
         entry = {
             "reason": reason,
             "strategy": strategy,
             "rank": rank,
             "verification": verification,
             "overlaps": overlaps,
-            "originStage": "engine" if pre.get("overlapFree") is False or pre.get("duplicatePoses") else "post_pass",
+            "originStage": origin,
             "preVerification": pre,
+            "expandVerification": expanded,
+            "layouts": poses,
+            "postPass": engine_alt.get("postPass"),
+            "svgFiles": svg_files,
         }
         discarded_alts.append(entry)
         logger.warning(

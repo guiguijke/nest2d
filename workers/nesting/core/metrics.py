@@ -342,16 +342,18 @@ def per_class_counts_match(containers, requested_by_id):
     return all(placed.get(k) == v for k, v in requested_by_id.items())
 
 
-def overlapping_pairs(containers, input_items, space=0.0, cap=10):
-    """AB2 (L2-bis) : paires de pièces en chevauchement RÉEL (aire >
+def overlapping_pairs(containers, input_items, space=0.0, cap=20):
+    """AB2/AC2 : paires de pièces en chevauchement RÉEL (aire >
     OVERLAP_EPS_MM2), pour le diagnostic des alternatives écartées au
-    filet final — [{a, b, areaMm2}] plafonné à `cap`, ids d'items.
+    filet final — [{sheet, idxA, idxB, itemA, itemB, areaMm2, centroid}]
+    plafonné à `cap`. Paires identifiées par POSE (tôle + index dans la
+    tôle), pas seulement par type de pièce : rejeu hors ligne possible.
     Même géométrie de placement et même STRtree que verify_layout."""
     items_by_id = {item["id"]: item for item in input_items}
     out = []
     search_r = max(float(space or 0) + 1.0, 5.0)
     from shapely.strtree import STRtree
-    for container in containers:
+    for sheet, container in enumerate(containers):
         placed = []
         ids = []
         for transform in container.transforms:
@@ -368,11 +370,14 @@ def overlapping_pairs(containers, input_items, space=0.0, cap=10):
                 j = int(j)
                 if j <= i:
                     continue
-                inter = a.intersection(placed[j]).area
-                if inter > OVERLAP_EPS_MM2:
+                inter_poly = a.intersection(placed[j])
+                if inter_poly.area > OVERLAP_EPS_MM2:
+                    c = inter_poly.centroid
                     out.append({
-                        "a": ids[i], "b": ids[j],
-                        "areaMm2": round(inter, 2),
+                        "sheet": sheet, "idxA": i, "idxB": j,
+                        "itemA": ids[i], "itemB": ids[j],
+                        "areaMm2": round(inter_poly.area, 2),
+                        "centroid": [round(c.x, 1), round(c.y, 1)],
                     })
                     if len(out) >= cap:
                         return out
