@@ -482,6 +482,12 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     }
 
     const result = outcome.result
+    // AC6 (L2-ter) : miroir minimal de l'observabilité serveur — les
+    // alternatives écartées laissent un diagnostic (raison + stratégie),
+    // jamais une perte silencieuse. Portée FONCTION : le return et le
+    // record y accèdent (une déclaration de bloc provoquait un
+    // ReferenceError APRÈS le post de quota — job réussi affiché en crash).
+    const localDiscarded = []
     // AA3(c) (vérif L1 2026-09-05) : la géométrie de la solution ne doit
     // vivre sous AUCUN proxy réactif — les passes et la finalisation
     // parcourent des dizaines de milliers de coordonnées (profil V8 :
@@ -641,10 +647,6 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         )
         const { perClassCountsMatch } = await import('./localBridge')
         const keptIdx = []
-        // AC6 (L2-ter) : miroir minimal de l'observabilité serveur — les
-        // alternatives écartées laissent un diagnostic (raison + stratégie)
-        // dans le rapport, jamais une perte silencieuse.
-        const localDiscarded = []
         rawAlts.forEach((alt, i) => {
             const art = arts?.[i]
             const strategy = alt.bias || alt.strategy || 'engine'
