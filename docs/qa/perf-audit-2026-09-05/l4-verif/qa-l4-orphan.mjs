@@ -62,6 +62,7 @@ try {
     log('job créé:', jobSlug)
     if (jobSlug === 'ABSENT') throw new Error('pas de awaiting_local après le POST')
     const projectUrl = page.url()
+    const savedState = await ctx.storageState()
     await ctx.close() // orphelin : le payload ne sera jamais pris
     await page.waitForTimeout(500).catch(() => {})
 
@@ -75,7 +76,10 @@ try {
     log('createdAt vieilli de 11 min')
 
     // 4. Réouverture : expiration À L'OUVERTURE du flux (AH2) → carte.
-    const second = await loginCtx()
+    // Piste 1 : RÉUTILISER la session du contexte 1 (le re-login crée
+    // une 2e session qui essuie un 401 sur /api/project — à instruire).
+    const secondCtx = await browser.newContext({ locale: 'en-US', storageState: savedState, viewport: { width: 1680, height: 1000 } })
+    const second = { ctx: secondCtx, page: await secondCtx.newPage() }
     const p2 = second.page
     // Le MÊME projet (son flux SSE déclenche l'expiration à l'ouverture).
     await p2.goto(projectUrl, { waitUntil: 'domcontentloaded' })
