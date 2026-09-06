@@ -215,6 +215,9 @@ const dict = {
         'nest.capacity.retry': 'Retry',
         // C04 : levier espacement masqué au plancher — la phrase explique.
         'nest.capacity.noSpacingGain': 'Even with zero spacing these parts do not fit — add a sheet or remove parts.',
+        // AF1 (L3-bis) : le panneau remplace le bandeau rouge — la mention
+        // de remboursement vit DANS le panneau.
+        'nest.capacity.refunded': 'The nesting was not charged.',
         // Purge 24 h (D-PRV-10) : états « expiré » (la phrase live est privacy.status.*).
         'results.expired': 'Expired (24 h purge)',
         'files.expired': 'Expired (24 h purge) — re-upload this file to nest it again',
@@ -273,6 +276,9 @@ const dict = {
         'localCompute.runningLocal': 'Optimizing on this device — your files never leave this browser.',
         'localCompute.error': 'Local compute failed. The nesting was refunded — please try again.',
         'localMode.allInvalid': 'Every layout option was rejected by physical validation (measured overlaps). The nesting was refunded — please retry in server mode.',
+        // AF6 (L3-bis) : projet « cet appareil » — le mode serveur n'existe
+        // pas pour ces fichiers.
+        'localMode.allInvalidLocal': 'Every layout option was rejected by physical validation (measured overlaps). The nesting was refunded — please retry with a smaller job.',
         'localMode.capacityExceeded': 'These parts do not fit the declared sheets at this spacing — add a sheet, reduce the spacing or remove parts. The nesting was refunded.',
         'localCompute.memoryError': 'This job needs more memory than your browser can provide. The nesting was refunded — try a smaller job or a desktop browser.',
         'localMode.title': 'Compute location',
@@ -863,6 +869,9 @@ const dict = {
         'nest.capacity.retry': 'Relancer',
         // C04 : levier espacement masqué au plancher — la phrase explique.
         'nest.capacity.noSpacingGain': "Même sans espacement, ces pièces ne tiennent pas — ajoutez une tôle ou retirez des pièces.",
+        // AF1 (L3-bis) : le panneau remplace le bandeau rouge — la mention
+        // de remboursement vit DANS le panneau.
+        'nest.capacity.refunded': "L'imbrication n'a pas été facturée.",
         // Purge 24 h (D-PRV-10) : états « expiré » (la phrase live est privacy.status.*).
         'results.expired': "Expiré (purge 24 h)",
         'files.expired': "Expiré (purge 24 h) — réimportez ce fichier pour le nester à nouveau",
@@ -921,6 +930,9 @@ const dict = {
         'localCompute.runningLocal': "Optimisation sur cet appareil — vos fichiers ne quittent jamais ce navigateur.",
         'localCompute.error': "Le calcul local a échoué. L'imbrication a été remboursée — réessayez.",
         'localMode.allInvalid': "Toutes les options ont été rejetées par la validation physique (chevauchements mesurés). L'imbrication a été remboursée — réessayez en mode serveur.",
+        // AF6 (L3-bis) : projet « cet appareil » — le mode serveur n'existe
+        // pas pour ces fichiers.
+        'localMode.allInvalidLocal': "Toutes les options ont été rejetées par la validation physique (chevauchements mesurés). L'imbrication a été remboursée — réessayez avec une tâche plus petite.",
         'localMode.capacityExceeded': "Ces pièces ne tiennent pas sur les tôles déclarées à cet espacement — ajoutez une tôle, réduisez l'espacement ou retirez des pièces. L'imbrication a été remboursée.",
         'localCompute.memoryError': "Cette tâche demande plus de mémoire que votre navigateur ne peut en fournir. L'imbrication a été remboursée — essayez une tâche plus petite ou un navigateur de bureau.",
         'localMode.title': 'Lieu de calcul',

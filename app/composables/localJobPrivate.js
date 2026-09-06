@@ -645,7 +645,7 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         const requestedById = new Map(
             (payload?.parts || []).map((p) => [String(p.id), Number(p.count) || 0]),
         )
-        const { perClassCountsMatch } = await import('./localBridge')
+        const { perClassCountsMatch, enginePlacedById } = await import('./localBridge')
         const keptIdx = []
         rawAlts.forEach((alt, i) => {
             const art = arts?.[i]
@@ -654,8 +654,16 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
                 localDiscarded.push({ reason: 'outside_sheet', strategy })
                 return
             }
+            // AF6 (L3-bis) : la référence de la garde par classe est ce que
+            // le MOTEUR a posé pour CETTE alternative (miroir de
+            // engine_placed_by_id, X2) — pas le demandé. Une solution
+            // partielle (stock serré : le moteur n'a pas tout placé) est
+            // CONSERVÉE et livrée avec report.unplaced + leviers Z3, au
+            // lieu d'être écartée en « all_alternatives_invalid ».
+            const enginePlaced = enginePlacedById(alt)
+            const referenceById = enginePlaced.size ? enginePlaced : requestedById
             if (art?.containers?.length
-                && !perClassCountsMatch(art.containers, requestedById)) {
+                && !perClassCountsMatch(art.containers, referenceById)) {
                 console.error('[local] alternative per-class count mismatch, discarding', {
                     strategy,
                 })

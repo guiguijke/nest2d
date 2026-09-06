@@ -112,6 +112,7 @@
                     data-testid="capacity-panel"
                 >
                     <div class="capacity-panel__title">{{ t('nest.capacity.title') }}</div>
+                    <p class="capacity-panel__refunded">{{ t('nest.capacity.refunded') }}</p>
                     <ul class="capacity-panel__levers">
                         <li v-if="capacityPanel.levers.sheetsNeeded">
                             {{ t('report.unfit.sheetsNeeded', { n: capacityPanel.levers.sheetsNeeded }) }}
@@ -158,7 +159,10 @@
                 <FreeNestBanner v-if="!isDemo" />
             </aside>
         </section>
-        <div v-if="localComputeError" class="content__error">
+        <!-- AF1 (L3-bis) : UN SEUL message de refus — quand le panneau de
+             capacité est affiché, le bandeau rouge sous la scène se tait
+             (la mention de remboursement vit dans le panneau). -->
+        <div v-if="localComputeError && !capacityPanel" class="content__error">
             {{ localErrorText }}
         </div>
         <div v-if="isDemo && demoQuotaReached && !demoUnlimited" class="content__error">
@@ -167,7 +171,7 @@
         <p v-if="isLocalProject && filesCount === 0 && !localImportError" class="content__privacy">
             {{ t('localImport.emptyBrowser') }}
         </p>
-        <div v-if="nestRequestError" class="content__error">
+        <div v-if="nestRequestError && !capacityPanel" class="content__error">
             {{ t(nestRequestError) }}
         </div>
         <div v-if="nestSubmitError" class="content__error">
@@ -343,7 +347,9 @@ const localLive = computed(() => {
         progress: { evals: localEvals.value, elapsed_sec: localElapsed.value },
     };
 });
-const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value));
+// AF6 : un projet « cet appareil » ne peut PAS réessayer en mode serveur —
+// les messages d'erreur locaux prennent leurs variantes dédiées.
+const localErrorText = computed(() => localModeCtl.mapError(localComputeError.value, { localOnly: unref(isLocalProject) }));
 // Z1 (vérif 2026-09-05) : payload unfit du dernier job local refusé (les
 // leviers du pré-contrôle) — le registre le porte sur la phase error.
 const localUnfit = ref(null);
@@ -806,6 +812,12 @@ const startsNest = () => {
         font-size: 13px;
         line-height: 1.6;
         color: var(--label-secondary);
+    }
+
+    &__refunded {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: var(--label-tertiary);
     }
 
     &__floor {

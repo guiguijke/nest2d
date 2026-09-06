@@ -37,15 +37,26 @@ export function useLocalMode(projectSlug) {
     }
 
     // Traduit un échec local en message i18n proposant le mode serveur.
-    function mapError(err) {
-        if (err === 'memory_cap') return t('localMode.memorySuggest')
-        if (err === 'entity_limit') return t('localMode.entityLimit')
+    // `localOnly` (AF6, L3-bis) : un projet « cet appareil » n'a AUCUNE
+    // géométrie côté serveur — les conseils « réessayez en mode serveur »
+    // sont impossibles à suivre : variantes dédiées.
+    function mapError(err, { localOnly = false } = {}) {
+        if (err === 'memory_cap') {
+            return localOnly ? t('localMode.memoryLocal') : t('localMode.memorySuggest')
+        }
+        if (err === 'entity_limit') {
+            return localOnly ? t('localMode.entityLimitLocal') : t('localMode.entityLimit')
+        }
         // J-090 : géométrie d'un projet local absente de CE navigateur.
         if (err === 'geometry_missing') return t('localImport.missingGeometry')
-        if (err === 'crash') return t('localMode.crashError')
+        if (err === 'crash') {
+            return localOnly ? t('localMode.crashLocal') : t('localMode.crashError')
+        }
         // V8 (vérif 2026-09-04) : toutes les alternatives rejetées par la
         // garde physique (chevauchement/doublons mesurés) — job refundé.
-        if (err === 'all_alternatives_invalid') return t('localMode.allInvalid')
+        if (err === 'all_alternatives_invalid') {
+            return localOnly ? t('localMode.allInvalidLocal') : t('localMode.allInvalid')
+        }
         // Plan 2026-09-05 §1.2a : refus de capacité (aire gonflée par
         // l'espacement) — phrase actionnable avec les leviers.
         if (err === 'capacity_exceeded') return t('localMode.capacityExceeded')

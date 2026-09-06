@@ -693,6 +693,26 @@ export function perClassCountsMatch(containers, requestedById) {
     return true
 }
 
+/**
+ * AF6 (L3-bis) — miroir JS de `engine_placed_by_id` (main.py, X2) :
+ * comptes PAR CLASSE de la solution MOTEUR (avant post-pass). C'est la
+ * RÉFÉRENCE de la garde par classe : une solution partielle sur stock
+ * serré n'est pas une « perte » — le moteur n'a pas tout posé, l'alternative
+ * doit être conservée et livrée avec son compte non placé (report.unplaced
+ * Y3 + leviers Z3). Vide → repli sur le demandé (le moteur complet pose
+ * tout ; un layouts vide ne doit pas vider la garde).
+ */
+export function enginePlacedById(alt) {
+    const counts = new Map()
+    for (const l of (alt?.solution?.layouts) || []) {
+        for (const pi of l.placed_items || []) {
+            const k = String(pi.item_id)
+            counts.set(k, (counts.get(k) || 0) + 1)
+        }
+    }
+    return counts
+}
+
 /** Miroir du plafonnage metrics.verify_layout (d57cbea) : occupants par trou
  * (centroïde d'aire de l'anneau externe posé dans l'anneau du trou, premier
  * hôte retenu) → filled = Σ min(n, CAPACITY) ; l'excédent part dans

@@ -9,6 +9,7 @@ import {
     decorateLiveLayout,
     holesFillCap,
     perClassCountsMatch,
+    enginePlacedById,
 } from '../composables/localBridge'
 import { uniquifyDxfHandles } from '../composables/localHydrate'
 
@@ -528,5 +529,51 @@ describe('perClassCountsMatch (miroir metrics A4, audit 2026-09-03)', () => {
 
     it('classe manquante → false', () => {
         expect(perClassCountsMatch(containers([7]), new Map([['0', 1]]))).toBe(false)
+    })
+})
+
+// AF6 (L3-bis) : la RÉFÉRENCE de la garde est ce que le moteur a posé
+// (miroir engine_placed_by_id, X2) — une solution partielle sur stock
+// serré passe la garde au lieu d'être écartée en all_alternatives_invalid.
+describe('AF6 — garde par classe sur solution partielle (référence = posé moteur)', () => {
+    const containers = (ids) => [
+        { transforms: ids.map((id) => ({ item_id: String(id), angle: 0, x: 0, y: 0 })) },
+    ]
+    const partialAlt = {
+        solution: {
+            layouts: [
+                { placed_items: [{ item_id: 0 }, { item_id: 0 }] },
+                { placed_items: [{ item_id: 0 }, { item_id: 1 }] },
+            ],
+        },
+    }
+
+    it('enginePlacedById compte les poses moteur par classe', () => {
+        const counts = enginePlacedById(partialAlt)
+        expect(counts.get('0')).toBe(3)
+        expect(counts.get('1')).toBe(1)
+    })
+
+    it('un partiel 4/5 posés passe la garde avec la référence moteur (échouait contre le demandé)', () => {
+        const requested = new Map([['0', 4], ['1', 1]]) // 5 demandés
+        const placed = containers([0, 0, 0, 1]) // moteur a posé 4
+        // Ancienne garde : partiel écarté → all_alternatives_invalid.
+        expect(perClassCountsMatch(placed, requested)).toBe(false)
+        // AF6 : référence = posé moteur → l'alternative est conservée.
+        const enginePlaced = enginePlacedById(partialAlt)
+        const reference = enginePlaced.size ? enginePlaced : requested
+        expect(perClassCountsMatch(placed, reference)).toBe(true)
+    })
+
+    it('solution moteur VIDE → repli sur le demandé (la garde ne devient pas muette)', () => {
+        expect(enginePlacedById({}).size).toBe(0)
+        expect(enginePlacedById(null).size).toBe(0)
+    })
+
+    it('le post-pass qui PERD une pièce moteur est toujours détecté', () => {
+        // Moteur a posé 0×3 + 1×1 ; le post-pass n'a livré que 0×2 + 1×1.
+        const placed = containers([0, 0, 1])
+        const reference = enginePlacedById(partialAlt)
+        expect(perClassCountsMatch(placed, reference)).toBe(false)
     })
 })
