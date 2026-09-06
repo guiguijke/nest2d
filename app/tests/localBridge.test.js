@@ -10,6 +10,7 @@ import {
     holesFillCap,
     perClassCountsMatch,
     enginePlacedById,
+    layoutsCountByClass,
 } from '../composables/localBridge'
 import { uniquifyDxfHandles } from '../composables/localHydrate'
 
@@ -575,5 +576,78 @@ describe('AF6 — garde par classe sur solution partielle (référence = posé m
         const placed = containers([0, 0, 1])
         const reference = enginePlacedById(partialAlt)
         expect(perClassCountsMatch(placed, reference)).toBe(false)
+    })
+})
+
+// A2 (lot 4) — garde par classe : la référence est capturée APRÈS
+// l'expansion (fans attendues comprises, miroir X2) et AVANT les passes
+// de déplacement. Le test exécute les passes RÉELLES du post-pass
+// (expandMeta → applyHoleFill → fillResidualBands), construit les
+// containers via layoutTransforms (rien à la main), PUIS INJECTE une
+// perte dans l'état final — ce qu'un post-pass défaillant laisserait —
+// et prouve : la NOUVELLE référence détecte, l'ANCIENNE (recalculée sur
+// l'état final) reste muette.
+describe('A2 — garde par classe, référence avant post-pass (perte injectée)', () => {
+    const ring = Array.from({ length: 8 }, (_, i) => {
+        const a = (2 * Math.PI * i) / 8
+        return [35 * Math.cos(a), 35 * Math.sin(a)]
+    })
+    const fan = { id: 0, coords: [[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, 5]], holes: [] }
+    // coordonnée dupliquée volontaire corrigée :
+    fan.coords = [[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]
+    const host = { id: 1, coords: [[-50, -50], [50, -50], [50, 50], [-50, 50], [-50, -50]], holes: [ring] }
+    const parts = [fan, host]
+    // Moteur : l'hôte seul est posé (l'instance réduite fige les fans).
+    const engineLayouts = () => [{
+        container_id: 0,
+        placed_items: [{
+            item_id: 1,
+            transformation: { rotation: 0, translation: [50, 50] },
+        }],
+    }]
+    const meta = { host: 1, fill: 0, slots: [1], ringRotations: [[0]] }
+
+    it('passes réelles : expansion pose les fans, les comptes capturés les incluent', async () => {
+        const layouts = engineLayouts()
+        expandMeta(parts, meta.host, meta.fill, meta.slots, layouts, meta.ringRotations)
+        const engineCounts = layoutsCountByClass(layouts)
+        expect(engineCounts['1']).toBe(1)
+        expect(Number(engineCounts['0'])).toBeGreaterThan(0)
+    })
+
+    it('une perte injectée APRÈS les passes est détectée par la référence capturée, pas par l’ancienne', async () => {
+        // Chaîne réelle : expansion → hole-fill → résiduel.
+        const layouts = engineLayouts()
+        expandMeta(parts, meta.host, meta.fill, meta.slots, layouts, meta.ringRotations)
+        const engineCounts = layoutsCountByClass(layouts)
+        applyHoleFill(parts, layouts, 0)
+        const { fillResidualBands } = await import('../composables/residualClient')
+        fillResidualBands(parts, layouts, 0, {
+            parts: [], engineConfig: { min_item_separation: 0 },
+            instance: { strip_height: 1000 }, problem: 'spp',
+        }, {}, 'compact')
+
+        // INJECTION : le post-pass perd l'HÔTE (pièce posée par le moteur)
+        // — il disparaît de l'état final, layouts compris.
+        layouts[0].placed_items = layouts[0].placed_items.filter((pi) => pi.item_id !== 1)
+        const partsById = new Map(parts.map((p) => [String(p.id), p]))
+        const containers = [{ transforms: layoutTransforms(layouts[0], partsById) }]
+
+        // Garde A2 : référence capturée AVANT les passes → DÉTECTE.
+        const reference = new Map(Object.entries(engineCounts))
+        expect(perClassCountsMatch(containers, reference)).toBe(false)
+        // Ancienne référence : recalculée sur l'état final (muté) → muette.
+        const afterCounts = layoutsCountByClass(layouts)
+        expect(perClassCountsMatch(containers, new Map(Object.entries(afterCounts)))).toBe(true)
+    })
+
+    it('sans perte : la garde passe (pas de faux positif après les passes réelles)', async () => {
+        const layouts = engineLayouts()
+        expandMeta(parts, meta.host, meta.fill, meta.slots, layouts, meta.ringRotations)
+        const engineCounts = layoutsCountByClass(layouts)
+        applyHoleFill(parts, layouts, 0)
+        const partsById = new Map(parts.map((p) => [String(p.id), p]))
+        const containers = [{ transforms: layoutTransforms(layouts[0], partsById) }]
+        expect(perClassCountsMatch(containers, new Map(Object.entries(engineCounts)))).toBe(true)
     })
 })

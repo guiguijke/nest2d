@@ -38,6 +38,14 @@ export default defineEventHandler(async (event) => {
     if (job.status !== 'awaiting_local') {
         throw createError({ statusCode: 409, statusMessage: 'Job is not awaiting local compute' })
     }
+    // A3 (lot 4) : prise en charge tracée — un awaiting_local SANS takenAt
+    // depuis plus de 10 min est un orphelin (appareil fermé avant prise) et
+    // est expiré au POST suivant ; AVEC takenAt, jamais expiré (le calcul
+    // navigateur est légitimement en cours).
+    db.collection('nesting_jobs').updateOne(
+        { slug },
+        { $set: { takenAt: new Date() } },
+    ).catch(() => {})
 
     // J-090 — voie 100 % client : métadonnées + profil imposé, zéro géométrie.
     if (job.localConfig) {

@@ -411,6 +411,9 @@ const dict = {
         'results.otherDevice': 'Computed on another device — results not available here',
         'results.otherDevice.short': 'Other device',
         'results.otherDeviceHint': 'This nesting ran in the browser of another device. Its files never left that device — run the nesting again here to get the layouts.',
+        // A3 (lot 4) : awaiting_local orphelin expiré côté serveur.
+        'results.orphanExpired': 'Not picked up by this device — the nesting was canceled and refunded after 10 minutes. Launch it again and keep this tab open.',
+        'results.orphanExpired.short': 'Not picked up',
         'results.all': 'All results',
         'results.empty': 'Your nested results will be here',
         'results.download': 'Download',
@@ -1065,6 +1068,9 @@ const dict = {
         'results.otherDevice': 'Calculé sur un autre appareil — résultats non disponibles ici',
         'results.otherDevice.short': 'Autre appareil',
         'results.otherDeviceHint': "Cette imbrication a été calculée dans le navigateur d'un autre appareil. Ses fichiers n'ont jamais quitté cet appareil — relancez l'imbrication ici pour obtenir les agencements.",
+        // A3 (lot 4) : awaiting_local orphelin expiré côté serveur.
+        'results.orphanExpired': "Non pris en charge par cet appareil — l'imbrication a été annulée et remboursée après 10 minutes. Relancez-la en gardant cet onglet ouvert.",
+        'results.orphanExpired.short': 'Non pris en charge',
         'results.all': 'Tous les résultats',
         'results.empty': "Vos résultats d'imbrication apparaîtront ici",
         'results.download': 'Télécharger',

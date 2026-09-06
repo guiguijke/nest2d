@@ -694,6 +694,23 @@ export function perClassCountsMatch(containers, requestedById) {
 }
 
 /**
+ * A2 (lot 4) : comptes par classe de layouts — utilisé PAR
+ * buildAlternativeArtifacts juste après l'expansion (la référence de la
+ * garde, miroir du moment de capture Python X2) et par le test de la
+ * garde (perte injectée après les passes réelles).
+ */
+export function layoutsCountByClass(layouts) {
+    const counts = {}
+    for (const l of layouts || []) {
+        for (const pi of l.placed_items || []) {
+            const k = String(pi.item_id)
+            counts[k] = (counts[k] || 0) + 1
+        }
+    }
+    return counts
+}
+
+/**
  * AF6 (L3-bis) — miroir JS de `engine_placed_by_id` (main.py, X2) :
  * comptes PAR CLASSE de la solution MOTEUR (avant post-pass). C'est la
  * RÉFÉRENCE de la garde par classe : une solution partielle sur stock
@@ -913,6 +930,14 @@ export async function buildAlternativeArtifacts(result, payload) {
                 expandedCount = layouts.reduce(
                     (n, l) => n + (l.placed_items?.length || 0), 0) - nBefore
             }
+            // A2 (lot 4) : comptes par classe APRÈS expansion, AVANT
+            // hole-fill/résiduel — miroir exact du engine_placed_by_id
+            // Python (X2) : les fans d'expansion sont l'état MOTEUR
+            // restitué, la référence de la garde doit les inclure. Capturé
+            // ici : recalculé après le post-pass, il comparerait l'état
+            // final à lui-même et ne verrait jamais une pièce perdue PAR
+            // le post-pass (résidu contrôle P8 §5).
+            const engineCounts = layoutsCountByClass(layouts)
             // A5 (audit 2026-09-03) : traçabilité des post-pass (additif,
             // miroir de engine_alt.postPass côté main.py) — plus de pass
             // muet : expandMeta compté, holeFillRecovered = relocations,
@@ -994,6 +1019,7 @@ export async function buildAlternativeArtifacts(result, payload) {
                 containers,
                 report: report && !report.error ? report : null,
                 postPass,
+                engineCounts,
             })
         }
         return out

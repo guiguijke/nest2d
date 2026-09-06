@@ -297,12 +297,19 @@ const isNoFit = computed(() => {
 // étiquette « ne tient pas », jamais « Nesting failed ».
 const isCapacityRefusal = computed(() =>
     props.result?.unfit?.reason === 'capacity')
+// A3 (lot 4) : orphelin awaiting_local expiré — carte explicite au lieu
+// d'un échec muet qui bloque l'utilisateur en 409.
+const isOrphanExpired = computed(() =>
+    props.result?.information === 'awaiting_local_expired')
 const failureTitle = computed(() =>
-    isCapacityRefusal.value ? t('results.unfit')
+    isOrphanExpired.value ? t('results.orphanExpired.short')
+    : isCapacityRefusal.value ? t('results.unfit')
     : isNoFit.value ? t('result.failed.nofit') : t('result.failed'))
 
 const resultTitle = computed(() => {
     if (isResultFailed.value) {
+        // A3 : orphelin expiré — la cause et la marche à suivre.
+        if (isOrphanExpired.value) return t('results.orphanExpired')
         // C09 : un seul titre + LA cause — refus capacité disait
         // « Nesting failed » sans raison.
         if (isCapacityRefusal.value) return t('nest.capacity.title')

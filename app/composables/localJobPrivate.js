@@ -633,6 +633,16 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
     let placed = 0
     let allAlternativesInvalid = false
     try {
+        // A2 (lot 4, résidu contrôle P8 §5) : les comptes moteur par classe
+        // sont capturés sur une LECTURE AVANT buildAlternativeArtifacts —
+        // le post-pass MUTE les layouts en place (expansion ajoute les
+        // fans, lattice pose les libres) : recalculer la référence après
+        // comparerait l'état final à lui-même et ne verrait jamais une
+        // pièce perdue PAR le post-pass. enginePlacedById ne lit que
+        // placed_items (aucune mutation) : pas besoin d'une copie profonde
+        // de tout, la capture AVANT suffit.
+        const { perClassCountsMatch, enginePlacedById } = await import('./localBridge')
+        const preEngineCounts = rawAlts.map((alt) => enginePlacedById(alt))
         let arts = await buildAlternativeArtifacts(result, payload)
         // P-4 (audit 2026-08-31 §P-4) + A4/D13 (audit 2026-09-03) — filet
         // aval miroir de _finalize_alternative : mesure indépendante
@@ -645,7 +655,6 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
         const requestedById = new Map(
             (payload?.parts || []).map((p) => [String(p.id), Number(p.count) || 0]),
         )
-        const { perClassCountsMatch, enginePlacedById } = await import('./localBridge')
         const keptIdx = []
         rawAlts.forEach((alt, i) => {
             const art = arts?.[i]
@@ -660,8 +669,18 @@ export async function runLocalJobPrivate(jobSlug, { projectSlug, onLive } = {}) 
             // partielle (stock serré : le moteur n'a pas tout placé) est
             // CONSERVÉE et livrée avec report.unplaced + leviers Z3, au
             // lieu d'être écartée en « all_alternatives_invalid ».
-            const enginePlaced = enginePlacedById(alt)
-            const referenceById = enginePlaced.size ? enginePlaced : requestedById
+            // A2 : la référence vient de art.engineCounts (capturé DANS
+            // buildAlternativeArtifacts après expansion, avant
+            // hole-fill/résiduel — fans d'expansion attendues comprises,
+            // miroir du moment de capture Python) ; repli sur la capture
+            // pré-expansion de localJobPrivate, puis sur le demandé. Une
+            // pièce moteur perdue PAR le post-pass reste dans la référence
+            // et fait échouer la garde.
+            const artCounts = art?.engineCounts
+            const enginePlaced = artCounts && Object.keys(artCounts).length
+                ? new Map(Object.entries(artCounts).map(([k, v]) => [k, v]))
+                : preEngineCounts[i]
+            const referenceById = enginePlaced && enginePlaced.size ? enginePlaced : requestedById
             if (art?.containers?.length
                 && !perClassCountsMatch(art.containers, referenceById)) {
                 console.error('[local] alternative per-class count mismatch, discarding', {
