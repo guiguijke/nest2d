@@ -1,6 +1,6 @@
 # Jalon utilisateurs de fin de T1 — guide d'entretien et grille de décision du lot 4
 
-> Retouche implémenteur sur demande du propriétaire : « jalon utilisateurs » (calque de
+> Retouche implémenteur sur demande du propriétaire : « porte utilisateurs » (calque de
 > l'anglais *user gate*) remplacé partout par « jalon utilisateurs ». Contenu inchangé.
 
 
