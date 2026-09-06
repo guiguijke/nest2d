@@ -120,3 +120,34 @@ def test_exact_overlap_area_measures_raw_rings():
 
 def _exact(layouts, by_id):
     return R._exact_overlap_area(layouts, by_id)
+
+
+def test_ad1_recv_return_on_donor_validated(monkeypatch):
+    """AD1 (L2-quater) — la cause racine : une candidate d'origine
+    RECEVEUSE, non posée, était rendue sur la DONNEUSE à ses coordonnées
+    d'origine — qui recouvrent une fan moteur de la donneuse (jamais
+    testée : validate_return exclut les rendues et ne juge pas les paires
+    entre elles). Correctif (variante 2 du plan) : elle RETOURNE SUR LA
+    RECEVEUSE — jamais sur la donneuse."""
+    layouts = _layouts()
+    # Une fan RECEVEUSE (tôle 0) posée exactement sur une fan DONNEUSE
+    # (tôle 1, rangée y=600) : coordonnées receveuse = (232, 600).
+    layouts[0]["placed_items"].append(
+        {"item_id": 1, "transformation": {"rotation": 0, "translation": [216.0, 600.0]}})
+    stats = {}
+
+    def _no_relay(layouts_, recv_i, candidates, items_by_id, bin_dims, space):
+        return 0
+
+    monkeypatch.setattr(R, "_relay_candidates_in_bands", _no_relay)
+    R.fill_residual_bands(layouts, ITEMS, BIN, 2.0, stats=stats,
+                          profile="compact")
+    by_sheet = [[p for p in l["placed_items"]] for l in layouts]
+    donor_fans = [p for p in by_sheet[1] if p["item_id"] == 1]
+    assert not any(p["transformation"]["translation"] == [216.0, 600.0]
+                   for p in donor_fans),         "aucune fan d'origine receveuse ne doit finir sur la donneuse"
+    recv_fans = [p for p in by_sheet[0] if p["item_id"] == 1]
+    assert any(p["transformation"]["translation"] == [216.0, 600.0]
+               for p in recv_fans),         "la fan receveuse doit être de retour sur sa tôle d'origine"
+    # la donneuse reste INTACTE : aucune ceinture nécessaire.
+    assert stats.get("residualRolledBack") is not True

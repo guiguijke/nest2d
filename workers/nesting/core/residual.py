@@ -826,9 +826,51 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
             # receveuses non re-posées ne retournent JAMAIS sur la
             # receveuse — leurs poses d'origine peuvent être occupées par
             # le lattice), à leur pose d'origine.
+            # AD1 (L2-quater) : séparer PAR TÔLE D'ORIGINE. Les rendues
+            # d'origine DONNEUSE étaient légales entre elles et contre la
+            # donneuse intacte (garde Y2 inchangée). Les rendues d'origine
+            # RECEVEUSE, elles, atterrissent à des coordonnées que la
+            # donneuse n'a jamais vues : elles peuvent recouvrir une
+            # rendue donneuse ou une fan moteur restée en place — et
+            # _validate_return EXCLUT toutes les rendues sans juger les
+            # paires entre elles (l'exemption n'est valable que si toutes
+            # les rendues viennent de la même tôle). D'où le recouvrement
+            # fan-fan 20-310 mm² observé sur la donneuse (réjidives
+            # bench-corpus-a-1788662464/-1788663539). Les rendues
+            # receveuses passent par _validate_batch : nouvelles contre
+            # TOUTE la donneuse (rendues donneuses comprises) et entre
+            # elles, bornes tôle comprises.
+            # Variante 2 du plan L2-quater : les rendues d'origine
+            # RECEVEUSE RETOURNENT sur la RECEVEUSE (elles y étaient
+            # légales avant la passe), validées par batch contre TOUTE la
+            # receveuse (poses du lattice comprises) et entre elles — si
+            # le lattice occupe leur place, rollback. Les rendues
+            # d'origine donneuse suivent le chemin X1.2/Y2 d'origine
+            # (leur pose était légale contre la donneuse intacte, et
+            # l'exemption des paires entre rendues y est valide : toutes
+            # viennent de la même tôle).
+            donor_ids = {id(pi) for pi in donor_free}
             for pi in remaining:
                 pi["transformation"] = saved_poses[id(pi)]
-                donor["placed_items"].append(pi)
+                if id(pi) in recv_free_ids and id(pi) not in donor_ids:
+                    recv["placed_items"].append(pi)
+                else:
+                    donor["placed_items"].append(pi)
+            remaining_recv = [pi for pi in remaining
+                              if id(pi) in recv_free_ids
+                              and id(pi) not in donor_ids]
+            if remaining_recv:
+                sw_r2, sh_r2 = bin_dims[recv["container_id"]]
+                if not _validate_batch(remaining_recv, recv, items_by_id,
+                                       sw_r2, sh_r2, space):
+                    rollback_reason = "restore-recv"
+                    raise _CompactRollback("restore")
+            # Y2 : les rendues DONNEUSE ne doivent chevaucher aucune
+            # pièce donneuse restante (l'exemption entre-rendues reste
+            # valide : même tôle d'origine).
+            remaining_donor = [pi for pi in remaining
+                               if id(pi) not in recv_free_ids
+                               or id(pi) in donor_ids]
             # validation de retour sur la donneuse contre les pièces
             # modifiées par CETTE passe (aucune : le lattice n'a posé que
             # sur la receveuse) — et contre les posées si un second
@@ -850,9 +892,12 @@ def _merge_fill_compact_receivers(layouts, donor_i, items_by_id, bin_dims,
             # sur un carré passait). Tolérance A14 (space − 2×SIMPLIFY − ε)
             # car la géométrie de référence est celle des anneaux
             # simplifiés du moteur.
-            ok = (not remaining or
-                  _validate_return(remaining, donor, items_by_id, space))
+            ok = (not remaining_donor or
+                  _validate_return(remaining_donor, donor, items_by_id, space))
             # W3/§5.1 : la receveuse ne doit JAMAIS finir moins pleine.
+            # AD1 : les rendues receveuses étant revenues sur la
+            # receveuse, la receveuse finit ≥ son compte d'entrée par
+            # construction — la garde reste pour le cas général.
             if len(recv.get("placed_items", [])) < recv_before_count:
                 ok = False
                 rollback_reason = "count"
@@ -1066,7 +1111,11 @@ def _has_non_quarter_rotation(layouts, input_items):
     return False
 
 
-def _exact_overlap_area(layouts, items_by_id):
+def _exact_overlap_area(layouts, items_by_id, only=None):
+    # AD5 (L2-quater) : `only` = liste de (sheet_i, pi) — ne mesurer QUE les
+    # paires dont au moins un membre a été MODIFIÉ par la passe (un nouveau
+    # chevauchement implique forcément une pièce déplacée). Divise le coût
+    # par ~10 : STRtree par tôle, requête sur les seules pièces données.
     """AC3 (L2-ter) : aire de chevauchement TOTALE, anneaux BRUTS (même
     géométrie que metrics.verify_layout — le pass résiduel valide sur
     anneaux simplifiés, sa ceinture doit juger la géométrie livrée).
@@ -1078,23 +1127,31 @@ def _exact_overlap_area(layouts, items_by_id):
     # comptait des coïncidences fictives — deux pièces aux mêmes
     # coordonnées sur deux tôles différentes ne se chevauchent pas).
     total = 0.0
+    watched = {id(pi) for (_, pi) in only} if only else None
     for l in layouts:
         polys = []
-        for pi in l.get("placed_items", []):
+        watched_idx = set()
+        for k, pi in enumerate(l.get("placed_items", [])):
             it = items_by_id.get(pi.get("item_id"))
             if it is None:
                 continue
             tr = pi.get("transformation") or {}
             t = tr.get("translation") or [0, 0]
+            # AD5 : la grille porte TOUTES les pièces (les voisines doivent
+            # rester candidates) — seule la VÉRIFICATION est restreinte.
             polys.append(_placed_poly(it, tr.get("rotation", 0), t[0], t[1],
                                       simplify=False))
+            if watched is not None and id(pi) in watched:
+                watched_idx.add(k)
         if not polys:
             continue
         tree = STRtree(polys)
         for i, a in enumerate(polys):
+            if watched is not None and i not in watched_idx:
+                continue
             for j in tree.query(a.buffer(5.0)):
                 j = int(j)
-                if j <= i:
+                if j == i:
                     continue
                 inter = a.intersection(polys[j]).area
                 if inter > 0.01:
@@ -1150,7 +1207,26 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
     # écartée au filet final.
     try:
         # AC3 : dans le try — géométrie sabotée → filet A5, pas raise.
-        dirt_before = _exact_overlap_area(layouts, items_by_id)
+        # AD5 (L2-quater) : ceinture DIFFÉRENTIELLE sur les pièces
+        # modifiées — un nouveau chevauchement implique forcément une
+        # pièce déplacée/ajoutée par la passe ; ne mesurer que ces pièces
+        # contre leurs voisines divise le coût par ~10 (le gel navigateur
+        # sous charge repassait au-dessus de la cible avec la mesure
+        # complète ×2). Exact : les paires entre pièces intactes ne
+        # peuvent pas être nouvelles.
+        def _tuples(ls):
+            out = {}
+            for si, l in enumerate(ls):
+                for pi in l.get("placed_items", []):
+                    tr = pi.get("transformation") or {}
+                    t = tuple((si, pi.get("item_id"),
+                               round(float(tr.get("rotation", 0)), 6),
+                               round(float((tr.get("translation") or [0, 0])[0]), 6),
+                               round(float((tr.get("translation") or [0, 0])[1]), 6)))
+                    out[t] = out.get(t, 0) + 1
+            return out
+
+        _before_tuples = _tuples(layouts)
         moved = 0
         stats["residualRounds"] = 1
         ratios = [_fill_ratio(l, items_by_id, bin_dims) for l in layouts]
@@ -1175,7 +1251,44 @@ def fill_residual_bands(layouts, input_items, bin_dims, space, stats=None,
             moved += _compact_last_sheet(layouts, last, items_by_id,
                                          bin_dims, space, stats=stats,
                                          regrid=(stats.get("profile") == "grid"))
-        dirt_after = _exact_overlap_area(layouts, items_by_id)
+        import time as _belt_t
+        _belt_t0 = _belt_t.monotonic()
+        _after_tuples = _tuples(layouts)
+        _touched_final = {t for t, n in _after_tuples.items()
+                          if n > _before_tuples.get(t, 0)}
+        _touched_entry = {t for t, n in _before_tuples.items()
+                          if n > _after_tuples.get(t, 0)}
+
+        def _only(ls, watch):
+            out = []
+            for si, l in enumerate(ls):
+                for pi in l.get("placed_items", []):
+                    tr = pi.get("transformation") or {}
+                    t = (si, pi.get("item_id"),
+                         round(float(tr.get("rotation", 0)), 6),
+                         round(float((tr.get("translation") or [0, 0])[0]), 6),
+                         round(float((tr.get("translation") or [0, 0])[1]), 6))
+                    if t in watch:
+                        out.append((si, pi))
+            return out
+
+        # DIFFÉRENTIEL sur les pièces touchées : la saleté de l'état
+        # d'entrée (artefacts fixture/mono-tôle contact) ne compte pas —
+        # seule la DÉGRADATION introduite par la passe sur les pièces
+        # qu'elle a déplacées restaure.
+        if _touched_final or _touched_entry:
+            dirt_before = _exact_overlap_area(
+                snapshot, items_by_id, only=_only(snapshot, _touched_entry))
+            dirt_after = _exact_overlap_area(
+                layouts, items_by_id, only=_only(layouts, _touched_final))
+        else:
+            dirt_before = dirt_after = 0.0
+        # AD5 : durée de la ceinture — en LOG (pas dans stats : le
+        # verrou bit-identique de la passe exige des stats déterministes).
+        logger.info(
+            "residual belt: %.1f ms (touched=%d)",
+            (_belt_t.monotonic() - _belt_t0) * 1000.0,
+            len(_touched_final) + len(_touched_entry))
         if dirt_after > dirt_before + 0.05:
             layouts[:] = snapshot
             stats["residualMoved"] = 0

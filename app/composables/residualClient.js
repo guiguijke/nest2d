@@ -1064,18 +1064,39 @@ function mergeFillCompactReceivers(layouts, donorI, partsById, sheetDimsOf, spac
             // X1 : TOUTES les non-posées vont sur la DONNEUSE à leur pose
             // d'origine — jamais rendues sur la receveuse (poses
             // possiblement occupées par le lattice).
+            // AD1 (L2-quater, variante 2 du plan) : les non-posées
+            // d'origine RECEVEUSE RETOURNENT SUR LA RECEVEUSE à leur pose
+            // d'origine (validées par batch contre toute la receveuse,
+            // poses du lattice comprises) — JAMAIS sur la donneuse, où
+            // leurs coordonnées recouvraient des fans moteur sans jamais
+            // être testées (validateReturn exclut les rendues et ne juge
+            // pas les paires entre elles). Les non-posées d'origine
+            // donneuse suivent le chemin X1.2/Y2 (même tôle d'origine :
+            // l'exemption y est valide).
+            const recvIds = new Set(recvFree.map((pi) => pi))
+            const remainingRecv = []
+            const remainingDonor = []
             for (const pi of remaining) {
                 pi.transformation = savedPoses.get(pi)
-                donor.placed_items.push(pi)
+                if (recvIds.has(pi)) {
+                    recv.placed_items.push(pi)
+                    remainingRecv.push(pi)
+                } else {
+                    donor.placed_items.push(pi)
+                    remainingDonor.push(pi)
+                }
             }
-            // validation du lot rendu contre les pièces modifiées par la
-            // passe (aucune sur la donneuse) — les poses d'origine étaient
-            // légales entre elles à l'entrée.
-            // Y2 (vérif tour 5) : validation contre TOUTE la donneuse
-            // (l'ancien new Set() vidait l'occupancy = no-op).
-            const okRet = !remaining.length
-                || validateReturn(remaining, donor, partsById, space)
-            let ok = okRet
+            let okRecv = true
+            if (remainingRecv.length) {
+                const [swR, shR] = sheetDimsOf(recv)
+                okRecv = validateBatch(remainingRecv, recv, partsById, swR, shR, space)
+                if (!okRecv) rollbackReason = 'restore-recv'
+            }
+            // Y2 (vérif tour 5) : les rendues DONNEUSE validées contre
+            // TOUTE la donneuse.
+            const okRet = !remainingDonor.length
+                || validateReturn(remainingDonor, donor, partsById, space)
+            let ok = okRet && okRecv
             if ((recv.placed_items || []).length < recvBeforeCount) {
                 ok = false
                 if (rollbackReason === null) rollbackReason = 'count'
@@ -1234,7 +1255,7 @@ export function hasNonQuarterRotation(parts, layouts, payload) {
 // (Polygon(coords, holes)) : un filler niché dans un trou n'est PAS un
 // chevauchement de matière (exemption ringInsideAHole). Mesure
 // DIFFÉRENTIELLE de la ceinture du pass résiduel, grille bbox 100 mm.
-export function exactOverlapArea(layouts, partsById) {
+export function exactOverlapArea(layouts, partsById, watchedTuples = null) {
     const ringsByPose = []
     const polysBb = []
     for (const l of layouts) {
@@ -1256,13 +1277,22 @@ export function exactOverlapArea(layouts, partsById) {
     }
     // Les tôles PARTAGENT le repère : paires au sein d'une MÊME tôle
     // uniquement (préfixer la clé de cellule par l'index de tôle).
+    const tupleOf = (si, pi) => {
+        const t = pi.transformation || {}
+        const [tx, ty] = t.translation || [0, 0]
+        return `${si}|${pi.item_id}|${(Number(t.rotation) || 0).toFixed(6)}|${tx.toFixed(6)}|${ty.toFixed(6)}`
+    }
     let total = 0
-    layouts.forEach((l) => {
+    layouts.forEach((l, si) => {
         const cells = new Map()
         const local = []
         for (const pi of l.placed_items || []) {
             const part = partsById.get(String(pi.item_id))
             if (!part) continue
+            // AD5 : la grille porte TOUTES les pièces (les voisines
+            // doivent rester candidates) — seule la VÉRIFICATION est
+            // restreinte aux pièces modifiées par la passe.
+            const isWatched = watchedTuples ? watchedTuples.has(tupleOf(si, pi)) : true
             const t = pi.transformation || {}
             const [tx, ty] = t.translation || [0, 0]
             const rings = occupancyRings(part, t.rotation, tx, ty)
@@ -1272,7 +1302,7 @@ export function exactOverlapArea(layouts, partsById) {
                 if (x < x0) x0 = x; if (y < y0) y0 = y
                 if (x > x1) x1 = x; if (y > y1) y1 = y
             }
-            local.push({ rings, bb: [x0, y0, x1, y1] })
+            local.push({ rings, bb: [x0, y0, x1, y1], watched: isWatched })
         }
         local.forEach(({ rings, bb }, i) => {
             const [ax0, ay0, ax1, ay1] = bb
@@ -1286,7 +1316,8 @@ export function exactOverlapArea(layouts, partsById) {
             }
         })
         const seen = new Set()
-        local.forEach(({ rings: ringsA, bb }, i) => {
+        local.forEach(({ rings: ringsA, bb, watched }, i) => {
+            if (watched === false) return
             const [ax0, ay0, ax1, ay1] = bb
             for (let cx = Math.floor(ax0 / 100); cx <= Math.floor(ax1 / 100); cx++) {
                 for (let cy = Math.floor(ay0 / 100); cy <= Math.floor(ay1 / 100); cy++) {
@@ -1345,7 +1376,18 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null, 
         // AC3 (L2-ter) : ceinture différentielle exacte — miroir Python.
         // DANS le try : une géométrie sabotée doit tomber dans le filet
         // A5 (restauration + trace), pas lever hors du pass.
-        const dirtBefore = exactOverlapArea(layouts, partsById)
+        const tupleKey = (si, pi) => {
+            const t = pi.transformation || {}
+            const [tx, ty] = t.translation || [0, 0]
+            return `${si}|${pi.item_id}|${(Number(t.rotation) || 0).toFixed(6)}|${tx.toFixed(6)}|${ty.toFixed(6)}`
+        }
+        const beforeTuples = new Map()
+        layouts.forEach((l, si) => {
+            for (const pi of l.placed_items || []) {
+                const k = tupleKey(si, pi)
+                beforeTuples.set(k, (beforeTuples.get(k) || 0) + 1)
+            }
+        })
         let moved = 0
         stats.residualRounds = 1
         const ratios = layouts.map((l) => fillRatio(l, partsById, sheetDimsOf))
@@ -1376,8 +1418,38 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null, 
             }
             moved += compactLastSheet(layouts, last2, partsById, sheetDimsOf, space, payload, stats, stats.profile === 'grid')
         }
-        const dirtAfter = exactOverlapArea(layouts, partsById)
-        if (dirtAfter > dirtBefore) {
+        // AD5 (L2-quater) : DIFFÉRENTIELLE sur les pièces modifiées —
+        // un nouveau chevauchement implique une pièce déplacée/ajoutée.
+        const beltT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+        const afterTuples = new Map()
+        layouts.forEach((l, si) => {
+            for (const pi of l.placed_items || []) {
+                const k = tupleKey(si, pi)
+                afterTuples.set(k, (afterTuples.get(k) || 0) + 1)
+            }
+        })
+        const watched = new Set()
+        for (const [k, n] of afterTuples) {
+            if (n > (beforeTuples.get(k) || 0)) watched.add(k)
+        }
+        for (const [k, n] of beforeTuples) {
+            if (n > (afterTuples.get(k) || 0)) watched.add(k)
+        }
+        // DIFFÉRENTIEL sur les pièces touchées : la saleté d'entrée ne
+        // compte pas, seule la dégradation sur les pièces déplacées.
+        const entryWatched = new Set()
+        for (const [k, n] of beforeTuples) {
+            const a = afterTuples.get(k) || 0
+            if (n > a) entryWatched.add(k)
+        }
+        let dirtBeforeT = 0
+        if (entryWatched.size) {
+            dirtBeforeT = exactOverlapArea(snapshot, partsById, entryWatched)
+        }
+        const dirtAfter = watched.size ? exactOverlapArea(layouts, partsById, watched, tupleKey) : 0
+        // AD5 : durée en LOG (stats déterministes = verrou bit-identique).
+        console.info('[local] residual belt:', Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - beltT0)), 'ms,', watched.size + entryWatched.size, 'touched')
+        if (dirtAfter > dirtBeforeT) {
             layouts.length = 0
             layouts.push(...JSON.parse(JSON.stringify(snapshot)))
             stats.residualMoved = 0
@@ -1385,9 +1457,9 @@ export function fillResidualBands(parts, layouts, space, payload, stats = null, 
             if (!Array.isArray(stats.errors)) stats.errors = []
             stats.errors.push({
                 stage: 'residual',
-                message: `ceinture exacte : chevauchements ${dirtBefore} → ${dirtAfter}, état d'entrée restauré`,
+                message: `ceinture exacte : chevauchements ${dirtBeforeT} → ${dirtAfter}, état d'entrée restauré`,
             })
-            console.error('[local] residual pass rolled back by exact belt', dirtBefore, '→', dirtAfter)
+            console.error('[local] residual pass rolled back by exact belt', dirtBeforeT, '→', dirtAfter)
             return 0
         }
         stats.residualMoved = moved

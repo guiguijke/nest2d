@@ -1831,6 +1831,25 @@ def _nesting_process_impl(doc):
                 svg_files.append(name)
         except Exception as e:
             logger.warning("discarded layouts/svg unavailable", extra={"error": str(e)})
+        # AD3 (L2-quater) : snapshot MOTEUR (avant expansion) persisté en
+        # poses compactes — le rejeu pas-à-pas de la passe résiduel
+        # (bench/replay_residual.py) devient possible a posteriori.
+        pre_poses = []
+        if snapshot is not None:
+            try:
+                for li, l in enumerate(snapshot):
+                    pre_poses.append({
+                        "sheet": li,
+                        "poses": [
+                            [pi.get("item_id"),
+                             round(float((pi.get("transformation") or {}).get("rotation", 0)), 3),
+                             round(float(((pi.get("transformation") or {}).get("translation") or [0, 0])[0]), 3),
+                             round(float(((pi.get("transformation") or {}).get("translation") or [0, 0])[1]), 3)]
+                            for pi in l.get("placed_items", [])
+                        ],
+                    })
+            except Exception as e:
+                logger.warning("pre snapshot poses unavailable", extra={"error": str(e)})
         entry = {
             "reason": reason,
             "strategy": strategy,
@@ -1841,6 +1860,7 @@ def _nesting_process_impl(doc):
             "preVerification": pre,
             "expandVerification": expanded,
             "layouts": poses,
+            "preLayouts": pre_poses,
             "postPass": engine_alt.get("postPass"),
             "svgFiles": svg_files,
         }
